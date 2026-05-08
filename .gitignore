@@ -1,0 +1,67 @@
+# Local repository constraints
+.editorconfig
+CONTRIBUTING.md
+
+# Build outputs
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+artifacts/
+TestResults/
+x64/
+x86/
+build/
+bld/
+!src/Sia.WebGPU.Native/build/
+!src/Sia.WebGPU.Native/build/**
+msbuild.log
+msbuild.err
+msbuild.wrn
+src/Sia.WebGPU.Native/runtimes/
+
+# IDE and user files
+.vs/
+.vscode/
+.devcontainer/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Compiled files and packages
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.so
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# Logs, databases, and temporary files
+*.log
+*.sql
+*.sqlite
+*.swp
+*.*~
+*.pyc
+project.lock.json
+
+# Operating system files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

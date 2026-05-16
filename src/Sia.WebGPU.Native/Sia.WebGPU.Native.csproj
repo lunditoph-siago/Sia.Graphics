@@ -1,0 +1,150 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <PackageId>Sia.WebGPU.Native</PackageId>
+    <Description>Pre-built native wgpu library for all platforms.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/gfx-rs/wgpu-native</RepositoryUrl>
+    <WgpuReleaseTag>v29.0.0.0</WgpuReleaseTag>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);FetchWgpuBinaries</TargetsForTfmSpecificContentInPackage>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="build/**" PackagePath="build/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Content Include="build/**" PackagePath="buildTransitive/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Content Include="_._" PackagePath="lib/net10.0" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <_SiaWebGPUNative_IsWindows Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'">true</_SiaWebGPUNative_IsWindows>
+    <_SiaWebGPUNative_IsMacOS Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))' == 'true'">true</_SiaWebGPUNative_IsMacOS>
+    <_SiaWebGPUNative_IsLinux Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))' == 'true'">true</_SiaWebGPUNative_IsLinux>
+
+    <_SiaWebGPUNative_Runtime Condition="'$(_SiaWebGPUNative_Runtime)' == '' And '$(RuntimeIdentifier)' == 'win-x86'">win-x86</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition="'$(_SiaWebGPUNative_Runtime)' == '' And '$(RuntimeIdentifier)' == 'win-arm64'">win-arm64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition="'$(_SiaWebGPUNative_Runtime)' == '' And '$(RuntimeIdentifier)' == 'win-x64'">win-x64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition="'$(_SiaWebGPUNative_Runtime)' == '' And '$(RuntimeIdentifier)' == 'linux-arm64'">linux-arm64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition="'$(_SiaWebGPUNative_Runtime)' == '' And '$(RuntimeIdentifier)' == 'linux-x64'">linux-x64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition="'$(_SiaWebGPUNative_Runtime)' == '' And '$(RuntimeIdentifier)' == 'osx-arm64'">osx-arm64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition="'$(_SiaWebGPUNative_Runtime)' == '' And '$(RuntimeIdentifier)' == 'osx-x64'">osx-x64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition="'$(_SiaWebGPUNative_Runtime)' == '' And '$(_SiaWebGPUNative_IsWindows)' == 'true' And ('$(PlatformTarget)' == 'x86' Or '$(Prefer32Bit)' == 'true')">win-x86</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition="'$(_SiaWebGPUNative_Runtime)' == '' And '$(_SiaWebGPUNative_IsWindows)' == 'true' And '$(PlatformTarget)' == 'arm64'">win-arm64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition="'$(_SiaWebGPUNative_Runtime)' == '' And '$(_SiaWebGPUNative_IsWindows)' == 'true'">win-x64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition="'$(_SiaWebGPUNative_Runtime)' == '' And '$(_SiaWebGPUNative_IsLinux)' == 'true' And '$(PlatformTarget)' == 'arm64'">linux-arm64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition="'$(_SiaWebGPUNative_Runtime)' == '' And '$(_SiaWebGPUNative_IsLinux)' == 'true'">linux-x64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition="'$(_SiaWebGPUNative_Runtime)' == '' And '$(_SiaWebGPUNative_IsMacOS)' == 'true' And '$(PlatformTarget)' == 'arm64'">osx-arm64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition="'$(_SiaWebGPUNative_Runtime)' == '' And '$(_SiaWebGPUNative_IsMacOS)' == 'true'">osx-x64</_SiaWebGPUNative_Runtime>
+
+    <_SiaWebGPUNative_LibName Condition="'$(_SiaWebGPUNative_Runtime)' == 'win-x86'">wgpu_native.dll</_SiaWebGPUNative_LibName>
+    <_SiaWebGPUNative_LibName Condition="'$(_SiaWebGPUNative_Runtime)' == 'win-x64'">wgpu_native.dll</_SiaWebGPUNative_LibName>
+    <_SiaWebGPUNative_LibName Condition="'$(_SiaWebGPUNative_Runtime)' == 'win-arm64'">wgpu_native.dll</_SiaWebGPUNative_LibName>
+    <_SiaWebGPUNative_LibName Condition="'$(_SiaWebGPUNative_Runtime)' == 'osx-x64'">libwgpu_native.dylib</_SiaWebGPUNative_LibName>
+    <_SiaWebGPUNative_LibName Condition="'$(_SiaWebGPUNative_Runtime)' == 'osx-arm64'">libwgpu_native.dylib</_SiaWebGPUNative_LibName>
+    <_SiaWebGPUNative_LibName Condition="'$(_SiaWebGPUNative_Runtime)' == 'linux-x64'">libwgpu_native.so</_SiaWebGPUNative_LibName>
+    <_SiaWebGPUNative_LibName Condition="'$(_SiaWebGPUNative_Runtime)' == 'linux-arm64'">libwgpu_native.so</_SiaWebGPUNative_LibName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="runtimes\$(_SiaWebGPUNative_Runtime)\native\$(_SiaWebGPUNative_LibName)"
+          Condition="'$(_SiaWebGPUNative_Runtime)' != '' And Exists('runtimes\$(_SiaWebGPUNative_Runtime)\native\$(_SiaWebGPUNative_LibName)')"
+          Link="$(_SiaWebGPUNative_LibName)"
+          Pack="false"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <UsingTask TaskName="DownloadWgpuBinariesTask"
+             TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Tag ParameterType="System.String" Required="true" />
+      <RuntimesDir ParameterType="System.String" Required="true" />
+      <Force ParameterType="System.Boolean" Required="false" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.IO.Compression" />
+      <Using Namespace="System.Net" />
+      <Using Namespace="System.Linq" />
+      <Code Type="Fragment" Language="cs">
+        <![CDATA[
+          var platforms = new (string Zip, string Rid, string Lib)[]
+          {
+              ("wgpu-windows-x86_64-msvc-release.zip",   "win-x64",    "wgpu_native.dll"),
+              ("wgpu-windows-i686-msvc-release.zip",      "win-x86",    "wgpu_native.dll"),
+              ("wgpu-windows-aarch64-msvc-release.zip",    "win-arm64",  "wgpu_native.dll"),
+              ("wgpu-linux-x86_64-release.zip",           "linux-x64",  "libwgpu_native.so"),
+              ("wgpu-linux-aarch64-release.zip",          "linux-arm64","libwgpu_native.so"),
+              ("wgpu-macos-x86_64-release.zip",           "osx-x64",    "libwgpu_native.dylib"),
+              ("wgpu-macos-aarch64-release.zip",          "osx-arm64",  "libwgpu_native.dylib"),
+          };
+
+          var baseUrl = "https://github.com/gfx-rs/wgpu-native/releases/download/" + Tag;
+          var tempRoot = Path.Combine(Path.GetTempPath(), "wgpu-native-" + Tag);
+
+          using var client = new WebClient();
+
+          foreach (var (zip, rid, lib) in platforms)
+          {
+              var outDir = Path.Combine(RuntimesDir, rid, "native");
+              var outFile = Path.Combine(outDir, lib);
+
+              if (!Force && File.Exists(outFile))
+              {
+                  Log.LogMessage(MessageImportance.Normal, "  " + rid + "/" + lib + " exists, skip");
+                  continue;
+              }
+
+              var zipPath = Path.Combine(tempRoot, zip);
+              var extractDir = Path.Combine(tempRoot, rid);
+              var url = baseUrl + "/" + zip;
+
+              Log.LogMessage(MessageImportance.High, "Downloading " + zip + " ...");
+              Directory.CreateDirectory(tempRoot);
+              Directory.CreateDirectory(outDir);
+              client.DownloadFile(url, zipPath);
+
+              Log.LogMessage(MessageImportance.Normal, "Extracting ...");
+              if (Directory.Exists(extractDir))
+              {
+                  Directory.Delete(extractDir, true);
+              }
+
+              Directory.CreateDirectory(extractDir);
+              ZipFile.ExtractToDirectory(zipPath, extractDir);
+
+              var found = Directory.GetFiles(extractDir, lib, SearchOption.AllDirectories).FirstOrDefault();
+              if (found != null)
+              {
+                  File.Copy(found, outFile, true);
+                  var kb = new FileInfo(outFile).Length / 1024;
+                  Log.LogMessage(MessageImportance.High, "  -> " + rid + "/native/" + lib + " (" + kb + " KB)");
+              }
+              else
+              {
+                  Log.LogMessage(MessageImportance.High, "  WARN: " + lib + " not found in " + zip);
+              }
+
+              File.Delete(zipPath);
+              try { Directory.Delete(extractDir, true); } catch { }
+          }
+
+          try { Directory.Delete(tempRoot, true); } catch { }
+        ]]>
+      </Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="FetchWgpuBinaries" BeforeTargets="GenerateNuspec">
+    <DownloadWgpuBinariesTask
+      Tag="$(WgpuReleaseTag)"
+      RuntimesDir="$(MSBuildThisFileDirectory)runtimes"
+      Force="$(ForceDownloadWgpuBinaries)" />
+    <ItemGroup>
+      <TfmSpecificPackageFile Include="$(MSBuildThisFileDirectory)runtimes/**"
+                              Exclude="$(MSBuildThisFileDirectory)runtimes/**/.gitkeep"
+                              PackagePath="runtimes/%(RecursiveDir)%(Filename)%(Extension)" />
+    </ItemGroup>
+  </Target>
+</Project>

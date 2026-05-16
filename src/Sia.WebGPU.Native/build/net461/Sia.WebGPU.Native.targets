@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <_SiaWebGPUNative_IsWindows Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'">true</_SiaWebGPUNative_IsWindows>
+    <_SiaWebGPUNative_IsMacOS   Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))' == 'true'">true</_SiaWebGPUNative_IsMacOS>
+    <_SiaWebGPUNative_IsLinux   Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))' == 'true'">true</_SiaWebGPUNative_IsLinux>
+
+    <_SiaWebGPUNative_Runtime Condition=" '$(_SiaWebGPUNative_Runtime)' == '' And '$(RuntimeIdentifier)' == 'osx-x64'">osx-x64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition=" '$(_SiaWebGPUNative_Runtime)' == '' And '$(RuntimeIdentifier)' == 'osx-arm64'">osx-arm64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition=" '$(_SiaWebGPUNative_Runtime)' == '' And '$(RuntimeIdentifier)' == 'linux-x64'">linux-x64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition=" '$(_SiaWebGPUNative_Runtime)' == '' And '$(RuntimeIdentifier)' == 'linux-arm64'">linux-arm64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition=" '$(_SiaWebGPUNative_Runtime)' == '' And '$(RuntimeIdentifier)' == 'win-x86'">win-x86</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition=" '$(_SiaWebGPUNative_Runtime)' == '' And '$(RuntimeIdentifier)' == 'win-x64'">win-x64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition=" '$(_SiaWebGPUNative_Runtime)' == '' And '$(RuntimeIdentifier)' == 'win-arm64'">win-arm64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition=" '$(_SiaWebGPUNative_Runtime)' == '' And '$(_SiaWebGPUNative_IsMacOS)' == 'true' And ('$(Prefer32Bit)' == 'false' Or '$(PlatformTarget)' == 'x64')">osx-x64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition=" '$(_SiaWebGPUNative_Runtime)' == '' And '$(_SiaWebGPUNative_IsMacOS)' == 'true' And '$(PlatformTarget)' == 'arm64'">osx-arm64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition=" '$(_SiaWebGPUNative_Runtime)' == '' And '$(_SiaWebGPUNative_IsLinux)' == 'true' And ('$(Prefer32Bit)' == 'false' Or '$(PlatformTarget)' == 'x64')">linux-x64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition=" '$(_SiaWebGPUNative_Runtime)' == '' And '$(_SiaWebGPUNative_IsLinux)' == 'true' And '$(PlatformTarget)' == 'arm64'">linux-arm64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition=" '$(_SiaWebGPUNative_Runtime)' == '' And '$(_SiaWebGPUNative_IsWindows)' == 'true' And ('$(Prefer32Bit)' == 'true' Or '$(PlatformTarget)' == 'x86')">win-x86</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition=" '$(_SiaWebGPUNative_Runtime)' == '' And '$(_SiaWebGPUNative_IsWindows)' == 'true' And ('$(Prefer32Bit)' == 'false' Or '$(PlatformTarget)' == 'x64')">win-x64</_SiaWebGPUNative_Runtime>
+    <_SiaWebGPUNative_Runtime Condition=" '$(_SiaWebGPUNative_Runtime)' == '' And '$(_SiaWebGPUNative_IsWindows)' == 'true' And '$(PlatformTarget)' == 'arm64'">win-arm64</_SiaWebGPUNative_Runtime>
+
+    <_SiaWebGPUNative_LibName Condition="'$(_SiaWebGPUNative_Runtime)' == 'win-x86'">wgpu_native.dll</_SiaWebGPUNative_LibName>
+    <_SiaWebGPUNative_LibName Condition="'$(_SiaWebGPUNative_Runtime)' == 'win-x64'">wgpu_native.dll</_SiaWebGPUNative_LibName>
+    <_SiaWebGPUNative_LibName Condition="'$(_SiaWebGPUNative_Runtime)' == 'win-arm64'">wgpu_native.dll</_SiaWebGPUNative_LibName>
+    <_SiaWebGPUNative_LibName Condition="'$(_SiaWebGPUNative_Runtime)' == 'osx-x64'">libwgpu_native.dylib</_SiaWebGPUNative_LibName>
+    <_SiaWebGPUNative_LibName Condition="'$(_SiaWebGPUNative_Runtime)' == 'osx-arm64'">libwgpu_native.dylib</_SiaWebGPUNative_LibName>
+    <_SiaWebGPUNative_LibName Condition="'$(_SiaWebGPUNative_Runtime)' == 'linux-x64'">libwgpu_native.so</_SiaWebGPUNative_LibName>
+    <_SiaWebGPUNative_LibName Condition="'$(_SiaWebGPUNative_Runtime)' == 'linux-arm64'">libwgpu_native.so</_SiaWebGPUNative_LibName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Condition="'$(_SiaWebGPUNative_Runtime)' != ''"
+             Include="$(MSBuildThisFileDirectory)..\..\runtimes\$(_SiaWebGPUNative_Runtime)\native\$(_SiaWebGPUNative_LibName)">
+      <Link>%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <Visible>False</Visible>
+    </Content>
+  </ItemGroup>
+</Project>

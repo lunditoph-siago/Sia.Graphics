@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Sia.WebGPU/Sia.WebGPU.csproj" />
+    <Project Path="src/Sia.WebGPU.Generators/Sia.WebGPU.Generators.csproj" />
+    <Project Path="src/Sia.WebGPU.Native/Sia.WebGPU.Native.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Sia.WebGPU.Tests/Sia.WebGPU.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -15,12 +15,12 @@ x64/
 x86/
 build/
 bld/
-!src/Sia.WebGPU.Native/build/
-!src/Sia.WebGPU.Native/build/**
+!Sia.WebGPU.Native/build/
+!Sia.WebGPU.Native/build/**
 msbuild.log
 msbuild.err
 msbuild.wrn
-src/Sia.WebGPU.Native/runtimes/
+Sia.WebGPU.Native/runtimes/
 
 # IDE and user files
 .vs/

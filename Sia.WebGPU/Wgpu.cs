@@ -193,6 +193,30 @@ public static unsafe partial class Wgpu
         return CreateSurface(instance, in descriptor);
     }
 
+    public static WgpuHandle<WGPUSurface> CreateCanvasSurface(
+        WgpuHandle<WGPUInstance> instance,
+        string selector,
+        string? label = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(selector);
+
+        using var selectorString = WgpuOwnedString.Create(selector);
+        using var labelString = WgpuOwnedString.Create(label);
+        var source = new WGPUEmscriptenSurfaceSourceCanvasHTMLSelector {
+            Chain = new WGPUChainedStruct {
+                Next = null,
+                SType = (WGPUSType)0x00040000,
+            },
+            Selector = selectorString.View,
+        };
+        var descriptor = new WGPUSurfaceDescriptor {
+            NextInChain = &source.Chain,
+            Label = labelString.View,
+        };
+
+        return CreateSurface(instance, in descriptor);
+    }
+
     internal static WgpuException CreateRequestException(string operation, string status, WGPUStringView message)
     {
         var details = WgpuStringViewText.ToString(message);

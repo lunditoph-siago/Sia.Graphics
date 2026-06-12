@@ -54,7 +54,13 @@ public static unsafe partial class Wgpu
             var callbackInfo = new WGPURequestAdapterCallbackInfo {
                 NextInChain = null,
                 Mode = WGPUCallbackMode.AllowSpontaneous,
-                Callback = (void*)(delegate* unmanaged[Cdecl]<WGPURequestAdapterStatus, WGPUAdapter*, WGPUStringView, void*, void*, void>)&OnRequestAdapter,
+                Callback = (delegate* unmanaged[Cdecl]<
+                    WGPURequestAdapterStatus,
+                    WGPUAdapter*,
+                    WGPUStringView,
+                    void*,
+                    void*,
+                    void>)&OnRequestAdapter,
                 Userdata1 = state.UserData,
                 Userdata2 = null,
             };
@@ -130,7 +136,13 @@ public static unsafe partial class Wgpu
             var callbackInfo = new WGPURequestDeviceCallbackInfo {
                 NextInChain = null,
                 Mode = WGPUCallbackMode.AllowSpontaneous,
-                Callback = (void*)(delegate* unmanaged[Cdecl]<WGPURequestDeviceStatus, WGPUDevice*, WGPUStringView, void*, void*, void>)&OnRequestDevice,
+                Callback = (delegate* unmanaged[Cdecl]<
+                    WGPURequestDeviceStatus,
+                    WGPUDevice*,
+                    WGPUStringView,
+                    void*,
+                    void*,
+                    void>)&OnRequestDevice,
                 Userdata1 = state.UserData,
                 Userdata2 = null,
             };
@@ -169,10 +181,12 @@ public static unsafe partial class Wgpu
                 if (!state.TrySetResult(result)) {
                     Release(ref result);
                 }
-            } else {
+            }
+            else {
                 state.TrySetException(CreateRequestException("RequestAdapter", status.ToString(), message));
             }
-        } finally {
+        }
+        finally {
             state.Dispose();
         }
     }
@@ -192,10 +206,12 @@ public static unsafe partial class Wgpu
                 if (!state.TrySetResult(result)) {
                     Release(ref result);
                 }
-            } else {
+            }
+            else {
                 state.TrySetException(CreateRequestException("RequestDevice", status.ToString(), message));
             }
-        } finally {
+        }
+        finally {
             state.Dispose();
         }
     }

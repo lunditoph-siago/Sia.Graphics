@@ -5,9 +5,11 @@ internal sealed class WgpuHeader(
     WgpuHandle[] handles,
     WgpuStruct[] structs,
     WgpuCallback[] callbacks,
-    WgpuFunction[] functions)
+    WgpuFunction[] functions,
+    WgpuConstant[] constants,
+    WgpuStructInitializer[] initializers)
 {
-    public static readonly WgpuHeader Empty = new([], [], [], [], []);
+    public static readonly WgpuHeader Empty = new([], [], [], [], [], [], []);
 
     public WgpuEnum[] Enums { get; } = enums;
 
@@ -18,6 +20,10 @@ internal sealed class WgpuHeader(
     public WgpuCallback[] Callbacks { get; } = callbacks;
 
     public WgpuFunction[] Functions { get; } = functions;
+
+    public WgpuConstant[] Constants { get; } = constants;
+
+    public WgpuStructInitializer[] Initializers { get; } = initializers;
 }
 
 internal sealed class WgpuEnum(string name, string underlyingType, bool isFlags, WgpuEnumValue[] values)
@@ -80,4 +86,59 @@ internal sealed class WgpuParameter(string name, string type)
     public string Name { get; } = name;
 
     public string Type { get; } = type;
+}
+
+internal sealed class WgpuConstant(
+    string nativeName,
+    string name,
+    string type,
+    string value,
+    bool isCompileTimeConstant)
+{
+    public string NativeName { get; } = nativeName;
+
+    public string Name { get; } = name;
+
+    public string Type { get; } = type;
+
+    public string Value { get; } = value;
+
+    public bool IsCompileTimeConstant { get; } = isCompileTimeConstant;
+}
+
+internal sealed class WgpuStructInitializer(string macroName, string structName, WgpuInitializerField[] fields)
+{
+    public string MacroName { get; } = macroName;
+
+    public string StructName { get; } = structName;
+
+    public WgpuInitializerField[] Fields { get; } = fields;
+}
+
+internal sealed class WgpuInitializerField(string name, WgpuInitializerValue value)
+{
+    public string Name { get; } = name;
+
+    public WgpuInitializerValue Value { get; } = value;
+}
+
+internal abstract class WgpuInitializerValue
+{
+    private protected WgpuInitializerValue()
+    {
+    }
+}
+
+internal sealed class WgpuScalarInitializerValue(string expression) : WgpuInitializerValue
+{
+    public string Expression { get; } = expression;
+}
+
+internal sealed class WgpuNestedInitializerValue(
+    string structName,
+    WgpuInitializerField[] fields) : WgpuInitializerValue
+{
+    public string StructName { get; } = structName;
+
+    public WgpuInitializerField[] Fields { get; } = fields;
 }

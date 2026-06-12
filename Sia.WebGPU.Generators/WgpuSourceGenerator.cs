@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
@@ -11,12 +12,14 @@ namespace Sia.WebGPU.Generators;
 [Generator]
 public sealed class WgpuSourceGenerator : IIncrementalGenerator
 {
+    private const string _embeddedHeaderResourceName = "Sia.WebGPU.Generators.webgpu.h";
+    private const int _fileLockRetryCount = 600;
+    private const int _fileLockRetryDelayMilliseconds = 50;
+    private const int _rtldNow = 2;
+
     private static readonly object _nativeDependencyLock = new();
     private static int _nativeDependenciesLoaded;
     private static int _resolverRegistered;
-
-    private const string _embeddedHeaderResourceName = "Sia.WebGPU.Generators.webgpu.h";
-    private const int _rtldNow = 2;
 
     private static readonly DiagnosticDescriptor _missingHeader = new(
         id: "SIAWGPU001",
@@ -34,93 +37,113 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    private static Assembly? ResolveClangSharpInterop(object sender, ResolveEventArgs args)
-    {
-        var assemblyName = new AssemblyName(args.Name);
-        if (assemblyName.Name != "ClangSharp.Interop") {
-            return null;
-        }
-        using var stream = typeof(WgpuSourceGenerator).Assembly
-            .GetManifestResourceStream("Sia.WebGPU.Generators.ClangSharp.Interop.dll");
-        if (stream == null) {
-            return null;
-        }
-        var bytes = new byte[stream.Length];
-        var offset = 0;
-        while (offset < bytes.Length) {
-            var read = stream.Read(bytes, offset, bytes.Length - offset);
-            if (read == 0) {
-                throw new EndOfStreamException();
-            }
-            offset += read;
-        }
-        return Assembly.Load(bytes);
-    }
-
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         if (Interlocked.Exchange(ref _resolverRegistered, 1) == 0) {
             AppDomain.CurrentDomain.AssemblyResolve += ResolveClangSharpInterop;
         }
 
-        var generationTrigger = context.AnalyzerConfigOptionsProvider
-            .Select(static (_, _) => true);
-        context.RegisterSourceOutput(
-            generationTrigger,
-            static (context, _) => {
-                var headerSource = TryGetEmbeddedHeader();
-                if (string.IsNullOrWhiteSpace(headerSource)) {
-                    context.ReportDiagnostic(Diagnostic.Create(_missingHeader, Location.None));
-                    return;
-                }
+        var optionsProvider = context.AnalyzerConfigOptionsProvider
+            .Select(static (provider, _) => WgpuGenerationOptions.From(provider.GlobalOptions));
+        context.RegisterSourceOutput(optionsProvider, static (context, options) => {
+            var headerSource = TryGetEmbeddedHeader();
+            if (string.IsNullOrWhiteSpace(headerSource)) {
+                context.ReportDiagnostic(Diagnostic.Create(_missingHeader, Location.None));
+                return;
+            }
 
-                try {
-                    EnsureNativeDependencyPath();
-                    var header = ClangWgpuHeaderParser.Parse(headerSource!);
-                    AddGeneratedSources(context, header, new WgpuGenerationOptions());
-                }
-                catch (Exception ex) {
-                    context.ReportDiagnostic(Diagnostic.Create(_generationFailed, Location.None, ex.ToString()));
-                }
-            });
+            try {
+                var platform = GetNativePlatform();
+                var nativeDirectory = GetNativeDependencyDirectory(platform);
+                Directory.CreateDirectory(nativeDirectory);
+
+                using var clangLock = AcquireExclusiveFileLock(
+                    Path.Combine(nativeDirectory, ".clang.lock"));
+                EnsureNativeDependencies(platform, nativeDirectory);
+                var header = ClangWgpuHeaderParser.Parse(headerSource!);
+                AddGeneratedSources(context, header, options);
+            }
+            catch (Exception ex) {
+                context.ReportDiagnostic(Diagnostic.Create(_generationFailed, Location.None, ex.ToString()));
+            }
+        });
     }
 
-    private static void AddGeneratedSources(SourceProductionContext context, WgpuHeader header, WgpuGenerationOptions options)
+    private static Assembly? ResolveClangSharpInterop(object? _, ResolveEventArgs args)
+    {
+        var assemblyName = new AssemblyName(args.Name);
+        if (assemblyName.Name != "ClangSharp.Interop") {
+            return null;
+        }
+
+        using var stream = typeof(WgpuSourceGenerator).Assembly
+            .GetManifestResourceStream("Sia.WebGPU.Generators.ClangSharp.Interop.dll");
+        if (stream is null) {
+            return null;
+        }
+
+        using var memory = new MemoryStream();
+        stream.CopyTo(memory);
+        return Assembly.Load(memory.ToArray());
+    }
+
+    private static void AddGeneratedSources(
+        SourceProductionContext context,
+        WgpuHeader header,
+        WgpuGenerationOptions options)
     {
         var renderer = new WgpuCodeRenderer(header, options);
 
+        if (header.Constants.Length != 0) {
+            AddSource(
+                context,
+                "Constants/WgpuConstants.g.cs",
+                renderer.RenderConstants());
+        }
+
         foreach (var @enum in header.Enums) {
-            context.AddSource(
+            AddSource(
+                context,
                 CreateHintName("Enums", @enum.Name),
-                SourceText.From(renderer.RenderEnum(@enum), System.Text.Encoding.UTF8));
+                renderer.RenderEnum(@enum));
         }
 
         foreach (var handle in header.Handles) {
-            context.AddSource(
+            AddSource(
+                context,
                 CreateHintName("Structs/Handles", handle.Name),
-                SourceText.From(renderer.RenderHandle(handle), System.Text.Encoding.UTF8));
+                renderer.RenderHandle(handle));
         }
 
         foreach (var @struct in header.Structs) {
-            context.AddSource(
+            AddSource(
+                context,
                 CreateHintName("Structs", @struct.Name),
-                SourceText.From(renderer.RenderStruct(@struct), System.Text.Encoding.UTF8));
+                renderer.RenderStruct(@struct));
         }
 
         if (options.GenerateUnsafeBindings) {
             foreach (var callback in header.Callbacks) {
-                context.AddSource(
+                AddSource(
+                    context,
                     CreateHintName("Callbacks", callback.Name),
-                    SourceText.From(renderer.RenderCallback(callback), System.Text.Encoding.UTF8));
+                    renderer.RenderCallback(callback));
             }
 
             foreach (var function in header.Functions) {
-                context.AddSource(
+                AddSource(
+                    context,
                     CreateHintName("Functions", function.Name),
-                    SourceText.From(renderer.RenderFunction(function, options.ClassName), System.Text.Encoding.UTF8));
+                    renderer.RenderFunction(function, options.ClassName));
             }
         }
     }
+
+    private static void AddSource(
+        SourceProductionContext context,
+        string hintName,
+        string source) =>
+        context.AddSource(hintName, SourceText.From(source, Encoding.UTF8));
 
     private static string CreateHintName(string directory, string name) =>
         $"{directory}/{name}.g.cs";
@@ -132,7 +155,7 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
         if (stream is null) {
             return null;
         }
-        using var reader = new StreamReader(stream, System.Text.Encoding.UTF8);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
         return reader.ReadToEnd();
     }
 
@@ -141,7 +164,7 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
         public string Rid { get; } = rid;
         public string Extension { get; } = extension;
 
-        public string Suffix => Rid + Extension;
+        public string ResourceSuffix => Rid + Extension;
     }
 
     private static NativePlatform GetNativePlatform()
@@ -170,7 +193,20 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
             $"Current platform: OS={RuntimeInformation.OSDescription}, Architecture={arch}.");
     }
 
-    private static void EnsureNativeDependencyPath()
+    private static string GetNativeDependencyDirectory(NativePlatform platform)
+    {
+        var assembly = typeof(WgpuSourceGenerator).Assembly;
+        return Path.Combine(
+            Path.GetTempPath(),
+            "Sia.WebGPU.Generators",
+            assembly.ManifestModule.ModuleVersionId.ToString("N"),
+            Process.GetCurrentProcess().Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            platform.Rid);
+    }
+
+    private static void EnsureNativeDependencies(
+        NativePlatform platform,
+        string directory)
     {
         if (_nativeDependenciesLoaded != 0) {
             return;
@@ -181,8 +217,7 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
                 return;
             }
 
-            var platform = GetNativePlatform();
-            var directory = ExtractNativeDependencies(platform.Suffix, platform.Extension);
+            ExtractNativeDependencies(platform, directory);
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) {
                 if (!Windows.SetDllDirectory(directory)) {
@@ -198,18 +233,18 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
         }
     }
 
-    private static string ExtractNativeDependencies(string suffix, string ext)
+    private static void ExtractNativeDependencies(
+        NativePlatform platform,
+        string directory)
     {
-        var directory = Path.Combine(
-            Path.GetTempPath(),
-            "Sia.WebGPU.Generators",
-            Process.GetCurrentProcess().Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        Directory.CreateDirectory(directory);
-
-        ExtractNativeDependency($"Sia.WebGPU.Generators.Native.libclang.{suffix}", Path.Combine(directory, $"libclang{ext}"));
-        ExtractNativeDependency($"Sia.WebGPU.Generators.Native.libClangSharp.{suffix}", Path.Combine(directory, $"libClangSharp{ext}"));
-
-        return directory;
+        using var extractionLock = AcquireExclusiveFileLock(
+            Path.Combine(directory, ".extraction.lock"));
+        ExtractNativeDependency(
+            $"Sia.WebGPU.Generators.Native.libclang.{platform.ResourceSuffix}",
+            Path.Combine(directory, $"libclang{platform.Extension}"));
+        ExtractNativeDependency(
+            $"Sia.WebGPU.Generators.Native.libClangSharp.{platform.ResourceSuffix}",
+            Path.Combine(directory, $"libClangSharp{platform.Extension}"));
     }
 
     private static void ExtractNativeDependency(string resourceName, string destinationPath)
@@ -222,8 +257,46 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
             return;
         }
 
-        using var file = File.Create(destinationPath);
-        resource.CopyTo(file);
+        var temporaryPath = $"{destinationPath}.{Guid.NewGuid():N}.tmp";
+        try {
+            using (var file = new FileStream(
+                temporaryPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None)) {
+                resource.CopyTo(file);
+                file.Flush();
+            }
+
+            if (File.Exists(destinationPath)) {
+                File.Delete(destinationPath);
+            }
+
+            File.Move(temporaryPath, destinationPath);
+        }
+        finally {
+            if (File.Exists(temporaryPath)) {
+                File.Delete(temporaryPath);
+            }
+        }
+    }
+
+    private static FileStream AcquireExclusiveFileLock(string path)
+    {
+        for (var attempt = 0; attempt < _fileLockRetryCount; attempt++) {
+            try {
+                return new FileStream(
+                    path,
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None);
+            }
+            catch (IOException) when (attempt < _fileLockRetryCount - 1) {
+                Thread.Sleep(_fileLockRetryDelayMilliseconds);
+            }
+        }
+
+        throw new IOException($"Timed out waiting for exclusive file lock '{path}'.");
     }
 
     private static void LoadNativeDependency(string path)
@@ -241,16 +314,26 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
 
     private static class Windows
     {
-        [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern bool SetDllDirectory(string lpPathName);
+        [DllImport(
+            "kernel32",
+            EntryPoint = "SetDllDirectoryW",
+            ExactSpelling = true,
+            CharSet = CharSet.Unicode,
+            SetLastError = true)]
+        public static extern bool SetDllDirectory(string path);
 
-        [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern IntPtr LoadLibrary(string lpFileName);
+        [DllImport(
+            "kernel32",
+            EntryPoint = "LoadLibraryW",
+            ExactSpelling = true,
+            CharSet = CharSet.Unicode,
+            SetLastError = true)]
+        public static extern IntPtr LoadLibrary(string fileName);
     }
 
     private static class MacOS
     {
-        [DllImport("libSystem.dylib", EntryPoint = "dlopen")]
+        [DllImport("libSystem.dylib", EntryPoint = "dlopen", ExactSpelling = true)]
         public static extern IntPtr Dlopen(string path, int flags);
     }
 
@@ -259,17 +342,17 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
         public static IntPtr Load(string path, int flags)
         {
             try {
-                return _dlopenLibdlSo2(path, flags);
+                return DlopenLibdlSo2(path, flags);
             }
             catch (DllNotFoundException) {
-                return _dlopenLibdl(path, flags);
+                return DlopenLibdl(path, flags);
             }
         }
 
-        [DllImport("libdl.so.2", EntryPoint = "dlopen")]
-        private static extern IntPtr _dlopenLibdlSo2(string path, int flags);
+        [DllImport("libdl.so.2", EntryPoint = "dlopen", ExactSpelling = true)]
+        private static extern IntPtr DlopenLibdlSo2(string path, int flags);
 
-        [DllImport("libdl", EntryPoint = "dlopen")]
-        private static extern IntPtr _dlopenLibdl(string path, int flags);
+        [DllImport("libdl", EntryPoint = "dlopen", ExactSpelling = true)]
+        private static extern IntPtr DlopenLibdl(string path, int flags);
     }
 }

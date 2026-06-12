@@ -2,15 +2,21 @@ namespace Sia.WebGPU.Generators;
 
 internal sealed class WgpuTypeTranslator
 {
-    private readonly HashSet<string> _callbackTypes;
+    private readonly Dictionary<string, WgpuCallback> _callbacks;
     private readonly HashSet<string> _flagTypes;
     private readonly HashSet<string> _handleTypes;
 
     public WgpuTypeTranslator(WgpuHeader header)
     {
-        _callbackTypes = new HashSet<string>(header.Callbacks.Select(static callback => callback.Name), StringComparer.Ordinal);
-        _flagTypes = new HashSet<string>(header.Enums.Where(static value => value.IsFlags).Select(static value => value.Name), StringComparer.Ordinal);
-        _handleTypes = new HashSet<string>(header.Handles.Select(static handle => handle.Name), StringComparer.Ordinal);
+        _callbacks = header.Callbacks.ToDictionary(
+            static callback => callback.Name,
+            StringComparer.Ordinal);
+        _flagTypes = new HashSet<string>(
+            header.Enums.Where(static value => value.IsFlags).Select(static value => value.Name),
+            StringComparer.Ordinal);
+        _handleTypes = new HashSet<string>(
+            header.Handles.Select(static handle => handle.Name),
+            StringComparer.Ordinal);
     }
 
     public string Translate(string type)
@@ -18,21 +24,23 @@ internal sealed class WgpuTypeTranslator
         var normalizedType = NormalizeCType(type);
         var pointerDepth = CountPointerDepth(normalizedType);
         var baseType = normalizedType.TrimEnd('*');
-        var translatedBaseType = TranslateBaseType(baseType);
 
-        if (_callbackTypes.Contains(baseType)) {
-            pointerDepth = Math.Max(pointerDepth, 1);
+        if (_callbacks.TryGetValue(baseType, out var callback)) {
+            var translatedCallback = TranslateCallback(callback);
+            return pointerDepth == 0
+                ? translatedCallback
+                : translatedCallback + new string('*', pointerDepth);
         }
+
+        var translatedBaseType = TranslateBaseType(baseType);
 
         if (_handleTypes.Contains(baseType)) {
             pointerDepth++;
         }
 
-        if (pointerDepth == 0) {
-            return translatedBaseType;
-        }
-
-        return translatedBaseType + new string('*', pointerDepth);
+        return pointerDepth == 0
+            ? translatedBaseType
+            : translatedBaseType + new string('*', pointerDepth);
     }
 
     public static string NormalizeCType(string type) =>
@@ -42,6 +50,15 @@ internal sealed class WgpuTypeTranslator
             .Replace(" *", "*")
             .Replace("* ", "*")
             .Trim();
+
+    private string TranslateCallback(WgpuCallback callback)
+    {
+        var signature = callback.Parameters
+            .Select(parameter => Translate(parameter.Type))
+            .Append(Translate(callback.ReturnType));
+
+        return $"delegate* unmanaged[Cdecl]<{string.Join(", ", signature)}>";
+    }
 
     private string TranslateBaseType(string type) =>
         NormalizeTypeName(type switch {
@@ -59,7 +76,6 @@ internal sealed class WgpuTypeTranslator
             "WGPUFlags" => "ulong",
             "char" => "byte",
             _ when _flagTypes.Contains(type) => type,
-            _ when _callbackTypes.Contains(type) => "void",
             _ => type,
         });
 

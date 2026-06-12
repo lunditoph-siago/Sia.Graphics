@@ -19,7 +19,8 @@ internal static class ClangCursorExtensions
 
         try {
             cursor.VisitChildren(VisitChild, new CXClientData(GCHandle.ToIntPtr(handle)));
-        } finally {
+        }
+        finally {
             handle.Free();
         }
     }

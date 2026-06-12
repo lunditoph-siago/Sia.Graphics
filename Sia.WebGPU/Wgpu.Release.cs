@@ -24,51 +24,74 @@ public static unsafe partial class Wgpu
 
         if (typeof(T) == typeof(WGPUAdapter)) {
             WgpuUnsafe.wgpuAdapterRelease((WGPUAdapter*)pointer);
-        } else if (typeof(T) == typeof(WGPUBindGroup)) {
+        }
+        else if (typeof(T) == typeof(WGPUBindGroup)) {
             WgpuUnsafe.wgpuBindGroupRelease((WGPUBindGroup*)pointer);
-        } else if (typeof(T) == typeof(WGPUBindGroupLayout)) {
+        }
+        else if (typeof(T) == typeof(WGPUBindGroupLayout)) {
             WgpuUnsafe.wgpuBindGroupLayoutRelease((WGPUBindGroupLayout*)pointer);
-        } else if (typeof(T) == typeof(WGPUBuffer)) {
+        }
+        else if (typeof(T) == typeof(WGPUBuffer)) {
             WgpuUnsafe.wgpuBufferRelease((WGPUBuffer*)pointer);
-        } else if (typeof(T) == typeof(WGPUCommandBuffer)) {
+        }
+        else if (typeof(T) == typeof(WGPUCommandBuffer)) {
             WgpuUnsafe.wgpuCommandBufferRelease((WGPUCommandBuffer*)pointer);
-        } else if (typeof(T) == typeof(WGPUCommandEncoder)) {
+        }
+        else if (typeof(T) == typeof(WGPUCommandEncoder)) {
             WgpuUnsafe.wgpuCommandEncoderRelease((WGPUCommandEncoder*)pointer);
-        } else if (typeof(T) == typeof(WGPUComputePassEncoder)) {
+        }
+        else if (typeof(T) == typeof(WGPUComputePassEncoder)) {
             WgpuUnsafe.wgpuComputePassEncoderRelease((WGPUComputePassEncoder*)pointer);
-        } else if (typeof(T) == typeof(WGPUComputePipeline)) {
+        }
+        else if (typeof(T) == typeof(WGPUComputePipeline)) {
             WgpuUnsafe.wgpuComputePipelineRelease((WGPUComputePipeline*)pointer);
-        } else if (typeof(T) == typeof(WGPUDevice)) {
+        }
+        else if (typeof(T) == typeof(WGPUDevice)) {
             WgpuUnsafe.wgpuDeviceRelease((WGPUDevice*)pointer);
-        } else if (typeof(T) == typeof(WGPUExternalTexture)) {
+        }
+        else if (typeof(T) == typeof(WGPUExternalTexture)) {
             WgpuUnsafe.wgpuExternalTextureRelease((WGPUExternalTexture*)pointer);
-        } else if (typeof(T) == typeof(WGPUInstance)) {
+        }
+        else if (typeof(T) == typeof(WGPUInstance)) {
             WgpuUnsafe.wgpuInstanceRelease((WGPUInstance*)pointer);
-        } else if (typeof(T) == typeof(WGPUPipelineLayout)) {
+        }
+        else if (typeof(T) == typeof(WGPUPipelineLayout)) {
             WgpuUnsafe.wgpuPipelineLayoutRelease((WGPUPipelineLayout*)pointer);
-        } else if (typeof(T) == typeof(WGPUQuerySet)) {
+        }
+        else if (typeof(T) == typeof(WGPUQuerySet)) {
             WgpuUnsafe.wgpuQuerySetRelease((WGPUQuerySet*)pointer);
-        } else if (typeof(T) == typeof(WGPUQueue)) {
+        }
+        else if (typeof(T) == typeof(WGPUQueue)) {
             WgpuUnsafe.wgpuQueueRelease((WGPUQueue*)pointer);
-        } else if (typeof(T) == typeof(WGPURenderBundle)) {
+        }
+        else if (typeof(T) == typeof(WGPURenderBundle)) {
             WgpuUnsafe.wgpuRenderBundleRelease((WGPURenderBundle*)pointer);
-        } else if (typeof(T) == typeof(WGPURenderBundleEncoder)) {
+        }
+        else if (typeof(T) == typeof(WGPURenderBundleEncoder)) {
             WgpuUnsafe.wgpuRenderBundleEncoderRelease((WGPURenderBundleEncoder*)pointer);
-        } else if (typeof(T) == typeof(WGPURenderPassEncoder)) {
+        }
+        else if (typeof(T) == typeof(WGPURenderPassEncoder)) {
             WgpuUnsafe.wgpuRenderPassEncoderRelease((WGPURenderPassEncoder*)pointer);
-        } else if (typeof(T) == typeof(WGPURenderPipeline)) {
+        }
+        else if (typeof(T) == typeof(WGPURenderPipeline)) {
             WgpuUnsafe.wgpuRenderPipelineRelease((WGPURenderPipeline*)pointer);
-        } else if (typeof(T) == typeof(WGPUSampler)) {
+        }
+        else if (typeof(T) == typeof(WGPUSampler)) {
             WgpuUnsafe.wgpuSamplerRelease((WGPUSampler*)pointer);
-        } else if (typeof(T) == typeof(WGPUShaderModule)) {
+        }
+        else if (typeof(T) == typeof(WGPUShaderModule)) {
             WgpuUnsafe.wgpuShaderModuleRelease((WGPUShaderModule*)pointer);
-        } else if (typeof(T) == typeof(WGPUSurface)) {
+        }
+        else if (typeof(T) == typeof(WGPUSurface)) {
             WgpuUnsafe.wgpuSurfaceRelease((WGPUSurface*)pointer);
-        } else if (typeof(T) == typeof(WGPUTexture)) {
+        }
+        else if (typeof(T) == typeof(WGPUTexture)) {
             WgpuUnsafe.wgpuTextureRelease((WGPUTexture*)pointer);
-        } else if (typeof(T) == typeof(WGPUTextureView)) {
+        }
+        else if (typeof(T) == typeof(WGPUTextureView)) {
             WgpuUnsafe.wgpuTextureViewRelease((WGPUTextureView*)pointer);
-        } else {
+        }
+        else {
             handle = new WgpuHandle<T>(pointer);
             throw new NotSupportedException(
                 $"No WebGPU release operation is known for {typeof(T).Name}.");

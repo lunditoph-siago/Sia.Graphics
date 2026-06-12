@@ -7,39 +7,71 @@ internal static class ClangWgpuHeaderParser
     public static WgpuHeader Parse(string source) =>
         WithTranslationUnit(source, translationUnit => {
             ThrowOnParseErrors(translationUnit);
-            return CreateHeader(translationUnit.Cursor);
+            return CreateHeader(translationUnit.Cursor, source);
         });
 
-    private static WgpuHeader CreateHeader(CXCursor root)
+    private static WgpuHeader CreateHeader(CXCursor root, string source)
     {
         var children = root.Children().ToArray();
-        var handles = children.Where(IsHandleTypedef).Select(CreateHandle).OrderBy(static handle => handle.Name).ToArray();
-        var flagEnums = children.Where(IsFlagTypedef).Select(child => CreateFlagEnum(child, children)).ToArray();
-        var enums = children.Where(IsEnumDeclaration).Select(CreateEnum).Concat(flagEnums).OrderBy(static value => value.Name).ToArray();
+        var handles = children
+            .Where(IsHandleTypedef)
+            .Select(CreateHandle)
+            .OrderBy(static handle => handle.Name)
+            .ToArray();
+        var flagEnums = children
+            .Where(IsFlagTypedef)
+            .Select(child => CreateFlagEnum(child, children));
+        var enums = children
+            .Where(IsEnumDeclaration)
+            .Select(CreateEnum)
+            .Concat(flagEnums)
+            .OrderBy(static value => value.Name)
+            .ToArray();
+        var structs = children
+            .Where(IsStructDeclaration)
+            .Select(CreateStruct)
+            .OrderBy(static value => value.Name)
+            .ToArray();
+        var callbacks = children
+            .Select(CreateCallback)
+            .Where(static callback => callback is not null)
+            .Select(static callback => callback!)
+            .OrderBy(static value => value.Name)
+            .ToArray();
+        var functions = children
+            .Where(IsFunctionDeclaration)
+            .Select(CreateFunction)
+            .OrderBy(static value => value.Name)
+            .ToArray();
 
         return new WgpuHeader(
             enums,
             handles,
-            children.Where(IsStructDeclaration).Select(CreateStruct).OrderBy(static value => value.Name).ToArray(),
-            children.Select(CreateCallback).Where(static callback => callback is not null).Select(static callback => callback!).OrderBy(static value => value.Name).ToArray(),
-            children.Where(IsFunctionDeclaration).Select(CreateFunction).OrderBy(static value => value.Name).ToArray());
+            structs,
+            callbacks,
+            functions,
+            WgpuMacroParser.ParseConstants(source),
+            WgpuMacroParser.ParseInitializers(source));
     }
 
-    private static WgpuEnum CreateEnum(CXCursor cursor) =>
-        new(
-            WgpuNameTransforms.NormalizeEnumName(cursor.Spelling.CString),
+    private static WgpuEnum CreateEnum(CXCursor cursor)
+    {
+        var nativeName = GetSpelling(cursor);
+        return new WgpuEnum(
+            WgpuNameTransforms.NormalizeEnumName(nativeName),
             "int",
             false,
             cursor.Children()
                 .Where(static child => child.Kind == CXCursorKind.CXCursor_EnumConstantDecl)
                 .Select(child => new WgpuEnumValue(
-                    WgpuNameTransforms.NormalizeEnumValueName(child.Spelling.CString, cursor.Spelling.CString + "_"),
+                    WgpuNameTransforms.NormalizeEnumValueName(GetSpelling(child), nativeName + "_"),
                     child.EnumConstantDeclValue.ToString()))
                 .ToArray());
+    }
 
     private static WgpuEnum CreateFlagEnum(CXCursor cursor, CXCursor[] allChildren)
     {
-        var name = cursor.Spelling.CString;
+        var name = GetSpelling(cursor);
         return new WgpuEnum(
             name,
             "ulong",
@@ -47,22 +79,22 @@ internal static class ClangWgpuHeaderParser
             allChildren
                 .Where(child => IsStaticConstValueOfType(child, name))
                 .Select(child => new WgpuEnumValue(
-                    WgpuNameTransforms.NormalizeEnumValueName(child.Spelling.CString, name + "_"),
-                    child.Evaluate.AsUnsigned.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+                    WgpuNameTransforms.NormalizeEnumValueName(GetSpelling(child), name + "_"),
+                    GetUnsignedValue(child).ToString(System.Globalization.CultureInfo.InvariantCulture)))
                 .ToArray());
     }
 
     private static WgpuHandle CreateHandle(CXCursor cursor) =>
-        new(cursor.Spelling.CString);
+        new(GetSpelling(cursor));
 
     private static WgpuStruct CreateStruct(CXCursor cursor) =>
         new(
-            WgpuNameTransforms.NormalizeStructName(cursor.Spelling.CString),
+            WgpuNameTransforms.NormalizeStructName(GetSpelling(cursor)),
             cursor.Children()
                 .Where(static child => child.Kind == CXCursorKind.CXCursor_FieldDecl)
                 .Select(static child => new WgpuField(
-                    WgpuNameTransforms.ToPascalCase(child.Spelling.CString),
-                    WgpuTypeTranslator.NormalizeCType(child.Type.Spelling.CString)))
+                    WgpuNameTransforms.ToPascalCase(GetSpelling(child)),
+                    WgpuTypeTranslator.NormalizeCType(GetSpelling(child.Type))))
                 .ToArray());
 
     private static WgpuCallback? CreateCallback(CXCursor cursor) =>
@@ -73,8 +105,8 @@ internal static class ClangWgpuHeaderParser
     private static WgpuCallback? CreateCallback(CXCursor cursor, CXType functionType) =>
         IsFunctionType(functionType)
             ? new WgpuCallback(
-                cursor.Spelling.CString,
-                WgpuTypeTranslator.NormalizeCType(functionType.ResultType.Spelling.CString),
+                GetSpelling(cursor),
+                WgpuTypeTranslator.NormalizeCType(GetSpelling(functionType.ResultType)),
                 CreateParameters(functionType, cursor.Children().ToArray()).ToArray())
             : null;
 
@@ -83,12 +115,12 @@ internal static class ClangWgpuHeaderParser
             .Select(index => CreateParameter(index, functionType.GetArgType((uint)index), children));
 
     private static WgpuParameter CreateParameter(int index, CXType type, CXCursor[] children) =>
-        new(GetParameterName(index, children), WgpuTypeTranslator.NormalizeCType(type.Spelling.CString));
+        new(GetParameterName(index, children), WgpuTypeTranslator.NormalizeCType(GetSpelling(type)));
 
     private static string GetParameterName(int index, CXCursor[] children) =>
         children
             .Where(static child => child.Kind == CXCursorKind.CXCursor_ParmDecl)
-            .Select(static child => child.Spelling.CString)
+            .Select(static child => GetSpelling(child))
             .ElementAtOrDefault(index) ?? $"arg{index}";
 
     private static CXType GetFunctionType(CXType underlyingType) =>
@@ -99,43 +131,66 @@ internal static class ClangWgpuHeaderParser
     private static bool IsEnumDeclaration(CXCursor cursor) =>
         cursor.Kind == CXCursorKind.CXCursor_EnumDecl &&
         cursor.NumEnumerators > 0 &&
-        IsWgpuName(cursor.Spelling.CString);
+        IsWgpuName(GetSpelling(cursor));
 
     private static bool IsStructDeclaration(CXCursor cursor) =>
         cursor.Kind == CXCursorKind.CXCursor_StructDecl &&
         cursor.NumFields > 0 &&
-        IsWgpuName(cursor.Spelling.CString);
+        IsWgpuName(GetSpelling(cursor));
 
     private static bool IsHandleTypedef(CXCursor cursor) =>
         cursor.Kind == CXCursorKind.CXCursor_TypedefDecl &&
-        IsWgpuName(cursor.Spelling.CString) &&
-        WgpuTypeTranslator.NormalizeCType(cursor.TypedefDeclUnderlyingType.Spelling.CString).EndsWith("Impl*", StringComparison.Ordinal);
+        IsWgpuName(GetSpelling(cursor)) &&
+        WgpuTypeTranslator
+            .NormalizeCType(GetSpelling(cursor.TypedefDeclUnderlyingType))
+            .EndsWith("Impl*", StringComparison.Ordinal);
 
     private static bool IsFlagTypedef(CXCursor cursor) =>
         cursor.Kind == CXCursorKind.CXCursor_TypedefDecl &&
-        IsWgpuName(cursor.Spelling.CString) &&
-        WgpuTypeTranslator.NormalizeCType(cursor.TypedefDeclUnderlyingType.Spelling.CString) == "WGPUFlags";
+        IsWgpuName(GetSpelling(cursor)) &&
+        WgpuTypeTranslator.NormalizeCType(GetSpelling(cursor.TypedefDeclUnderlyingType)) == "WGPUFlags";
 
     private static bool IsStaticConstValueOfType(CXCursor cursor, string typeName) =>
         cursor.Kind == CXCursorKind.CXCursor_VarDecl &&
-        WgpuTypeTranslator.NormalizeCType(cursor.Type.Spelling.CString) == typeName &&
-        cursor.Spelling.CString.StartsWith(typeName + "_", StringComparison.Ordinal);
+        WgpuTypeTranslator.NormalizeCType(GetSpelling(cursor.Type)) == typeName &&
+        GetSpelling(cursor).StartsWith(typeName + "_", StringComparison.Ordinal);
 
     private static bool IsCallbackTypedef(CXCursor cursor) =>
         cursor.Kind == CXCursorKind.CXCursor_TypedefDecl &&
-        cursor.Spelling.CString.StartsWith("WGPU", StringComparison.Ordinal) &&
+        GetSpelling(cursor).StartsWith("WGPU", StringComparison.Ordinal) &&
         IsFunctionType(GetFunctionType(cursor.TypedefDeclUnderlyingType)) &&
-        (cursor.Spelling.CString == "WGPUProc" || !cursor.Spelling.CString.StartsWith("WGPUProc", StringComparison.Ordinal));
+        IsSupportedCallbackName(GetSpelling(cursor));
+
+    private static bool IsSupportedCallbackName(string name) =>
+        !name.StartsWith("WGPUProc", StringComparison.Ordinal) || name == "WGPUProc";
 
     private static bool IsFunctionDeclaration(CXCursor cursor) =>
         cursor.Kind == CXCursorKind.CXCursor_FunctionDecl &&
-        cursor.Spelling.CString.StartsWith("wgpu", StringComparison.Ordinal);
+        GetSpelling(cursor).StartsWith("wgpu", StringComparison.Ordinal);
 
     private static WgpuFunction CreateFunction(CXCursor cursor) =>
         new(
-            cursor.Spelling.CString,
-            WgpuTypeTranslator.NormalizeCType(cursor.ResultType.Spelling.CString),
+            GetSpelling(cursor),
+            WgpuTypeTranslator.NormalizeCType(GetSpelling(cursor.ResultType)),
             CreateParameters(cursor.Type, cursor.Children().ToArray()).ToArray());
+
+    private static string GetSpelling(CXCursor cursor)
+    {
+        using var spelling = cursor.Spelling;
+        return spelling.CString;
+    }
+
+    private static string GetSpelling(CXType type)
+    {
+        using var spelling = type.Spelling;
+        return spelling.CString;
+    }
+
+    private static ulong GetUnsignedValue(CXCursor cursor)
+    {
+        using var result = cursor.Evaluate;
+        return result.AsUnsigned;
+    }
 
     private static bool IsWgpuName(string name) =>
         name.StartsWith("WGPU", StringComparison.Ordinal);
@@ -143,28 +198,20 @@ internal static class ClangWgpuHeaderParser
     private static bool IsFunctionType(CXType type) =>
         type.kind is CXTypeKind.CXType_FunctionProto or CXTypeKind.CXType_FunctionNoProto;
 
-    private static TResult WithTranslationUnit<TResult>(string source, Func<CXTranslationUnit, TResult> useTranslationUnit)
+    private static TResult WithTranslationUnit<TResult>(
+        string source,
+        Func<CXTranslationUnit, TResult> useTranslationUnit)
     {
-        var index = CXIndex.Create(excludeDeclarationsFromPch: false, displayDiagnostics: false);
-        var unsavedFile = CXUnsavedFile.Create(WgpuNames.HeaderFileName, source);
+        using var index = CXIndex.Create(excludeDeclarationsFromPch: false, displayDiagnostics: false);
+        using var unsavedFile = CXUnsavedFile.Create(WgpuNames.HeaderFileName, source);
+        using var translationUnit = CXTranslationUnit.Parse(
+            index,
+            WgpuNames.HeaderFileName,
+            CreateParseArguments(),
+            new[] { unsavedFile },
+            CXTranslationUnit_Flags.CXTranslationUnit_None);
 
-        try {
-            var translationUnit = CXTranslationUnit.Parse(
-                index,
-                WgpuNames.HeaderFileName,
-                CreateParseArguments(),
-                new[] { unsavedFile },
-                CXTranslationUnit_Flags.CXTranslationUnit_None);
-
-            try {
-                return useTranslationUnit(translationUnit);
-            } finally {
-                translationUnit.Dispose();
-            }
-        } finally {
-            unsavedFile.Dispose();
-            index.Dispose();
-        }
+        return useTranslationUnit(translationUnit);
     }
 
     private static string[] CreateParseArguments() =>
@@ -172,21 +219,27 @@ internal static class ClangWgpuHeaderParser
         "-x",
         "c",
         "-std=c11",
-        "-DWGPU_SHARED_LIBRARY",
-        "-D_WIN32",
         "-DWGPU_SKIP_PROCS",
     ];
 
     private static void ThrowOnParseErrors(CXTranslationUnit translationUnit)
     {
-        var errors = translationUnit.DiagnosticSet
+        using var diagnosticSet = translationUnit.DiagnosticSet;
+        var errors = diagnosticSet
             .Where(static diagnostic => diagnostic.Severity >= CXDiagnosticSeverity.CXDiagnostic_Error)
-            .Select(static diagnostic => diagnostic.Format(CXDiagnostic.DefaultDisplayOptions).CString)
+            .Select(static diagnostic => FormatDiagnostic(diagnostic))
             .ToArray();
 
         if (errors.Length != 0) {
+            var message = string.Join(WgpuNames.NewLine, errors);
             throw new InvalidOperationException(
-                $"Failed to parse {WgpuNames.HeaderFileName}:{WgpuNames.NewLine}{string.Join(WgpuNames.NewLine, errors)}");
+                $"Failed to parse {WgpuNames.HeaderFileName}:{WgpuNames.NewLine}{message}");
         }
+    }
+
+    private static string FormatDiagnostic(CXDiagnostic diagnostic)
+    {
+        using var formatted = diagnostic.Format(CXDiagnostic.DefaultDisplayOptions);
+        return formatted.CString;
     }
 }

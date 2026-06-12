@@ -83,7 +83,7 @@ public sealed unsafe class WgpuRequests : IAddon
             var callback = new WGPURequestAdapterCallbackInfo {
                 NextInChain = null,
                 Mode = WGPUCallbackMode.AllowSpontaneous,
-                Callback = (void*)(delegate* unmanaged[Cdecl]<
+                Callback = (delegate* unmanaged[Cdecl]<
                     WGPURequestAdapterStatus,
                     WGPUAdapter*,
                     WGPUStringView,
@@ -118,7 +118,7 @@ public sealed unsafe class WgpuRequests : IAddon
             var callback = new WGPURequestDeviceCallbackInfo {
                 NextInChain = null,
                 Mode = WGPUCallbackMode.AllowSpontaneous,
-                Callback = (void*)(delegate* unmanaged[Cdecl]<
+                Callback = (delegate* unmanaged[Cdecl]<
                     WGPURequestDeviceStatus,
                     WGPUDevice*,
                     WGPUStringView,
@@ -176,7 +176,8 @@ public sealed unsafe class WgpuRequests : IAddon
                 }
 
                 world.Send(completion.Target, new WgpuRequestEvents.AdapterReady());
-            } else {
+            }
+            else {
                 try {
                     var device = new WgpuHandle<WGPUDevice>(completion.Handle);
                     world.AttachWgpu(completion.Target, device);
@@ -236,7 +237,8 @@ public sealed unsafe class WgpuRequests : IAddon
         if (completion.Kind == WgpuRequestKind.Adapter) {
             var adapter = new WgpuHandle<WGPUAdapter>(completion.Handle);
             Wgpu.Release(ref adapter);
-        } else {
+        }
+        else {
             var device = new WgpuHandle<WGPUDevice>(completion.Handle);
             Wgpu.Release(ref device);
         }
@@ -271,7 +273,8 @@ public sealed unsafe class WgpuRequests : IAddon
                     // Exceptions cannot cross an unmanaged callback boundary.
                 }
             }
-        } finally {
+        }
+        finally {
             request?.Dispose();
         }
     }
@@ -305,7 +308,8 @@ public sealed unsafe class WgpuRequests : IAddon
                     // Exceptions cannot cross an unmanaged callback boundary.
                 }
             }
-        } finally {
+        }
+        finally {
             request?.Dispose();
         }
     }

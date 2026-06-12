@@ -63,6 +63,31 @@ public static unsafe partial class Wgpu
         }
     }
 
+    public static void SetVertexBuffer(
+        WgpuHandle<WGPURenderPassEncoder> renderPass,
+        uint slot,
+        WgpuHandle<WGPUBuffer> buffer,
+        ulong offset = 0,
+        ulong? size = null)
+    {
+        var bufferSize = GetBufferSize(buffer);
+        if (offset > bufferSize) {
+            throw new ArgumentOutOfRangeException(nameof(offset));
+        }
+
+        var bindingSize = size ?? bufferSize - offset;
+        if (bindingSize > bufferSize - offset) {
+            throw new ArgumentOutOfRangeException(nameof(size));
+        }
+
+        WgpuUnsafe.wgpuRenderPassEncoderSetVertexBuffer(
+            GetPointer(renderPass),
+            slot,
+            GetPointer(buffer),
+            offset,
+            bindingSize);
+    }
+
     public static void Draw(
         WgpuHandle<WGPURenderPassEncoder> renderPass,
         uint vertexCount,

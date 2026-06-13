@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0-browser</TargetFramework>
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
+    <LangVersion>14</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <WasmEnableSIMD>true</WasmEnableSIMD>
+    <WasmAllowUndefinedSymbols>true</WasmAllowUndefinedSymbols>
+    <EmccFlags>--use-port=emdawnwebgpu</EmccFlags>
+    <EmccExtraLDFlags>-sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH</EmccExtraLDFlags>
+    <WasmCachePath Condition="'$(OS)' == 'Windows_NT'">$(SystemDrive)\wasm-cache-$(MSBuildProjectName)</WasmCachePath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="obj_desktop\**" />
+    <EmbeddedResource Remove="obj_desktop\**" />
+    <None Remove="obj_desktop\**" />
+    <Content Remove="obj_desktop\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <StaticWebAssetFingerprintPattern Include="JS" Pattern="*.js" Expression="#[.{fingerprint}]!" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sia.WebGPU\Sia.WebGPU.csproj" />
+    <ProjectReference Include="..\..\Sia.Window\Sia.GLFW\Sia.GLFW.csproj" />
+  </ItemGroup>
+
+  <Target Name="AddBrowserNativeModules"
+          BeforeTargets="_GenerateManagedToNative"
+          DependsOnTargets="PrepareForWasmBuildNative">
+    <ItemGroup>
+      <_WasmPInvokeModules Include="__Internal_emscripten" />
+      <_WasmPInvokeModules Include="__Internal_glfw" />
+    </ItemGroup>
+  </Target>
+
+</Project>

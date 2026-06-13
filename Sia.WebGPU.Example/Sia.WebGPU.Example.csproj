@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>14</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="obj_browser\**" />
+    <EmbeddedResource Remove="obj_browser\**" />
+    <None Remove="obj_browser\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sia.WebGPU\Sia.WebGPU.csproj" />
+    <ProjectReference Include="..\Sia.WebGPU.Native\Sia.WebGPU.Native.csproj" />
+    <ProjectReference Include="..\..\Sia.Window\Sia.GLFW\Sia.GLFW.csproj" />
+    <ProjectReference Include="..\..\Sia.Window\Sia.GLFW.Native\Sia.GLFW.Native.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Sia.GLFW;
 using Sia.Window;
 
@@ -7,6 +6,8 @@ namespace Sia.WebGPU.Example;
 #if BROWSER
 internal sealed partial class CornellBoxApp
 {
+    private double? _previousAnimationFrameTime;
+
     public async Task RunAsync()
     {
         await InitializeAsync();
@@ -15,28 +16,31 @@ internal sealed partial class CornellBoxApp
         Console.WriteLine("  arrows orbit | W/S dolly | -/= exposure | [/] samples");
         Console.WriteLine("  ,/. bounces | O/P aperture | R reset | Esc close");
 
-        var clock = Stopwatch.StartNew();
-        var previousTime = clock.Elapsed.TotalSeconds;
+        await RunAnimationFrameLoopAsync();
+    }
 
-        while (!Glfw.ShouldClose(_window)) {
-            Glfw.PollEvents();
+    private bool RenderAnimationFrame(double timestampMilliseconds)
+    {
+        if (Glfw.ShouldClose(_window)) {
+            return false;
+        }
 
-            var currentTime = clock.Elapsed.TotalSeconds;
-            var deltaTime = (float)Math.Min(currentTime - previousTime, 0.1);
-            previousTime = currentTime;
+        Glfw.PollEvents();
 
-            HandleInput(deltaTime);
-            if (!ResizeIfNeeded()) {
-                await RequestAnimationFrameAsync();
-                continue;
-            }
+        var currentTime = timestampMilliseconds / 1000.0;
+        var deltaTime = _previousAnimationFrameTime is double previousTime
+            ? (float)Math.Min(currentTime - previousTime, 0.1)
+            : 0f;
+        _previousAnimationFrameTime = currentTime;
 
+        HandleInput(deltaTime);
+        if (ResizeIfNeeded()) {
             RenderFrame();
             Wgpu.ProcessEvents(_instance);
             UpdateWindowTitle(currentTime);
-
-            await RequestAnimationFrameAsync();
         }
+
+        return !Glfw.ShouldClose(_window);
     }
 
     private async Task InitializeAsync()

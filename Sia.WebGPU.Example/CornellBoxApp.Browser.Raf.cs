@@ -8,37 +8,58 @@ internal sealed unsafe partial class CornellBoxApp
 {
     [DllImport(
         "__Internal_emscripten",
-        EntryPoint = "emscripten_request_animation_frame",
+        EntryPoint = "emscripten_request_animation_frame_loop",
         ExactSpelling = true,
         CallingConvention = CallingConvention.Cdecl)]
-    private static extern int EmscriptenRequestAnimationFrame(
+    private static extern void EmscriptenRequestAnimationFrameLoop(
         delegate* unmanaged[Cdecl]<double, void*, int> callback,
         void* userData);
 
-    private static Task RequestAnimationFrameAsync()
+    private Task RunAnimationFrameLoopAsync()
     {
-        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var handle = GCHandle.Alloc(tcs);
-        var result = EmscriptenRequestAnimationFrame(
-            &OnAnimationFrame,
-            (void*)GCHandle.ToIntPtr(handle));
-        if (result != 0) {
+        var state = new AnimationFrameLoopState(this);
+        var handle = GCHandle.Alloc(state);
+        try {
+            EmscriptenRequestAnimationFrameLoop(
+                &OnAnimationFrame,
+                (void*)GCHandle.ToIntPtr(handle));
+        }
+        catch {
             handle.Free();
-            throw new InvalidOperationException(
-                $"Failed to request an animation frame. Emscripten result: {result}.");
+            throw;
         }
 
-        return tcs.Task;
+        return state.Completion.Task;
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-    private static int OnAnimationFrame(double _, void* userData)
+    private static int OnAnimationFrame(double timestamp, void* userData)
     {
         var handle = GCHandle.FromIntPtr((nint)userData);
-        var tcs = (TaskCompletionSource)handle.Target!;
-        handle.Free();
-        tcs.SetResult();
+        var state = (AnimationFrameLoopState)handle.Target!;
+
+        try {
+            if (state.App.RenderAnimationFrame(timestamp)) {
+                return 1;
+            }
+
+            handle.Free();
+            state.Completion.TrySetResult();
+        }
+        catch (Exception exception) {
+            handle.Free();
+            state.Completion.TrySetException(exception);
+        }
+
         return 0;
+    }
+
+    private sealed class AnimationFrameLoopState(CornellBoxApp app)
+    {
+        public CornellBoxApp App { get; } = app;
+
+        public TaskCompletionSource Completion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 }
 #endif

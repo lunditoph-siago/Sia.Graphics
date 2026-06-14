@@ -542,7 +542,9 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
                 Wgpu.Release(ref encoder);
             }
 
+#if !BROWSER
             Wgpu.PresentSurfaceOrThrow(_surface);
+#endif
             _readIndex = writeIndex;
             _frameIndex++;
         }

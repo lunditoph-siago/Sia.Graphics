@@ -12,10 +12,10 @@
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
     <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
     <WasmEnableSIMD>true</WasmEnableSIMD>
+    <WasmBuildNative>true</WasmBuildNative>
     <WasmAllowUndefinedSymbols>true</WasmAllowUndefinedSymbols>
     <EmccFlags>--use-port=emdawnwebgpu</EmccFlags>
     <EmccExtraLDFlags>-sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH</EmccExtraLDFlags>
-    <WasmCachePath Condition="'$(OS)' == 'Windows_NT'">$(SystemDrive)\wasm-cache-$(MSBuildProjectName)</WasmCachePath>
   </PropertyGroup>
 
   <ItemGroup>

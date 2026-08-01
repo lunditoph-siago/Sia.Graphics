@@ -18,7 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Sia.WebGPU\Sia.WebGPU.csproj" />
     <ProjectReference Include="..\Sia.WebGPU.Native\Sia.WebGPU.Native.csproj" />
-    <ProjectReference Include="..\..\Sia.Window\Sia.GLFW\Sia.GLFW.csproj" />
-    <ProjectReference Include="..\..\Sia.Window\Sia.GLFW.Native\Sia.GLFW.Native.csproj" />
+    <PackageReference Include="Sia.GLFW" Version="0.0.1" />
+    <PackageReference Include="Sia.GLFW.Native" Version="0.0.1" />
   </ItemGroup>
 </Project>

@@ -5,6 +5,7 @@ CONTRIBUTING.md
 # Build outputs
 [Bb]in/
 [Oo]bj/
+[Oo]bj_*/
 [Dd]ebug/
 [Dd]ebugPublic/
 [Rr]elease/

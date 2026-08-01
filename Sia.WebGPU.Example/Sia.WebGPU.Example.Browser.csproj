@@ -31,7 +31,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Sia.WebGPU\Sia.WebGPU.csproj" />
-    <ProjectReference Include="..\..\Sia.Window\Sia.GLFW\Sia.GLFW.csproj" />
+    <PackageReference Include="Sia.GLFW" Version="0.0.1" />
   </ItemGroup>
 
   <Target Name="AddBrowserNativeModules"

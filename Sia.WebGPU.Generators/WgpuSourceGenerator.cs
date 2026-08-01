@@ -20,6 +20,8 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
     private static readonly object _nativeDependencyLock = new();
     private static int _nativeDependenciesLoaded;
     private static int _resolverRegistered;
+    private static IntPtr _libClangHandle;
+    private static IntPtr _libClangSharpHandle;
 
     private static readonly DiagnosticDescriptor _missingHeader = new(
         id: "SIAWGPU001",
@@ -84,8 +86,46 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
 
         using var memory = new MemoryStream();
         stream.CopyTo(memory);
-        return Assembly.Load(memory.ToArray());
+        var assembly = Assembly.Load(memory.ToArray());
+        RegisterNativeDependencyResolver(assembly);
+        return assembly;
     }
+
+    private static void RegisterNativeDependencyResolver(Assembly assembly)
+    {
+        var runtimeAssembly = typeof(Marshal).Assembly;
+        var nativeLibraryType = runtimeAssembly.GetType(
+            "System.Runtime.InteropServices.NativeLibrary");
+        var resolverType = runtimeAssembly.GetType(
+            "System.Runtime.InteropServices.DllImportResolver");
+        if (nativeLibraryType is null || resolverType is null) {
+            return;
+        }
+
+        var resolverMethod = typeof(WgpuSourceGenerator).GetMethod(
+            nameof(ResolveNativeDependency),
+            BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new MissingMethodException(nameof(ResolveNativeDependency));
+        var resolver = Delegate.CreateDelegate(resolverType, resolverMethod);
+        var setResolverMethod = nativeLibraryType.GetMethod(
+            "SetDllImportResolver",
+            BindingFlags.Public | BindingFlags.Static,
+            binder: null,
+            types: [typeof(Assembly), resolverType],
+            modifiers: null)
+            ?? throw new MissingMethodException(nativeLibraryType.FullName, "SetDllImportResolver");
+        setResolverMethod.Invoke(null, [assembly, resolver]);
+    }
+
+    private static IntPtr ResolveNativeDependency(
+        string libraryName,
+        Assembly _,
+        DllImportSearchPath? __) =>
+        libraryName switch {
+            "libclang" => _libClangHandle,
+            "libClangSharp" => _libClangSharpHandle,
+            _ => IntPtr.Zero
+        };
 
     private static void AddGeneratedSources(
         SourceProductionContext context,
@@ -226,8 +266,10 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
                 }
             }
 
-            LoadNativeDependency(Path.Combine(directory, "libclang" + platform.Extension));
-            LoadNativeDependency(Path.Combine(directory, "libClangSharp" + platform.Extension));
+            _libClangHandle = LoadNativeDependency(
+                Path.Combine(directory, "libclang" + platform.Extension));
+            _libClangSharpHandle = LoadNativeDependency(
+                Path.Combine(directory, "libClangSharp" + platform.Extension));
 
             _nativeDependenciesLoaded = 1;
         }
@@ -299,7 +341,7 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
         throw new IOException($"Timed out waiting for exclusive file lock '{path}'.");
     }
 
-    private static void LoadNativeDependency(string path)
+    private static IntPtr LoadNativeDependency(string path)
     {
         var handle =
             RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? Windows.LoadLibrary(path) :
@@ -310,6 +352,8 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
         if (handle == IntPtr.Zero) {
             throw new InvalidOperationException($"Failed to load native dependency '{path}'.");
         }
+
+        return handle;
     }
 
     private static class Windows

@@ -203,7 +203,9 @@ internal static class ClangWgpuHeaderParser
         Func<CXTranslationUnit, TResult> useTranslationUnit)
     {
         using var index = CXIndex.Create(excludeDeclarationsFromPch: false, displayDiagnostics: false);
-        using var unsavedFile = CXUnsavedFile.Create(WgpuNames.HeaderFileName, source);
+        using var unsavedFile = CXUnsavedFile.Create(
+            WgpuNames.HeaderFileName,
+            CreatePortableParseSource(source));
         using var translationUnit = CXTranslationUnit.Parse(
             index,
             WgpuNames.HeaderFileName,
@@ -213,6 +215,22 @@ internal static class ClangWgpuHeaderParser
 
         return useTranslationUnit(translationUnit);
     }
+
+    private static string CreatePortableParseSource(string source) =>
+        """
+        typedef __INT32_TYPE__ int32_t;
+        typedef __UINT16_TYPE__ uint16_t;
+        typedef __UINT32_TYPE__ uint32_t;
+        typedef __UINT64_TYPE__ uint64_t;
+        typedef __SIZE_TYPE__ size_t;
+        #define UINT32_C(value) (value)
+        #define UINT32_MAX __UINT32_MAX__
+        #define UINT64_MAX __UINT64_MAX__
+        #define NAN (__builtin_nanf(""))
+        """ + source
+            .Replace("#include <stdint.h>", string.Empty)
+            .Replace("#include <stddef.h>", string.Empty)
+            .Replace("#include <math.h>", string.Empty);
 
     private static string[] CreateParseArguments() =>
     [
@@ -231,9 +249,9 @@ internal static class ClangWgpuHeaderParser
             .ToArray();
 
         if (errors.Length != 0) {
-            var message = string.Join(WgpuNames.NewLine, errors);
+            var message = string.Join("; ", errors);
             throw new InvalidOperationException(
-                $"Failed to parse {WgpuNames.HeaderFileName}:{WgpuNames.NewLine}{message}");
+                $"Failed to parse {WgpuNames.HeaderFileName}: {message}");
         }
     }
 

@@ -36,7 +36,7 @@
 
   <ItemGroup>
     <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-    <None Include="$(PkgClangSharp_Interop)\lib\netstandard2.0\ClangSharp.Interop.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="$(NuGetPackageRoot)clangsharp.interop\16.0.0\lib\netstandard2.0\ClangSharp.Interop.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
 
     <EmbeddedResource Include="$(NuGetPackageRoot)libclang.runtime.win-x64\$(LibClangVersion)\runtimes\win-x64\native\libclang.dll"
                       LogicalName="Sia.WebGPU.Generators.Native.libclang.win-x64.dll" />
@@ -47,13 +47,13 @@
     <EmbeddedResource Include="$(NuGetPackageRoot)libclang.runtime.osx-arm64\$(LibClangVersion)\runtimes\osx-arm64\native\libclang.dylib"
                       LogicalName="Sia.WebGPU.Generators.Native.libclang.osx-arm64.dylib" />
 
-    <EmbeddedResource Include="$(NuGetPackageRoot)libClangSharp.runtime.win-x64\$(LibClangVersion)\runtimes\win-x64\native\libClangSharp.dll"
+    <EmbeddedResource Include="$(NuGetPackageRoot)libclangsharp.runtime.win-x64\$(LibClangVersion)\runtimes\win-x64\native\libClangSharp.dll"
                       LogicalName="Sia.WebGPU.Generators.Native.libClangSharp.win-x64.dll" />
-    <EmbeddedResource Include="$(NuGetPackageRoot)libClangSharp.runtime.linux-x64\$(LibClangVersion)\runtimes\linux-x64\native\libClangSharp.so"
+    <EmbeddedResource Include="$(NuGetPackageRoot)libclangsharp.runtime.linux-x64\$(LibClangVersion)\runtimes\linux-x64\native\libClangSharp.so"
                       LogicalName="Sia.WebGPU.Generators.Native.libClangSharp.linux-x64.so" />
-    <EmbeddedResource Include="$(NuGetPackageRoot)libClangSharp.runtime.osx-x64\$(LibClangVersion)\runtimes\osx-x64\native\libClangSharp.dylib"
+    <EmbeddedResource Include="$(NuGetPackageRoot)libclangsharp.runtime.osx-x64\$(LibClangVersion)\runtimes\osx-x64\native\libClangSharp.dylib"
                       LogicalName="Sia.WebGPU.Generators.Native.libClangSharp.osx-x64.dylib" />
-    <EmbeddedResource Include="$(NuGetPackageRoot)libClangSharp.runtime.osx-arm64\$(LibClangVersion)\runtimes\osx-arm64\native\libClangSharp.dylib"
+    <EmbeddedResource Include="$(NuGetPackageRoot)libclangsharp.runtime.osx-arm64\$(LibClangVersion)\runtimes\osx-arm64\native\libClangSharp.dylib"
                       LogicalName="Sia.WebGPU.Generators.Native.libClangSharp.osx-arm64.dylib" />
 
     <EmbeddedResource Include="Resources\webgpu.h"

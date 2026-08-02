@@ -26,7 +26,7 @@ jobs:
           dotnet-version: 11.x
 
       - name: Restore
-        run: dotnet restore Sia.WebGPU.slnx
+        run: dotnet restore Sia.Graphics.slnx
 
       - name: Run tests
-        run: dotnet test Sia.WebGPU.slnx --configuration Release --blame-hang --blame-hang-timeout 5m
+        run: dotnet test Sia.Graphics.slnx --configuration Release --blame-hang --blame-hang-timeout 5m

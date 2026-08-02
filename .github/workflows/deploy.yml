@@ -17,7 +17,7 @@ jobs:
 
     env:
       BUILD_CONFIG: Release
-      SOLUTION: Sia.WebGPU.slnx
+      SOLUTION: Sia.Graphics.slnx
       EXAMPLES_PROJECT: Sia.WebGPU.Example/Sia.WebGPU.Example.Browser.csproj
       PUBLISH_OUTPUT: ${{ github.workspace }}/artifacts/examples
 

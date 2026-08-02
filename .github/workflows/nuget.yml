@@ -12,7 +12,7 @@ jobs:
   build:
     env:
       BUILD_CONFIG: 'Release'
-      SOLUTION: 'Sia.WebGPU.slnx'
+      SOLUTION: 'Sia.Graphics.slnx'
       PACKAGE_OUTPUT_DIRECTORY: ${{github.workspace}}/output
 
     runs-on: ubuntu-latest

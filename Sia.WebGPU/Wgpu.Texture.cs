@@ -46,4 +46,19 @@ public static unsafe partial class Wgpu
 
     public static void DestroyTexture(WgpuHandle<WGPUTexture> texture) =>
         WgpuUnsafe.wgpuTextureDestroy(GetPointer(texture));
+
+    public static WgpuTextureInfo GetTextureInfo(
+        WgpuHandle<WGPUTexture> texture) =>
+        new(
+            new WGPUExtent3D {
+                Width = WgpuUnsafe.wgpuTextureGetWidth(GetPointer(texture)),
+                Height = WgpuUnsafe.wgpuTextureGetHeight(GetPointer(texture)),
+                DepthOrArrayLayers = WgpuUnsafe.wgpuTextureGetDepthOrArrayLayers(
+                    GetPointer(texture)),
+            },
+            WgpuUnsafe.wgpuTextureGetDimension(GetPointer(texture)),
+            WgpuUnsafe.wgpuTextureGetFormat(GetPointer(texture)),
+            WgpuUnsafe.wgpuTextureGetUsage(GetPointer(texture)),
+            WgpuUnsafe.wgpuTextureGetMipLevelCount(GetPointer(texture)),
+            WgpuUnsafe.wgpuTextureGetSampleCount(GetPointer(texture)));
 }

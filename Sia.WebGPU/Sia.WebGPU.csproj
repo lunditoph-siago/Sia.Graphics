@@ -13,10 +13,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Sia.RenderGraph\Sia.RenderGraph.csproj" />
     <ProjectReference Include="..\Sia.WebGPU.Generators\Sia.WebGPU.Generators.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
-    <PackageReference Include="Sia" Version="2.0.16" />
+    <PackageReference Include="Sia" Version="2.1.0" />
   </ItemGroup>
 
   <ItemGroup>

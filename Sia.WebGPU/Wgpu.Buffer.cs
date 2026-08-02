@@ -18,6 +18,9 @@ public static unsafe partial class Wgpu
     public static WGPUBufferUsage GetBufferUsage(WgpuHandle<WGPUBuffer> buffer) =>
         WgpuUnsafe.wgpuBufferGetUsage(GetPointer(buffer));
 
+    public static WgpuBufferInfo GetBufferInfo(WgpuHandle<WGPUBuffer> buffer) =>
+        new(GetBufferSize(buffer), GetBufferUsage(buffer));
+
     public static WGPUBufferMapState GetBufferMapState(WgpuHandle<WGPUBuffer> buffer) =>
         WgpuUnsafe.wgpuBufferGetMapState(GetPointer(buffer));
 

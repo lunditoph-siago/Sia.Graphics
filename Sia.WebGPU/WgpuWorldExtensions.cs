@@ -156,6 +156,7 @@ public static class WgpuWorldExtensions
         var resource = new WgpuResource<WGPUTexture>(handle);
         var info = new WgpuTextureInfo(
             descriptor.Size,
+            descriptor.Dimension,
             descriptor.Format,
             descriptor.Usage,
             descriptor.MipLevelCount,

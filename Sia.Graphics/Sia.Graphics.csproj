@@ -5,11 +5,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
-    <PackageId>Sia.Graphics.Reactive</PackageId>
-    <PackageDescription>Reactive Sia.NET declarations and execution for WebGPU render graphs.</PackageDescription>
+    <PackageId>Sia.Graphics</PackageId>
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Sia.RenderGraph\Sia.RenderGraph.csproj" />
     <ProjectReference Include="..\Sia.WebGPU\Sia.WebGPU.csproj" />
     <PackageReference Include="Sia.Prelude" Version="2.1.0" />
   </ItemGroup>

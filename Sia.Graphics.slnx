@@ -1,6 +1,6 @@
 <Solution>
   <Project Path="Sia.RenderGraph/Sia.RenderGraph.csproj" />
-  <Project Path="Sia.Graphics.Reactive/Sia.Graphics.Reactive.csproj" />
+  <Project Path="Sia.Graphics/Sia.Graphics.csproj" />
   <Project Path="Sia.WebGPU/Sia.WebGPU.csproj" />
   <Project Path="Sia.WebGPU.Generators/Sia.WebGPU.Generators.csproj" />
   <Project Path="Sia.WebGPU.Native/Sia.WebGPU.Native.csproj" />

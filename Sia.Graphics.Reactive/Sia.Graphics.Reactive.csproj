@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net11.0;net11.0-browser</TargetFrameworks>
+    <LangVersion>14</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>Sia.Graphics.Reactive</PackageId>
+    <PackageDescription>Reactive Sia.NET declarations and execution for WebGPU render graphs.</PackageDescription>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sia.WebGPU\Sia.WebGPU.csproj" />
+    <PackageReference Include="Sia.Prelude" Version="2.1.0" />
+  </ItemGroup>
+</Project>

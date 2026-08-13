@@ -82,55 +82,46 @@ public sealed class UiRenderer(UiPipeline pipeline)
         return (uint)cache.PaintOrder.Count;
     }
 
-    private bool EnsurePrimitiveBufferCapacity(World world, ulong requiredBytes)
+    private bool EnsurePrimitiveBufferCapacity(World world, ulong requiredBytes) =>
+        EnsureBufferCapacity(
+            world,
+            ref _primitiveBuffer,
+            ref _primitiveBufferCapacity,
+            requiredBytes,
+            _primitiveStride);
+
+    private bool EnsurePaintOrderBufferCapacity(World world, ulong requiredBytes) =>
+        EnsureBufferCapacity(
+            world,
+            ref _paintOrderBuffer,
+            ref _paintOrderBufferCapacity,
+            requiredBytes,
+            sizeof(uint));
+
+    private bool EnsureBufferCapacity(
+        World world, ref Entity buffer, ref ulong capacity, ulong requiredBytes, ulong stride)
     {
-        requiredBytes = Math.Max(requiredBytes, _primitiveStride);
-        if (_primitiveBufferCapacity >= requiredBytes)
+        requiredBytes = Math.Max(requiredBytes, stride);
+        if (capacity >= requiredBytes)
             return false;
 
-        var newCapacity = Math.Max(_primitiveBufferCapacity, _primitiveStride * 256);
+        var newCapacity = Math.Max(capacity, stride * 256);
         while (newCapacity < requiredBytes)
             newCapacity *= 2;
 
         if (_bindGroup.IsValid)
             _bindGroup.Destroy();
-        if (_primitiveBuffer.IsValid)
-            _primitiveBuffer.Destroy();
+        if (buffer.IsValid)
+            buffer.Destroy();
 
-        _primitiveBuffer = world.CreateWgpuBuffer(pipeline.Device, new WGPUBufferDescriptor {
+        buffer = world.CreateWgpuBuffer(pipeline.Device, new WGPUBufferDescriptor {
             NextInChain = null,
             Label = default,
             Usage = WGPUBufferUsage.Storage | WGPUBufferUsage.CopyDst,
             Size = newCapacity,
             MappedAtCreation = 0
         });
-        _primitiveBufferCapacity = newCapacity;
-        return true;
-    }
-
-    private bool EnsurePaintOrderBufferCapacity(World world, ulong requiredBytes)
-    {
-        requiredBytes = Math.Max(requiredBytes, sizeof(uint));
-        if (_paintOrderBufferCapacity >= requiredBytes)
-            return false;
-
-        var newCapacity = Math.Max(_paintOrderBufferCapacity, sizeof(uint) * 256);
-        while (newCapacity < requiredBytes)
-            newCapacity *= 2;
-
-        if (_bindGroup.IsValid)
-            _bindGroup.Destroy();
-        if (_paintOrderBuffer.IsValid)
-            _paintOrderBuffer.Destroy();
-
-        _paintOrderBuffer = world.CreateWgpuBuffer(pipeline.Device, new WGPUBufferDescriptor {
-            NextInChain = null,
-            Label = default,
-            Usage = WGPUBufferUsage.Storage | WGPUBufferUsage.CopyDst,
-            Size = newCapacity,
-            MappedAtCreation = 0
-        });
-        _paintOrderBufferCapacity = newCapacity;
+        capacity = newCapacity;
         return true;
     }
 

@@ -21,7 +21,7 @@ internal static class UiExtraction
             var topLeft = Point.Zero;
             output.Add(ExtractedUiNode.SolidColor(
                 topLeft, computed.Size, background.Value, computed.BorderRadius, BorderEdges.Zero,
-                ExtractedUiNodeKind.Background, computed.StackIndex) with {
+                computed.StackIndex) with {
                     ClipRect = computed.ClipRect,
                     Transform = transform,
                     SubOrder = 0
@@ -37,7 +37,7 @@ internal static class UiExtraction
             if (border.Left > 0f || border.Top > 0f || border.Right > 0f || border.Bottom > 0f) {
                 output.Add(ExtractedUiNode.SolidColor(
                     Point.Zero, computed.Size, borderColor.Value, computed.BorderRadius, border,
-                    ExtractedUiNodeKind.Border, computed.StackIndex) with {
+                    computed.StackIndex) with {
                         ClipRect = computed.ClipRect,
                         Transform = transform,
                         SubOrder = 1
@@ -78,13 +78,10 @@ internal static class UiExtraction
             var size = new Size(location.Width, location.Height);
             var atlas = glyph.AtlasInfo.Atlas;
             var uvMin = new Point((float)location.X / atlas.Width, (float)location.Y / atlas.Height);
-            var uvMax = new Point(
-                (float)(location.X + location.Width) / atlas.Width,
-                (float)(location.Y + location.Height) / atlas.Height);
 
             result.Add(new ExtractedUiNode(
                 glyphTopLeft, size, style.Color, ResolvedBorderRadius.Zero, BorderEdges.Zero,
-                ExtractedUiNodeKind.Background, computed.StackIndex, atlas, uvMin, uvMax,
+                computed.StackIndex, atlas, uvMin,
                 computed.ClipRect, transform, 2 + glyphIndex));
             glyphIndex++;
         }

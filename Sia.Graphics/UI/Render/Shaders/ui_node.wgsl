@@ -5,6 +5,7 @@ const BORDER_TOP: u32 = 2u;
 const BORDER_RIGHT: u32 = 4u;
 const BORDER_BOTTOM: u32 = 8u;
 const BORDER_ANY: u32 = BORDER_LEFT + BORDER_TOP + BORDER_RIGHT + BORDER_BOTTOM;
+const ATLAS_SIZE: f32 = 1024.0;
 
 fn enabled(flags: u32, mask: u32) -> bool {
     return (flags & mask) != 0u;
@@ -19,12 +20,11 @@ struct ViewUniform {
 struct UiPrimitive {
     transform: vec4<f32>,
     translation_top_left: vec4<f32>,
-    size_uv_min: vec4<f32>,
-    uv_max_color_rg: vec4<f32>,
-    color_ba_radius_tl_tr: vec4<f32>,
-    radius_br_bl_border_lt: vec4<f32>,
-    border_rb_clip_min: vec4<f32>,
-    clip_max_flags_layer: vec4<f32>,
+    size_uv_min_layer: vec4<f32>,
+    radius: vec2<u32>,
+    border: vec2<u32>,
+    clip: vec4<f32>,
+    color: u32,
 }
 
 @group(0) @binding(1) var<storage, read> primitives: array<UiPrimitive>;
@@ -60,7 +60,7 @@ fn vertex(
         vec2(0.0, 1.0),
     );
     let corner = corners[vertex_index];
-    let size = primitive.size_uv_min.xy;
+    let size = primitive.size_uv_min_layer.xy;
     let local_position = primitive.translation_top_left.zw + corner * size;
     let transform = mat2x2<f32>(
         primitive.transform.xy,
@@ -68,23 +68,36 @@ fn vertex(
     );
     let world_position = transform * local_position + primitive.translation_top_left.xy;
     var out: VertexOutput;
-    out.uv = mix(primitive.size_uv_min.zw, primitive.uv_max_color_rg.xy, corner);
+    let texture_layer = u32(primitive.size_uv_min_layer.z);
+    let uv_min = vec2(fract(primitive.size_uv_min_layer.z), primitive.size_uv_min_layer.w);
+    out.uv = uv_min + corner * size / ATLAS_SIZE;
     out.position = view.clip_from_world * vec4(world_position, 0.0, 1.0);
-    out.color = vec4(primitive.uv_max_color_rg.zw, primitive.color_ba_radius_tl_tr.xy);
-    out.flags = bitcast<u32>(primitive.clip_max_flags_layer.z);
-    out.radius = vec4(
-        primitive.color_ba_radius_tl_tr.zw,
-        primitive.radius_br_bl_border_lt.xy,
-    );
+    out.color = unpack4x8unorm(primitive.color);
+    let radius_top = unpack2x16float(primitive.radius.x);
+    let radius_bottom = unpack2x16float(primitive.radius.y);
+    out.radius = vec4(radius_top, radius_bottom);
     out.size = size;
-    out.border = vec4(
-        primitive.radius_br_bl_border_lt.zw,
-        primitive.border_rb_clip_min.xy,
-    );
+    let border_left_top = unpack2x16float(primitive.border.x);
+    let border_right_bottom = unpack2x16float(primitive.border.y);
+    out.border = vec4(border_left_top, border_right_bottom);
+    var flags = 0u;
+    if out.border.x > 0.0 {
+        flags |= BORDER_LEFT;
+    }
+    if out.border.y > 0.0 {
+        flags |= BORDER_TOP;
+    }
+    if out.border.z > 0.0 {
+        flags |= BORDER_RIGHT;
+    }
+    if out.border.w > 0.0 {
+        flags |= BORDER_BOTTOM;
+    }
+    out.flags = flags;
     out.point = (corner - vec2(0.5)) * size;
-    out.clip = vec4(primitive.border_rb_clip_min.zw, primitive.clip_max_flags_layer.xy);
+    out.clip = primitive.clip;
     out.world_position = world_position;
-    out.texture_layer = bitcast<u32>(primitive.clip_max_flags_layer.w);
+    out.texture_layer = texture_layer;
     return out;
 }
 

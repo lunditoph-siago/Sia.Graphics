@@ -3,34 +3,21 @@ using Sia.Graphics.Text;
 
 namespace Sia.Graphics.UI;
 
-[StructLayout(LayoutKind.Sequential)]
+[StructLayout(LayoutKind.Sequential, Size = 96)]
 internal struct UiPrimitive
 {
     public float TransformM11, TransformM12, TransformM21, TransformM22;
     public float TranslateX, TranslateY, TopLeftX, TopLeftY;
-    public float SizeX, SizeY, UvMinX, UvMinY;
-    public float UvMaxX, UvMaxY, ColorR, ColorG;
-    public float ColorB, ColorA, RadiusTopLeft, RadiusTopRight;
-    public float RadiusBottomRight, RadiusBottomLeft, BorderLeft, BorderTop;
-    public float BorderRight, BorderBottom, ClipLeft, ClipTop;
-    public float ClipRight, ClipBottom, Flags, TextureLayer;
+    public float SizeX, SizeY, UvMinLayer, UvMinY;
+    public uint RadiusTop, RadiusBottom;
+    public uint BorderLeftTop, BorderRightBottom;
+    public float ClipLeft, ClipTop, ClipRight, ClipBottom;
+    public uint PackedColor;
 
     public static UiPrimitive Create(in ExtractedUiNode node)
     {
         var transform = node.Transform ?? UiGlobalTransform.Identity;
         var clip = node.ClipRect ?? new UiClipRect(-1e9f, -1e9f, 2e9f, 2e9f);
-        var flags = UiPrimitiveFlags.None;
-        if (node.Kind == ExtractedUiNodeKind.Border) {
-            if (node.Border.Left > 0f)
-                flags |= UiPrimitiveFlags.BorderLeft;
-            if (node.Border.Top > 0f)
-                flags |= UiPrimitiveFlags.BorderTop;
-            if (node.Border.Right > 0f)
-                flags |= UiPrimitiveFlags.BorderRight;
-            if (node.Border.Bottom > 0f)
-                flags |= UiPrimitiveFlags.BorderBottom;
-        }
-
         return new UiPrimitive {
             TransformM11 = transform.M11,
             TransformM12 = transform.M12,
@@ -42,39 +29,30 @@ internal struct UiPrimitive
             TopLeftY = node.TopLeft.Y,
             SizeX = node.Size.Width,
             SizeY = node.Size.Height,
-            UvMinX = node.UvMin.X,
+            UvMinLayer = node.UvMin.X + (node.TextureKey is FontAtlas atlas ? atlas.Layer : 0),
             UvMinY = node.UvMin.Y,
-            UvMaxX = node.UvMax.X,
-            UvMaxY = node.UvMax.Y,
-            ColorR = node.Color.R,
-            ColorG = node.Color.G,
-            ColorB = node.Color.B,
-            ColorA = node.Color.A,
-            RadiusTopLeft = node.BorderRadius.TopLeft,
-            RadiusTopRight = node.BorderRadius.TopRight,
-            RadiusBottomRight = node.BorderRadius.BottomRight,
-            RadiusBottomLeft = node.BorderRadius.BottomLeft,
-            BorderLeft = node.Border.Left,
-            BorderTop = node.Border.Top,
-            BorderRight = node.Border.Right,
-            BorderBottom = node.Border.Bottom,
+            RadiusTop = PackHalf(node.BorderRadius.TopLeft, node.BorderRadius.TopRight),
+            RadiusBottom = PackHalf(node.BorderRadius.BottomRight, node.BorderRadius.BottomLeft),
+            BorderLeftTop = PackHalf(node.Border.Left, node.Border.Top),
+            BorderRightBottom = PackHalf(node.Border.Right, node.Border.Bottom),
             ClipLeft = clip.X,
             ClipTop = clip.Y,
             ClipRight = clip.Right,
             ClipBottom = clip.Bottom,
-            Flags = BitConverter.UInt32BitsToSingle((uint)flags),
-            TextureLayer = BitConverter.UInt32BitsToSingle(
-                node.TextureKey is FontAtlas atlas ? (uint)atlas.Layer : 0u)
+            PackedColor = PackColor(node.Color)
         };
     }
-}
 
-[Flags]
-internal enum UiPrimitiveFlags : uint
-{
-    None = 0,
-    BorderLeft = 1,
-    BorderTop = 2,
-    BorderRight = 4,
-    BorderBottom = 8
+    private static uint PackHalf(float first, float second) =>
+        BitConverter.HalfToUInt16Bits((Half)first)
+        | (uint)BitConverter.HalfToUInt16Bits((Half)second) << 16;
+
+    private static uint PackColor(Color color) =>
+        PackUnorm(color.R)
+        | PackUnorm(color.G) << 8
+        | PackUnorm(color.B) << 16
+        | PackUnorm(color.A) << 24;
+
+    private static uint PackUnorm(float value) =>
+        (uint)MathF.Round(Math.Clamp(value, 0f, 1f) * 255f);
 }

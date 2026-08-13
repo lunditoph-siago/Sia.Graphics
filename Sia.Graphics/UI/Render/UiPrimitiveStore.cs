@@ -7,7 +7,9 @@ internal sealed class UiPrimitiveStore
     private readonly Dictionary<Entity, int> _stackIndices = [];
     private readonly HashSet<PrimitiveKey> _live = [];
     private readonly List<PrimitiveKey> _stale = [];
+    private readonly List<int> _dirtySlots = [];
     private readonly Stack<int> _freeSlots = [];
+    private bool _paintOrderDirty;
 
     public List<UiPrimitive> Primitives { get; } = [];
     public List<uint> PaintOrder { get; } = [];
@@ -17,6 +19,7 @@ internal sealed class UiPrimitiveStore
         _live.Clear();
         _slotCounts.Clear();
         _stackIndices.Clear();
+        _dirtySlots.Clear();
         PaintOrder.Clear();
         PaintOrder.EnsureCapacity(nodes.Count);
 
@@ -34,6 +37,7 @@ internal sealed class UiPrimitiveStore
                 _slots.Add(key, slot);
             }
             Primitives[slot] = UiPrimitive.Create(node);
+            _dirtySlots.Add(slot);
             PaintOrder.Add((uint)slot);
             _slotCounts.TryGetValue(node.Owner, out var count);
             _slotCounts[node.Owner] = count + 1;
@@ -50,6 +54,7 @@ internal sealed class UiPrimitiveStore
             _slots.Remove(key);
             _freeSlots.Push(slot);
         }
+        _paintOrderDirty = true;
     }
 
     public bool Update(Entity owner, IReadOnlyList<ExtractedUiNode> nodes)
@@ -66,12 +71,22 @@ internal sealed class UiPrimitiveStore
             if (!_slots.TryGetValue(new PrimitiveKey(owner, node.SubOrder), out var slot))
                 return false;
             Primitives[slot] = UiPrimitive.Create(node);
+            _dirtySlots.Add(slot);
             count++;
         }
         var expected = _slotCounts.TryGetValue(owner, out var slotCount) ? slotCount : 0;
         return count == expected
             && (count == 0 || _stackIndices.TryGetValue(owner, out var previousStackIndex)
                 && stackIndex == previousStackIndex);
+    }
+
+    public void ConsumeChanges(List<int> dirtySlots, out bool paintOrderDirty)
+    {
+        dirtySlots.Clear();
+        dirtySlots.AddRange(_dirtySlots);
+        _dirtySlots.Clear();
+        paintOrderDirty = _paintOrderDirty;
+        _paintOrderDirty = false;
     }
 
     private static bool IsRenderable(in ExtractedUiNode node) =>

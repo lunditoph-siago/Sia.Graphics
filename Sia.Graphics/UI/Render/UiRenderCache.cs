@@ -19,6 +19,9 @@ internal sealed class UiRenderCache : IAddon
     internal List<UiPrimitive> Primitives => _store.Primitives;
     internal List<uint> PaintOrder => _store.PaintOrder;
 
+    internal void ConsumeChanges(List<int> dirtySlots, out bool paintOrderDirty) =>
+        _store.ConsumeChanges(dirtySlots, out paintOrderDirty);
+
     internal bool Prepare()
     {
         var changes = _changes

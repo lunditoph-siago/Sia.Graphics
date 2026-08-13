@@ -10,8 +10,7 @@ public sealed class UiRenderer(UiPipeline pipeline)
 {
     private const int MergeGapPrimitives = 16;
     private static readonly ulong _primitiveStride = (ulong)Marshal.SizeOf<UiPrimitive>();
-    private readonly List<UiPrimitive> _uploadedPrimitives = [];
-    private readonly List<uint> _uploadedPaintOrder = [];
+    private readonly List<int> _dirtySlots = [];
     private Entity _primitiveBuffer;
     private Entity _paintOrderBuffer;
     private Entity _bindGroup;
@@ -54,32 +53,24 @@ public sealed class UiRenderer(UiPipeline pipeline)
         if (_uploadedVersion != cache.PreparedVersion) {
             var primitives = CollectionsMarshal.AsSpan(cache.Primitives);
             var paintOrder = CollectionsMarshal.AsSpan(cache.PaintOrder);
+            cache.ConsumeChanges(_dirtySlots, out var paintOrderDirty);
             var primitivesResized = EnsurePrimitiveBufferCapacity(
                 world,
                 (ulong)primitives.Length * _primitiveStride);
             var paintOrderResized = EnsurePaintOrderBufferCapacity(
                 world,
                 (ulong)paintOrder.Length * sizeof(uint));
-            UploadChanged(
+            UploadSlots(
                 queue,
                 _primitiveBuffer.GetWgpu<WGPUBuffer>(),
                 primitives,
-                CollectionsMarshal.AsSpan(_uploadedPrimitives),
+                _dirtySlots,
                 primitivesResized,
                 _primitiveStride,
                 MergeGapPrimitives);
-            UploadChanged(
-                queue,
-                _paintOrderBuffer.GetWgpu<WGPUBuffer>(),
-                paintOrder,
-                CollectionsMarshal.AsSpan(_uploadedPaintOrder),
-                paintOrderResized,
-                sizeof(uint),
-                64);
-            _uploadedPrimitives.Clear();
-            _uploadedPrimitives.AddRange(cache.Primitives);
-            _uploadedPaintOrder.Clear();
-            _uploadedPaintOrder.AddRange(cache.PaintOrder);
+            if ((paintOrderResized || paintOrderDirty) && !paintOrder.IsEmpty) {
+                Wgpu.WriteBuffer(queue, _paintOrderBuffer.GetWgpu<WGPUBuffer>(), 0, paintOrder);
+            }
             _uploadedVersion = cache.PreparedVersion;
         } else if (!_primitiveBuffer.IsValid || !_paintOrderBuffer.IsValid) {
             EnsurePrimitiveBufferCapacity(world, _primitiveStride);
@@ -157,56 +148,52 @@ public sealed class UiRenderer(UiPipeline pipeline)
         _boundTextureVersion = pipeline.TextureVersion;
     }
 
-    private static void UploadChanged<T>(
+    private static void UploadSlots<T>(
         WgpuHandle<WGPUQueue> queue,
         WgpuHandle<WGPUBuffer> buffer,
         ReadOnlySpan<T> current,
-        ReadOnlySpan<T> previous,
+        List<int> dirtySlots,
         bool resized,
         ulong stride,
         int mergeGap)
         where T : unmanaged
     {
-        if (current.IsEmpty)
+        if (current.IsEmpty) {
             return;
-        if (resized || current.Length != previous.Length) {
+        }
+        if (resized) {
             Wgpu.WriteBuffer(queue, buffer, 0, current);
             return;
         }
-
-        var cursor = 0;
-        while (cursor < current.Length) {
-            while (cursor < current.Length && Equal(current, previous, cursor))
-                cursor++;
-            if (cursor == current.Length)
-                break;
-
-            var first = cursor;
-            var last = cursor;
-            cursor++;
-            while (cursor < current.Length) {
-                if (!Equal(current, previous, cursor))
-                    last = cursor;
-                else if (cursor - last > mergeGap)
-                    break;
-                cursor++;
-            }
-
-            Wgpu.WriteBuffer(
-                queue,
-                buffer,
-                (ulong)first * stride,
-                current.Slice(first, last - first + 1));
+        if (dirtySlots.Count == 0) {
+            return;
         }
+
+        dirtySlots.Sort();
+        var first = dirtySlots[0];
+        var last = first;
+        for (var index = 1; index < dirtySlots.Count; index++) {
+            var slot = dirtySlots[index];
+            if (slot <= last + mergeGap + 1) {
+                last = Math.Max(last, slot);
+                continue;
+            }
+            UploadRange(queue, buffer, current, first, last, stride);
+            first = slot;
+            last = slot;
+        }
+        UploadRange(queue, buffer, current, first, last, stride);
     }
 
-    private static bool Equal<T>(
+    private static void UploadRange<T>(
+        WgpuHandle<WGPUQueue> queue,
+        WgpuHandle<WGPUBuffer> buffer,
         ReadOnlySpan<T> current,
-        ReadOnlySpan<T> previous,
-        int index)
+        int first,
+        int last,
+        ulong stride)
         where T : unmanaged =>
-        MemoryMarshal.AsBytes(current.Slice(index, 1))
-            .SequenceEqual(MemoryMarshal.AsBytes(previous.Slice(index, 1)));
+        Wgpu.WriteBuffer(queue, buffer, (ulong)first * stride, current.Slice(first, last - first + 1));
 
     public void Encode(WgpuHandle<WGPURenderPassEncoder> renderPass, uint primitiveCount)
     {

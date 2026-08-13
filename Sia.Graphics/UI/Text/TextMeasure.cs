@@ -9,6 +9,10 @@ public sealed class TextMeasure(
     float fontSize,
     string text) : ILayoutMeasure
 {
+    private float? _lastAvailableWidth;
+    private Size _lastSize;
+    private bool _hasMeasurement;
+
     public ShapedText? LastShaped { get; private set; }
     public float? Baseline => LastShaped?.Baseline;
 
@@ -16,9 +20,15 @@ public sealed class TextMeasure(
     {
         var availableWidth = knownDimensions.Width
             ?? (availableSpace.Width.IsDefinite ? availableSpace.Width.Value : (float?)null);
+        if (_hasMeasurement && _lastAvailableWidth == availableWidth) {
+            return _lastSize;
+        }
         var shaped = shapingProvider?.Shape(text, font, fallbackFonts, fontSize, availableWidth)
             ?? TextShaper.Shape(text, font, fallbackFonts, fontSize, availableWidth);
         LastShaped = shaped;
-        return shaped.Size;
+        _lastAvailableWidth = availableWidth;
+        _lastSize = shaped.Size;
+        _hasMeasurement = true;
+        return _lastSize;
     }
 }

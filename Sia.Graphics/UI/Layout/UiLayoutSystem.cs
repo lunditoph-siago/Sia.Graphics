@@ -9,6 +9,9 @@ public sealed class UiLayoutSystem() : UiInvalidatedSystem(
     private readonly LayoutTree _tree = new();
     private readonly Dictionary<Entity, LayoutNodeId> _map = [];
     private readonly Dictionary<Entity, TextMeasure> _textMeasures = [];
+    private readonly Dictionary<Entity, CachedTextMeasure> _measureCache = [];
+    private readonly HashSet<Entity> _liveTextMeasures = [];
+    private readonly List<Entity> _staleTextMeasures = [];
     private readonly HashSet<Entity> _visited = [];
 
     protected override long GetVersion(UiChangeTracker changes) => changes.LayoutVersion;
@@ -16,6 +19,7 @@ public sealed class UiLayoutSystem() : UiInvalidatedSystem(
     protected override void ExecuteInvalidated(World world, IEntityQuery query)
     {
         var atlases = world.AcquireAddon<FontAtlasSet>();
+        _liveTextMeasures.Clear();
 
         foreach (var root in query) {
             var viewport = root.Get<UiRoot>().Viewport;
@@ -24,7 +28,7 @@ public sealed class UiLayoutSystem() : UiInvalidatedSystem(
             _textMeasures.Clear();
             _visited.Clear();
 
-            var rootId = BuildSubtree(_tree, _map, _textMeasures, root);
+            var rootId = BuildSubtree(root);
             _tree.ComputeLayout(
                 rootId,
                 new AvailableSize(AvailableSpace.Definite(viewport.Width), AvailableSpace.Definite(viewport.Height)));
@@ -33,39 +37,68 @@ public sealed class UiLayoutSystem() : UiInvalidatedSystem(
                 _tree, _map, _textMeasures, atlases, root,
                 UiGlobalTransform.Identity, viewport, null, _visited);
         }
+
+        _staleTextMeasures.Clear();
+        foreach (var entity in _measureCache.Keys) {
+            if (!_liveTextMeasures.Contains(entity)) {
+                _staleTextMeasures.Add(entity);
+            }
+        }
+        foreach (var entity in _staleTextMeasures) {
+            _measureCache.Remove(entity);
+        }
     }
 
-    private static LayoutNodeId BuildSubtree(
-        LayoutTree tree, Dictionary<Entity, LayoutNodeId> map, Dictionary<Entity, TextMeasure> textMeasures,
-        Entity entity)
+    private LayoutNodeId BuildSubtree(Entity entity)
     {
         ILayoutMeasure? measure = null;
         if (entity.Contains<Text>() && entity.Contains<TextStyle>()) {
             var style = entity.Get<TextStyle>();
-            var textMeasure = new TextMeasure(
+            var key = new TextMeasureKey(
+                entity.Get<Text>().Value,
                 style.Font,
                 style.FallbackFonts,
                 style.ShapingProvider,
-                style.FontSize,
-                entity.Get<Text>().Value);
-            textMeasures[entity] = textMeasure;
-            measure = textMeasure;
+                style.FontSize);
+            if (!_measureCache.TryGetValue(entity, out var cached) || cached.Key != key) {
+                cached = new CachedTextMeasure(
+                    key,
+                    new TextMeasure(
+                        key.Font,
+                        key.FallbackFonts,
+                        key.ShapingProvider,
+                        key.FontSize,
+                        key.Text));
+                _measureCache[entity] = cached;
+            }
+            _liveTextMeasures.Add(entity);
+            _textMeasures[entity] = cached.Measure;
+            measure = cached.Measure;
         }
 
-        var id = tree.CreateNode(entity.Get<Node>(), measure);
-        map[entity] = id;
+        var id = _tree.CreateNode(entity.Get<Node>(), measure);
+        _map[entity] = id;
 
         if (entity.Contains<UiChildren>()) {
             var children = entity.Get<UiChildren>().Value;
             foreach (var child in children) {
-                if (!child.IsValid || !child.Contains<Node>() || map.ContainsKey(child))
+                if (!child.IsValid || !child.Contains<Node>() || _map.ContainsKey(child))
                     continue;
-                tree.AddChild(id, BuildSubtree(tree, map, textMeasures, child));
+                _tree.AddChild(id, BuildSubtree(child));
             }
         }
 
         return id;
     }
+
+    private readonly record struct TextMeasureKey(
+        string Text,
+        Font Font,
+        IReadOnlyList<Font> FallbackFonts,
+        ITextShapingProvider? ShapingProvider,
+        float FontSize);
+
+    private readonly record struct CachedTextMeasure(TextMeasureKey Key, TextMeasure Measure);
 
     private static void WriteBack(
         LayoutTree tree, Dictionary<Entity, LayoutNodeId> map, Dictionary<Entity, TextMeasure> textMeasures,

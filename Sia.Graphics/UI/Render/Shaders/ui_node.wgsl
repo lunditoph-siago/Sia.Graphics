@@ -221,7 +221,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     var color = in.color;
     if in.texture_layer != 0u {
-        color *= textureSampleLevel(sprite_texture, sprite_sampler, in.uv, i32(in.texture_layer), 0.0);
+        color.a *= textureSampleLevel(
+            sprite_texture,
+            sprite_sampler,
+            in.uv,
+            i32(in.texture_layer),
+            0.0,
+        ).r;
     }
 
     if enabled(in.flags, BORDER_ANY) {

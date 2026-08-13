@@ -13,6 +13,7 @@ public sealed class UiRenderer(UiPipeline pipeline)
     private Entity _primitiveBuffer;
     private Entity _bindGroup;
     private ulong _primitiveBufferCapacity;
+    private int _boundTextureVersion = -1;
     private long _uploadedVersion = -1;
     private Size? _uploadedViewport;
 
@@ -53,7 +54,8 @@ public sealed class UiRenderer(UiPipeline pipeline)
             EnsurePrimitiveBufferCapacity(world, _primitiveStride);
         }
 
-        pipeline.UploadAtlases(world.AcquireAddon<FontAtlasSet>());
+        pipeline.UploadAtlases(world, world.AcquireAddon<FontAtlasSet>());
+        EnsureBindGroup(world);
         return (uint)cache.Primitives.Count;
     }
 
@@ -80,10 +82,19 @@ public sealed class UiRenderer(UiPipeline pipeline)
             MappedAtCreation = 0
         });
         _primitiveBufferCapacity = newCapacity;
+        return true;
+    }
+
+    private void EnsureBindGroup(World world)
+    {
+        if (_bindGroup.IsValid && _boundTextureVersion == pipeline.TextureVersion)
+            return;
+        if (_bindGroup.IsValid)
+            _bindGroup.Destroy();
         _bindGroup = world.OwnWgpu(pipeline.CreateBindGroup(
             _primitiveBuffer.GetWgpu<WGPUBuffer>(),
             _primitiveBufferCapacity));
-        return true;
+        _boundTextureVersion = pipeline.TextureVersion;
     }
 
     private void UploadChangedPrimitives(

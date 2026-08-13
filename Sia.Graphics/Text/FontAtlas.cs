@@ -21,7 +21,7 @@ public sealed class FontAtlas
         Height = height;
         Layer = layer;
         _packer = new DynamicTextureAtlasBuilder(width, height);
-        _pixels = new byte[width * height * 4];
+        _pixels = new byte[width * height];
     }
 
     public bool TryGetGlyph(ushort glyphId, out GlyphAtlasLocation location) =>
@@ -41,14 +41,8 @@ public sealed class FontAtlas
         }
 
         for (var row = 0; row < glyph.Height; row++) {
-            for (var col = 0; col < glyph.Width; col++) {
-                var coverage = glyph.Coverage[row * glyph.Width + col];
-                var dst = ((y + row) * Width + (x + col)) * 4;
-                _pixels[dst + 0] = 255;
-                _pixels[dst + 1] = 255;
-                _pixels[dst + 2] = 255;
-                _pixels[dst + 3] = coverage;
-            }
+            glyph.Coverage.AsSpan(row * glyph.Width, glyph.Width)
+                .CopyTo(_pixels.AsSpan((y + row) * Width + x, glyph.Width));
         }
         _dirtyLeft = Math.Min(_dirtyLeft, x);
         _dirtyTop = Math.Min(_dirtyTop, y);

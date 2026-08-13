@@ -6,14 +6,18 @@ namespace Sia.Graphics.UI;
 
 public sealed unsafe class UiPipeline
 {
+    private const int InitialTextureArrayLayers = 4;
+
     internal Entity Device { get; }
     internal Entity Queue { get; }
     internal Entity RenderPipeline { get; }
     internal Entity ViewUniformBuffer { get; }
     internal Entity BindGroupLayout { get; }
-    private Entity TextureArray { get; }
-    private Entity TextureArrayView { get; }
+    private Entity TextureArray { get; set; }
+    private Entity TextureArrayView { get; set; }
     private Entity Sampler { get; }
+    private int TextureArrayLayers { get; set; }
+    internal int TextureVersion { get; private set; }
 
     private UiPipeline(
         Entity device,
@@ -23,7 +27,8 @@ public sealed unsafe class UiPipeline
         Entity bindGroupLayout,
         Entity textureArray,
         Entity textureArrayView,
-        Entity sampler)
+        Entity sampler,
+        int textureArrayLayers)
     {
         Device = device;
         Queue = queue;
@@ -33,6 +38,7 @@ public sealed unsafe class UiPipeline
         TextureArray = textureArray;
         TextureArrayView = textureArrayView;
         Sampler = sampler;
+        TextureArrayLayers = textureArrayLayers;
     }
 
     public static UiPipeline Create(World world, Entity device, Entity queue, WGPUTextureFormat targetFormat)
@@ -55,31 +61,10 @@ public sealed unsafe class UiPipeline
             Size = 64,
             MappedAtCreation = 0
         });
-        var textureArray = world.CreateWgpuTexture(device, new WGPUTextureDescriptor {
-            NextInChain = null,
-            Label = default,
-            Usage = WGPUTextureUsage.TextureBinding | WGPUTextureUsage.CopyDst,
-            Dimension = WGPUTextureDimension._2D,
-            Size = new WGPUExtent3D {
-                Width = FontAtlasSet.AtlasSize,
-                Height = FontAtlasSet.AtlasSize,
-                DepthOrArrayLayers = FontAtlasSet.MaxAtlasLayers
-            },
-            Format = WGPUTextureFormat.RGBA8Unorm,
-            MipLevelCount = 1,
-            SampleCount = 1,
-            ViewFormatCount = 0,
-            ViewFormats = null
-        });
-        var textureArrayView = world.CreateWgpuTextureView(
-            textureArray,
-            WGPUTextureViewDescriptor.Default with {
-                Format = WGPUTextureFormat.RGBA8Unorm,
-                Dimension = WGPUTextureViewDimension._2DArray,
-                MipLevelCount = 1,
-                ArrayLayerCount = FontAtlasSet.MaxAtlasLayers,
-                Aspect = WGPUTextureAspect.All
-            });
+        var (textureArray, textureArrayView) = CreateTextureArray(
+            world,
+            device,
+            InitialTextureArrayLayers);
         var sampler = world.CreateWgpuSampler(device, SamplerDescriptor());
         return new UiPipeline(
             device,
@@ -89,7 +74,8 @@ public sealed unsafe class UiPipeline
             bindGroupLayout,
             textureArray,
             textureArrayView,
-            sampler);
+            sampler,
+            InitialTextureArrayLayers);
     }
 
     internal WgpuHandle<WGPUBindGroup> CreateBindGroup(
@@ -123,15 +109,16 @@ public sealed unsafe class UiPipeline
         }
     }
 
-    internal void UploadAtlases(FontAtlasSet atlasSet)
+    internal void UploadAtlases(World world, FontAtlasSet atlasSet)
     {
+        EnsureTextureArrayCapacity(world, atlasSet.Atlases.Count + 1);
         foreach (var atlas in atlasSet.Atlases) {
             if (!atlas.TryTakeDirtyRegion(out var region))
                 continue;
 
             var layout = new WGPUTexelCopyBufferLayout {
                 Offset = 0,
-                BytesPerRow = (uint)(atlas.Width * 4),
+                BytesPerRow = (uint)atlas.Width,
                 RowsPerImage = (uint)atlas.Height
             };
             var destination = new WGPUTexelCopyTextureInfo {
@@ -149,8 +136,8 @@ public sealed unsafe class UiPipeline
                 Height = (uint)region.Height,
                 DepthOrArrayLayers = 1
             };
-            var sourceOffset = (region.Y * atlas.Width + region.X) * 4;
-            var sourceSize = (region.Height - 1) * atlas.Width * 4 + region.Width * 4;
+            var sourceOffset = region.Y * atlas.Width + region.X;
+            var sourceSize = (region.Height - 1) * atlas.Width + region.Width;
             fixed (byte* pixels = atlas.Pixels) {
                 WgpuUnsafe.wgpuQueueWriteTexture(
                     (WGPUQueue*)Queue.GetWgpu<WGPUQueue>().DangerousGetHandle(),
@@ -161,6 +148,99 @@ public sealed unsafe class UiPipeline
                     &extent);
             }
         }
+    }
+
+    private void EnsureTextureArrayCapacity(World world, int requiredLayers)
+    {
+        if (requiredLayers <= TextureArrayLayers)
+            return;
+
+        var newLayers = TextureArrayLayers;
+        while (newLayers < requiredLayers)
+            newLayers = Math.Min(newLayers * 2, FontAtlasSet.MaxAtlasLayers);
+        if (newLayers < requiredLayers)
+            throw new InvalidOperationException("The UI font texture array is full.");
+
+        var (texture, view) = CreateTextureArray(world, Device, newLayers);
+        CopyTextureArray(TextureArray, texture, TextureArrayLayers);
+        TextureArrayView.Destroy();
+        TextureArray.Destroy();
+        TextureArray = texture;
+        TextureArrayView = view;
+        TextureArrayLayers = newLayers;
+        TextureVersion++;
+    }
+
+    private void CopyTextureArray(Entity source, Entity destination, int layers)
+    {
+        var encoder = Wgpu.CreateCommandEncoder(Device.GetWgpu<WGPUDevice>());
+        var commandBuffer = default(WgpuHandle<WGPUCommandBuffer>);
+        try {
+            var sourceInfo = new WGPUTexelCopyTextureInfo {
+                Texture = (WGPUTexture*)source.GetWgpu<WGPUTexture>().DangerousGetHandle(),
+                MipLevel = 0,
+                Origin = default,
+                Aspect = WGPUTextureAspect.All
+            };
+            var destinationInfo = new WGPUTexelCopyTextureInfo {
+                Texture = (WGPUTexture*)destination.GetWgpu<WGPUTexture>().DangerousGetHandle(),
+                MipLevel = 0,
+                Origin = default,
+                Aspect = WGPUTextureAspect.All
+            };
+            var extent = new WGPUExtent3D {
+                Width = FontAtlasSet.AtlasSize,
+                Height = FontAtlasSet.AtlasSize,
+                DepthOrArrayLayers = (uint)layers
+            };
+            WgpuUnsafe.wgpuCommandEncoderCopyTextureToTexture(
+                (WGPUCommandEncoder*)encoder.DangerousGetHandle(),
+                &sourceInfo,
+                &destinationInfo,
+                &extent);
+            var descriptor = WGPUCommandBufferDescriptor.Default;
+            commandBuffer = Wgpu.FinishCommandEncoder(encoder, in descriptor);
+            Wgpu.Submit(Queue.GetWgpu<WGPUQueue>(), [commandBuffer]);
+        }
+        finally {
+            Wgpu.Release(ref commandBuffer);
+            Wgpu.Release(ref encoder);
+        }
+    }
+
+    private static (Entity Texture, Entity View) CreateTextureArray(
+        World world,
+        Entity device,
+        int layers)
+    {
+        var texture = world.CreateWgpuTexture(device, new WGPUTextureDescriptor {
+            NextInChain = null,
+            Label = default,
+            Usage = WGPUTextureUsage.TextureBinding
+                | WGPUTextureUsage.CopySrc
+                | WGPUTextureUsage.CopyDst,
+            Dimension = WGPUTextureDimension._2D,
+            Size = new WGPUExtent3D {
+                Width = FontAtlasSet.AtlasSize,
+                Height = FontAtlasSet.AtlasSize,
+                DepthOrArrayLayers = (uint)layers
+            },
+            Format = WGPUTextureFormat.R8Unorm,
+            MipLevelCount = 1,
+            SampleCount = 1,
+            ViewFormatCount = 0,
+            ViewFormats = null
+        });
+        var view = world.CreateWgpuTextureView(
+            texture,
+            WGPUTextureViewDescriptor.Default with {
+                Format = WGPUTextureFormat.R8Unorm,
+                Dimension = WGPUTextureViewDimension._2DArray,
+                MipLevelCount = 1,
+                ArrayLayerCount = (uint)layers,
+                Aspect = WGPUTextureAspect.All
+            });
+        return (texture, view);
     }
 
     private static WgpuHandle<WGPUBindGroupLayout> CreateBindGroupLayout(WgpuHandle<WGPUDevice> device)

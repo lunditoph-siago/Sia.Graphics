@@ -34,6 +34,7 @@ internal sealed partial class CornellBoxApp
         _previousAnimationFrameTime = currentTime;
 
         HandleInput(deltaTime);
+        UpdateUi();
         if (ResizeIfNeeded()) {
             RenderFrame();
             Wgpu.ProcessEvents(_instance);
@@ -70,6 +71,7 @@ internal sealed partial class CornellBoxApp
 
         CreateUniformBuffer();
         CreatePipelines();
+        InitializeUi();
         ResizeIfNeeded(force: true);
     }
 }

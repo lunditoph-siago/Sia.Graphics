@@ -71,6 +71,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             previousTime = currentTime;
 
             HandleInput(deltaTime);
+            UpdateUi();
             if (!ResizeIfNeeded()) {
                 Thread.Sleep(16);
                 continue;
@@ -110,6 +111,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
 
         CreateUniformBuffer();
         CreatePipelines();
+        InitializeUi();
         ResizeIfNeeded(force: true);
     }
 
@@ -514,6 +516,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             };
             surfaceView = Wgpu.CreateTextureView(surfaceTexture, in surfaceViewDescriptor);
             WriteUniforms();
+            var uiPrimitiveCount = PrepareUiFrame();
 
             var writeIndex = 1 - _readIndex;
             var encoder = Wgpu.CreateCommandEncoder(_device);
@@ -529,6 +532,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
                     surfaceView,
                     _presentationPipeline,
                     _accumulationBindGroups[writeIndex]);
+                EncodeUi(encoder, surfaceView, uiPrimitiveCount);
 
                 var commandBufferDescriptor = new WGPUCommandBufferDescriptor {
                     NextInChain = null,
@@ -645,12 +649,16 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         }
         if (IsDown(Key.W)) {
             _cameraDistance = Math.Clamp(_cameraDistance - dollyStep, 2.45f, 5.0f);
-            _focusDistance = _cameraDistance;
+            if (_lockFocus) {
+                _focusDistance = _cameraDistance;
+            }
             cameraChanged = true;
         }
         if (IsDown(Key.S)) {
             _cameraDistance = Math.Clamp(_cameraDistance + dollyStep, 2.45f, 5.0f);
-            _focusDistance = _cameraDistance;
+            if (_lockFocus) {
+                _focusDistance = _cameraDistance;
+            }
             cameraChanged = true;
         }
 
@@ -741,6 +749,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         _disposed = true;
 
         ReleaseAccumulationResources();
+        DisposeUi();
         Wgpu.Release(ref _presentationPipeline);
         Wgpu.Release(ref _pathPipeline);
         Wgpu.Release(ref _pipelineLayout);

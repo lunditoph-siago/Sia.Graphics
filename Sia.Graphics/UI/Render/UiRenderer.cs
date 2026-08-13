@@ -8,8 +8,11 @@ namespace Sia.Graphics.UI;
 
 public sealed class UiRenderer(UiPipeline pipeline)
 {
-    private Entity _vertexBuffer;
-    private ulong _vertexBufferCapacity;
+    private static readonly ulong _primitiveStride = (ulong)Marshal.SizeOf<UiPrimitive>();
+    private readonly List<UiPrimitive> _uploadedPrimitives = [];
+    private Entity _primitiveBuffer;
+    private Entity _bindGroup;
+    private ulong _primitiveBufferCapacity;
     private long _uploadedVersion = -1;
     private Size? _uploadedViewport;
 
@@ -20,64 +23,113 @@ public sealed class UiRenderer(UiPipeline pipeline)
         Size viewport,
         WGPULoadOp loadOp = WGPULoadOp.Load)
     {
-        var batches = PrepareFrame(world, viewport);
-        var view = context.GetTextureView(output);
-        EncodeDrawCalls(world, context.CommandEncoder, view, batches, loadOp);
+        var primitiveCount = PrepareFrame(world, viewport);
+        EncodeDrawCalls(context.CommandEncoder, context.GetTextureView(output), primitiveCount, loadOp);
     }
 
-    public List<UiBatch> PrepareFrame(World world, Size viewport)
+    public uint PrepareFrame(World world, Size viewport)
     {
         var cache = world.AcquireAddon<UiRenderCache>();
         cache.Prepare();
         var queue = pipeline.Queue.GetWgpu<WGPUQueue>();
 
         if (_uploadedViewport != viewport) {
-            var projection = UiOrthographicProjection.Build(viewport);
             Wgpu.WriteBuffer<float>(
-                queue, pipeline.ViewUniformBuffer.GetWgpu<WGPUBuffer>(), 0, projection);
+                queue,
+                pipeline.ViewUniformBuffer.GetWgpu<WGPUBuffer>(),
+                0,
+                UiOrthographicProjection.Build(viewport));
             _uploadedViewport = viewport;
         }
 
         if (_uploadedVersion != cache.PreparedVersion) {
-            var vertices = CollectionsMarshal.AsSpan(cache.VertexStorage);
-            if (vertices.Length > 0) {
-                EnsureVertexBufferCapacity(world, (ulong)vertices.Length * UiVertexLayout.Stride);
-                Wgpu.WriteBuffer<UiVertex>(
-                    queue, _vertexBuffer.GetWgpu<WGPUBuffer>(), 0, vertices);
-            }
+            var primitives = CollectionsMarshal.AsSpan(cache.Primitives);
+            var resized = EnsurePrimitiveBufferCapacity(world, (ulong)primitives.Length * _primitiveStride);
+            UploadChangedPrimitives(queue, primitives, resized);
+            _uploadedPrimitives.Clear();
+            _uploadedPrimitives.AddRange(cache.Primitives);
             _uploadedVersion = cache.PreparedVersion;
+        } else if (!_primitiveBuffer.IsValid) {
+            EnsurePrimitiveBufferCapacity(world, _primitiveStride);
         }
 
-        return cache.Batches;
+        pipeline.UploadAtlases(world.AcquireAddon<FontAtlasSet>());
+        return (uint)cache.Primitives.Count;
     }
 
-    private void EnsureVertexBufferCapacity(World world, ulong requiredBytes)
+    private bool EnsurePrimitiveBufferCapacity(World world, ulong requiredBytes)
     {
-        if (_vertexBufferCapacity >= requiredBytes)
-            return;
+        requiredBytes = Math.Max(requiredBytes, _primitiveStride);
+        if (_primitiveBufferCapacity >= requiredBytes)
+            return false;
 
-        var newCapacity = _vertexBufferCapacity == 0 ? requiredBytes : _vertexBufferCapacity;
+        var newCapacity = Math.Max(_primitiveBufferCapacity, _primitiveStride * 256);
         while (newCapacity < requiredBytes)
             newCapacity *= 2;
 
-        if (_vertexBuffer.IsValid)
-            _vertexBuffer.Destroy();
+        if (_bindGroup.IsValid)
+            _bindGroup.Destroy();
+        if (_primitiveBuffer.IsValid)
+            _primitiveBuffer.Destroy();
 
-        _vertexBuffer = world.CreateWgpuBuffer(pipeline.Device, new WGPUBufferDescriptor {
+        _primitiveBuffer = world.CreateWgpuBuffer(pipeline.Device, new WGPUBufferDescriptor {
             NextInChain = null,
             Label = default,
-            Usage = WGPUBufferUsage.Vertex | WGPUBufferUsage.CopyDst,
+            Usage = WGPUBufferUsage.Storage | WGPUBufferUsage.CopyDst,
             Size = newCapacity,
             MappedAtCreation = 0
         });
-        _vertexBufferCapacity = newCapacity;
+        _primitiveBufferCapacity = newCapacity;
+        _bindGroup = world.OwnWgpu(pipeline.CreateBindGroup(
+            _primitiveBuffer.GetWgpu<WGPUBuffer>(),
+            _primitiveBufferCapacity));
+        return true;
     }
 
+    private void UploadChangedPrimitives(
+        WgpuHandle<WGPUQueue> queue,
+        ReadOnlySpan<UiPrimitive> primitives,
+        bool resized)
+    {
+        if (primitives.IsEmpty)
+            return;
+        if (resized || primitives.Length != _uploadedPrimitives.Count) {
+            Wgpu.WriteBuffer(
+                queue,
+                _primitiveBuffer.GetWgpu<WGPUBuffer>(),
+                0,
+                primitives);
+            return;
+        }
+
+        var previous = CollectionsMarshal.AsSpan(_uploadedPrimitives);
+        var first = 0;
+        while (first < primitives.Length && Equal(primitives, previous, first))
+            first++;
+        if (first == primitives.Length)
+            return;
+
+        var last = primitives.Length - 1;
+        while (last > first && Equal(primitives, previous, last))
+            last--;
+        Wgpu.WriteBuffer(
+            queue,
+            _primitiveBuffer.GetWgpu<WGPUBuffer>(),
+            (ulong)first * _primitiveStride,
+            primitives.Slice(first, last - first + 1));
+    }
+
+    private static bool Equal(
+        ReadOnlySpan<UiPrimitive> current,
+        ReadOnlySpan<UiPrimitive> previous,
+        int index) =>
+        MemoryMarshal.AsBytes(current.Slice(index, 1))
+            .SequenceEqual(MemoryMarshal.AsBytes(previous.Slice(index, 1)));
+
     public unsafe void EncodeDrawCalls(
-        World world,
         WgpuHandle<WGPUCommandEncoder> encoder,
         WgpuHandle<WGPUTextureView> target,
-        List<UiBatch> batches,
+        uint primitiveCount,
         WGPULoadOp loadOp)
     {
         Span<WGPURenderPassColorAttachment> colorAttachments = stackalloc WGPURenderPassColorAttachment[1];
@@ -94,19 +146,9 @@ public sealed class UiRenderer(UiPipeline pipeline)
 
             var renderPass = Wgpu.BeginRenderPass(encoder, in descriptor);
             Wgpu.SetRenderPipeline(renderPass, pipeline.RenderPipeline.GetWgpu<WGPURenderPipeline>());
-            Wgpu.SetBindGroup(renderPass, 0, pipeline.ViewBindGroup.GetWgpu<WGPUBindGroup>());
-
-            if (batches.Count > 0) {
-                Wgpu.SetVertexBuffer(renderPass, 0, _vertexBuffer.GetWgpu<WGPUBuffer>());
-                foreach (var batch in batches) {
-                    var textureBindGroup = batch.TextureKey is FontAtlas atlas
-                        ? atlas.GetOrCreateBindGroup(world, pipeline)
-                        : pipeline.DefaultTextureBindGroup.GetWgpu<WGPUBindGroup>();
-                    Wgpu.SetBindGroup(renderPass, 1, textureBindGroup);
-                    Wgpu.Draw(renderPass, (uint)batch.VertexCount, firstVertex: (uint)batch.VertexOffset);
-                }
-            }
-
+            Wgpu.SetBindGroup(renderPass, 0, _bindGroup.GetWgpu<WGPUBindGroup>());
+            if (primitiveCount > 0)
+                Wgpu.Draw(renderPass, 6, primitiveCount);
             Wgpu.EndRenderPass(renderPass);
         }
     }

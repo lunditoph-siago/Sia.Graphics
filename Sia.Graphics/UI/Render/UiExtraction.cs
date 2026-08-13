@@ -3,21 +3,8 @@ using Sia.Graphics.Text;
 
 namespace Sia.Graphics.UI;
 
-public static class UiExtraction
+internal static class UiExtraction
 {
-    public static List<ExtractedUiNode> Extract(World world)
-    {
-        using var backgrounds = world.Query(
-            Matchers.Of<ComputedNode, UiGlobalTransform, BackgroundColor>());
-        using var borders = world.Query(
-            Matchers.Of<ComputedNode, UiGlobalTransform, BorderColor>());
-        using var text = world.Query(
-            Matchers.Of<ComputedNode, UiGlobalTransform, TextLayoutInfo, TextStyle>());
-        var result = new List<ExtractedUiNode>();
-        Extract(backgrounds, borders, text, result);
-        return result;
-    }
-
     internal static void Extract(
         IEntityQuery backgrounds,
         IEntityQuery borders,

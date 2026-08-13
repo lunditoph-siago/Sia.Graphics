@@ -5,17 +5,15 @@ namespace Sia.Graphics.UI;
 internal sealed class UiRenderCache : IAddon
 {
     private readonly List<ExtractedUiNode> _nodes = [];
-    private readonly List<UiVertex> _vertices = [];
-    private readonly List<UiBatch> _batches = [];
+    private readonly List<UiPrimitive> _primitives = [];
     private UiChangeTracker? _changes;
     private IEntityQuery? _backgrounds;
     private IEntityQuery? _borders;
     private IEntityQuery? _text;
     private long _preparedVersion = -1;
 
-    internal List<UiBatch> Batches => _batches;
     internal long PreparedVersion => _preparedVersion;
-    internal List<UiVertex> VertexStorage => _vertices;
+    internal List<UiPrimitive> Primitives => _primitives;
 
     internal bool Prepare()
     {
@@ -25,7 +23,7 @@ internal sealed class UiRenderCache : IAddon
             return false;
 
         UiExtraction.Extract(_backgrounds!, _borders!, _text!, _nodes);
-        UiBatcher.Build(_nodes, _vertices, _batches);
+        UiPrimitiveBuilder.Build(_nodes, _primitives);
         _preparedVersion = changes.RenderVersion;
         return true;
     }

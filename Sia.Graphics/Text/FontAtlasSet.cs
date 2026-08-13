@@ -4,9 +4,12 @@ namespace Sia.Graphics.Text;
 
 public sealed class FontAtlasSet : IAddon
 {
-    private const int MinAtlasSize = 256;
+    internal const int AtlasSize = 1024;
+    internal const int MaxAtlasLayers = 64;
 
     private readonly Dictionary<FontAtlasKey, List<FontAtlas>> _atlases = [];
+    private readonly List<FontAtlas> _allAtlases = [];
+    internal IReadOnlyList<FontAtlas> Atlases => _allAtlases;
 
     public GlyphAtlasInfo GetOrAddGlyph(Font font, float pixelSize, ushort glyphId)
     {
@@ -25,9 +28,11 @@ public sealed class FontAtlasSet : IAddon
                 return new GlyphAtlasInfo(atlas, location);
         }
 
-        var size = Math.Max(MinAtlasSize, NextPowerOfTwo(Math.Max(glyph.Width, glyph.Height) * 4));
-        var newAtlas = new FontAtlas(size, size);
+        if (_allAtlases.Count >= MaxAtlasLayers - 1)
+            throw new InvalidOperationException("The UI font texture array is full.");
+        var newAtlas = new FontAtlas(AtlasSize, AtlasSize, _allAtlases.Count + 1);
         atlases.Add(newAtlas);
+        _allAtlases.Add(newAtlas);
 
         if (!newAtlas.TryAddGlyph(glyphId, glyph, out var newLocation)) {
             newLocation = new GlyphAtlasLocation(0, 0, 0, 0, glyph.OriginX, glyph.OriginY);
@@ -35,11 +40,4 @@ public sealed class FontAtlasSet : IAddon
         return new GlyphAtlasInfo(newAtlas, newLocation);
     }
 
-    private static int NextPowerOfTwo(int value)
-    {
-        var power = 1;
-        while (power < value)
-            power *= 2;
-        return power;
-    }
 }

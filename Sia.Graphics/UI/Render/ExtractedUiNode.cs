@@ -1,12 +1,12 @@
 namespace Sia.Graphics.UI;
 
-public enum ExtractedUiNodeKind
+internal enum ExtractedUiNodeKind
 {
     Background,
     Border
 }
 
-public readonly record struct ExtractedUiNode(
+internal readonly record struct ExtractedUiNode(
     Point TopLeft,
     Size Size,
     Color Color,

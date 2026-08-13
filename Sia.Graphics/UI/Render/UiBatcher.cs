@@ -6,6 +6,18 @@ public static class UiBatcher
     {
         var vertices = new List<UiVertex>(nodes.Count * 6);
         var batches = new List<UiBatch>();
+        Build(nodes, vertices, batches);
+        return (vertices.ToArray(), batches);
+    }
+
+    public static void Build(
+        IReadOnlyList<ExtractedUiNode> nodes,
+        List<UiVertex> vertices,
+        List<UiBatch> batches)
+    {
+        vertices.Clear();
+        batches.Clear();
+        vertices.EnsureCapacity(nodes.Count * 6);
 
         object? currentKey = null;
         var batchStart = 0;
@@ -25,8 +37,6 @@ public static class UiBatcher
 
         if (hasBatch)
             batches.Add(new UiBatch(currentKey, batchStart, vertices.Count - batchStart));
-
-        return (vertices.ToArray(), batches);
     }
 
     private static void AppendQuad(

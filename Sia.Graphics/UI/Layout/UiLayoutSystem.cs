@@ -6,8 +6,14 @@ namespace Sia.Graphics.UI;
 public sealed class UiLayoutSystem() : SystemBase(
     Matchers.Of<Node, ComputedNode, UiGlobalTransform, UiRoot>())
 {
+    private long _lastLayoutVersion = -1;
+
     public override void Execute(World world, IEntityQuery query)
     {
+        var changes = world.AcquireAddon<UiChangeTracker>();
+        if (_lastLayoutVersion == changes.LayoutVersion)
+            return;
+
         var atlases = world.AcquireAddon<FontAtlasSet>();
 
         foreach (var root in query) {
@@ -25,6 +31,8 @@ public sealed class UiLayoutSystem() : SystemBase(
                 tree, map, textMeasures, atlases, root,
                 UiGlobalTransform.Identity, viewport, null, []);
         }
+
+        _lastLayoutVersion = changes.LayoutVersion;
     }
 
     private static LayoutNodeId BuildSubtree(
@@ -77,7 +85,7 @@ public sealed class UiLayoutSystem() : SystemBase(
 
         var world = parentTransform * UiGlobalTransform.Translation(layout.Location.X, layout.Location.Y);
 
-        ref var computed = ref entity.Get<ComputedNode>();
+        var computed = entity.Get<ComputedNode>();
         computed.Size = layout.Size;
         computed.UnroundedSize = layout.Size;
         computed.ContentSize = layout.ContentSize;
@@ -99,7 +107,10 @@ public sealed class UiLayoutSystem() : SystemBase(
         }
         computed.ClipRect = clip;
 
-        entity.Get<UiGlobalTransform>() = world;
+        if (entity.Get<ComputedNode>() != computed)
+            entity.Set(computed);
+        if (entity.Get<UiGlobalTransform>() != world)
+            entity.Set(world);
 
         if (textMeasures.TryGetValue(entity, out var measure) && entity.Contains<TextLayoutInfo>())
             WriteGlyphs(entity, measure, atlases);
@@ -167,11 +178,12 @@ public sealed class UiLayoutSystem() : SystemBase(
 
     private static void WriteGlyphs(Entity entity, TextMeasure measure, FontAtlasSet atlases)
     {
-        ref var info = ref entity.Get<TextLayoutInfo>();
-        info.Glyphs.Clear();
+        var glyphs = new List<PositionedGlyph>();
 
-        if (measure.LastShaped is not { } shaped)
+        if (measure.LastShaped is not { } shaped) {
+            entity.Set(new TextLayoutInfo { Glyphs = glyphs });
             return;
+        }
 
         var style = entity.Get<TextStyle>();
         foreach (var glyph in shaped.Glyphs) {
@@ -179,12 +191,13 @@ public sealed class UiLayoutSystem() : SystemBase(
             var atlasInfo = atlases.GetOrAddGlyph(glyphFont, style.FontSize, glyph.GlyphId);
             if (atlasInfo.Location.Width == 0 || atlasInfo.Location.Height == 0)
                 continue;
-            info.Glyphs.Add(new PositionedGlyph(
+            glyphs.Add(new PositionedGlyph(
                 glyph.Position,
                 atlasInfo,
                 glyph.Codepoint,
                 glyph.GlyphId,
                 glyph.UsedFallback));
         }
+        entity.Set(new TextLayoutInfo { Glyphs = glyphs });
     }
 }

@@ -17,12 +17,53 @@ public static class UiRenderGraphHooks
         Size viewport,
         WGPULoadOp loadOp = WGPULoadOp.Load)
     {
+        var declaration = hooks.UseRef(() => new UiPassDeclaration(output));
+        if (declaration.Value.Output != output)
+            declaration.Value = new(output);
+
+        var state = hooks.UseRef(static () => new UiRenderPassState());
+        state.Value.Update(world, renderer, output, viewport, loadOp);
+
         hooks.UseRenderGraphPass(
             registry, pass, "ui",
-            declaration => declaration.Write(output, RenderGraphTextureUsage.RenderAttachment));
+            declaration.Value.Declare);
 
         hooks.UseWgpuRenderGraphPassHandler(
             registry, pass,
-            context => renderer.Render(world, context, output, viewport, loadOp));
+            state.Value.Render);
+    }
+
+    private sealed class UiPassDeclaration(RenderGraphTextureKey output)
+    {
+        public RenderGraphTextureKey Output { get; } = output;
+
+        public void Declare(RenderGraphPassDeclarationBuilder declaration) =>
+            declaration.Write(Output, RenderGraphTextureUsage.RenderAttachment);
+    }
+
+    private sealed class UiRenderPassState
+    {
+        private World? _world;
+        private UiRenderer? _renderer;
+        private RenderGraphTextureKey _output;
+        private Size _viewport;
+        private WGPULoadOp _loadOp;
+
+        public void Update(
+            World world,
+            UiRenderer renderer,
+            RenderGraphTextureKey output,
+            Size viewport,
+            WGPULoadOp loadOp)
+        {
+            _world = world;
+            _renderer = renderer;
+            _output = output;
+            _viewport = viewport;
+            _loadOp = loadOp;
+        }
+
+        public void Render(WgpuReactiveRenderGraphPassContext context) =>
+            _renderer!.Render(_world!, context, _output, _viewport, _loadOp);
     }
 }

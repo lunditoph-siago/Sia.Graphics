@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Sia;
 using Sia.Graphics.Reactive;
 using Sia.Graphics.Text;
@@ -9,6 +10,8 @@ public sealed class UiRenderer(UiPipeline pipeline)
 {
     private Entity _vertexBuffer;
     private ulong _vertexBufferCapacity;
+    private long _uploadedVersion = -1;
+    private Size? _uploadedViewport;
 
     public void Render(
         World world,
@@ -24,20 +27,28 @@ public sealed class UiRenderer(UiPipeline pipeline)
 
     public List<UiBatch> PrepareFrame(World world, Size viewport)
     {
-        var nodes = UiExtraction.Extract(world);
-        var (vertices, batches) = UiBatcher.Build(nodes);
-
+        var cache = world.AcquireAddon<UiRenderCache>();
+        cache.Prepare();
         var queue = pipeline.Queue.GetWgpu<WGPUQueue>();
 
-        var projection = UiOrthographicProjection.Build(viewport);
-        Wgpu.WriteBuffer<float>(queue, pipeline.ViewUniformBuffer.GetWgpu<WGPUBuffer>(), 0, projection);
-
-        if (vertices.Length > 0) {
-            EnsureVertexBufferCapacity(world, (ulong)vertices.Length * UiVertexLayout.Stride);
-            Wgpu.WriteBuffer<UiVertex>(queue, _vertexBuffer.GetWgpu<WGPUBuffer>(), 0, vertices);
+        if (_uploadedViewport != viewport) {
+            var projection = UiOrthographicProjection.Build(viewport);
+            Wgpu.WriteBuffer<float>(
+                queue, pipeline.ViewUniformBuffer.GetWgpu<WGPUBuffer>(), 0, projection);
+            _uploadedViewport = viewport;
         }
 
-        return batches;
+        if (_uploadedVersion != cache.PreparedVersion) {
+            var vertices = CollectionsMarshal.AsSpan(cache.VertexStorage);
+            if (vertices.Length > 0) {
+                EnsureVertexBufferCapacity(world, (ulong)vertices.Length * UiVertexLayout.Stride);
+                Wgpu.WriteBuffer<UiVertex>(
+                    queue, _vertexBuffer.GetWgpu<WGPUBuffer>(), 0, vertices);
+            }
+            _uploadedVersion = cache.PreparedVersion;
+        }
+
+        return cache.Batches;
     }
 
     private void EnsureVertexBufferCapacity(World world, ulong requiredBytes)

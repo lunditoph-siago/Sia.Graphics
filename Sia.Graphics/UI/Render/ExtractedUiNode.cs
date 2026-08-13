@@ -18,7 +18,8 @@ public readonly record struct ExtractedUiNode(
     Point UvMin,
     Point UvMax,
     UiClipRect? ClipRect = null,
-    UiGlobalTransform? Transform = null)
+    UiGlobalTransform? Transform = null,
+    int SubOrder = 0)
 {
     public static ExtractedUiNode SolidColor(
         Point topLeft, Size size, Color color, ResolvedBorderRadius radius, BorderEdges border,

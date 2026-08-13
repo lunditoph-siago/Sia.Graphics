@@ -21,7 +21,6 @@ public sealed class UiChangeTracker : IAddon
     {
         LayoutVersion++;
         RenderVersion++;
-        RenderStructureVersion++;
     }
 
     public void MarkRenderDirty()

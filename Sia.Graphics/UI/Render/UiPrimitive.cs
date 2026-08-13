@@ -8,7 +8,7 @@ internal struct UiPrimitive
 {
     public float TransformM11, TransformM12, TransformM21, TransformM22;
     public float TranslateX, TranslateY, TopLeftX, TopLeftY;
-    public float SizeX, SizeY, UvMinLayer, UvMinY;
+    public float SizeX, SizeY, PackedUvMinXAndLayer, UvMinY;
     public uint RadiusTop, RadiusBottom;
     public uint BorderLeftTop, BorderRightBottom;
     public float ClipLeft, ClipTop, ClipRight, ClipBottom;
@@ -29,7 +29,8 @@ internal struct UiPrimitive
             TopLeftY = node.TopLeft.Y,
             SizeX = node.Size.Width,
             SizeY = node.Size.Height,
-            UvMinLayer = node.UvMin.X + (node.TextureKey is FontAtlas atlas ? atlas.Layer : 0),
+            PackedUvMinXAndLayer =
+                node.UvMin.X + (node.TextureKey is FontAtlas atlas ? atlas.Layer : 0),
             UvMinY = node.UvMin.Y,
             RadiusTop = PackHalf(node.BorderRadius.TopLeft, node.BorderRadius.TopRight),
             RadiusBottom = PackHalf(node.BorderRadius.BottomRight, node.BorderRadius.BottomLeft),

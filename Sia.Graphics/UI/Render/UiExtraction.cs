@@ -14,60 +14,79 @@ internal static class UiExtraction
         result.Clear();
         backgrounds.ForEach(
             result,
-            static (in List<ExtractedUiNode> output, Entity entity) => {
-            var computed = entity.Get<ComputedNode>();
-            var transform = entity.Get<UiGlobalTransform>();
-            var background = entity.Get<BackgroundColor>();
-            var topLeft = Point.Zero;
-            output.Add(ExtractedUiNode.SolidColor(
-                entity, topLeft, computed.Size, background.Value, computed.BorderRadius,
-                BorderEdges.Zero, computed.StackIndex) with {
-                    ClipRect = computed.ClipRect,
-                    Transform = transform,
-                    SubOrder = 0
-                });
-        });
+            static (in List<ExtractedUiNode> output, Entity entity) =>
+                AppendBackground(entity, output));
         borders.ForEach(
             result,
-            static (in List<ExtractedUiNode> output, Entity entity) => {
-            var computed = entity.Get<ComputedNode>();
-            var transform = entity.Get<UiGlobalTransform>();
-            var borderColor = entity.Get<BorderColor>();
-            var border = computed.Border;
-            if (border.Left > 0f || border.Top > 0f || border.Right > 0f || border.Bottom > 0f) {
-                output.Add(ExtractedUiNode.SolidColor(
-                    entity, Point.Zero, computed.Size, borderColor.Value, computed.BorderRadius,
-                    border, computed.StackIndex) with {
-                        ClipRect = computed.ClipRect,
-                        Transform = transform,
-                        SubOrder = 1
-                    });
-            }
-        });
+            static (in List<ExtractedUiNode> output, Entity entity) =>
+                AppendBorder(entity, output));
         text.ForEach(
             result,
-            static (in List<ExtractedUiNode> output, Entity entity) =>
-                AppendGlyphs(
-                    entity,
-                    entity.Get<ComputedNode>(),
-                    entity.Get<UiGlobalTransform>(),
-                    entity.Get<TextLayoutInfo>(),
-                    entity.Get<TextStyle>(),
-                    output));
+            static (in List<ExtractedUiNode> output, Entity entity) => AppendGlyphs(entity, output));
         result.Sort(static (left, right) => {
             var stackOrder = left.StackIndex.CompareTo(right.StackIndex);
             return stackOrder != 0 ? stackOrder : left.SubOrder.CompareTo(right.SubOrder);
         });
     }
 
-    private static void AppendGlyphs(
-        Entity entity,
-        in ComputedNode computed,
-        UiGlobalTransform transform,
-        in TextLayoutInfo layout,
-        in TextStyle style,
-        List<ExtractedUiNode> result)
+    internal static void Extract(Entity entity, List<ExtractedUiNode> result)
     {
+        result.Clear();
+        if (!entity.IsValid)
+            return;
+        if (entity.Contains<ComputedNode>() && entity.Contains<UiGlobalTransform>()) {
+            if (entity.Contains<BackgroundColor>())
+                AppendBackground(entity, result);
+            if (entity.Contains<BorderColor>())
+                AppendBorder(entity, result);
+            if (entity.Contains<TextLayoutInfo>() && entity.Contains<TextStyle>())
+                AppendGlyphs(entity, result);
+        }
+    }
+
+    private static void AppendBackground(Entity entity, List<ExtractedUiNode> result)
+    {
+        var computed = entity.Get<ComputedNode>();
+        result.Add(ExtractedUiNode.SolidColor(
+            entity,
+            Point.Zero,
+            computed.Size,
+            entity.Get<BackgroundColor>().Value,
+            computed.BorderRadius,
+            BorderEdges.Zero,
+            computed.StackIndex) with {
+                ClipRect = computed.ClipRect,
+                Transform = entity.Get<UiGlobalTransform>(),
+                SubOrder = 0
+            });
+    }
+
+    private static void AppendBorder(Entity entity, List<ExtractedUiNode> result)
+    {
+        var computed = entity.Get<ComputedNode>();
+        var border = computed.Border;
+        if (border.Left <= 0f && border.Top <= 0f && border.Right <= 0f && border.Bottom <= 0f)
+            return;
+        result.Add(ExtractedUiNode.SolidColor(
+            entity,
+            Point.Zero,
+            computed.Size,
+            entity.Get<BorderColor>().Value,
+            computed.BorderRadius,
+            border,
+            computed.StackIndex) with {
+                ClipRect = computed.ClipRect,
+                Transform = entity.Get<UiGlobalTransform>(),
+                SubOrder = 1
+            });
+    }
+
+    private static void AppendGlyphs(Entity entity, List<ExtractedUiNode> result)
+    {
+        var computed = entity.Get<ComputedNode>();
+        var transform = entity.Get<UiGlobalTransform>();
+        var layout = entity.Get<TextLayoutInfo>();
+        var style = entity.Get<TextStyle>();
         var contentOffset = new Point(
             computed.Border.Left + computed.Padding.Left,
             computed.Border.Top + computed.Padding.Top);

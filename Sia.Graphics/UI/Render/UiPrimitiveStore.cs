@@ -3,6 +3,8 @@ namespace Sia.Graphics.UI;
 internal sealed class UiPrimitiveStore
 {
     private readonly Dictionary<PrimitiveKey, int> _slots = [];
+    private readonly Dictionary<Entity, int> _slotCounts = [];
+    private readonly Dictionary<Entity, int> _stackIndices = [];
     private readonly HashSet<PrimitiveKey> _live = [];
     private readonly List<PrimitiveKey> _stale = [];
     private readonly Stack<int> _freeSlots = [];
@@ -13,11 +15,13 @@ internal sealed class UiPrimitiveStore
     public void Build(IReadOnlyList<ExtractedUiNode> nodes)
     {
         _live.Clear();
+        _slotCounts.Clear();
+        _stackIndices.Clear();
         PaintOrder.Clear();
         PaintOrder.EnsureCapacity(nodes.Count);
 
         foreach (var node in nodes) {
-            if (node.Size.Width <= 0f || node.Size.Height <= 0f || !IsVisible(node))
+            if (!IsRenderable(node))
                 continue;
 
             var key = new PrimitiveKey(node.Owner, node.SubOrder);
@@ -31,6 +35,9 @@ internal sealed class UiPrimitiveStore
             }
             Primitives[slot] = UiPrimitive.Create(node);
             PaintOrder.Add((uint)slot);
+            _slotCounts.TryGetValue(node.Owner, out var count);
+            _slotCounts[node.Owner] = count + 1;
+            _stackIndices[node.Owner] = node.StackIndex;
         }
 
         _stale.Clear();
@@ -45,26 +52,32 @@ internal sealed class UiPrimitiveStore
         }
     }
 
-    private static bool IsVisible(in ExtractedUiNode node)
+    public bool Update(Entity owner, IReadOnlyList<ExtractedUiNode> nodes)
     {
-        if (node.ClipRect is not { } clip)
-            return true;
-        if (clip.Width <= 0f || clip.Height <= 0f)
-            return false;
-
-        var transform = node.Transform ?? UiGlobalTransform.Identity;
-        var topLeft = transform.Transform(node.TopLeft);
-        var topRight = transform.Transform(new Point(node.TopLeft.X + node.Size.Width, node.TopLeft.Y));
-        var bottomLeft = transform.Transform(new Point(node.TopLeft.X, node.TopLeft.Y + node.Size.Height));
-        var bottomRight = transform.Transform(new Point(
-            node.TopLeft.X + node.Size.Width,
-            node.TopLeft.Y + node.Size.Height));
-        var left = MathF.Min(MathF.Min(topLeft.X, topRight.X), MathF.Min(bottomLeft.X, bottomRight.X));
-        var right = MathF.Max(MathF.Max(topLeft.X, topRight.X), MathF.Max(bottomLeft.X, bottomRight.X));
-        var top = MathF.Min(MathF.Min(topLeft.Y, topRight.Y), MathF.Min(bottomLeft.Y, bottomRight.Y));
-        var bottom = MathF.Max(MathF.Max(topLeft.Y, topRight.Y), MathF.Max(bottomLeft.Y, bottomRight.Y));
-        return right > clip.X && left < clip.Right && bottom > clip.Y && top < clip.Bottom;
+        var count = 0;
+        var stackIndex = 0;
+        foreach (var node in nodes) {
+            if (!IsRenderable(node))
+                continue;
+            if (count == 0)
+                stackIndex = node.StackIndex;
+            else if (node.StackIndex != stackIndex)
+                return false;
+            if (!_slots.TryGetValue(new PrimitiveKey(owner, node.SubOrder), out var slot))
+                return false;
+            Primitives[slot] = UiPrimitive.Create(node);
+            count++;
+        }
+        var expected = _slotCounts.TryGetValue(owner, out var slotCount) ? slotCount : 0;
+        return count == expected
+            && (count == 0 || _stackIndices.TryGetValue(owner, out var previousStackIndex)
+                && stackIndex == previousStackIndex);
     }
+
+    private static bool IsRenderable(in ExtractedUiNode node) =>
+        node.Size.Width > 0f
+        && node.Size.Height > 0f
+        && node.ClipRect is not { Width: <= 0f } and not { Height: <= 0f };
 
     private readonly record struct PrimitiveKey(Entity Owner, int SubOrder);
 }

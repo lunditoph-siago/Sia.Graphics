@@ -4,9 +4,12 @@ namespace Sia.Graphics.UI;
 
 public sealed class UiChangeTracker : IAddon
 {
+    private readonly HashSet<Entity> _renderDirtyEntities = [];
+
     public long HierarchyVersion { get; private set; } = 1;
     public long LayoutVersion { get; private set; } = 1;
     public long RenderVersion { get; private set; } = 1;
+    internal long RenderStructureVersion { get; private set; } = 1;
 
     public void MarkHierarchyDirty()
     {
@@ -18,9 +21,14 @@ public sealed class UiChangeTracker : IAddon
     {
         LayoutVersion++;
         RenderVersion++;
+        RenderStructureVersion++;
     }
 
-    public void MarkRenderDirty() => RenderVersion++;
+    public void MarkRenderDirty()
+    {
+        RenderVersion++;
+        RenderStructureVersion++;
+    }
 
     void IAddon.OnInitialize(World world)
     {
@@ -34,11 +42,11 @@ public sealed class UiChangeTracker : IAddon
         Subscribe<Text, LayoutInvalidation>(world);
         Subscribe<TextStyle, LayoutInvalidation>(world);
 
-        Subscribe<ComputedNode, RenderInvalidation>(world);
-        Subscribe<UiGlobalTransform, RenderInvalidation>(world);
-        Subscribe<BackgroundColor, RenderInvalidation>(world);
-        Subscribe<BorderColor, RenderInvalidation>(world);
-        Subscribe<TextLayoutInfo, RenderInvalidation>(world);
+        SubscribeRender<ComputedNode>(world);
+        SubscribeRender<UiGlobalTransform>(world);
+        SubscribeRender<BackgroundColor>(world);
+        SubscribeRender<BorderColor>(world);
+        SubscribeRender<TextLayoutInfo>(world);
     }
 
     void IAddon.OnUninitialize(World world)
@@ -53,11 +61,12 @@ public sealed class UiChangeTracker : IAddon
         Unsubscribe<Text, LayoutInvalidation>(world);
         Unsubscribe<TextStyle, LayoutInvalidation>(world);
 
-        Unsubscribe<ComputedNode, RenderInvalidation>(world);
-        Unsubscribe<UiGlobalTransform, RenderInvalidation>(world);
-        Unsubscribe<BackgroundColor, RenderInvalidation>(world);
-        Unsubscribe<BorderColor, RenderInvalidation>(world);
-        Unsubscribe<TextLayoutInfo, RenderInvalidation>(world);
+        UnsubscribeRender<ComputedNode>(world);
+        UnsubscribeRender<UiGlobalTransform>(world);
+        UnsubscribeRender<BackgroundColor>(world);
+        UnsubscribeRender<BorderColor>(world);
+        UnsubscribeRender<TextLayoutInfo>(world);
+        _renderDirtyEntities.Clear();
     }
 
     private void Subscribe<TComponent, TInvalidation>(World world)
@@ -86,29 +95,71 @@ public sealed class UiChangeTracker : IAddon
         where TInvalidation : IInvalidation
         where TEvent : IEvent
     {
-        _ = target;
         _ = @event;
-        TInvalidation.Apply(this);
+        TInvalidation.Apply(this, target);
         return false;
+    }
+
+    private void SubscribeRender<TComponent>(World world)
+    {
+        world.Dispatcher.Listen<WorldEvents.Add<TComponent>>(OnRenderStructureChanged);
+        world.Dispatcher.Listen<WorldEvents.Remove<TComponent>>(OnRenderStructureChanged);
+        world.Dispatcher.Listen<WorldEvents.Set<TComponent>>(OnRenderChanged);
+    }
+
+    private void UnsubscribeRender<TComponent>(World world)
+    {
+        world.Dispatcher.Unlisten<WorldEvents.Add<TComponent>>(OnRenderStructureChanged);
+        world.Dispatcher.Unlisten<WorldEvents.Remove<TComponent>>(OnRenderStructureChanged);
+        world.Dispatcher.Unlisten<WorldEvents.Set<TComponent>>(OnRenderChanged);
+    }
+
+    private bool OnRenderChanged<TEvent>(Entity target, in TEvent @event)
+        where TEvent : IEvent
+    {
+        _ = @event;
+        RenderVersion++;
+        _renderDirtyEntities.Add(target);
+        return false;
+    }
+
+    private bool OnRenderStructureChanged<TEvent>(Entity target, in TEvent @event)
+        where TEvent : IEvent
+    {
+        _ = @event;
+        RenderVersion++;
+        RenderStructureVersion++;
+        _renderDirtyEntities.Add(target);
+        return false;
+    }
+
+    internal void ConsumeRenderDirtyEntities(List<Entity> destination)
+    {
+        destination.Clear();
+        destination.AddRange(_renderDirtyEntities);
+        _renderDirtyEntities.Clear();
     }
 
     private interface IInvalidation
     {
-        static abstract void Apply(UiChangeTracker tracker);
+        static abstract void Apply(UiChangeTracker tracker, Entity target);
     }
 
     private readonly struct HierarchyInvalidation : IInvalidation
     {
-        public static void Apply(UiChangeTracker tracker) => tracker.MarkHierarchyDirty();
+        public static void Apply(UiChangeTracker tracker, Entity target)
+        {
+            _ = target;
+            tracker.MarkHierarchyDirty();
+        }
     }
 
     private readonly struct LayoutInvalidation : IInvalidation
     {
-        public static void Apply(UiChangeTracker tracker) => tracker.MarkLayoutDirty();
-    }
-
-    private readonly struct RenderInvalidation : IInvalidation
-    {
-        public static void Apply(UiChangeTracker tracker) => tracker.MarkRenderDirty();
+        public static void Apply(UiChangeTracker tracker, Entity target)
+        {
+            _ = target;
+            tracker.MarkLayoutDirty();
+        }
     }
 }

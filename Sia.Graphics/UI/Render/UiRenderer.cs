@@ -25,7 +25,11 @@ public sealed class UiRenderer(UiPipeline pipeline)
         WGPULoadOp loadOp = WGPULoadOp.Load)
     {
         var primitiveCount = PrepareFrame(world, viewport);
-        EncodeDrawCalls(context.CommandEncoder, context.GetTextureView(output), primitiveCount, loadOp);
+        EncodeRenderPass(
+            context.CommandEncoder,
+            context.GetTextureView(output),
+            primitiveCount,
+            loadOp);
     }
 
     public uint PrepareFrame(World world, Size viewport)
@@ -137,7 +141,15 @@ public sealed class UiRenderer(UiPipeline pipeline)
         MemoryMarshal.AsBytes(current.Slice(index, 1))
             .SequenceEqual(MemoryMarshal.AsBytes(previous.Slice(index, 1)));
 
-    public unsafe void EncodeDrawCalls(
+    public void Encode(WgpuHandle<WGPURenderPassEncoder> renderPass, uint primitiveCount)
+    {
+        Wgpu.SetRenderPipeline(renderPass, pipeline.RenderPipeline.GetWgpu<WGPURenderPipeline>());
+        Wgpu.SetBindGroup(renderPass, 0, _bindGroup.GetWgpu<WGPUBindGroup>());
+        if (primitiveCount > 0)
+            Wgpu.Draw(renderPass, 6, primitiveCount);
+    }
+
+    private unsafe void EncodeRenderPass(
         WgpuHandle<WGPUCommandEncoder> encoder,
         WgpuHandle<WGPUTextureView> target,
         uint primitiveCount,
@@ -156,11 +168,13 @@ public sealed class UiRenderer(UiPipeline pipeline)
             descriptor.ColorAttachments = colorAttachmentsPtr;
 
             var renderPass = Wgpu.BeginRenderPass(encoder, in descriptor);
-            Wgpu.SetRenderPipeline(renderPass, pipeline.RenderPipeline.GetWgpu<WGPURenderPipeline>());
-            Wgpu.SetBindGroup(renderPass, 0, _bindGroup.GetWgpu<WGPUBindGroup>());
-            if (primitiveCount > 0)
-                Wgpu.Draw(renderPass, 6, primitiveCount);
-            Wgpu.EndRenderPass(renderPass);
+            try {
+                Encode(renderPass, primitiveCount);
+                Wgpu.EndRenderPass(renderPass);
+            }
+            finally {
+                Wgpu.Release(ref renderPass);
+            }
         }
     }
 

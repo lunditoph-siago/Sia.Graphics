@@ -349,18 +349,13 @@ internal sealed unsafe partial class CornellBoxApp
             : null;
 
     private void EncodeUi(
-        WgpuHandle<WGPUCommandEncoder> encoder,
-        WgpuHandle<WGPUTextureView> surfaceView,
+        WgpuHandle<WGPURenderPassEncoder> renderPass,
         uint? primitiveCount)
     {
         if (_uiRenderer is null || primitiveCount is null)
             return;
 
-        _uiRenderer.EncodeDrawCalls(
-            encoder,
-            surfaceView,
-            primitiveCount.Value,
-            WGPULoadOp.Load);
+        _uiRenderer.Encode(renderPass, primitiveCount.Value);
     }
 
     private void DisposeUi()

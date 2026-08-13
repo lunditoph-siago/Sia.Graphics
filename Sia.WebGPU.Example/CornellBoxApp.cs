@@ -531,8 +531,8 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
                     encoder,
                     surfaceView,
                     _presentationPipeline,
-                    _accumulationBindGroups[writeIndex]);
-                EncodeUi(encoder, surfaceView, uiPrimitiveCount);
+                    _accumulationBindGroups[writeIndex],
+                    uiPrimitiveCount);
 
                 var commandBufferDescriptor = new WGPUCommandBufferDescriptor {
                     NextInChain = null,
@@ -558,11 +558,12 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         }
     }
 
-    private static void EncodeRenderPass(
+    private void EncodeRenderPass(
         WgpuHandle<WGPUCommandEncoder> encoder,
         WgpuHandle<WGPUTextureView> target,
         WgpuHandle<WGPURenderPipeline> pipeline,
-        WgpuHandle<WGPUBindGroup> bindGroup)
+        WgpuHandle<WGPUBindGroup> bindGroup,
+        uint? uiPrimitiveCount = null)
     {
         var colorAttachment = new WGPURenderPassColorAttachment {
             NextInChain = null,
@@ -587,6 +588,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             Wgpu.SetRenderPipeline(pass, pipeline);
             Wgpu.SetBindGroup(pass, 0, bindGroup);
             Wgpu.Draw(pass, 3);
+            EncodeUi(pass, uiPrimitiveCount);
             Wgpu.EndRenderPass(pass);
         }
         finally {

@@ -80,9 +80,11 @@ public sealed unsafe class UiPipeline
 
     internal WgpuHandle<WGPUBindGroup> CreateBindGroup(
         WgpuHandle<WGPUBuffer> primitiveBuffer,
-        ulong primitiveBufferSize)
+        ulong primitiveBufferSize,
+        WgpuHandle<WGPUBuffer> paintOrderBuffer,
+        ulong paintOrderBufferSize)
     {
-        Span<WGPUBindGroupEntry> entries = stackalloc WGPUBindGroupEntry[4];
+        Span<WGPUBindGroupEntry> entries = stackalloc WGPUBindGroupEntry[5];
         entries[0] = WGPUBindGroupEntry.Default;
         entries[0].Binding = 0;
         entries[0].Buffer = (WGPUBuffer*)ViewUniformBuffer.GetWgpu<WGPUBuffer>().DangerousGetHandle();
@@ -93,17 +95,21 @@ public sealed unsafe class UiPipeline
         entries[1].Size = primitiveBufferSize;
         entries[2] = WGPUBindGroupEntry.Default;
         entries[2].Binding = 2;
-        entries[2].TextureView = (WGPUTextureView*)TextureArrayView.GetWgpu<WGPUTextureView>().DangerousGetHandle();
+        entries[2].Buffer = (WGPUBuffer*)paintOrderBuffer.DangerousGetHandle();
+        entries[2].Size = paintOrderBufferSize;
         entries[3] = WGPUBindGroupEntry.Default;
         entries[3].Binding = 3;
-        entries[3].Sampler = (WGPUSampler*)Sampler.GetWgpu<WGPUSampler>().DangerousGetHandle();
+        entries[3].TextureView = (WGPUTextureView*)TextureArrayView.GetWgpu<WGPUTextureView>().DangerousGetHandle();
+        entries[4] = WGPUBindGroupEntry.Default;
+        entries[4].Binding = 4;
+        entries[4].Sampler = (WGPUSampler*)Sampler.GetWgpu<WGPUSampler>().DangerousGetHandle();
 
         fixed (WGPUBindGroupEntry* entriesPtr = entries) {
             var descriptor = WGPUBindGroupDescriptor.Default;
             descriptor.Layout = (WGPUBindGroupLayout*)BindGroupLayout
                 .GetWgpu<WGPUBindGroupLayout>()
                 .DangerousGetHandle();
-            descriptor.EntryCount = 4;
+            descriptor.EntryCount = 5;
             descriptor.Entries = entriesPtr;
             return Wgpu.CreateBindGroup(Device.GetWgpu<WGPUDevice>(), in descriptor);
         }
@@ -245,7 +251,7 @@ public sealed unsafe class UiPipeline
 
     private static WgpuHandle<WGPUBindGroupLayout> CreateBindGroupLayout(WgpuHandle<WGPUDevice> device)
     {
-        Span<WGPUBindGroupLayoutEntry> entries = stackalloc WGPUBindGroupLayoutEntry[4];
+        Span<WGPUBindGroupLayoutEntry> entries = stackalloc WGPUBindGroupLayoutEntry[5];
         entries[0] = WGPUBindGroupLayoutEntry.Default;
         entries[0].Binding = 0;
         entries[0].Visibility = WGPUShaderStage.Vertex;
@@ -258,19 +264,24 @@ public sealed unsafe class UiPipeline
         entries[1].Buffer.Type = WGPUBufferBindingType.ReadOnlyStorage;
         entries[2] = WGPUBindGroupLayoutEntry.Default;
         entries[2].Binding = 2;
-        entries[2].Visibility = WGPUShaderStage.Fragment;
-        entries[2].Texture = WGPUTextureBindingLayout.Default;
-        entries[2].Texture.SampleType = WGPUTextureSampleType.Float;
-        entries[2].Texture.ViewDimension = WGPUTextureViewDimension._2DArray;
+        entries[2].Visibility = WGPUShaderStage.Vertex;
+        entries[2].Buffer = WGPUBufferBindingLayout.Default;
+        entries[2].Buffer.Type = WGPUBufferBindingType.ReadOnlyStorage;
         entries[3] = WGPUBindGroupLayoutEntry.Default;
         entries[3].Binding = 3;
         entries[3].Visibility = WGPUShaderStage.Fragment;
-        entries[3].Sampler = WGPUSamplerBindingLayout.Default;
-        entries[3].Sampler.Type = WGPUSamplerBindingType.Filtering;
+        entries[3].Texture = WGPUTextureBindingLayout.Default;
+        entries[3].Texture.SampleType = WGPUTextureSampleType.Float;
+        entries[3].Texture.ViewDimension = WGPUTextureViewDimension._2DArray;
+        entries[4] = WGPUBindGroupLayoutEntry.Default;
+        entries[4].Binding = 4;
+        entries[4].Visibility = WGPUShaderStage.Fragment;
+        entries[4].Sampler = WGPUSamplerBindingLayout.Default;
+        entries[4].Sampler.Type = WGPUSamplerBindingType.Filtering;
 
         fixed (WGPUBindGroupLayoutEntry* entriesPtr = entries) {
             var descriptor = WGPUBindGroupLayoutDescriptor.Default;
-            descriptor.EntryCount = 4;
+            descriptor.EntryCount = 5;
             descriptor.Entries = entriesPtr;
             return Wgpu.CreateBindGroupLayout(device, in descriptor);
         }

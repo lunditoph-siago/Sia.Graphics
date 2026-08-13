@@ -20,8 +20,8 @@ internal static class UiExtraction
             var background = entity.Get<BackgroundColor>();
             var topLeft = Point.Zero;
             output.Add(ExtractedUiNode.SolidColor(
-                topLeft, computed.Size, background.Value, computed.BorderRadius, BorderEdges.Zero,
-                computed.StackIndex) with {
+                entity, topLeft, computed.Size, background.Value, computed.BorderRadius,
+                BorderEdges.Zero, computed.StackIndex) with {
                     ClipRect = computed.ClipRect,
                     Transform = transform,
                     SubOrder = 0
@@ -36,8 +36,8 @@ internal static class UiExtraction
             var border = computed.Border;
             if (border.Left > 0f || border.Top > 0f || border.Right > 0f || border.Bottom > 0f) {
                 output.Add(ExtractedUiNode.SolidColor(
-                    Point.Zero, computed.Size, borderColor.Value, computed.BorderRadius, border,
-                    computed.StackIndex) with {
+                    entity, Point.Zero, computed.Size, borderColor.Value, computed.BorderRadius,
+                    border, computed.StackIndex) with {
                         ClipRect = computed.ClipRect,
                         Transform = transform,
                         SubOrder = 1
@@ -48,6 +48,7 @@ internal static class UiExtraction
             result,
             static (in List<ExtractedUiNode> output, Entity entity) =>
                 AppendGlyphs(
+                    entity,
                     entity.Get<ComputedNode>(),
                     entity.Get<UiGlobalTransform>(),
                     entity.Get<TextLayoutInfo>(),
@@ -60,6 +61,7 @@ internal static class UiExtraction
     }
 
     private static void AppendGlyphs(
+        Entity entity,
         in ComputedNode computed,
         UiGlobalTransform transform,
         in TextLayoutInfo layout,
@@ -80,7 +82,7 @@ internal static class UiExtraction
             var uvMin = new Point((float)location.X / atlas.Width, (float)location.Y / atlas.Height);
 
             result.Add(new ExtractedUiNode(
-                glyphTopLeft, size, style.Color, ResolvedBorderRadius.Zero, BorderEdges.Zero,
+                entity, glyphTopLeft, size, style.Color, ResolvedBorderRadius.Zero, BorderEdges.Zero,
                 computed.StackIndex, atlas, uvMin,
                 computed.ClipRect, transform, 2 + glyphIndex));
             glyphIndex++;

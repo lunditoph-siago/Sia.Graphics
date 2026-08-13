@@ -28,8 +28,9 @@ struct UiPrimitive {
 }
 
 @group(0) @binding(1) var<storage, read> primitives: array<UiPrimitive>;
-@group(0) @binding(2) var sprite_texture: texture_2d_array<f32>;
-@group(0) @binding(3) var sprite_sampler: sampler;
+@group(0) @binding(2) var<storage, read> paint_order: array<u32>;
+@group(0) @binding(3) var sprite_texture: texture_2d_array<f32>;
+@group(0) @binding(4) var sprite_sampler: sampler;
 
 struct VertexOutput {
     @location(0) uv: vec2<f32>,
@@ -50,7 +51,7 @@ fn vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    let primitive = primitives[instance_index];
+    let primitive = primitives[paint_order[instance_index]];
     let corners = array<vec2<f32>, 6>(
         vec2(0.0, 0.0),
         vec2(1.0, 0.0),

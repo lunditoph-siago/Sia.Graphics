@@ -5,7 +5,7 @@ namespace Sia.Graphics.UI;
 internal sealed class UiRenderCache : IAddon
 {
     private readonly List<ExtractedUiNode> _nodes = [];
-    private readonly List<UiPrimitive> _primitives = [];
+    private readonly UiPrimitiveStore _store = new();
     private UiChangeTracker? _changes;
     private IEntityQuery? _backgrounds;
     private IEntityQuery? _borders;
@@ -13,7 +13,8 @@ internal sealed class UiRenderCache : IAddon
     private long _preparedVersion = -1;
 
     internal long PreparedVersion => _preparedVersion;
-    internal List<UiPrimitive> Primitives => _primitives;
+    internal List<UiPrimitive> Primitives => _store.Primitives;
+    internal List<uint> PaintOrder => _store.PaintOrder;
 
     internal bool Prepare()
     {
@@ -23,7 +24,7 @@ internal sealed class UiRenderCache : IAddon
             return false;
 
         UiExtraction.Extract(_backgrounds!, _borders!, _text!, _nodes);
-        UiPrimitiveBuilder.Build(_nodes, _primitives);
+        _store.Build(_nodes);
         _preparedVersion = changes.RenderVersion;
         return true;
     }

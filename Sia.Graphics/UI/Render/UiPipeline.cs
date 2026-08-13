@@ -86,24 +86,31 @@ public sealed unsafe class UiPipeline
         ulong paintOrderBufferSize)
     {
         Span<WGPUBindGroupEntry> entries = stackalloc WGPUBindGroupEntry[BindGroupEntryCount];
-        entries[0] = WGPUBindGroupEntry.Default;
-        entries[0].Binding = 0;
-        entries[0].Buffer = (WGPUBuffer*)ViewUniformBuffer.GetWgpu<WGPUBuffer>().DangerousGetHandle();
-        entries[0].Size = UiOrthographicProjection.UniformByteSize;
-        entries[1] = WGPUBindGroupEntry.Default;
-        entries[1].Binding = 1;
-        entries[1].Buffer = (WGPUBuffer*)primitiveBuffer.DangerousGetHandle();
-        entries[1].Size = primitiveBufferSize;
-        entries[2] = WGPUBindGroupEntry.Default;
-        entries[2].Binding = 2;
-        entries[2].Buffer = (WGPUBuffer*)paintOrderBuffer.DangerousGetHandle();
-        entries[2].Size = paintOrderBufferSize;
-        entries[3] = WGPUBindGroupEntry.Default;
-        entries[3].Binding = 3;
-        entries[3].TextureView = (WGPUTextureView*)TextureArrayView.GetWgpu<WGPUTextureView>().DangerousGetHandle();
-        entries[4] = WGPUBindGroupEntry.Default;
-        entries[4].Binding = 4;
-        entries[4].Sampler = (WGPUSampler*)Sampler.GetWgpu<WGPUSampler>().DangerousGetHandle();
+        entries[0] = WGPUBindGroupEntry.Default with {
+            Binding = 0,
+            Buffer = (WGPUBuffer*)ViewUniformBuffer.GetWgpu<WGPUBuffer>().DangerousGetHandle(),
+            Size = UiOrthographicProjection.UniformByteSize
+        };
+        entries[1] = WGPUBindGroupEntry.Default with {
+            Binding = 1,
+            Buffer = (WGPUBuffer*)primitiveBuffer.DangerousGetHandle(),
+            Size = primitiveBufferSize
+        };
+        entries[2] = WGPUBindGroupEntry.Default with {
+            Binding = 2,
+            Buffer = (WGPUBuffer*)paintOrderBuffer.DangerousGetHandle(),
+            Size = paintOrderBufferSize
+        };
+        entries[3] = WGPUBindGroupEntry.Default with {
+            Binding = 3,
+            TextureView = (WGPUTextureView*)TextureArrayView
+                .GetWgpu<WGPUTextureView>()
+                .DangerousGetHandle()
+        };
+        entries[4] = WGPUBindGroupEntry.Default with {
+            Binding = 4,
+            Sampler = (WGPUSampler*)Sampler.GetWgpu<WGPUSampler>().DangerousGetHandle()
+        };
 
         fixed (WGPUBindGroupEntry* entriesPtr = entries) {
             var descriptor = WGPUBindGroupDescriptor.Default;

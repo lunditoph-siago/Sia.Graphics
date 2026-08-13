@@ -90,11 +90,10 @@ public sealed class UiChangeTracker : IAddon
             OnChanged<TInvalidation, WorldEvents.Remove<TComponent>>);
     }
 
-    private bool OnChanged<TInvalidation, TEvent>(Entity target, in TEvent @event)
+    private bool OnChanged<TInvalidation, TEvent>(Entity target, in TEvent _)
         where TInvalidation : IInvalidation
         where TEvent : IEvent
     {
-        _ = @event;
         TInvalidation.Apply(this, target);
         return false;
     }
@@ -113,19 +112,17 @@ public sealed class UiChangeTracker : IAddon
         world.Dispatcher.Unlisten<WorldEvents.Set<TComponent>>(OnRenderChanged);
     }
 
-    private bool OnRenderChanged<TEvent>(Entity target, in TEvent @event)
+    private bool OnRenderChanged<TEvent>(Entity target, in TEvent _)
         where TEvent : IEvent
     {
-        _ = @event;
         RenderVersion++;
         _renderDirtyEntities.Add(target);
         return false;
     }
 
-    private bool OnRenderStructureChanged<TEvent>(Entity target, in TEvent @event)
+    private bool OnRenderStructureChanged<TEvent>(Entity target, in TEvent _)
         where TEvent : IEvent
     {
-        _ = @event;
         RenderVersion++;
         RenderStructureVersion++;
         _renderDirtyEntities.Add(target);
@@ -146,18 +143,16 @@ public sealed class UiChangeTracker : IAddon
 
     private readonly struct HierarchyInvalidation : IInvalidation
     {
-        public static void Apply(UiChangeTracker tracker, Entity target)
+        public static void Apply(UiChangeTracker tracker, Entity _)
         {
-            _ = target;
             tracker.MarkHierarchyDirty();
         }
     }
 
     private readonly struct LayoutInvalidation : IInvalidation
     {
-        public static void Apply(UiChangeTracker tracker, Entity target)
+        public static void Apply(UiChangeTracker tracker, Entity _)
         {
-            _ = target;
             tracker.MarkLayoutDirty();
         }
     }

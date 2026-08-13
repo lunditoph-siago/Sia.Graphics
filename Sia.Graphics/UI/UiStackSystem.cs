@@ -2,22 +2,20 @@ using Sia;
 
 namespace Sia.Graphics.UI;
 
-public sealed class UiStackSystem() : SystemBase(Matchers.Of<Node, ComputedNode, UiRoot>())
+public sealed class UiStackSystem() : UiInvalidatedSystem(
+    Matchers.Of<Node, ComputedNode, UiRoot>())
 {
-    private long _lastLayoutVersion = -1;
+    private readonly HashSet<Entity> _visited = [];
 
-    public override void Execute(World world, IEntityQuery query)
+    protected override long GetVersion(UiChangeTracker changes) => changes.LayoutVersion;
+
+    protected override void ExecuteInvalidated(World world, IEntityQuery query)
     {
-        var changes = world.AcquireAddon<UiChangeTracker>();
-        if (_lastLayoutVersion == changes.LayoutVersion)
-            return;
-
         var counter = 0;
-        var visited = new HashSet<Entity>();
+        _visited.Clear();
         foreach (var root in query) {
-            Visit(root, ref counter, visited);
+            Visit(root, ref counter, _visited);
         }
-        _lastLayoutVersion = changes.LayoutVersion;
     }
 
     private static void Visit(Entity entity, ref int counter, HashSet<Entity> visited)

@@ -24,112 +24,91 @@ public sealed class UiChangeTracker : IAddon
 
     void IAddon.OnInitialize(World world)
     {
-        ListenHierarchy<UiNodeKey>(world);
-        ListenHierarchy<UiParentKey>(world);
-        ListenHierarchy<UiSiblingOrder>(world);
+        Subscribe<UiNodeIdentity, HierarchyInvalidation>(world);
 
-        ListenLayout<Node>(world);
-        ListenLayout<UiRoot>(world);
-        ListenLayout<UiChildren>(world);
-        ListenLayout<UiChildOf>(world);
-        ListenLayout<ZIndex>(world);
-        ListenLayout<Text>(world);
-        ListenLayout<TextStyle>(world);
+        Subscribe<Node, LayoutInvalidation>(world);
+        Subscribe<UiRoot, LayoutInvalidation>(world);
+        Subscribe<UiChildren, LayoutInvalidation>(world);
+        Subscribe<UiChildOf, LayoutInvalidation>(world);
+        Subscribe<ZIndex, LayoutInvalidation>(world);
+        Subscribe<Text, LayoutInvalidation>(world);
+        Subscribe<TextStyle, LayoutInvalidation>(world);
 
-        ListenRender<ComputedNode>(world);
-        ListenRender<UiGlobalTransform>(world);
-        ListenRender<BackgroundColor>(world);
-        ListenRender<BorderColor>(world);
-        ListenRender<TextLayoutInfo>(world);
+        Subscribe<ComputedNode, RenderInvalidation>(world);
+        Subscribe<UiGlobalTransform, RenderInvalidation>(world);
+        Subscribe<BackgroundColor, RenderInvalidation>(world);
+        Subscribe<BorderColor, RenderInvalidation>(world);
+        Subscribe<TextLayoutInfo, RenderInvalidation>(world);
     }
 
     void IAddon.OnUninitialize(World world)
     {
-        UnlistenHierarchy<UiNodeKey>(world);
-        UnlistenHierarchy<UiParentKey>(world);
-        UnlistenHierarchy<UiSiblingOrder>(world);
+        Unsubscribe<UiNodeIdentity, HierarchyInvalidation>(world);
 
-        UnlistenLayout<Node>(world);
-        UnlistenLayout<UiRoot>(world);
-        UnlistenLayout<UiChildren>(world);
-        UnlistenLayout<UiChildOf>(world);
-        UnlistenLayout<ZIndex>(world);
-        UnlistenLayout<Text>(world);
-        UnlistenLayout<TextStyle>(world);
+        Unsubscribe<Node, LayoutInvalidation>(world);
+        Unsubscribe<UiRoot, LayoutInvalidation>(world);
+        Unsubscribe<UiChildren, LayoutInvalidation>(world);
+        Unsubscribe<UiChildOf, LayoutInvalidation>(world);
+        Unsubscribe<ZIndex, LayoutInvalidation>(world);
+        Unsubscribe<Text, LayoutInvalidation>(world);
+        Unsubscribe<TextStyle, LayoutInvalidation>(world);
 
-        UnlistenRender<ComputedNode>(world);
-        UnlistenRender<UiGlobalTransform>(world);
-        UnlistenRender<BackgroundColor>(world);
-        UnlistenRender<BorderColor>(world);
-        UnlistenRender<TextLayoutInfo>(world);
+        Unsubscribe<ComputedNode, RenderInvalidation>(world);
+        Unsubscribe<UiGlobalTransform, RenderInvalidation>(world);
+        Unsubscribe<BackgroundColor, RenderInvalidation>(world);
+        Unsubscribe<BorderColor, RenderInvalidation>(world);
+        Unsubscribe<TextLayoutInfo, RenderInvalidation>(world);
     }
 
-    private void ListenHierarchy<TComponent>(World world)
+    private void Subscribe<TComponent, TInvalidation>(World world)
+        where TInvalidation : IInvalidation
     {
-        world.Dispatcher.Listen<WorldEvents.Add<TComponent>>(OnHierarchyChanged);
-        world.Dispatcher.Listen<WorldEvents.Set<TComponent>>(OnHierarchyChanged);
-        world.Dispatcher.Listen<WorldEvents.Remove<TComponent>>(OnHierarchyChanged);
+        world.Dispatcher.Listen<WorldEvents.Add<TComponent>>(
+            OnChanged<TInvalidation, WorldEvents.Add<TComponent>>);
+        world.Dispatcher.Listen<WorldEvents.Set<TComponent>>(
+            OnChanged<TInvalidation, WorldEvents.Set<TComponent>>);
+        world.Dispatcher.Listen<WorldEvents.Remove<TComponent>>(
+            OnChanged<TInvalidation, WorldEvents.Remove<TComponent>>);
     }
 
-    private void UnlistenHierarchy<TComponent>(World world)
+    private void Unsubscribe<TComponent, TInvalidation>(World world)
+        where TInvalidation : IInvalidation
     {
-        world.Dispatcher.Unlisten<WorldEvents.Add<TComponent>>(OnHierarchyChanged);
-        world.Dispatcher.Unlisten<WorldEvents.Set<TComponent>>(OnHierarchyChanged);
-        world.Dispatcher.Unlisten<WorldEvents.Remove<TComponent>>(OnHierarchyChanged);
+        world.Dispatcher.Unlisten<WorldEvents.Add<TComponent>>(
+            OnChanged<TInvalidation, WorldEvents.Add<TComponent>>);
+        world.Dispatcher.Unlisten<WorldEvents.Set<TComponent>>(
+            OnChanged<TInvalidation, WorldEvents.Set<TComponent>>);
+        world.Dispatcher.Unlisten<WorldEvents.Remove<TComponent>>(
+            OnChanged<TInvalidation, WorldEvents.Remove<TComponent>>);
     }
 
-    private void ListenLayout<TComponent>(World world)
-    {
-        world.Dispatcher.Listen<WorldEvents.Add<TComponent>>(OnLayoutChanged);
-        world.Dispatcher.Listen<WorldEvents.Set<TComponent>>(OnLayoutChanged);
-        world.Dispatcher.Listen<WorldEvents.Remove<TComponent>>(OnLayoutChanged);
-    }
-
-    private void UnlistenLayout<TComponent>(World world)
-    {
-        world.Dispatcher.Unlisten<WorldEvents.Add<TComponent>>(OnLayoutChanged);
-        world.Dispatcher.Unlisten<WorldEvents.Set<TComponent>>(OnLayoutChanged);
-        world.Dispatcher.Unlisten<WorldEvents.Remove<TComponent>>(OnLayoutChanged);
-    }
-
-    private void ListenRender<TComponent>(World world)
-    {
-        world.Dispatcher.Listen<WorldEvents.Add<TComponent>>(OnRenderChanged);
-        world.Dispatcher.Listen<WorldEvents.Set<TComponent>>(OnRenderChanged);
-        world.Dispatcher.Listen<WorldEvents.Remove<TComponent>>(OnRenderChanged);
-    }
-
-    private void UnlistenRender<TComponent>(World world)
-    {
-        world.Dispatcher.Unlisten<WorldEvents.Add<TComponent>>(OnRenderChanged);
-        world.Dispatcher.Unlisten<WorldEvents.Set<TComponent>>(OnRenderChanged);
-        world.Dispatcher.Unlisten<WorldEvents.Remove<TComponent>>(OnRenderChanged);
-    }
-
-    private bool OnLayoutChanged<TEvent>(Entity target, in TEvent @event)
+    private bool OnChanged<TInvalidation, TEvent>(Entity target, in TEvent @event)
+        where TInvalidation : IInvalidation
         where TEvent : IEvent
     {
         _ = target;
         _ = @event;
-        MarkLayoutDirty();
+        TInvalidation.Apply(this);
         return false;
     }
 
-    private bool OnHierarchyChanged<TEvent>(Entity target, in TEvent @event)
-        where TEvent : IEvent
+    private interface IInvalidation
     {
-        _ = target;
-        _ = @event;
-        MarkHierarchyDirty();
-        return false;
+        static abstract void Apply(UiChangeTracker tracker);
     }
 
-    private bool OnRenderChanged<TEvent>(Entity target, in TEvent @event)
-        where TEvent : IEvent
+    private readonly struct HierarchyInvalidation : IInvalidation
     {
-        _ = target;
-        _ = @event;
-        MarkRenderDirty();
-        return false;
+        public static void Apply(UiChangeTracker tracker) => tracker.MarkHierarchyDirty();
+    }
+
+    private readonly struct LayoutInvalidation : IInvalidation
+    {
+        public static void Apply(UiChangeTracker tracker) => tracker.MarkLayoutDirty();
+    }
+
+    private readonly struct RenderInvalidation : IInvalidation
+    {
+        public static void Apply(UiChangeTracker tracker) => tracker.MarkRenderDirty();
     }
 }

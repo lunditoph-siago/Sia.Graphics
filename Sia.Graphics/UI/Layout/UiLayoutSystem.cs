@@ -3,17 +3,13 @@ using Sia.Graphics.Text;
 
 namespace Sia.Graphics.UI;
 
-public sealed class UiLayoutSystem() : SystemBase(
+public sealed class UiLayoutSystem() : UiInvalidatedSystem(
     Matchers.Of<Node, ComputedNode, UiGlobalTransform, UiRoot>())
 {
-    private long _lastLayoutVersion = -1;
+    protected override long GetVersion(UiChangeTracker changes) => changes.LayoutVersion;
 
-    public override void Execute(World world, IEntityQuery query)
+    protected override void ExecuteInvalidated(World world, IEntityQuery query)
     {
-        var changes = world.AcquireAddon<UiChangeTracker>();
-        if (_lastLayoutVersion == changes.LayoutVersion)
-            return;
-
         var atlases = world.AcquireAddon<FontAtlasSet>();
 
         foreach (var root in query) {
@@ -31,8 +27,6 @@ public sealed class UiLayoutSystem() : SystemBase(
                 tree, map, textMeasures, atlases, root,
                 UiGlobalTransform.Identity, viewport, null, []);
         }
-
-        _lastLayoutVersion = changes.LayoutVersion;
     }
 
     private static LayoutNodeId BuildSubtree(
@@ -178,10 +172,12 @@ public sealed class UiLayoutSystem() : SystemBase(
 
     private static void WriteGlyphs(Entity entity, TextMeasure measure, FontAtlasSet atlases)
     {
-        var glyphs = new List<PositionedGlyph>();
+        var info = entity.Get<TextLayoutInfo>();
+        var glyphs = info.Glyphs;
+        glyphs.Clear();
 
         if (measure.LastShaped is not { } shaped) {
-            entity.Set(new TextLayoutInfo { Glyphs = glyphs });
+            entity.Set(info);
             return;
         }
 
@@ -198,6 +194,6 @@ public sealed class UiLayoutSystem() : SystemBase(
                 glyph.GlyphId,
                 glyph.UsedFallback));
         }
-        entity.Set(new TextLayoutInfo { Glyphs = glyphs });
+        entity.Set(info);
     }
 }

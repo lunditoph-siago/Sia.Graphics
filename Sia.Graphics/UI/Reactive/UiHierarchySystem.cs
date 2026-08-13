@@ -2,40 +2,44 @@ using Sia;
 
 namespace Sia.Graphics.UI;
 
-public sealed class UiHierarchySystem() : SystemBase(Matchers.Of<UiNodeKey, UiParentKey, UiSiblingOrder>())
+public sealed class UiHierarchySystem() : UiInvalidatedSystem(
+    Matchers.Of<UiNodeIdentity>())
 {
-    private long _preparedVersion = -1;
+    private readonly List<Entry> _entries = [];
+    private readonly Dictionary<string, Entity> _entities = new(StringComparer.Ordinal);
 
-    public override void Execute(World world, IEntityQuery query)
+    protected override long GetVersion(UiChangeTracker changes) => changes.HierarchyVersion;
+
+    protected override void ExecuteInvalidated(World world, IEntityQuery query)
     {
-        var changes = world.AcquireAddon<UiChangeTracker>();
-        if (_preparedVersion == changes.HierarchyVersion)
-            return;
-
-        var entries = new List<Entry>(query.Count);
+        _entries.Clear();
+        _entries.EnsureCapacity(query.Count);
         query.ForEach(
-            entries,
-            static (in List<Entry> output, Entity entity) =>
+            _entries,
+            static (in List<Entry> output, Entity entity) => {
+                var identity = entity.Get<UiNodeIdentity>();
                 output.Add(new(
                     entity,
-                    entity.Get<UiNodeKey>().Value,
-                    entity.Get<UiParentKey>().Value,
-                    entity.Get<UiSiblingOrder>().Value)));
+                    identity.Key,
+                    identity.ParentKey,
+                    identity.SiblingOrder));
+            });
 
-        var entities = new Dictionary<string, Entity>(entries.Count, StringComparer.Ordinal);
-        foreach (var entry in entries) {
-            if (!entities.TryAdd(entry.Key, entry.Entity)) {
+        _entities.Clear();
+        _entities.EnsureCapacity(_entries.Count);
+        foreach (var entry in _entries) {
+            if (!_entities.TryAdd(entry.Key, entry.Entity)) {
                 throw new InvalidOperationException(
                     $"Reactive UI node key '{entry.Key}' is duplicated.");
             }
         }
 
         var children = new Dictionary<Entity, List<Entry>>();
-        foreach (var entry in entries) {
+        foreach (var entry in _entries) {
             EnsureOutputs(entry.Entity);
             if (entry.ParentKey is null)
                 continue;
-            if (!entities.TryGetValue(entry.ParentKey, out var parent)) {
+            if (!_entities.TryGetValue(entry.ParentKey, out var parent)) {
                 throw new InvalidOperationException(
                     $"Reactive UI parent key '{entry.ParentKey}' for '{entry.Key}' was not found.");
             }
@@ -47,7 +51,7 @@ public sealed class UiHierarchySystem() : SystemBase(Matchers.Of<UiNodeKey, UiPa
             SetParent(entry.Entity, parent);
         }
 
-        foreach (var entry in entries) {
+        foreach (var entry in _entries) {
             if (entry.ParentKey is null && entry.Entity.Contains<UiChildOf>())
                 entry.Entity.Remove<UiChildOf>();
 
@@ -61,7 +65,6 @@ public sealed class UiHierarchySystem() : SystemBase(Matchers.Of<UiNodeKey, UiPa
             SetChildren(entry.Entity, next);
         }
 
-        _preparedVersion = changes.HierarchyVersion;
     }
 
     private static void EnsureOutputs(Entity entity)

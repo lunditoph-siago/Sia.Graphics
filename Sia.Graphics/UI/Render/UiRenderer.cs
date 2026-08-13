@@ -8,6 +8,7 @@ namespace Sia.Graphics.UI;
 
 public sealed class UiRenderer(UiPipeline pipeline)
 {
+    private const int MergeGapPrimitives = 16;
     private static readonly ulong _primitiveStride = (ulong)Marshal.SizeOf<UiPrimitive>();
     private readonly List<UiPrimitive> _uploadedPrimitives = [];
     private Entity _primitiveBuffer;
@@ -118,20 +119,30 @@ public sealed class UiRenderer(UiPipeline pipeline)
         }
 
         var previous = CollectionsMarshal.AsSpan(_uploadedPrimitives);
-        var first = 0;
-        while (first < primitives.Length && Equal(primitives, previous, first))
-            first++;
-        if (first == primitives.Length)
-            return;
+        var cursor = 0;
+        while (cursor < primitives.Length) {
+            while (cursor < primitives.Length && Equal(primitives, previous, cursor))
+                cursor++;
+            if (cursor == primitives.Length)
+                break;
 
-        var last = primitives.Length - 1;
-        while (last > first && Equal(primitives, previous, last))
-            last--;
-        Wgpu.WriteBuffer(
-            queue,
-            _primitiveBuffer.GetWgpu<WGPUBuffer>(),
-            (ulong)first * _primitiveStride,
-            primitives.Slice(first, last - first + 1));
+            var first = cursor;
+            var last = cursor;
+            cursor++;
+            while (cursor < primitives.Length) {
+                if (!Equal(primitives, previous, cursor))
+                    last = cursor;
+                else if (cursor - last > MergeGapPrimitives)
+                    break;
+                cursor++;
+            }
+
+            Wgpu.WriteBuffer(
+                queue,
+                _primitiveBuffer.GetWgpu<WGPUBuffer>(),
+                (ulong)first * _primitiveStride,
+                primitives.Slice(first, last - first + 1));
+        }
     }
 
     private static bool Equal(

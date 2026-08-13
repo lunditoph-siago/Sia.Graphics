@@ -8,16 +8,29 @@ public sealed class LayoutTree
     private readonly List<List<LayoutNodeId>> _children = [];
     private readonly List<ILayoutMeasure?> _measures = [];
     private readonly List<LayoutResult> _results = [];
+    private int _nodeCount;
 
     public LayoutNodeId CreateNode(Node style, ILayoutMeasure? measure = null)
     {
-        var id = new LayoutNodeId(_styles.Count);
-        _styles.Add(style);
-        _children.Add([]);
-        _measures.Add(measure);
-        _results.Add(LayoutResult.Zero);
+        var id = new LayoutNodeId(_nodeCount++);
+        if (id.Value == _styles.Count) {
+            _styles.Add(style);
+            _children.Add([]);
+            _measures.Add(measure);
+            _results.Add(LayoutResult.Zero);
+        } else {
+            _styles[id.Value] = style;
+            _children[id.Value].Clear();
+            _measures[id.Value] = measure;
+            _results[id.Value] = LayoutResult.Zero;
+        }
         return id;
     }
+
+    internal void Clear() => _nodeCount = 0;
+
+    internal void AddChild(LayoutNodeId parent, LayoutNodeId child) =>
+        _children[parent.Value].Add(child);
 
     public Node GetStyle(LayoutNodeId id) => _styles[id.Value];
 

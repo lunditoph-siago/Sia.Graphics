@@ -6,6 +6,11 @@ namespace Sia.Graphics.UI;
 public sealed class UiLayoutSystem() : UiInvalidatedSystem(
     Matchers.Of<Node, ComputedNode, UiGlobalTransform, UiRoot>())
 {
+    private readonly LayoutTree _tree = new();
+    private readonly Dictionary<Entity, LayoutNodeId> _map = [];
+    private readonly Dictionary<Entity, TextMeasure> _textMeasures = [];
+    private readonly HashSet<Entity> _visited = [];
+
     protected override long GetVersion(UiChangeTracker changes) => changes.LayoutVersion;
 
     protected override void ExecuteInvalidated(World world, IEntityQuery query)
@@ -14,18 +19,19 @@ public sealed class UiLayoutSystem() : UiInvalidatedSystem(
 
         foreach (var root in query) {
             var viewport = root.Get<UiRoot>().Viewport;
-            var tree = new LayoutTree();
-            var map = new Dictionary<Entity, LayoutNodeId>();
-            var textMeasures = new Dictionary<Entity, TextMeasure>();
+            _tree.Clear();
+            _map.Clear();
+            _textMeasures.Clear();
+            _visited.Clear();
 
-            var rootId = BuildSubtree(tree, map, textMeasures, root);
-            tree.ComputeLayout(
+            var rootId = BuildSubtree(_tree, _map, _textMeasures, root);
+            _tree.ComputeLayout(
                 rootId,
                 new AvailableSize(AvailableSpace.Definite(viewport.Width), AvailableSpace.Definite(viewport.Height)));
 
             WriteBack(
-                tree, map, textMeasures, atlases, root,
-                UiGlobalTransform.Identity, viewport, null, []);
+                _tree, _map, _textMeasures, atlases, root,
+                UiGlobalTransform.Identity, viewport, null, _visited);
         }
     }
 
@@ -51,13 +57,11 @@ public sealed class UiLayoutSystem() : UiInvalidatedSystem(
 
         if (entity.Contains<UiChildren>()) {
             var children = entity.Get<UiChildren>().Value;
-            var childIds = new List<LayoutNodeId>(children.Count);
             foreach (var child in children) {
                 if (!child.IsValid || !child.Contains<Node>() || map.ContainsKey(child))
                     continue;
-                childIds.Add(BuildSubtree(tree, map, textMeasures, child));
+                tree.AddChild(id, BuildSubtree(tree, map, textMeasures, child));
             }
-            tree.SetChildren(id, childIds);
         }
 
         return id;

@@ -22,12 +22,12 @@ internal sealed class UiRenderCache : IAddon
     internal void ConsumeChanges(List<int> dirtySlots, out bool paintOrderDirty) =>
         _store.ConsumeChanges(dirtySlots, out paintOrderDirty);
 
-    internal bool Prepare()
+    internal void Prepare()
     {
         var changes = _changes
             ?? throw new InvalidOperationException("The UI render cache is not attached to a world.");
         if (_preparedVersion == changes.RenderVersion)
-            return false;
+            return;
 
         changes.ConsumeRenderDirtyEntities(_dirtyEntities);
         if (_preparedStructureVersion != changes.RenderStructureVersion) {
@@ -43,7 +43,6 @@ internal sealed class UiRenderCache : IAddon
         }
         _preparedVersion = changes.RenderVersion;
         _preparedStructureVersion = changes.RenderStructureVersion;
-        return true;
     }
 
     private void Rebuild()

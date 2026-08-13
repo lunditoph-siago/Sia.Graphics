@@ -6,6 +6,7 @@ namespace Sia.Graphics.UI;
 
 public sealed unsafe class UiPipeline
 {
+    private const int BindGroupEntryCount = 5;
     private const int InitialTextureArrayLayers = 4;
 
     internal Entity Device { get; }
@@ -58,7 +59,7 @@ public sealed unsafe class UiPipeline
             NextInChain = null,
             Label = default,
             Usage = WGPUBufferUsage.Uniform | WGPUBufferUsage.CopyDst,
-            Size = 64,
+            Size = UiOrthographicProjection.UniformByteSize,
             MappedAtCreation = 0
         });
         var (textureArray, textureArrayView) = CreateTextureArray(
@@ -84,11 +85,11 @@ public sealed unsafe class UiPipeline
         WgpuHandle<WGPUBuffer> paintOrderBuffer,
         ulong paintOrderBufferSize)
     {
-        Span<WGPUBindGroupEntry> entries = stackalloc WGPUBindGroupEntry[5];
+        Span<WGPUBindGroupEntry> entries = stackalloc WGPUBindGroupEntry[BindGroupEntryCount];
         entries[0] = WGPUBindGroupEntry.Default;
         entries[0].Binding = 0;
         entries[0].Buffer = (WGPUBuffer*)ViewUniformBuffer.GetWgpu<WGPUBuffer>().DangerousGetHandle();
-        entries[0].Size = 64;
+        entries[0].Size = UiOrthographicProjection.UniformByteSize;
         entries[1] = WGPUBindGroupEntry.Default;
         entries[1].Binding = 1;
         entries[1].Buffer = (WGPUBuffer*)primitiveBuffer.DangerousGetHandle();
@@ -109,7 +110,7 @@ public sealed unsafe class UiPipeline
             descriptor.Layout = (WGPUBindGroupLayout*)BindGroupLayout
                 .GetWgpu<WGPUBindGroupLayout>()
                 .DangerousGetHandle();
-            descriptor.EntryCount = 5;
+            descriptor.EntryCount = BindGroupEntryCount;
             descriptor.Entries = entriesPtr;
             return Wgpu.CreateBindGroup(Device.GetWgpu<WGPUDevice>(), in descriptor);
         }
@@ -251,7 +252,8 @@ public sealed unsafe class UiPipeline
 
     private static WgpuHandle<WGPUBindGroupLayout> CreateBindGroupLayout(WgpuHandle<WGPUDevice> device)
     {
-        Span<WGPUBindGroupLayoutEntry> entries = stackalloc WGPUBindGroupLayoutEntry[5];
+        Span<WGPUBindGroupLayoutEntry> entries =
+            stackalloc WGPUBindGroupLayoutEntry[BindGroupEntryCount];
         entries[0] = WGPUBindGroupLayoutEntry.Default;
         entries[0].Binding = 0;
         entries[0].Visibility = WGPUShaderStage.Vertex;
@@ -281,7 +283,7 @@ public sealed unsafe class UiPipeline
 
         fixed (WGPUBindGroupLayoutEntry* entriesPtr = entries) {
             var descriptor = WGPUBindGroupLayoutDescriptor.Default;
-            descriptor.EntryCount = 5;
+            descriptor.EntryCount = BindGroupEntryCount;
             descriptor.Entries = entriesPtr;
             return Wgpu.CreateBindGroupLayout(device, in descriptor);
         }
@@ -304,8 +306,10 @@ public sealed unsafe class UiPipeline
         WgpuHandle<WGPUPipelineLayout> pipelineLayout,
         WGPUTextureFormat targetFormat)
     {
-        fixed (byte* vertexEntry = "vertex"u8)
-        fixed (byte* fragmentEntry = "fragment"u8) {
+        var vertexEntryPoint = "vertex"u8;
+        var fragmentEntryPoint = "fragment"u8;
+        fixed (byte* vertexEntry = vertexEntryPoint)
+        fixed (byte* fragmentEntry = fragmentEntryPoint) {
             var blend = WGPUBlendState.Default;
             blend.Color.Operation = WGPUBlendOperation.Add;
             blend.Color.SrcFactor = WGPUBlendFactor.SrcAlpha;
@@ -321,7 +325,10 @@ public sealed unsafe class UiPipeline
 
             var fragment = WGPUFragmentState.Default;
             fragment.Module = (WGPUShaderModule*)shaderModule.DangerousGetHandle();
-            fragment.EntryPoint = new WGPUStringView { Data = fragmentEntry, Length = 8 };
+            fragment.EntryPoint = new WGPUStringView {
+                Data = fragmentEntry,
+                Length = (nuint)fragmentEntryPoint.Length
+            };
             fragment.TargetCount = 1;
             fragment.Targets = &colorTarget;
 
@@ -329,7 +336,10 @@ public sealed unsafe class UiPipeline
             descriptor.Layout = (WGPUPipelineLayout*)pipelineLayout.DangerousGetHandle();
             descriptor.Vertex = WGPUVertexState.Default;
             descriptor.Vertex.Module = (WGPUShaderModule*)shaderModule.DangerousGetHandle();
-            descriptor.Vertex.EntryPoint = new WGPUStringView { Data = vertexEntry, Length = 6 };
+            descriptor.Vertex.EntryPoint = new WGPUStringView {
+                Data = vertexEntry,
+                Length = (nuint)vertexEntryPoint.Length
+            };
             descriptor.Primitive = WGPUPrimitiveState.Default;
             descriptor.Primitive.Topology = WGPUPrimitiveTopology.TriangleList;
             descriptor.Primitive.FrontFace = WGPUFrontFace.CCW;

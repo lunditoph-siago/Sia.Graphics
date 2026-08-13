@@ -17,7 +17,7 @@ internal struct UiPrimitive
     public static UiPrimitive Create(in ExtractedUiNode node)
     {
         var transform = node.Transform ?? UiGlobalTransform.Identity;
-        var clip = node.ClipRect ?? new UiClipRect(-1e9f, -1e9f, 2e9f, 2e9f);
+        var clip = node.ClipRect ?? UiClipRect.Unbounded;
         return new UiPrimitive {
             TransformM11 = transform.M11,
             TransformM12 = transform.M12,

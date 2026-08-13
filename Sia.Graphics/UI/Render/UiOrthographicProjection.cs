@@ -2,6 +2,8 @@ namespace Sia.Graphics.UI;
 
 public static class UiOrthographicProjection
 {
+    internal const ulong UniformByteSize = 16 * sizeof(float);
+
     public static float[] Build(Size viewport)
     {
         var w = viewport.Width > 0f ? viewport.Width : 1f;

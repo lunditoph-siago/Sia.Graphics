@@ -5,6 +5,10 @@ namespace Sia.Graphics.UI;
 
 internal static class UiExtraction
 {
+    private const int BackgroundSubOrder = 0;
+    private const int BorderSubOrder = 1;
+    private const int FirstGlyphSubOrder = 2;
+
     internal static void Extract(
         IEntityQuery backgrounds,
         IEntityQuery borders,
@@ -57,7 +61,7 @@ internal static class UiExtraction
             computed.StackIndex) with {
                 ClipRect = computed.ClipRect,
                 Transform = entity.Get<UiGlobalTransform>(),
-                SubOrder = 0
+                SubOrder = BackgroundSubOrder
             });
     }
 
@@ -77,7 +81,7 @@ internal static class UiExtraction
             computed.StackIndex) with {
                 ClipRect = computed.ClipRect,
                 Transform = entity.Get<UiGlobalTransform>(),
-                SubOrder = 1
+                SubOrder = BorderSubOrder
             });
     }
 
@@ -103,7 +107,7 @@ internal static class UiExtraction
             result.Add(new ExtractedUiNode(
                 entity, glyphTopLeft, size, style.Color, ResolvedBorderRadius.Zero, BorderEdges.Zero,
                 computed.StackIndex, atlas, uvMin,
-                computed.ClipRect, transform, 2 + glyphIndex));
+                computed.ClipRect, transform, FirstGlyphSubOrder + glyphIndex));
             glyphIndex++;
         }
     }

@@ -12,6 +12,14 @@ public readonly record struct ResolvedBorderRadius(float TopLeft, float TopRight
 
 public readonly record struct UiClipRect(float X, float Y, float Width, float Height)
 {
+    private const float UnboundedExtent = 1e9f;
+
+    internal static readonly UiClipRect Unbounded = new(
+        -UnboundedExtent,
+        -UnboundedExtent,
+        UnboundedExtent * 2f,
+        UnboundedExtent * 2f);
+
     public float Right => X + Width;
     public float Bottom => Y + Height;
 

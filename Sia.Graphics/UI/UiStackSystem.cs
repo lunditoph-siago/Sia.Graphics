@@ -2,14 +2,14 @@ using Sia;
 
 namespace Sia.Graphics.UI;
 
-public sealed class UiStackSystem() : UiInvalidatedSystem(
+public sealed class UiStackSystem() : UiVersionedSystemBase(
     Matchers.Of<Node, ComputedNode, UiRoot>())
 {
     private readonly HashSet<Entity> _visited = [];
 
     protected override long GetVersion(UiChangeTracker changes) => changes.LayoutVersion;
 
-    protected override void ExecuteInvalidated(World world, IEntityQuery query)
+    protected override void OnExecute(World world, IEntityQuery query)
     {
         var counter = 0;
         _visited.Clear();

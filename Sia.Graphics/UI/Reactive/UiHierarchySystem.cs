@@ -2,7 +2,7 @@ using Sia;
 
 namespace Sia.Graphics.UI;
 
-public sealed class UiHierarchySystem() : UiInvalidatedSystem(
+public sealed class UiHierarchySystem() : UiVersionedSystemBase(
     Matchers.Of<UiNodeIdentity>())
 {
     private readonly List<Entry> _entries = [];
@@ -10,7 +10,7 @@ public sealed class UiHierarchySystem() : UiInvalidatedSystem(
 
     protected override long GetVersion(UiChangeTracker changes) => changes.HierarchyVersion;
 
-    protected override void ExecuteInvalidated(World world, IEntityQuery query)
+    protected override void OnExecute(World world, IEntityQuery query)
     {
         _entries.Clear();
         _entries.EnsureCapacity(query.Count);

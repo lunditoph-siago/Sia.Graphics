@@ -3,7 +3,7 @@ using Sia.Graphics.Text;
 
 namespace Sia.Graphics.UI;
 
-public sealed class UiLayoutSystem() : UiInvalidatedSystem(
+public sealed class UiLayoutSystem() : UiVersionedSystemBase(
     Matchers.Of<Node, ComputedNode, UiGlobalTransform, UiRoot>())
 {
     private readonly LayoutTree _tree = new();
@@ -16,7 +16,7 @@ public sealed class UiLayoutSystem() : UiInvalidatedSystem(
 
     protected override long GetVersion(UiChangeTracker changes) => changes.LayoutVersion;
 
-    protected override void ExecuteInvalidated(World world, IEntityQuery query)
+    protected override void OnExecute(World world, IEntityQuery query)
     {
         var atlases = world.AcquireAddon<FontAtlasSet>();
         _liveTextMeasures.Clear();

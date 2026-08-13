@@ -214,25 +214,78 @@ fn draw_uinode_background(
     return vec4(color.rgb, saturate(color.a * t));
 }
 
+fn draw_rect_border(
+    color: vec4<f32>,
+    point: vec2<f32>,
+    size: vec2<f32>,
+    border: vec4<f32>,
+    flags: u32,
+) -> vec4<f32> {
+    let edge_distance = vec4(
+        point.x + size.x * 0.5,
+        point.y + size.y * 0.5,
+        size.x * 0.5 - point.x,
+        size.y * 0.5 - point.y,
+    );
+    var coverage = 0.0;
+    if enabled(flags, BORDER_LEFT) {
+        coverage = max(coverage, antialias(edge_distance.x - border.x));
+    }
+    if enabled(flags, BORDER_TOP) {
+        coverage = max(coverage, antialias(edge_distance.y - border.y));
+    }
+    if enabled(flags, BORDER_RIGHT) {
+        coverage = max(coverage, antialias(edge_distance.z - border.z));
+    }
+    if enabled(flags, BORDER_BOTTOM) {
+        coverage = max(coverage, antialias(edge_distance.w - border.w));
+    }
+    return vec4(color.rgb, color.a * coverage);
+}
+
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if any(in.world_position < in.clip.xy) || any(in.world_position > in.clip.zw) {
         discard;
     }
-    var color = in.color;
     if in.texture_layer != 0u {
-        color.a *= textureSampleLevel(
+        let coverage = textureSampleLevel(
             sprite_texture,
             sprite_sampler,
             in.uv,
             i32(in.texture_layer),
             0.0,
         ).r;
+        return vec4(in.color.rgb, in.color.a * coverage);
+    }
+
+    let has_radius = any(in.radius > vec4(0.0));
+    if in.flags == 0u && !has_radius {
+        return in.color;
+    }
+    if !has_radius {
+        return draw_rect_border(in.color, in.point, in.size, in.border, in.flags);
     }
 
     if enabled(in.flags, BORDER_ANY) {
-        return draw_uinode_border(color, in.point, in.size, in.radius, in.radius, in.border, in.flags);
+        return draw_uinode_border(
+            in.color,
+            in.point,
+            in.size,
+            in.radius,
+            in.radius,
+            in.border,
+            in.flags,
+        );
     } else {
-        return draw_uinode_background(color, in.point, in.size, in.radius, in.radius, in.border, in.flags);
+        return draw_uinode_background(
+            in.color,
+            in.point,
+            in.size,
+            in.radius,
+            in.radius,
+            in.border,
+            in.flags,
+        );
     }
 }

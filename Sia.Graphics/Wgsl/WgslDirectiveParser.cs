@@ -91,7 +91,7 @@ public static class WgslDirectiveParser
     {
         string? alias = null;
 
-        var asIdx = IndexOfKeyword(arg, " as ");
+        var asIdx = arg.IndexOf(" as ", StringComparison.Ordinal);
         if (asIdx >= 0) {
             alias = arg[(asIdx + 4)..].Trim().ToString();
             arg = arg[..asIdx].TrimEnd();
@@ -132,19 +132,6 @@ public static class WgslDirectiveParser
         }
 
         return (cond.Trim(), null, null);
-    }
-
-    private static int IndexOfKeyword(ReadOnlySpan<char> text, string keyword)
-    {
-        var idx = text.IndexOf(keyword, StringComparison.Ordinal);
-        if (idx < 0) return -1;
-
-        var before = idx > 0 ? text[idx - 1] : ' ';
-        var after = text[(idx + keyword.Length)..];
-        if (char.IsWhiteSpace(before) && (after.IsEmpty || char.IsWhiteSpace(after[0])))
-            return idx;
-
-        return -1;
     }
 
     private static int IndexOfAfter(ReadOnlySpan<char> text, string value, int start)

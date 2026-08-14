@@ -20,6 +20,10 @@
     <PackageReference Include="Sia" Version="2.1.1" />
   </ItemGroup>
 
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0-browser'">
+    <SupportedOSPlatformVersion>0.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="Sia.WebGPU.Tests" />
   </ItemGroup>

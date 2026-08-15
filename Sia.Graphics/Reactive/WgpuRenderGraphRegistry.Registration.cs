@@ -202,6 +202,7 @@ public sealed partial class WgpuRenderGraphRegistry
         _structureVersion++;
         _bindings = null;
         _preparedBindingVersion = -1;
+        _viewCache.Clear();
     }
 
     private void BindingsChanged()

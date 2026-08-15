@@ -31,12 +31,14 @@ public static partial class RenderGraphCompiler
             definition,
             textureUsage,
             textureLifetimes);
+        var passGroups = BuildPassGroups(passes, textures);
 
         return new CompiledRenderGraph(
             definition.GraphId,
             buffers,
             textures,
             passes,
+            passGroups,
             RenderGraphStructureHasher.Compute(definition));
     }
 

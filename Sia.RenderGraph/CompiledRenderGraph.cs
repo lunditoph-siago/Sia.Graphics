@@ -10,12 +10,14 @@ public sealed class CompiledRenderGraph
         CompiledRenderGraphBuffer[] buffers,
         CompiledRenderGraphTexture[] textures,
         CompiledRenderGraphPass[] passes,
+        RenderGraphPassGroup[] passGroups,
         RenderGraphStructureHash structureHash)
     {
         _graphId = graphId;
         Buffers = Array.AsReadOnly(buffers);
         Textures = Array.AsReadOnly(textures);
         Passes = Array.AsReadOnly(passes);
+        PassGroups = Array.AsReadOnly(passGroups);
         StructureHash = structureHash;
         _passesByDeclaration = new CompiledRenderGraphPass[passes.Length];
         foreach (var pass in passes)
@@ -29,6 +31,8 @@ public sealed class CompiledRenderGraph
     public IReadOnlyList<CompiledRenderGraphTexture> Textures { get; }
 
     public IReadOnlyList<CompiledRenderGraphPass> Passes { get; }
+
+    public IReadOnlyList<RenderGraphPassGroup> PassGroups { get; }
 
     public RenderGraphStructureHash StructureHash { get; }
 

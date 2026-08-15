@@ -25,14 +25,13 @@ public sealed class UiRenderer(UiPipeline pipeline)
         WgpuReactiveRenderGraphPassContext context,
         RenderGraphTextureKey output,
         Size viewport,
-        WGPULoadOp loadOp = WGPULoadOp.Load)
+        WGPULoadOp loadOp = WGPULoadOp.Load,
+        bool outputCacheable = true)
     {
         var primitiveCount = PrepareFrame(world, viewport);
-        EncodeRenderPass(
-            context.CommandEncoder,
-            context.GetTextureView(output),
-            primitiveCount,
-            loadOp);
+        var renderPass = context.GetOrBeginRenderPass(
+            new WgpuReactiveRenderGraphColorAttachment(output, loadOp, Cacheable: outputCacheable));
+        Encode(renderPass, primitiveCount);
     }
 
     public uint PrepareFrame(World world, Size viewport)
@@ -194,35 +193,4 @@ public sealed class UiRenderer(UiPipeline pipeline)
             Wgpu.Draw(renderPass, 6, primitiveCount);
     }
 
-    private unsafe void EncodeRenderPass(
-        WgpuHandle<WGPUCommandEncoder> encoder,
-        WgpuHandle<WGPUTextureView> target,
-        uint primitiveCount,
-        WGPULoadOp loadOp)
-    {
-        Span<WGPURenderPassColorAttachment> colorAttachments = stackalloc WGPURenderPassColorAttachment[1];
-        colorAttachments[0] = WGPURenderPassColorAttachment.Default;
-        colorAttachments[0].View = ToPointer(target);
-        colorAttachments[0].LoadOp = loadOp;
-        colorAttachments[0].StoreOp = WGPUStoreOp.Store;
-        colorAttachments[0].ClearValue = new WGPUColor { R = 0, G = 0, B = 0, A = 0 };
-
-        fixed (WGPURenderPassColorAttachment* colorAttachmentsPtr = colorAttachments) {
-            var descriptor = WGPURenderPassDescriptor.Default;
-            descriptor.ColorAttachmentCount = 1;
-            descriptor.ColorAttachments = colorAttachmentsPtr;
-
-            var renderPass = Wgpu.BeginRenderPass(encoder, in descriptor);
-            try {
-                Encode(renderPass, primitiveCount);
-                Wgpu.EndRenderPass(renderPass);
-            }
-            finally {
-                Wgpu.Release(ref renderPass);
-            }
-        }
-    }
-
-    private static unsafe WGPUTextureView* ToPointer(WgpuHandle<WGPUTextureView> handle) =>
-        (WGPUTextureView*)handle.DangerousGetHandle();
 }

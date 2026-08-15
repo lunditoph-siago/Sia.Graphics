@@ -3,6 +3,7 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
 using Sia.GLFW;
+using Sia.Graphics.Reactive;
 using Sia.Input;
 using Sia.Window;
 
@@ -15,8 +16,6 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private const int _uniformSize = 80;
 
     private readonly WgpuHandle<WGPUTexture>[] _accumulationTextures = new WgpuHandle<WGPUTexture>[2];
-    private readonly WgpuHandle<WGPUTextureView>[] _accumulationViews = new WgpuHandle<WGPUTextureView>[2];
-    private readonly WgpuHandle<WGPUBindGroup>[] _accumulationBindGroups = new WgpuHandle<WGPUBindGroup>[2];
     private readonly HashSet<Key> _pressedKeys = [];
 
     private GlfwWindow _window;
@@ -112,6 +111,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         CreateUniformBuffer();
         CreatePipelines();
         InitializeUi();
+        InitializeRenderGraph();
         ResizeIfNeeded(force: true);
     }
 
@@ -426,27 +426,13 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             ViewFormatCount = 0,
             ViewFormats = null,
         };
-        var viewDescriptor = new WGPUTextureViewDescriptor {
-            NextInChain = null,
-            Label = default,
-            Format = WGPUTextureFormat.RGBA16Float,
-            Dimension = WGPUTextureViewDimension._2D,
-            BaseMipLevel = 0,
-            MipLevelCount = 1,
-            BaseArrayLayer = 0,
-            ArrayLayerCount = 1,
-            Aspect = WGPUTextureAspect.All,
-            Usage = WGPUTextureUsage.TextureBinding | WGPUTextureUsage.RenderAttachment,
-        };
 
         for (var index = 0; index < 2; index++) {
             _accumulationTextures[index] = Wgpu.CreateTexture(_device, in textureDescriptor);
-            _accumulationViews[index] = Wgpu.CreateTextureView(_accumulationTextures[index], in viewDescriptor);
-            _accumulationBindGroups[index] = CreateAccumulationBindGroup(_accumulationViews[index]);
         }
     }
 
-    private WgpuHandle<WGPUBindGroup> CreateAccumulationBindGroup(
+    private WgpuHandle<WGPUBindGroup> CreateSamplingBindGroup(
         WgpuHandle<WGPUTextureView> textureView)
     {
         var entries = stackalloc WGPUBindGroupEntry[2];
@@ -500,51 +486,13 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             throw new WgpuException($"Surface texture acquisition failed with status {surfaceTexture.Status}.");
         }
 
-        var surfaceView = default(WgpuHandle<WGPUTextureView>);
         try {
-            var surfaceViewDescriptor = new WGPUTextureViewDescriptor {
-                NextInChain = null,
-                Label = default,
-                Format = _surfaceFormat,
-                Dimension = WGPUTextureViewDimension._2D,
-                BaseMipLevel = 0,
-                MipLevelCount = 1,
-                BaseArrayLayer = 0,
-                ArrayLayerCount = 1,
-                Aspect = WGPUTextureAspect.All,
-                Usage = WGPUTextureUsage.RenderAttachment,
-            };
-            surfaceView = Wgpu.CreateTextureView(surfaceTexture, in surfaceViewDescriptor);
             WriteUniforms();
-            var uiPrimitiveCount = PrepareUiFrame();
 
             var writeIndex = 1 - _readIndex;
-            var encoder = Wgpu.CreateCommandEncoder(_device);
-            var commandBuffer = default(WgpuHandle<WGPUCommandBuffer>);
-            try {
-                EncodeRenderPass(
-                    encoder,
-                    _accumulationViews[writeIndex],
-                    _pathPipeline,
-                    _accumulationBindGroups[_readIndex]);
-                EncodeRenderPass(
-                    encoder,
-                    surfaceView,
-                    _presentationPipeline,
-                    _accumulationBindGroups[writeIndex],
-                    uiPrimitiveCount);
-
-                var commandBufferDescriptor = new WGPUCommandBufferDescriptor {
-                    NextInChain = null,
-                    Label = default,
-                };
-                commandBuffer = Wgpu.FinishCommandEncoder(encoder, in commandBufferDescriptor);
-                Wgpu.Submit(_queue, [commandBuffer]);
-            }
-            finally {
-                Wgpu.Release(ref commandBuffer);
-                Wgpu.Release(ref encoder);
-            }
+            UpdateRenderGraph(surfaceTexture.Texture, writeIndex);
+            _renderGraphWorld!.ExecuteWgpuRenderGraph();
+            EndSamplingBindGroupFrame();
 
 #if !BROWSER
             Wgpu.PresentSurfaceOrThrow(_surface);
@@ -553,46 +501,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             _frameIndex++;
         }
         finally {
-            Wgpu.Release(ref surfaceView);
             Wgpu.Release(ref surfaceTexture);
-        }
-    }
-
-    private void EncodeRenderPass(
-        WgpuHandle<WGPUCommandEncoder> encoder,
-        WgpuHandle<WGPUTextureView> target,
-        WgpuHandle<WGPURenderPipeline> pipeline,
-        WgpuHandle<WGPUBindGroup> bindGroup,
-        uint? uiPrimitiveCount = null)
-    {
-        var colorAttachment = new WGPURenderPassColorAttachment {
-            NextInChain = null,
-            View = Pointer(target),
-            DepthSlice = uint.MaxValue,
-            ResolveTarget = null,
-            LoadOp = WGPULoadOp.Clear,
-            StoreOp = WGPUStoreOp.Store,
-            ClearValue = new WGPUColor { R = 0.0, G = 0.0, B = 0.0, A = 1.0 },
-        };
-        var descriptor = new WGPURenderPassDescriptor {
-            NextInChain = null,
-            Label = default,
-            ColorAttachmentCount = 1,
-            ColorAttachments = &colorAttachment,
-            DepthStencilAttachment = null,
-            OcclusionQuerySet = null,
-            TimestampWrites = null,
-        };
-        var pass = Wgpu.BeginRenderPass(encoder, in descriptor);
-        try {
-            Wgpu.SetRenderPipeline(pass, pipeline);
-            Wgpu.SetBindGroup(pass, 0, bindGroup);
-            Wgpu.Draw(pass, 3);
-            EncodeUi(pass, uiPrimitiveCount);
-            Wgpu.EndRenderPass(pass);
-        }
-        finally {
-            Wgpu.Release(ref pass);
         }
     }
 
@@ -737,8 +646,6 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private void ReleaseAccumulationResources()
     {
         for (var index = 0; index < 2; index++) {
-            Wgpu.Release(ref _accumulationBindGroups[index]);
-            Wgpu.Release(ref _accumulationViews[index]);
             Wgpu.Release(ref _accumulationTextures[index]);
         }
     }
@@ -751,6 +658,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         _disposed = true;
 
         ReleaseAccumulationResources();
+        DisposeRenderGraph();
         DisposeUi();
         Wgpu.Release(ref _presentationPipeline);
         Wgpu.Release(ref _pathPipeline);

@@ -12,7 +12,8 @@ public readonly record struct UiRenderPassProps(
     RenderGraphPassKey Pass,
     RenderGraphTextureKey Output,
     Size Viewport,
-    WGPULoadOp LoadOp = WGPULoadOp.Load);
+    WGPULoadOp LoadOp = WGPULoadOp.Load,
+    bool OutputCacheable = true);
 
 public static class ReactiveUi
 {
@@ -25,7 +26,8 @@ public static class ReactiveUi
             props.Pass,
             props.Output,
             props.Viewport,
-            props.LoadOp);
+            props.LoadOp,
+            props.OutputCacheable);
         return SiaReactive.None;
     }
 

@@ -41,6 +41,8 @@ public sealed partial class WgpuRenderGraphRegistry : IAddon, IDisposable
     private WgpuRenderGraphBindings? _bindings;
     private WgpuRenderGraphExports? _exports;
     private WgpuRenderGraphPlan? _executedPlan;
+    private readonly WgpuRenderGraphViewCache _viewCache = new();
+    private readonly WgpuRenderGraphExecutionScratch _executionScratch = new();
     private WgpuHandle<WGPUDevice> _device;
     private WgpuHandle<WGPUQueue> _queue;
     private long _nextRegistrationId;
@@ -55,6 +57,8 @@ public sealed partial class WgpuRenderGraphRegistry : IAddon, IDisposable
     public int CompilationCount { get; private set; }
 
     public ulong ExecutionCount { get; private set; }
+
+    public int LastRenderPassCount { get; private set; }
 
     public bool IsConfigured => !_device.IsNull && !_queue.IsNull;
 
@@ -114,10 +118,14 @@ public sealed partial class WgpuRenderGraphRegistry : IAddon, IDisposable
             plan,
             _device,
             _queue,
-            bindings);
+            bindings,
+            _viewCache,
+            _executionScratch,
+            out var renderPassCount);
         var previousExports = _exports;
         _exports = nextExports;
         _executedPlan = plan;
+        LastRenderPassCount = renderPassCount;
         ExecutionCount++;
         previousExports?.Dispose();
     }
@@ -178,6 +186,9 @@ public sealed partial class WgpuRenderGraphRegistry : IAddon, IDisposable
         _exports?.Dispose();
         _exports = null;
         _executedPlan = null;
+        _viewCache.Dispose();
+        _executionScratch.Clear();
+        _passAdapters.Clear();
         _bindings = null;
         _plan = null;
         _buffers.Clear();

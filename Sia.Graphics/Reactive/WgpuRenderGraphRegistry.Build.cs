@@ -68,14 +68,22 @@ public sealed partial class WgpuRenderGraphRegistry
         _passHandles = passHandles;
         _plan = plan;
         _bindings = null;
+        _passAdapters.Clear();
         _preparedStructureVersion = _structureVersion;
         _preparedBindingVersion = -1;
         CompilationCount++;
     }
 
+    private readonly Dictionary<RenderGraphPassKey, (long HandlerId, ReactiveRenderGraphPassAdapter Adapter)>
+        _passAdapters = [];
+
     private WgpuRenderGraphBindings BuildBindings(WgpuRenderGraphPlan plan)
     {
-        var bindings = new WgpuRenderGraphBindings(plan);
+        var bindings = _bindings != null && ReferenceEquals(_bindings.Plan, plan)
+            ? _bindings
+            : new WgpuRenderGraphBindings(plan);
+        bindings.Clear();
+
         foreach (var (key, entry) in _bufferBindings) {
             if (!_importedBuffers.ContainsKey(key) ||
                 !_bufferHandles.TryGetValue(key, out var handle)) {
@@ -97,15 +105,27 @@ public sealed partial class WgpuRenderGraphRegistry
                 throw new InvalidOperationException(
                     $"Bound render graph pass '{key}' has not been registered.");
             }
-            var adapter = new ReactiveRenderGraphPassAdapter(
-                entry.Value,
-                _bufferHandles,
-                _textureHandles);
-            bindings.SetPassHandler(handle, adapter.Execute);
+            bindings.SetPassHandler(handle, GetOrCreateAdapter(key, entry).Handler);
         }
 
         ValidateImportedBindings(plan);
         return bindings;
+    }
+
+    private ReactiveRenderGraphPassAdapter GetOrCreateAdapter(
+        RenderGraphPassKey key,
+        Entry<WgpuReactiveRenderGraphPassHandler> entry)
+    {
+        if (_passAdapters.TryGetValue(key, out var cached) && cached.HandlerId == entry.Id) {
+            return cached.Adapter;
+        }
+
+        var adapter = new ReactiveRenderGraphPassAdapter(
+            entry.Value,
+            _bufferHandles,
+            _textureHandles);
+        _passAdapters[key] = (entry.Id, adapter);
+        return adapter;
     }
 
     private void ValidateImportedBindings(WgpuRenderGraphPlan plan)

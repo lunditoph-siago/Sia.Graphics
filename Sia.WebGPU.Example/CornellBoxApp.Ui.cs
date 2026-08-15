@@ -341,23 +341,6 @@ internal sealed unsafe partial class CornellBoxApp
         ResetAccumulation();
     }
 
-    private uint? PrepareUiFrame() =>
-        _uiWorld is not null && _uiRenderer is not null
-            ? _uiRenderer.PrepareFrame(
-                _uiWorld,
-                new Size(_framebufferWidth, _framebufferHeight))
-            : null;
-
-    private void EncodeUi(
-        WgpuHandle<WGPURenderPassEncoder> renderPass,
-        uint? primitiveCount)
-    {
-        if (_uiRenderer is null || primitiveCount is null)
-            return;
-
-        _uiRenderer.Encode(renderPass, primitiveCount.Value);
-    }
-
     private void DisposeUi()
     {
         if (_uiMount is { } mount && mount.IsMounted)

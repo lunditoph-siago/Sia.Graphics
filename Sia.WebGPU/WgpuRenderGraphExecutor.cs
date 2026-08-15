@@ -8,10 +8,25 @@ public static class WgpuRenderGraphExecutor
         WgpuRenderGraphPlan plan,
         WgpuHandle<WGPUDevice> device,
         WgpuHandle<WGPUQueue> queue,
-        WgpuRenderGraphBindings bindings)
+        WgpuRenderGraphBindings bindings,
+        WgpuRenderGraphViewCache viewCache,
+        WgpuRenderGraphExecutionScratch scratch) =>
+        Execute(plan, device, queue, bindings, viewCache, scratch, out _);
+
+    public static WgpuRenderGraphExports Execute(
+        WgpuRenderGraphPlan plan,
+        WgpuHandle<WGPUDevice> device,
+        WgpuHandle<WGPUQueue> queue,
+        WgpuRenderGraphBindings bindings,
+        WgpuRenderGraphViewCache viewCache,
+        WgpuRenderGraphExecutionScratch scratch,
+        out int physicalRenderPassCount)
     {
+        physicalRenderPassCount = 0;
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(bindings);
+        ArgumentNullException.ThrowIfNull(viewCache);
+        ArgumentNullException.ThrowIfNull(scratch);
         if (!ReferenceEquals(plan, bindings.Plan)) {
             throw new ArgumentException(
                 "The bindings were created for a different WebGPU render graph plan.",
@@ -24,11 +39,12 @@ public static class WgpuRenderGraphExecutor
             throw new ArgumentException("The WebGPU queue is null.", nameof(queue));
         }
 
-        var buffers = new Dictionary<RenderGraphBufferHandle, WgpuHandle<WGPUBuffer>>();
-        var textures = new Dictionary<RenderGraphTextureHandle, WgpuHandle<WGPUTexture>>();
-        var ownedBuffers = new HashSet<RenderGraphBufferHandle>();
-        var ownedTextures = new HashSet<RenderGraphTextureHandle>();
-        var views = new List<WgpuHandle<WGPUTextureView>>();
+        scratch.Clear();
+        var buffers = scratch.Buffers;
+        var textures = scratch.Textures;
+        var ownedBuffers = scratch.OwnedBuffers;
+        var ownedTextures = scratch.OwnedTextures;
+        var transientViews = scratch.TransientViews;
         var commandEncoder = default(WgpuHandle<WGPUCommandEncoder>);
         var commandBuffer = default(WgpuHandle<WGPUCommandBuffer>);
 
@@ -43,20 +59,30 @@ public static class WgpuRenderGraphExecutor
                         "WebGPU could not create the render graph command encoder.");
                 }
 
-                foreach (var pass in plan.Graph.Passes) {
-                    if (!bindings.TryGetHandler(pass.Handle, out var handler) ||
-                        handler is null) {
-                        continue;
+                foreach (var group in plan.Graph.PassGroups) {
+                    var groupRenderPass = scratch.RentGroupState();
+                    for (var offset = 0; offset < group.Count; offset++) {
+                        var pass = plan.Graph.Passes[group.StartExecutionIndex + offset];
+                        if (!bindings.TryGetHandler(pass.Handle, out var handler) ||
+                            handler is null) {
+                            continue;
+                        }
+
+                        var context = scratch.RentPassContext(
+                            plan,
+                            pass,
+                            commandEncoder,
+                            viewCache,
+                            groupRenderPass);
+                        handler(context);
                     }
 
-                    var context = new WgpuRenderGraphPassContext(
-                        plan,
-                        pass,
-                        commandEncoder,
-                        buffers,
-                        textures,
-                        views);
-                    handler(context);
+                    if (groupRenderPass.IsOpen) {
+                        var renderPass = groupRenderPass.Encoder;
+                        Wgpu.EndRenderPass(renderPass);
+                        Wgpu.Release(ref renderPass);
+                        physicalRenderPassCount++;
+                    }
                 }
 
                 var descriptor = WGPUCommandBufferDescriptor.Default;
@@ -82,10 +108,11 @@ public static class WgpuRenderGraphExecutor
             return exports;
         }
         finally {
-            for (var index = views.Count - 1; index >= 0; index--) {
-                var view = views[index];
+            for (var index = transientViews.Count - 1; index >= 0; index--) {
+                var view = transientViews[index];
                 Wgpu.Release(ref view);
             }
+            viewCache.EndFrame();
             Wgpu.Release(ref commandBuffer);
             Wgpu.Release(ref commandEncoder);
             ReleaseBuffers(buffers, ownedBuffers);
@@ -222,12 +249,20 @@ public static class WgpuRenderGraphExecutor
         HashSet<RenderGraphTextureHandle> ownedTextures,
         WgpuRenderGraphExports exports)
     {
-        foreach (var item in plan.Buffers.Where(static item => item.Resource.IsExported)) {
+        for (var index = 0; index < plan.Buffers.Count; index++) {
+            var item = plan.Buffers[index];
+            if (!item.Resource.IsExported) {
+                continue;
+            }
             var handle = buffers[item.Resource.Handle];
             var ownsHandle = ownedBuffers.Remove(item.Resource.Handle);
             exports.Add(item.Resource.Handle, handle, ownsHandle);
         }
-        foreach (var item in plan.Textures.Where(static item => item.Resource.IsExported)) {
+        for (var index = 0; index < plan.Textures.Count; index++) {
+            var item = plan.Textures[index];
+            if (!item.Resource.IsExported) {
+                continue;
+            }
             var handle = textures[item.Resource.Handle];
             var ownsHandle = ownedTextures.Remove(item.Resource.Handle);
             exports.Add(item.Resource.Handle, handle, ownsHandle);

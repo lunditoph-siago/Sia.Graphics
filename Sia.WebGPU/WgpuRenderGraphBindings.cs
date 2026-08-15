@@ -77,4 +77,11 @@ public sealed class WgpuRenderGraphBindings
         RenderGraphPassHandle pass,
         out WgpuRenderGraphPassHandler? handler) =>
         _handlers.TryGetValue(pass, out handler);
+
+    public void Clear()
+    {
+        _buffers.Clear();
+        _textures.Clear();
+        _handlers.Clear();
+    }
 }

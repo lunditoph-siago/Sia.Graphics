@@ -15,12 +15,13 @@ public static class UiRenderGraphHooks
         RenderGraphPassKey pass,
         RenderGraphTextureKey output,
         Size viewport,
-        WGPULoadOp loadOp = WGPULoadOp.Load)
+        WGPULoadOp loadOp = WGPULoadOp.Load,
+        bool outputCacheable = true)
     {
         var state = hooks.UseRef(() => new UiRenderPassState(output));
         if (state.Value.Output != output)
             state.Value = new(output);
-        state.Value.Update(world, renderer, viewport, loadOp);
+        state.Value.Update(world, renderer, viewport, loadOp, outputCacheable);
 
         hooks.UseRenderGraphPass(
             registry, pass, "ui",
@@ -37,6 +38,7 @@ public static class UiRenderGraphHooks
         private UiRenderer? _renderer;
         private Size _viewport;
         private WGPULoadOp _loadOp;
+        private bool _outputCacheable = true;
 
         public RenderGraphTextureKey Output { get; } = output;
 
@@ -44,18 +46,20 @@ public static class UiRenderGraphHooks
             World world,
             UiRenderer renderer,
             Size viewport,
-            WGPULoadOp loadOp)
+            WGPULoadOp loadOp,
+            bool outputCacheable)
         {
             _world = world;
             _renderer = renderer;
             _viewport = viewport;
             _loadOp = loadOp;
+            _outputCacheable = outputCacheable;
         }
 
         public void Declare(RenderGraphPassDeclarationBuilder declaration) =>
             declaration.Write(Output, RenderGraphTextureUsage.RenderAttachment);
 
         public void Render(WgpuReactiveRenderGraphPassContext context) =>
-            _renderer!.Render(_world!, context, Output, _viewport, _loadOp);
+            _renderer!.Render(_world!, context, Output, _viewport, _loadOp, _outputCacheable);
     }
 }

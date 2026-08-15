@@ -29,13 +29,47 @@ public sealed class WgpuReactiveRenderGraphPassContext
     public WgpuHandle<WGPUTexture> GetTexture(RenderGraphTextureKey key) =>
         Current.GetTexture(GetTextureHandle(key));
 
-    public WgpuHandle<WGPUTextureView> GetTextureView(RenderGraphTextureKey key) =>
-        Current.GetTextureView(GetTextureHandle(key));
+    public WgpuHandle<WGPUTextureView> GetTextureView(
+        RenderGraphTextureKey key,
+        bool cacheable = true) =>
+        Current.GetTextureView(GetTextureHandle(key), cacheable);
 
     public WgpuHandle<WGPUTextureView> GetTextureView(
         RenderGraphTextureKey key,
-        RenderGraphTextureSubresourceRange subresources) =>
-        Current.GetTextureView(GetTextureHandle(key), subresources);
+        RenderGraphTextureSubresourceRange subresources,
+        bool cacheable = true) =>
+        Current.GetTextureView(GetTextureHandle(key), subresources, cacheable);
+
+    public WgpuHandle<WGPURenderPassEncoder> GetOrBeginRenderPass(
+        WgpuReactiveRenderGraphColorAttachment colorAttachment) =>
+        Current.GetOrBeginRenderPass(new WgpuRenderGraphColorAttachment(
+            GetTextureHandle(colorAttachment.Texture),
+            colorAttachment.LoadOp,
+            colorAttachment.StoreOp,
+            colorAttachment.ClearValue,
+            colorAttachment.Subresources,
+            colorAttachment.Cacheable));
+
+    public WgpuHandle<WGPURenderPassEncoder> GetOrBeginRenderPass(
+        ReadOnlySpan<WgpuReactiveRenderGraphColorAttachment> colorAttachments)
+    {
+        Span<WgpuRenderGraphColorAttachment> lowered =
+            colorAttachments.Length <= 8
+                ? stackalloc WgpuRenderGraphColorAttachment[colorAttachments.Length]
+                : new WgpuRenderGraphColorAttachment[colorAttachments.Length];
+        for (var index = 0; index < colorAttachments.Length; index++) {
+            var attachment = colorAttachments[index];
+            lowered[index] = new WgpuRenderGraphColorAttachment(
+                GetTextureHandle(attachment.Texture),
+                attachment.LoadOp,
+                attachment.StoreOp,
+                attachment.ClearValue,
+                attachment.Subresources,
+                attachment.Cacheable);
+        }
+
+        return Current.GetOrBeginRenderPass(lowered);
+    }
 
     internal void Begin(WgpuRenderGraphPassContext context)
     {
@@ -77,7 +111,10 @@ internal sealed class ReactiveRenderGraphPassAdapter
     {
         _handler = handler;
         _context = new(buffers, textures);
+        Handler = Execute;
     }
+
+    public WgpuRenderGraphPassHandler Handler { get; }
 
     public void Execute(WgpuRenderGraphPassContext context)
     {

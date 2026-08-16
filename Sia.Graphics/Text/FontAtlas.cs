@@ -44,10 +44,10 @@ public sealed class FontAtlas
             glyph.Coverage.AsSpan(row * glyph.Width, glyph.Width)
                 .CopyTo(_pixels.AsSpan((y + row) * Width + x, glyph.Width));
         }
-        _dirtyLeft = Math.Min(_dirtyLeft, x);
-        _dirtyTop = Math.Min(_dirtyTop, y);
-        _dirtyRight = Math.Max(_dirtyRight, x + glyph.Width);
-        _dirtyBottom = Math.Max(_dirtyBottom, y + glyph.Height);
+        _dirtyLeft = System.Math.Min(_dirtyLeft, x);
+        _dirtyTop = System.Math.Min(_dirtyTop, y);
+        _dirtyRight = System.Math.Max(_dirtyRight, x + glyph.Width);
+        _dirtyBottom = System.Math.Max(_dirtyBottom, y + glyph.Height);
 
         location = new GlyphAtlasLocation(x, y, glyph.Width, glyph.Height, glyph.OriginX, glyph.OriginY);
         _glyphs[glyphId] = location;

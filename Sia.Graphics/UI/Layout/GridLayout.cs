@@ -110,10 +110,10 @@ internal static partial class GridLayout
         var rowOffsets = TrackOffsets(rows, rowGap);
 
         foreach (var item in items) {
-            var colStart = Math.Clamp(item.ColStart, 0, Math.Max(0, columns.Count - 1));
-            var colEnd = Math.Clamp(item.ColStart + item.ColSpan, 1, columns.Count);
-            var rowStart = Math.Clamp(item.RowStart, 0, Math.Max(0, rows.Count - 1));
-            var rowEnd = Math.Clamp(item.RowStart + item.RowSpan, 1, rows.Count);
+            var colStart = System.Math.Clamp(item.ColStart, 0, System.Math.Max(0, columns.Count - 1));
+            var colEnd = System.Math.Clamp(item.ColStart + item.ColSpan, 1, columns.Count);
+            var rowStart = System.Math.Clamp(item.RowStart, 0, System.Math.Max(0, rows.Count - 1));
+            var rowEnd = System.Math.Clamp(item.RowStart + item.RowSpan, 1, rows.Count);
 
             var areaX = colOffsets[colStart];
             var areaWidth = (colEnd > colStart ? colOffsets[colEnd] - columnGap : colOffsets[colStart]) - areaX;

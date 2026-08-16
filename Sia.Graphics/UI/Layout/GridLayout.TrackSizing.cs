@@ -59,7 +59,7 @@ internal static partial class GridLayout
         foreach (var item in items) {
             var (start, span) = isColumns ? (item.ColStart, item.ColSpan) : (item.RowStart, item.RowSpan);
             if (start < 0 || start >= tracks.Length) continue;
-            span = Math.Min(span, tracks.Length - start);
+            span = System.Math.Min(span, tracks.Length - start);
             if (span <= 0) continue;
 
             var track0 = tracks[start].Sizing;

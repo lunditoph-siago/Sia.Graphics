@@ -32,7 +32,7 @@ public sealed class DynamicTextureAtlasBuilder(int width, int height)
         x = _cursorX;
         y = _cursorY;
         _cursorX += glyphWidth;
-        _shelfHeight = Math.Max(_shelfHeight, glyphHeight);
+        _shelfHeight = System.Math.Max(_shelfHeight, glyphHeight);
         return true;
     }
 }

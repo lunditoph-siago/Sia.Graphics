@@ -6,8 +6,8 @@ internal static partial class GridLayout
 {
     private static void PlaceItems(Node style, List<GridItem> items, out int columnCount, out int rowCount)
     {
-        var explicitCols = Math.Max(style.GridTemplateColumns.Count, 1);
-        var explicitRows = Math.Max(style.GridTemplateRows.Count, 1);
+        var explicitCols = System.Math.Max(style.GridTemplateColumns.Count, 1);
+        var explicitRows = System.Math.Max(style.GridTemplateRows.Count, 1);
         var rowFlow = style.GridAutoFlow is GridAutoFlow.Row or GridAutoFlow.RowDense;
 
         var occupied = new HashSet<(int Row, int Col)>();
@@ -28,8 +28,8 @@ internal static partial class GridLayout
                 span[i].RowSpan = rowSpan;
                 span[i].ColStart = colStart;
                 span[i].ColSpan = colSpan;
-                maxRow = Math.Max(maxRow, rowStart + rowSpan - 1);
-                maxCol = Math.Max(maxCol, colStart + colSpan - 1);
+                maxRow = System.Math.Max(maxRow, rowStart + rowSpan - 1);
+                maxCol = System.Math.Max(maxCol, colStart + colSpan - 1);
             }
         }
 
@@ -46,32 +46,32 @@ internal static partial class GridLayout
                 span[i].RowStart = rowStart; span[i].RowSpan = rowSpan;
                 span[i].ColStart = c; span[i].ColSpan = colSpan;
                 Occupy(occupied, rowStart, rowSpan, c, colSpan);
-                maxRow = Math.Max(maxRow, rowStart + rowSpan - 1);
-                maxCol = Math.Max(maxCol, c + colSpan - 1);
+                maxRow = System.Math.Max(maxRow, rowStart + rowSpan - 1);
+                maxCol = System.Math.Max(maxCol, c + colSpan - 1);
             } else if (!rowDef && colDef) {
                 var r = FindFreeSecondary(occupied, primaryFixed: colStart, primarySpan: colSpan, secondarySpan: rowSpan,
                     primaryIsRow: false);
                 span[i].RowStart = r; span[i].RowSpan = rowSpan;
                 span[i].ColStart = colStart; span[i].ColSpan = colSpan;
                 Occupy(occupied, r, rowSpan, colStart, colSpan);
-                maxRow = Math.Max(maxRow, r + rowSpan - 1);
-                maxCol = Math.Max(maxCol, colStart + colSpan - 1);
+                maxRow = System.Math.Max(maxRow, r + rowSpan - 1);
+                maxCol = System.Math.Max(maxCol, colStart + colSpan - 1);
             } else {
                 int r, c;
                 if (rowFlow) {
-                    var colBound = Math.Max(explicitCols, colSpan);
+                    var colBound = System.Math.Max(explicitCols, colSpan);
                     (r, c) = FindFreeCellScan(occupied, cursorRow, cursorCol, colSpan, rowSpan, colBound, rowMajor: true);
                     cursorRow = r; cursorCol = c + colSpan;
                 } else {
-                    var rowBound = Math.Max(explicitRows, rowSpan);
+                    var rowBound = System.Math.Max(explicitRows, rowSpan);
                     (r, c) = FindFreeCellScan(occupied, cursorRow, cursorCol, rowSpan, colSpan, rowBound, rowMajor: false);
                     cursorCol = c; cursorRow = r + rowSpan;
                 }
                 span[i].RowStart = r; span[i].RowSpan = rowSpan;
                 span[i].ColStart = c; span[i].ColSpan = colSpan;
                 Occupy(occupied, r, rowSpan, c, colSpan);
-                maxRow = Math.Max(maxRow, r + rowSpan - 1);
-                maxCol = Math.Max(maxCol, c + colSpan - 1);
+                maxRow = System.Math.Max(maxRow, r + rowSpan - 1);
+                maxCol = System.Math.Max(maxCol, c + colSpan - 1);
             }
         }
 
@@ -84,17 +84,17 @@ internal static partial class GridLayout
         if (placement.Start.HasValue && placement.End.HasValue) {
             var s = placement.Start.Value - 1;
             var e = placement.End.Value - 1;
-            return (true, s, Math.Max(1, e - s));
+            return (true, s, System.Math.Max(1, e - s));
         }
         if (placement.Start.HasValue && placement.Span.HasValue)
-            return (true, placement.Start.Value - 1, Math.Max(1, placement.Span.Value));
+            return (true, placement.Start.Value - 1, System.Math.Max(1, placement.Span.Value));
         if (placement.Start.HasValue)
             return (true, placement.Start.Value - 1, 1);
         if (placement.End.HasValue && placement.Span.HasValue) {
             var s = placement.End.Value - 1 - placement.Span.Value;
-            return (true, Math.Max(0, s), Math.Max(1, placement.Span.Value));
+            return (true, System.Math.Max(0, s), System.Math.Max(1, placement.Span.Value));
         }
-        return (false, 0, Math.Max(1, placement.Span ?? 1));
+        return (false, 0, System.Math.Max(1, placement.Span ?? 1));
     }
 
     private static bool IsFree(HashSet<(int, int)> occupied, int rowStart, int rowSpan, int colStart, int colSpan)

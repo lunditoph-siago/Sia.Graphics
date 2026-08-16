@@ -55,5 +55,5 @@ internal struct UiPrimitive
         | PackUnorm(color.A) << 24;
 
     private static uint PackUnorm(float value) =>
-        (uint)MathF.Round(Math.Clamp(value, 0f, 1f) * 255f);
+        (uint)MathF.Round(System.Math.Clamp(value, 0f, 1f) * 255f);
 }

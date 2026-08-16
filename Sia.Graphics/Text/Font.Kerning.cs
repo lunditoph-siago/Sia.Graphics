@@ -23,7 +23,7 @@ public sealed partial class Font
             var coverage = reader.ReadUInt16();
             var format = coverage >> 8;
             var horizontal = (coverage & 0x0001) != 0;
-            var subtableEnd = Math.Min(table.Length, subtableStart + length);
+            var subtableEnd = System.Math.Min(table.Length, subtableStart + length);
             if (format == 0 && horizontal && reader.Position + 8 <= subtableEnd) {
                 var pairCount = reader.ReadUInt16();
                 reader.Position += 6;

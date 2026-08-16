@@ -161,7 +161,7 @@ public static class GlyphRasterizer
             }
 
             for (var x = 0; x < width; x++)
-                coverage[row * width + x] = (byte)Math.Clamp(MathF.Round(accum[x] * 255f), 0f, 255f);
+                coverage[row * width + x] = (byte)System.Math.Clamp(MathF.Round(accum[x] * 255f), 0f, 255f);
         }
 
         return coverage;
@@ -169,8 +169,8 @@ public static class GlyphRasterizer
 
     private static void AccumulateSpan(float[] accum, float spanStart, float spanEnd, float weight, int width)
     {
-        spanStart = Math.Clamp(spanStart, 0f, width);
-        spanEnd = Math.Clamp(spanEnd, 0f, width);
+        spanStart = System.Math.Clamp(spanStart, 0f, width);
+        spanEnd = System.Math.Clamp(spanEnd, 0f, width);
         if (spanEnd <= spanStart)
             return;
 

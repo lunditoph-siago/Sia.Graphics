@@ -47,7 +47,7 @@ public sealed partial class Font
         if (!TryGetTable("hmtx", out var table) || NumberOfHMetrics == 0)
             return 0f;
 
-        var index = Math.Min(glyphId, (ushort)(NumberOfHMetrics - 1));
+        var index = System.Math.Min(glyphId, (ushort)(NumberOfHMetrics - 1));
         if ((index + 1) * 4 > table.Length)
             return 0f;
         var reader = new BigEndianReader(table) { Position = index * 4 };

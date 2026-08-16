@@ -171,7 +171,7 @@ public sealed unsafe class UiPipeline
 
         var newLayers = TextureArrayLayers;
         while (newLayers < requiredLayers)
-            newLayers = Math.Min(newLayers * 2, FontAtlasSet.MaxAtlasLayers);
+            newLayers = System.Math.Min(newLayers * 2, FontAtlasSet.MaxAtlasLayers);
         if (newLayers < requiredLayers)
             throw new InvalidOperationException("The UI font texture array is full.");
 

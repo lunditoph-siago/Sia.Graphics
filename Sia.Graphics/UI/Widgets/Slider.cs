@@ -37,7 +37,7 @@ public sealed class SliderSystem() : SystemBase(Matchers.Of<SliderValue, SliderR
         var transform = target.Get<UiGlobalTransform>();
         var local = transform.InverseTransform(pointer.Position);
 
-        var t = computed.Size.Width > 0f ? Math.Clamp(local.X / computed.Size.Width, 0f, 1f) : 0f;
+        var t = computed.Size.Width > 0f ? System.Math.Clamp(local.X / computed.Size.Width, 0f, 1f) : 0f;
         var range = target.Get<SliderRange>();
         var value = range.Min + t * (range.Max - range.Min);
 
@@ -46,7 +46,7 @@ public sealed class SliderSystem() : SystemBase(Matchers.Of<SliderValue, SliderR
             if (float.IsFinite(step) && step > 0f)
                 value = range.Min + MathF.Round((value - range.Min) / step) * step;
         }
-        value = Math.Clamp(value, MathF.Min(range.Min, range.Max), MathF.Max(range.Min, range.Max));
+        value = System.Math.Clamp(value, MathF.Min(range.Min, range.Max), MathF.Max(range.Min, range.Max));
 
         ref var sliderValue = ref target.Get<SliderValue>();
         if (!AreClose(sliderValue.Value, value)) {

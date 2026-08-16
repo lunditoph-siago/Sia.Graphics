@@ -100,11 +100,11 @@ public sealed class UiRenderer(UiPipeline pipeline)
     private bool EnsureBufferCapacity(
         World world, ref Entity buffer, ref ulong capacity, ulong requiredBytes, ulong stride)
     {
-        requiredBytes = Math.Max(requiredBytes, stride);
+        requiredBytes = System.Math.Max(requiredBytes, stride);
         if (capacity >= requiredBytes)
             return false;
 
-        var newCapacity = Math.Max(capacity, stride * 256);
+        var newCapacity = System.Math.Max(capacity, stride * 256);
         while (newCapacity < requiredBytes)
             newCapacity *= 2;
 
@@ -165,7 +165,7 @@ public sealed class UiRenderer(UiPipeline pipeline)
         for (var index = 1; index < dirtySlots.Count; index++) {
             var slot = dirtySlots[index];
             if (slot <= last + mergeGap + 1) {
-                last = Math.Max(last, slot);
+                last = System.Math.Max(last, slot);
                 continue;
             }
             UploadRange(queue, buffer, current, first, last, stride);

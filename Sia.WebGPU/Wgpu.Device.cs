@@ -125,6 +125,36 @@ public static unsafe partial class Wgpu
         CancellationToken cancellationToken = default) =>
         RequestDeviceAsync(adapter, in descriptor, cancellationToken).GetAwaiter().GetResult();
 
+    public static WgpuHandle<WGPUDevice> RequestDevice(
+        WgpuHandle<WGPUAdapter> adapter,
+        ReadOnlySpan<WGPUFeatureName> requiredFeatures,
+        CancellationToken cancellationToken = default) =>
+        RequestDeviceAsync(adapter, requiredFeatures, cancellationToken).GetAwaiter().GetResult();
+
+    public static Task<WgpuHandle<WGPUDevice>> RequestDeviceAsync(
+        WgpuHandle<WGPUAdapter> adapter,
+        ReadOnlySpan<WGPUFeatureName> requiredFeatures,
+        CancellationToken cancellationToken = default)
+    {
+        fixed (WGPUFeatureName* requiredFeaturesPtr = requiredFeatures) {
+            var descriptor = new WGPUDeviceDescriptor {
+                NextInChain = null,
+                Label = default,
+                RequiredFeatureCount = (nuint)requiredFeatures.Length,
+                RequiredFeatures = requiredFeaturesPtr,
+                RequiredLimits = null,
+                DefaultQueue = new WGPUQueueDescriptor {
+                    NextInChain = null,
+                    Label = default,
+                },
+                DeviceLostCallbackInfo = default,
+                UncapturedErrorCallbackInfo = default,
+            };
+
+            return RequestDeviceAsync(adapter, in descriptor, cancellationToken);
+        }
+    }
+
     public static Task<WgpuHandle<WGPUDevice>> RequestDeviceAsync(
         WgpuHandle<WGPUAdapter> adapter,
         in WGPUDeviceDescriptor descriptor,

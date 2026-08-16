@@ -156,6 +156,7 @@ public static partial class RenderGraphCompiler
             result[executionIndex] = new CompiledRenderGraphPass(
                 new RenderGraphPassHandle(definition.GraphId, passIndex),
                 pass.Name,
+                pass.Kind,
                 passIndex,
                 executionIndex,
                 passDependencies,

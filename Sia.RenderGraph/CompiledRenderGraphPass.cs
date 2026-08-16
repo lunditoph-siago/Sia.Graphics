@@ -5,6 +5,7 @@ public sealed class CompiledRenderGraphPass
     internal CompiledRenderGraphPass(
         RenderGraphPassHandle handle,
         string name,
+        RenderGraphPassKind kind,
         int declarationIndex,
         int executionIndex,
         RenderGraphPassHandle[] dependencies,
@@ -13,6 +14,7 @@ public sealed class CompiledRenderGraphPass
     {
         Handle = handle;
         Name = name;
+        Kind = kind;
         DeclarationIndex = declarationIndex;
         ExecutionIndex = executionIndex;
         Dependencies = Array.AsReadOnly(dependencies);
@@ -23,6 +25,8 @@ public sealed class CompiledRenderGraphPass
     public RenderGraphPassHandle Handle { get; }
 
     public string Name { get; }
+
+    public RenderGraphPassKind Kind { get; }
 
     public int DeclarationIndex { get; }
 

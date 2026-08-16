@@ -42,16 +42,32 @@ public sealed class WgpuReactiveRenderGraphPassContext
 
     public WgpuHandle<WGPURenderPassEncoder> GetOrBeginRenderPass(
         WgpuReactiveRenderGraphColorAttachment colorAttachment) =>
-        Current.GetOrBeginRenderPass(new WgpuRenderGraphColorAttachment(
-            GetTextureHandle(colorAttachment.Texture),
-            colorAttachment.LoadOp,
-            colorAttachment.StoreOp,
-            colorAttachment.ClearValue,
-            colorAttachment.Subresources,
-            colorAttachment.Cacheable));
+        GetOrBeginRenderPass(colorAttachment, depthStencilAttachment: null);
 
     public WgpuHandle<WGPURenderPassEncoder> GetOrBeginRenderPass(
-        ReadOnlySpan<WgpuReactiveRenderGraphColorAttachment> colorAttachments)
+        WgpuReactiveRenderGraphColorAttachment colorAttachment,
+        WgpuReactiveRenderGraphDepthStencilAttachment? depthStencilAttachment) =>
+        Current.GetOrBeginRenderPass(
+            new WgpuRenderGraphColorAttachment(
+                GetTextureHandle(colorAttachment.Texture),
+                colorAttachment.LoadOp,
+                colorAttachment.StoreOp,
+                colorAttachment.ClearValue,
+                colorAttachment.Subresources,
+                colorAttachment.Cacheable),
+            Lower(depthStencilAttachment));
+
+    public WgpuHandle<WGPURenderPassEncoder> GetOrBeginRenderPass(
+        WgpuReactiveRenderGraphDepthStencilAttachment depthStencilAttachment) =>
+        Current.GetOrBeginRenderPass(Lower(depthStencilAttachment)!.Value);
+
+    public WgpuHandle<WGPURenderPassEncoder> GetOrBeginRenderPass(
+        ReadOnlySpan<WgpuReactiveRenderGraphColorAttachment> colorAttachments) =>
+        GetOrBeginRenderPass(colorAttachments, depthStencilAttachment: null);
+
+    public WgpuHandle<WGPURenderPassEncoder> GetOrBeginRenderPass(
+        ReadOnlySpan<WgpuReactiveRenderGraphColorAttachment> colorAttachments,
+        WgpuReactiveRenderGraphDepthStencilAttachment? depthStencilAttachment)
     {
         Span<WgpuRenderGraphColorAttachment> lowered =
             colorAttachments.Length <= 8
@@ -68,8 +84,28 @@ public sealed class WgpuReactiveRenderGraphPassContext
                 attachment.Cacheable);
         }
 
-        return Current.GetOrBeginRenderPass(lowered);
+        return Current.GetOrBeginRenderPass(lowered, Lower(depthStencilAttachment));
     }
+
+    private WgpuRenderGraphDepthStencilAttachment? Lower(
+        WgpuReactiveRenderGraphDepthStencilAttachment? depthStencilAttachment) =>
+        depthStencilAttachment is { } depthStencil
+            ? new WgpuRenderGraphDepthStencilAttachment(
+                GetTextureHandle(depthStencil.Texture),
+                depthStencil.DepthLoadOp,
+                depthStencil.DepthStoreOp,
+                depthStencil.DepthClearValue,
+                depthStencil.DepthReadOnly,
+                depthStencil.StencilLoadOp,
+                depthStencil.StencilStoreOp,
+                depthStencil.StencilClearValue,
+                depthStencil.StencilReadOnly,
+                depthStencil.Subresources,
+                depthStencil.Cacheable)
+            : null;
+
+    public WgpuHandle<WGPUComputePassEncoder> GetOrBeginComputePass() =>
+        Current.GetOrBeginComputePass();
 
     internal void Begin(WgpuRenderGraphPassContext context)
     {

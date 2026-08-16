@@ -57,6 +57,7 @@ internal readonly record struct RenderGraphTextureUse(
 
 internal sealed record RenderGraphPassDefinition(
     string Name,
+    RenderGraphPassKind Kind,
     RenderGraphBufferUse[] Buffers,
     RenderGraphTextureUse[] Textures,
     int[] Dependencies);

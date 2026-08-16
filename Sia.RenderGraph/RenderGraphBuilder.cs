@@ -50,13 +50,19 @@ public sealed class RenderGraphBuilder
         };
     }
 
-    public RenderGraphPassBuilder AddPass(string name)
+    public RenderGraphPassBuilder AddPass(string name) =>
+        AddPass(name, RenderGraphPassKind.Render);
+
+    public RenderGraphPassBuilder AddComputePass(string name) =>
+        AddPass(name, RenderGraphPassKind.Compute);
+
+    private RenderGraphPassBuilder AddPass(string name, RenderGraphPassKind kind)
     {
         EnsureMutable();
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         var handle = new RenderGraphPassHandle(_graphId, _passes.Count);
-        _passes.Add(new PassDraft(name));
+        _passes.Add(new PassDraft(name, kind));
         return new RenderGraphPassBuilder(this, handle);
     }
 
@@ -68,6 +74,7 @@ public sealed class RenderGraphBuilder
         var passes = _passes
             .Select(static pass => new RenderGraphPassDefinition(
                 pass.Name,
+                pass.Kind,
                 [.. pass.Buffers.OrderBy(static use => use.BufferIndex)
                     .ThenBy(static use => use.Range.Offset)
                     .ThenBy(static use => use.Range.Size)],
@@ -272,9 +279,11 @@ public sealed class RenderGraphBuilder
         }
     }
 
-    private sealed class PassDraft(string name)
+    private sealed class PassDraft(string name, RenderGraphPassKind kind)
     {
         public string Name { get; } = name;
+
+        public RenderGraphPassKind Kind { get; } = kind;
 
         public List<RenderGraphBufferUse> Buffers { get; } = [];
 

@@ -5,8 +5,9 @@ namespace Sia.Graphics.UI;
 public sealed class UiHitTestSystem() : SystemBase(
     Matchers.Of<Node, ComputedNode, UiGlobalTransform, UiRoot>())
 {
-    public override void Execute(World world, IEntityQuery query)
+    public override void Execute(WorldContext context, IEntityQuery query)
     {
+        var world = context.World;
         var pointer = world.AcquireAddon<UiPointerState>();
         var state = world.AcquireAddon<UiInteractionState>();
 

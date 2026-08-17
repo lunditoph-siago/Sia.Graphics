@@ -17,8 +17,8 @@ public sealed class WgpuRequestSystem : SystemBase
         _requests = null;
     }
 
-    public override void Execute(World world, IEntityQuery query)
+    public override void Execute(WorldContext context, IEntityQuery query)
     {
-        _requests?.Submit(world);
+        _requests?.Submit(context.World);
     }
 }

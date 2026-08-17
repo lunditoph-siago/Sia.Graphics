@@ -11,7 +11,7 @@ public sealed class WgpuProcessEventsSystem()
         world.AcquireAddon<WgpuResources>();
     }
 
-    public override void Execute(World world, IEntityQuery query)
+    public override void Execute(WorldContext context, IEntityQuery query)
     {
         query.ForSlice(static (ref WgpuResource<WGPUInstance> resource) =>
             Wgpu.ProcessEvents(resource.Handle));

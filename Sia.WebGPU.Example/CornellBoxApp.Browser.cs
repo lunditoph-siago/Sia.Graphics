@@ -29,7 +29,7 @@ internal sealed partial class CornellBoxApp
 
         var currentTime = timestampMilliseconds / 1000.0;
         var deltaTime = _previousAnimationFrameTime is double previousTime
-            ? (float)Math.Min(currentTime - previousTime, 0.1)
+            ? (float)System.Math.Min(currentTime - previousTime, 0.1)
             : 0f;
         _previousAnimationFrameTime = currentTime;
 

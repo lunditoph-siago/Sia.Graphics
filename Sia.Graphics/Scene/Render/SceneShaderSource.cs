@@ -9,11 +9,18 @@ public static class SceneShaderSource
 
     private static readonly string[] ModuleResourceNames = [
         ResourcePrefix + "scene_common.wgsl",
+        ResourcePrefix + "clustered_forward.wgsl",
+        ResourcePrefix + "pbr_lighting.wgsl",
+        ResourcePrefix + "shadows.wgsl",
     ];
 
     public static string LoadDepthPrepass() => Load(ResourcePrefix + "depth_prepass.wgsl");
 
-    public static string LoadUnlitForward() => Load(ResourcePrefix + "unlit_forward.wgsl");
+    public static string LoadForwardPbr() => Load(ResourcePrefix + "forward_pbr.wgsl");
+
+    public static string LoadClusterLightCulling() => Load(ResourcePrefix + "cluster_light_culling.wgsl");
+
+    public static string LoadShadowDepth() => Load(ResourcePrefix + "shadow_depth.wgsl");
 
     private static string Load(string entryResourceName)
     {

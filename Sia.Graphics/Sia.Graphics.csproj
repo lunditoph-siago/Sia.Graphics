@@ -25,6 +25,11 @@
     <EmbeddedResource Include="UI/Render/Shaders/ui_node.wgsl" />
     <EmbeddedResource Include="Scene/Render/Shaders/scene_common.wgsl" />
     <EmbeddedResource Include="Scene/Render/Shaders/depth_prepass.wgsl" />
-    <EmbeddedResource Include="Scene/Render/Shaders/unlit_forward.wgsl" />
+    <EmbeddedResource Include="Scene/Render/Shaders/forward_pbr.wgsl" />
+    <EmbeddedResource Include="Scene/Render/Shaders/clustered_forward.wgsl" />
+    <EmbeddedResource Include="Scene/Render/Shaders/cluster_light_culling.wgsl" />
+    <EmbeddedResource Include="Scene/Render/Shaders/pbr_lighting.wgsl" />
+    <EmbeddedResource Include="Scene/Render/Shaders/shadow_depth.wgsl" />
+    <EmbeddedResource Include="Scene/Render/Shaders/shadows.wgsl" />
   </ItemGroup>
 </Project>

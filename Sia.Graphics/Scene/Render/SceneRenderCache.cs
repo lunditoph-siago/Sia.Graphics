@@ -26,7 +26,9 @@ public sealed class SceneRenderCache : SnapshotExtractSystem<RenderInstance>, IA
         return new RenderInstance(
             worldMatrix,
             ComputeNormalMatrix(worldMatrix),
-            new float4(material.BaseColor, 1.0f));
+            new float4(material.BaseColor, 1.0f),
+            new float4(material.Metallic, material.Roughness, 0.0f, 0.0f),
+            new float4(material.EmissiveColor, material.EmissiveStrength));
     }
 
     public void Refresh()

@@ -1,4 +1,5 @@
 using Sia.Reactive;
+using Sia.RenderGraph;
 
 namespace Sia.Graphics.Reactive;
 
@@ -9,17 +10,27 @@ public static partial class RenderGraphHooks
         WgpuRenderGraphRegistry registry,
         RenderGraphPassKey key,
         string name,
-        RenderGraphPassDeclaration declaration)
+        RenderGraphPassDeclaration declaration,
+        RenderGraphPassKind kind = RenderGraphPassKind.Render)
     {
         hooks.UseEffect(
-            new PassDependencies(registry, key, name, declaration),
+            new PassDependencies(registry, key, name, declaration, kind),
             static (in PassDependencies dependencies) =>
                 dependencies.Registry.RegisterPass(
                     dependencies.Key,
                     dependencies.Name,
-                    dependencies.Declaration),
+                    dependencies.Declaration,
+                    dependencies.Kind),
             DisposeRegistration);
     }
+
+    public static void UseComputeRenderGraphPass(
+        this ref Hooks hooks,
+        WgpuRenderGraphRegistry registry,
+        RenderGraphPassKey key,
+        string name,
+        RenderGraphPassDeclaration declaration) =>
+        hooks.UseRenderGraphPass(registry, key, name, declaration, RenderGraphPassKind.Compute);
 
     public static void UseWgpuRenderGraphPassHandler(
         this ref Hooks hooks,
@@ -40,7 +51,8 @@ public static partial class RenderGraphHooks
         WgpuRenderGraphRegistry Registry,
         RenderGraphPassKey Key,
         string Name,
-        RenderGraphPassDeclaration Declaration);
+        RenderGraphPassDeclaration Declaration,
+        RenderGraphPassKind Kind);
 
     private readonly record struct PassHandlerDependencies(
         WgpuRenderGraphRegistry Registry,

@@ -11,7 +11,8 @@ public sealed partial class WgpuRenderGraphRegistry : IAddon, IDisposable
     private sealed record PassEntry(
         long Id,
         string Name,
-        RenderGraphPassDeclaration Declaration);
+        RenderGraphPassDeclaration Declaration,
+        RenderGraphPassKind Kind);
 
     private readonly Dictionary<RenderGraphBufferKey, Entry<RenderGraphBufferDescriptor>>
         _buffers = [];

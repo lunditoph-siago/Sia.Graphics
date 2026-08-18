@@ -31,5 +31,8 @@
     <EmbeddedResource Include="Scene/Render/Shaders/pbr_lighting.wgsl" />
     <EmbeddedResource Include="Scene/Render/Shaders/shadow_depth.wgsl" />
     <EmbeddedResource Include="Scene/Render/Shaders/shadows.wgsl" />
+    <EmbeddedResource Include="Scene/Render/Shaders/ibl.wgsl" />
+    <EmbeddedResource Include="Scene/Render/Shaders/ibl_prefilter_specular.wgsl" />
+    <EmbeddedResource Include="Scene/Render/Shaders/ibl_brdf_lut.wgsl" />
   </ItemGroup>
 </Project>

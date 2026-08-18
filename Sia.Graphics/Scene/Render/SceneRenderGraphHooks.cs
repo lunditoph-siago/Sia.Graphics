@@ -13,6 +13,8 @@ public static class SceneRenderGraphHooks
     private static readonly RenderGraphBufferKey _lightGridKey = new("scene-light-grid");
     private static readonly RenderGraphBufferKey _lightIndexListKey = new("scene-light-index-list");
     private static readonly RenderGraphTextureKey _shadowAtlasKey = new("scene-shadow-atlas");
+    private static readonly RenderGraphTextureKey _iblPrefilteredKey = new("scene-ibl-prefiltered");
+    private static readonly RenderGraphTextureKey _iblBrdfLutKey = new("scene-ibl-brdf-lut");
 
     public static void UseShadowPasses(
         this ref Hooks hooks,
@@ -38,6 +40,49 @@ public static class SceneRenderGraphHooks
             hooks.UseRenderGraphPass(registry, pass, state.Value.Name, state.Value.Declare);
             hooks.UseWgpuRenderGraphPassHandler(registry, pass, state.Value.Render);
         }
+    }
+
+    public static void UseIblPrecomputePasses(
+        this ref Hooks hooks,
+        WgpuRenderGraphRegistry registry,
+        SceneRenderer renderer,
+        in GpuFrame frame)
+    {
+        var prefilteredDescriptor = new RenderGraphTextureDescriptor(
+            "ibl-prefiltered", RenderGraphTextureFormat.RGBA16Float,
+            IblEnvironmentGpuStore.PrefilteredResolution, IblEnvironmentGpuStore.PrefilteredResolution,
+            depthOrArrayLayers: 6,
+            mipLevelCount: IblEnvironmentGpuStore.PrefilteredMipCount,
+            usage: RenderGraphTextureUsage.RenderAttachment | RenderGraphTextureUsage.TextureBinding);
+        hooks.UseImportedRenderGraphTexture(registry, _iblPrefilteredKey, prefilteredDescriptor);
+        hooks.UseImportedRenderGraphTextureBinding(
+            registry, _iblPrefilteredKey, renderer.Ibl.PrefilteredTexture.GetWgpu<WGPUTexture>());
+
+        var brdfLutDescriptor = new RenderGraphTextureDescriptor(
+            "ibl-brdf-lut", RenderGraphTextureFormat.RG16Float,
+            IblEnvironmentGpuStore.BrdfLutResolution, IblEnvironmentGpuStore.BrdfLutResolution,
+            usage: RenderGraphTextureUsage.RenderAttachment | RenderGraphTextureUsage.TextureBinding);
+        hooks.UseImportedRenderGraphTexture(registry, _iblBrdfLutKey, brdfLutDescriptor);
+        hooks.UseImportedRenderGraphTextureBinding(
+            registry, _iblBrdfLutKey, renderer.Ibl.BrdfLutTexture.GetWgpu<WGPUTexture>());
+
+        for (var face = 0; face < 6; face++) {
+            for (var mip = 0; mip < IblEnvironmentGpuStore.PrefilteredMipCount; mip++) {
+                var pass = new RenderGraphPassKey($"scene-ibl-prefilter-{face}-{mip}");
+                var state = hooks.UseRef(() => new IblPrefilterState(face, mip));
+                state.Value.Update(renderer, in frame);
+
+                hooks.UseRenderGraphPass(registry, pass, state.Value.Name, state.Value.Declare);
+                hooks.UseWgpuRenderGraphPassHandler(registry, pass, state.Value.Render);
+            }
+        }
+
+        var lutPass = new RenderGraphPassKey("scene-ibl-brdf-lut");
+        var lutState = hooks.UseRef(() => new IblBrdfLutState());
+        lutState.Value.Update(renderer);
+
+        hooks.UseRenderGraphPass(registry, lutPass, "scene-ibl-brdf-lut", lutState.Value.Declare);
+        hooks.UseWgpuRenderGraphPassHandler(registry, lutPass, lutState.Value.Render);
     }
 
     public static void UseClusterLightCullingPass(
@@ -208,7 +253,9 @@ public static class SceneRenderGraphHooks
                 .Read(_clusteredLightsKey, RenderGraphBufferUsage.Storage)
                 .Read(_lightGridKey, RenderGraphBufferUsage.Storage)
                 .Read(_lightIndexListKey, RenderGraphBufferUsage.Storage)
-                .Read(_shadowAtlasKey, RenderGraphTextureUsage.TextureBinding);
+                .Read(_shadowAtlasKey, RenderGraphTextureUsage.TextureBinding)
+                .Read(_iblPrefilteredKey, RenderGraphTextureUsage.TextureBinding)
+                .Read(_iblBrdfLutKey, RenderGraphTextureUsage.TextureBinding);
 
         public void Render(WgpuReactiveRenderGraphPassContext context)
         {
@@ -245,6 +292,52 @@ public static class SceneRenderGraphHooks
                     Subresources: new RenderGraphTextureSubresourceRange(0, 1, (uint)layer, 1),
                     Cacheable: false));
             _renderer!.EncodeShadowLayer(in _frame, layer, renderPass);
+        }
+    }
+
+    private sealed class IblPrefilterState(int face, int mip)
+    {
+        private SceneRenderer? _renderer;
+        private GpuFrame _frame;
+
+        public string Name { get; } = $"scene-ibl-prefilter-{face}-{mip}";
+
+        public void Update(SceneRenderer renderer, in GpuFrame frame)
+        {
+            _renderer = renderer;
+            _frame = frame;
+        }
+
+        public void Declare(RenderGraphPassDeclarationBuilder declaration) =>
+            declaration.Write(
+                _iblPrefilteredKey, RenderGraphTextureUsage.RenderAttachment,
+                new RenderGraphTextureSubresourceRange((uint)mip, 1, (uint)face, 1));
+
+        public void Render(WgpuReactiveRenderGraphPassContext context)
+        {
+            var renderPass = context.GetOrBeginRenderPass(
+                new WgpuReactiveRenderGraphColorAttachment(
+                    _iblPrefilteredKey, WGPULoadOp.Clear,
+                    Subresources: new RenderGraphTextureSubresourceRange((uint)mip, 1, (uint)face, 1),
+                    Cacheable: false));
+            _renderer!.EncodeIblPrefilter(in _frame, face, mip, IblEnvironmentGpuStore.PrefilteredMipCount, renderPass);
+        }
+    }
+
+    private sealed class IblBrdfLutState
+    {
+        private SceneRenderer? _renderer;
+
+        public void Update(SceneRenderer renderer) => _renderer = renderer;
+
+        public void Declare(RenderGraphPassDeclarationBuilder declaration) =>
+            declaration.Write(_iblBrdfLutKey, RenderGraphTextureUsage.RenderAttachment);
+
+        public void Render(WgpuReactiveRenderGraphPassContext context)
+        {
+            var renderPass = context.GetOrBeginRenderPass(
+                new WgpuReactiveRenderGraphColorAttachment(_iblBrdfLutKey, WGPULoadOp.Clear, Cacheable: false));
+            _renderer!.EncodeIblBrdfLut(renderPass);
         }
     }
 }

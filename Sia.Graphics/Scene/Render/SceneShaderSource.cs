@@ -12,6 +12,7 @@ public static class SceneShaderSource
         ResourcePrefix + "clustered_forward.wgsl",
         ResourcePrefix + "pbr_lighting.wgsl",
         ResourcePrefix + "shadows.wgsl",
+        ResourcePrefix + "ibl.wgsl",
     ];
 
     public static string LoadDepthPrepass() => Load(ResourcePrefix + "depth_prepass.wgsl");
@@ -21,6 +22,10 @@ public static class SceneShaderSource
     public static string LoadClusterLightCulling() => Load(ResourcePrefix + "cluster_light_culling.wgsl");
 
     public static string LoadShadowDepth() => Load(ResourcePrefix + "shadow_depth.wgsl");
+
+    public static string LoadIblPrefilterSpecular() => Load(ResourcePrefix + "ibl_prefilter_specular.wgsl");
+
+    public static string LoadIblBrdfLut() => Load(ResourcePrefix + "ibl_brdf_lut.wgsl");
 
     private static string Load(string entryResourceName)
     {

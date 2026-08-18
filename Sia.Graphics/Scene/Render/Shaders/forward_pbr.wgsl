@@ -1,6 +1,6 @@
 #import scene::common::{CameraUniform, InstanceData, VertexInput}
 #import scene::clustered_forward::{ClusterConfig, cluster_z_slice_from_view_z, cluster_tile_from_screen, cluster_index}
-#import scene::pbr::{direct_lighting}
+#import scene::pbr::{direct_lighting, indirect_lighting}
 #import scene::shadows::{ShadowConfig, shadow_select_cascade, shadow_sample_pcf}
 
 struct ClusteredLight {
@@ -32,6 +32,18 @@ struct DirectionalLightBuffer {
 @group(1) @binding(6) var shadow_sampler: sampler_comparison;
 @group(1) @binding(7) var<storage, read> shadow_layers: array<mat4x4<f32>>;
 @group(1) @binding(8) var<uniform> shadow_config: ShadowConfig;
+
+struct IblSh {
+    coefficients: array<vec4<f32>, 9>,
+};
+
+@group(2) @binding(0) var<uniform> ibl_sh: IblSh;
+@group(2) @binding(1) var ibl_prefiltered: texture_cube<f32>;
+@group(2) @binding(2) var ibl_prefiltered_sampler: sampler;
+@group(2) @binding(3) var ibl_brdf_lut: texture_2d<f32>;
+@group(2) @binding(4) var ibl_brdf_lut_sampler: sampler;
+
+const IBL_PREFILTERED_MIP_COUNT: f32 = 7.0;
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -131,7 +143,10 @@ fn fragment(input: VertexOutput) -> @location(0) vec4<f32> {
             normal, view_dir, light_dir, radiance, base_color, metallic, roughness);
     }
 
-    let ambient = base_color * 0.03;
+    let ambient = indirect_lighting(
+        normal, view_dir, base_color, metallic, roughness, ibl_sh.coefficients,
+        ibl_prefiltered, ibl_prefiltered_sampler, IBL_PREFILTERED_MIP_COUNT,
+        ibl_brdf_lut, ibl_brdf_lut_sampler);
     let color = accumulated + ambient + input.emissive.rgb * input.emissive.a;
     return vec4<f32>(color, input.base_color.a);
 }

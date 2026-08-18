@@ -58,6 +58,22 @@ internal static unsafe class SceneBindGroupLayout
         return Wgpu.CreatePipelineLayout(device, in descriptor);
     }
 
+    public static WgpuHandle<WGPUPipelineLayout> CreatePipelineLayout(
+        WgpuHandle<WGPUDevice> device,
+        WgpuHandle<WGPUBindGroupLayout> layout0,
+        WgpuHandle<WGPUBindGroupLayout> layout1,
+        WgpuHandle<WGPUBindGroupLayout> layout2)
+    {
+        var layouts = stackalloc WGPUBindGroupLayout*[3];
+        layouts[0] = (WGPUBindGroupLayout*)layout0.DangerousGetHandle();
+        layouts[1] = (WGPUBindGroupLayout*)layout1.DangerousGetHandle();
+        layouts[2] = (WGPUBindGroupLayout*)layout2.DangerousGetHandle();
+        var descriptor = WGPUPipelineLayoutDescriptor.Default;
+        descriptor.BindGroupLayoutCount = 3;
+        descriptor.BindGroupLayouts = layouts;
+        return Wgpu.CreatePipelineLayout(device, in descriptor);
+    }
+
     public static WgpuHandle<WGPUBindGroup> CreateBindGroup(
         WgpuHandle<WGPUDevice> device,
         WgpuHandle<WGPUBindGroupLayout> layout,

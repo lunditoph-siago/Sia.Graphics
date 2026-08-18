@@ -8,20 +8,29 @@ public sealed class SceneRenderer(
     DepthPrepassPipeline depthPipeline,
     ForwardOpaquePipeline forwardPipeline,
     ClusterLightCullingPipeline cullingPipeline,
-    ShadowDepthPipeline shadowDepthPipeline)
+    ShadowDepthPipeline shadowDepthPipeline,
+    IblPrecomputePipelines iblPipelines)
 {
+    private static readonly IEntityMatcher _directionalMatcher =
+        Matchers.Of<DirectionalLight, LightColor, GlobalTransform>();
+
     private readonly InstanceGpuStore _instances = new();
     private readonly CameraUniforms _cameraUniforms = new();
     private readonly LightGpuStore _lights = new();
     private readonly ClusterGridBuffers _clusterBuffers = new();
     private readonly ShadowAtlasGpuStore _shadowAtlas = new();
     private readonly ShadowGpuStore _shadows = new();
+    private readonly IblEnvironmentGpuStore _ibl = new();
     private Entity _depthBindGroup;
     private Entity _forwardBindGroup;
     private Entity _forwardLightingBindGroup;
     private Entity _cullingBindGroup;
-    private Entity _shadowCameraBuffer;
-    private Entity _shadowDrawBindGroup;
+    private Entity[] _shadowCameraBuffers = [];
+    private Entity[] _shadowDrawBindGroups = [];
+    private Entity _iblPrefilterParamsBuffer;
+    private Entity _iblPrefilterBindGroup;
+    private Entity _iblBindGroup;
+    private bool _iblBaked;
     private IReadOnlyList<int> _visible = [];
 
     public LightGpuStore Lights => _lights;
@@ -31,6 +40,8 @@ public sealed class SceneRenderer(
     public ShadowGpuStore Shadows => _shadows;
 
     public ShadowAtlasGpuStore ShadowAtlas => _shadowAtlas;
+
+    public IblEnvironmentGpuStore Ibl => _ibl;
 
     public void PrepareFrame(in GpuFrame frame, Entity cameraEntity)
     {
@@ -54,9 +65,10 @@ public sealed class SceneRenderer(
         _shadows.Refresh(frame.World, shadowConfig, cameraEntity);
         var atlasResized = _shadowAtlas.EnsureCapacity(in frame, shadowConfig);
         var shadowLayersResized = _shadows.Upload(in frame, shadowConfig);
-        EnsureShadowCameraBuffer(in frame);
-        if (atlasResized || !_shadowDrawBindGroup.IsValid) {
-            EnsureShadowDrawBindGroup(in frame);
+        var layerCount = shadowConfig.LayerCount;
+        EnsureShadowCameraBuffers(in frame, layerCount);
+        if (atlasResized || _shadowDrawBindGroups.Length != layerCount) {
+            EnsureShadowDrawBindGroups(in frame, layerCount);
         }
 
         _lights.Refresh(frame.World, _shadows);
@@ -77,6 +89,125 @@ public sealed class SceneRenderer(
         if (lightsResized || buffersResized || atlasResized || shadowLayersResized || !_forwardLightingBindGroup.IsValid) {
             EnsureForwardLightingBindGroup(in frame);
         }
+
+        PrepareIbl(in frame);
+    }
+
+    public void PrepareIbl(in GpuFrame frame)
+    {
+        var created = _ibl.EnsureCapacity(in frame);
+        if (created) {
+            EnsureIblPrefilterBindGroup(in frame);
+            EnsureIblBindGroup(in frame);
+        }
+        if (!_iblBaked && _ibl.IsValid) {
+            BakeIblSh(in frame);
+            _iblBaked = true;
+        }
+    }
+
+    private void BakeIblSh(in GpuFrame frame)
+    {
+        var sunDirection = math.normalize(new float3(0.4f, 1.0f, 0.3f));
+        var sunColor = new float3(1.0f, 0.96f, 0.9f);
+
+        frame.World.Query(_directionalMatcher, entity => {
+            var lightColor = entity.Get<LightColor>();
+            sunDirection = -math.normalize(entity.Get<GlobalTransform>().WorldMatrix.c2.xyz);
+            sunColor = lightColor.Color * lightColor.Intensity;
+        });
+
+        var coefficients = IrradianceSh.Project(direction => SkyColor(direction, sunDirection, sunColor));
+        _ibl.UploadSh(in frame, coefficients);
+    }
+
+    private const float _skyExposure = 0.25f;
+
+    private static float3 SkyColor(float3 dir, float3 sunDirection, float3 sunColor)
+    {
+        var horizon = new float3(0.55f, 0.6f, 0.68f);
+        var zenith = new float3(0.12f, 0.24f, 0.55f);
+        var ground = new float3(0.08f, 0.08f, 0.07f);
+        var up = System.Math.Clamp(dir.y, -1.0f, 1.0f);
+        var sky = math.lerp(horizon, zenith, System.Math.Clamp(up, 0.0f, 1.0f));
+        var baseColor = math.lerp(ground, sky, SmoothStep(-0.15f, 0.05f, up));
+        var sunAmount = MathF.Max(math.dot(dir, sunDirection), 0.0f);
+        var sunGlow = sunColor * MathF.Pow(sunAmount, 256.0f) * 8.0f;
+        return (baseColor + sunGlow) * _skyExposure;
+    }
+
+    private static float SmoothStep(float edge0, float edge1, float x)
+    {
+        var t = System.Math.Clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+        return t * t * (3.0f - 2.0f * t);
+    }
+
+    public void EncodeIblPrefilter(
+        in GpuFrame frame, int face, int mip, int mipCount, WgpuHandle<WGPURenderPassEncoder> renderPass)
+    {
+        var roughness = mipCount > 1 ? (float)mip / (mipCount - 1) : 0.0f;
+        var sampleCount = mip == 0 ? 1 : 48;
+        var sunDirection = math.normalize(new float3(0.4f, 1.0f, 0.3f));
+        var sunColor = new float3(1.0f, 0.96f, 0.9f);
+        frame.World.Query(_directionalMatcher, entity => {
+            var lightColor = entity.Get<LightColor>();
+            sunDirection = -math.normalize(entity.Get<GlobalTransform>().WorldMatrix.c2.xyz);
+            sunColor = lightColor.Color * lightColor.Intensity;
+        });
+
+        Wgpu.WriteBuffer(
+            frame.Queue.GetWgpu<WGPUQueue>(), _iblPrefilterParamsBuffer.GetWgpu<WGPUBuffer>(), 0,
+            [new IblPrefilterParamsGpu(
+                new float4(roughness, sampleCount, face, 0.0f),
+                new float4(sunDirection, 0.0f),
+                new float4(sunColor, 0.0f))]);
+
+        Wgpu.SetRenderPipeline(renderPass, iblPipelines.PrefilterPipeline.GetWgpu<WGPURenderPipeline>());
+        Wgpu.SetBindGroup(renderPass, 0, _iblPrefilterBindGroup.GetWgpu<WGPUBindGroup>());
+        Wgpu.Draw(renderPass, vertexCount: 3);
+    }
+
+    public void EncodeIblBrdfLut(WgpuHandle<WGPURenderPassEncoder> renderPass)
+    {
+        Wgpu.SetRenderPipeline(renderPass, iblPipelines.BrdfLutPipeline.GetWgpu<WGPURenderPipeline>());
+        Wgpu.Draw(renderPass, vertexCount: 3);
+    }
+
+    private void EnsureIblPrefilterBindGroup(in GpuFrame frame)
+    {
+        if (!_iblPrefilterParamsBuffer.IsValid) {
+            _iblPrefilterParamsBuffer = frame.World.CreateWgpuBuffer(frame.Device, new WGPUBufferDescriptor {
+                NextInChain = null,
+                Label = default,
+                Usage = WGPUBufferUsage.Uniform | WGPUBufferUsage.CopyDst,
+                Size = IblPrefilterParamsGpu.Stride,
+                MappedAtCreation = 0
+            });
+        }
+        if (_iblPrefilterBindGroup.IsValid) {
+            _iblPrefilterBindGroup.Destroy();
+        }
+        var deviceHandle = frame.Device.GetWgpu<WGPUDevice>();
+        _iblPrefilterBindGroup = frame.World.OwnWgpu(IblPrefilterBindGroupLayout.CreateBindGroup(
+            deviceHandle,
+            iblPipelines.PrefilterBindGroupLayout.GetWgpu<WGPUBindGroupLayout>(),
+            _iblPrefilterParamsBuffer.GetWgpu<WGPUBuffer>()));
+    }
+
+    private void EnsureIblBindGroup(in GpuFrame frame)
+    {
+        if (_iblBindGroup.IsValid) {
+            _iblBindGroup.Destroy();
+        }
+        var deviceHandle = frame.Device.GetWgpu<WGPUDevice>();
+        _iblBindGroup = frame.World.OwnWgpu(SceneIblBindGroupLayout.CreateBindGroup(
+            deviceHandle,
+            forwardPipeline.IblBindGroupLayout.GetWgpu<WGPUBindGroupLayout>(),
+            _ibl.ShBuffer.GetWgpu<WGPUBuffer>(),
+            _ibl.PrefilteredSamplingView.GetWgpu<WGPUTextureView>(),
+            _ibl.PrefilteredSampler.GetWgpu<WGPUSampler>(),
+            _ibl.BrdfLutView.GetWgpu<WGPUTextureView>(),
+            _ibl.BrdfLutSampler.GetWgpu<WGPUSampler>()));
     }
 
     public void EncodeClusterLightCulling(
@@ -96,11 +227,11 @@ public sealed class SceneRenderer(
         }
 
         Wgpu.WriteBuffer(
-            frame.Queue.GetWgpu<WGPUQueue>(), _shadowCameraBuffer.GetWgpu<WGPUBuffer>(), 0,
+            frame.Queue.GetWgpu<WGPUQueue>(), _shadowCameraBuffers[layer].GetWgpu<WGPUBuffer>(), 0,
             [new CameraUniformData(_shadows.LayerViewProj(layer), float4.zero)]);
 
         Wgpu.SetRenderPipeline(renderPass, shadowDepthPipeline.RenderPipeline.GetWgpu<WGPURenderPipeline>());
-        Wgpu.SetBindGroup(renderPass, 0, _shadowDrawBindGroup.GetWgpu<WGPUBindGroup>());
+        Wgpu.SetBindGroup(renderPass, 0, _shadowDrawBindGroups[layer].GetWgpu<WGPUBindGroup>());
         for (var index = 0; index < cache.Data.Length; index++) {
             var handle = cache.MeshHandles[index];
             var meshStore = frame.World.AcquireAddon<MeshGpuStore>();
@@ -112,33 +243,43 @@ public sealed class SceneRenderer(
         }
     }
 
-    private void EnsureShadowCameraBuffer(in GpuFrame frame)
+    private void EnsureShadowCameraBuffers(in GpuFrame frame, int layerCount)
     {
-        if (_shadowCameraBuffer.IsValid) {
+        if (_shadowCameraBuffers.Length == layerCount) {
             return;
         }
-        _shadowCameraBuffer = frame.World.CreateWgpuBuffer(frame.Device, new WGPUBufferDescriptor {
-            NextInChain = null,
-            Label = default,
-            Usage = WGPUBufferUsage.Uniform | WGPUBufferUsage.CopyDst,
-            Size = CameraUniformData.Stride,
-            MappedAtCreation = 0
-        });
+        var buffers = new Entity[layerCount];
+        for (var layer = 0; layer < layerCount; layer++) {
+            buffers[layer] = frame.World.CreateWgpuBuffer(frame.Device, new WGPUBufferDescriptor {
+                NextInChain = null,
+                Label = default,
+                Usage = WGPUBufferUsage.Uniform | WGPUBufferUsage.CopyDst,
+                Size = CameraUniformData.Stride,
+                MappedAtCreation = 0
+            });
+        }
+        _shadowCameraBuffers = buffers;
     }
 
-    private void EnsureShadowDrawBindGroup(in GpuFrame frame)
+    private void EnsureShadowDrawBindGroups(in GpuFrame frame, int layerCount)
     {
-        if (_shadowDrawBindGroup.IsValid) {
-            _shadowDrawBindGroup.Destroy();
+        foreach (var existing in _shadowDrawBindGroups) {
+            if (existing.IsValid) {
+                existing.Destroy();
+            }
         }
 
         var deviceHandle = frame.Device.GetWgpu<WGPUDevice>();
-        _shadowDrawBindGroup = frame.World.OwnWgpu(SceneBindGroupLayout.CreateBindGroup(
-            deviceHandle,
-            shadowDepthPipeline.BindGroupLayout.GetWgpu<WGPUBindGroupLayout>(),
-            _shadowCameraBuffer.GetWgpu<WGPUBuffer>(),
-            _instances.IsValid ? _instances.Buffer.GetWgpu<WGPUBuffer>() : default,
-            _instances.Capacity));
+        var bindGroups = new Entity[layerCount];
+        for (var layer = 0; layer < layerCount; layer++) {
+            bindGroups[layer] = frame.World.OwnWgpu(SceneBindGroupLayout.CreateBindGroup(
+                deviceHandle,
+                shadowDepthPipeline.BindGroupLayout.GetWgpu<WGPUBindGroupLayout>(),
+                _shadowCameraBuffers[layer].GetWgpu<WGPUBuffer>(),
+                _instances.IsValid ? _instances.Buffer.GetWgpu<WGPUBuffer>() : default,
+                _instances.Capacity));
+        }
+        _shadowDrawBindGroups = bindGroups;
     }
 
     private void EnsureCullingBindGroup(in GpuFrame frame)
@@ -180,15 +321,17 @@ public sealed class SceneRenderer(
     }
 
     public void EncodeDepthPrepass(in GpuFrame frame, WgpuHandle<WGPURenderPassEncoder> renderPass) =>
-        Encode(in frame, renderPass, depthPipeline.RenderPipeline, _depthBindGroup, default);
+        Encode(in frame, renderPass, depthPipeline.RenderPipeline, _depthBindGroup, default, default);
 
     public void EncodeForwardOpaque(in GpuFrame frame, WgpuHandle<WGPURenderPassEncoder> renderPass) =>
-        Encode(in frame, renderPass, forwardPipeline.RenderPipeline, _forwardBindGroup, _forwardLightingBindGroup);
+        Encode(
+            in frame, renderPass, forwardPipeline.RenderPipeline,
+            _forwardBindGroup, _forwardLightingBindGroup, _iblBindGroup);
 
     private void Encode(
         in GpuFrame frame,
         WgpuHandle<WGPURenderPassEncoder> renderPass,
-        Entity pipeline, Entity bindGroup, Entity lightingBindGroup)
+        Entity pipeline, Entity bindGroup, Entity lightingBindGroup, Entity iblBindGroup)
     {
         if (_visible.Count == 0) {
             return;
@@ -202,6 +345,9 @@ public sealed class SceneRenderer(
         Wgpu.SetBindGroup(renderPass, 0, bindGroup.GetWgpu<WGPUBindGroup>());
         if (lightingBindGroup.IsValid) {
             Wgpu.SetBindGroup(renderPass, 1, lightingBindGroup.GetWgpu<WGPUBindGroup>());
+        }
+        if (iblBindGroup.IsValid) {
+            Wgpu.SetBindGroup(renderPass, 2, iblBindGroup.GetWgpu<WGPUBindGroup>());
         }
 
         foreach (var index in _visible) {
@@ -235,8 +381,8 @@ public sealed class SceneRenderer(
             forwardPipeline.BindGroupLayout.GetWgpu<WGPUBindGroupLayout>(),
             cameraBuffer, instanceBuffer, _instances.Capacity));
 
-        if (_shadowDrawBindGroup.IsValid) {
-            EnsureShadowDrawBindGroup(in frame);
+        if (_shadowDrawBindGroups.Length > 0) {
+            EnsureShadowDrawBindGroups(in frame, _shadowDrawBindGroups.Length);
         }
     }
 }

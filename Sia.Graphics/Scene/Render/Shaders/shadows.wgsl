@@ -7,16 +7,17 @@ struct ShadowConfig {
 
 fn shadow_select_cascade(config: ShadowConfig, view_z: f32) -> i32 {
     let depth = -view_z;
+    let max_index = i32(max(config.params.x, 1u)) - 1;
     if (depth < config.cascade_splits.x) {
         return 0;
     }
     if (depth < config.cascade_splits.y) {
-        return 1;
+        return min(1, max_index);
     }
     if (depth < config.cascade_splits.z) {
-        return 2;
+        return min(2, max_index);
     }
-    return 3;
+    return max_index;
 }
 
 fn shadow_sample_pcf(

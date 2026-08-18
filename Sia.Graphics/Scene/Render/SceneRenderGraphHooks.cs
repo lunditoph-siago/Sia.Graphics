@@ -176,10 +176,9 @@ public static class SceneRenderGraphHooks
 
         public void Render(WgpuReactiveRenderGraphPassContext context)
         {
-            _renderer!.PrepareFrame(in _frame, _camera);
             var renderPass = context.GetOrBeginRenderPass(
                 new WgpuReactiveRenderGraphDepthStencilAttachment(Depth, WGPULoadOp.Clear));
-            _renderer.EncodeDepthPrepass(in _frame, renderPass);
+            _renderer!.EncodeDepthPrepass(in _frame, renderPass);
         }
     }
 

@@ -10,13 +10,13 @@ public abstract class UiVersionedSystemBase(IEntityMatcher matcher) : SystemBase
 
     protected abstract void OnExecute(World world, IEntityQuery query);
 
-    public sealed override void Execute(World world, IEntityQuery query)
+    public sealed override void Execute(WorldContext context, IEntityQuery query)
     {
-        var changes = world.AcquireAddon<UiChangeTracker>();
+        var changes = context.World.AcquireAddon<UiChangeTracker>();
         if (_version == GetVersion(changes))
             return;
 
-        OnExecute(world, query);
+        OnExecute(context.World, query);
         _version = GetVersion(changes);
     }
 }

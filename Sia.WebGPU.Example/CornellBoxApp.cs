@@ -66,7 +66,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             Glfw.PollEvents();
 
             var currentTime = clock.Elapsed.TotalSeconds;
-            var deltaTime = (float)Math.Min(currentTime - previousTime, 0.1);
+            var deltaTime = (float)System.Math.Min(currentTime - previousTime, 0.1);
             previousTime = currentTime;
 
             HandleInput(deltaTime);
@@ -551,22 +551,22 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             cameraChanged = true;
         }
         if (IsDown(Key.Up)) {
-            _cameraPitch = Math.Clamp(_cameraPitch + orbitStep, -0.42f, 0.42f);
+            _cameraPitch = System.Math.Clamp(_cameraPitch + orbitStep, -0.42f, 0.42f);
             cameraChanged = true;
         }
         if (IsDown(Key.Down)) {
-            _cameraPitch = Math.Clamp(_cameraPitch - orbitStep, -0.42f, 0.42f);
+            _cameraPitch = System.Math.Clamp(_cameraPitch - orbitStep, -0.42f, 0.42f);
             cameraChanged = true;
         }
         if (IsDown(Key.W)) {
-            _cameraDistance = Math.Clamp(_cameraDistance - dollyStep, 2.45f, 5.0f);
+            _cameraDistance = System.Math.Clamp(_cameraDistance - dollyStep, 2.45f, 5.0f);
             if (_lockFocus) {
                 _focusDistance = _cameraDistance;
             }
             cameraChanged = true;
         }
         if (IsDown(Key.S)) {
-            _cameraDistance = Math.Clamp(_cameraDistance + dollyStep, 2.45f, 5.0f);
+            _cameraDistance = System.Math.Clamp(_cameraDistance + dollyStep, 2.45f, 5.0f);
             if (_lockFocus) {
                 _focusDistance = _cameraDistance;
             }
@@ -576,35 +576,35 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         var increaseExposure = Pressed(Key.Equal) | Pressed(Key.KeypadAdd);
         var decreaseExposure = Pressed(Key.Minus) | Pressed(Key.KeypadSubtract);
         if (increaseExposure) {
-            _exposure = Math.Clamp(_exposure + 0.1f, 0.2f, 4.0f);
+            _exposure = System.Math.Clamp(_exposure + 0.1f, 0.2f, 4.0f);
         }
         if (decreaseExposure) {
-            _exposure = Math.Clamp(_exposure - 0.1f, 0.2f, 4.0f);
+            _exposure = System.Math.Clamp(_exposure - 0.1f, 0.2f, 4.0f);
         }
 
         var settingsChanged = false;
         if (Pressed(Key.RightBracket)) {
-            _samplesPerFrame = Math.Clamp(_samplesPerFrame + 1, 1, 8);
+            _samplesPerFrame = System.Math.Clamp(_samplesPerFrame + 1, 1, 8);
             settingsChanged = true;
         }
         if (Pressed(Key.LeftBracket)) {
-            _samplesPerFrame = Math.Clamp(_samplesPerFrame - 1, 1, 8);
+            _samplesPerFrame = System.Math.Clamp(_samplesPerFrame - 1, 1, 8);
             settingsChanged = true;
         }
         if (Pressed(Key.Period)) {
-            _maxBounces = Math.Clamp(_maxBounces + 1, 1, 12);
+            _maxBounces = System.Math.Clamp(_maxBounces + 1, 1, 12);
             settingsChanged = true;
         }
         if (Pressed(Key.Comma)) {
-            _maxBounces = Math.Clamp(_maxBounces - 1, 1, 12);
+            _maxBounces = System.Math.Clamp(_maxBounces - 1, 1, 12);
             settingsChanged = true;
         }
         if (Pressed(Key.P)) {
-            _aperture = Math.Clamp(_aperture + 0.003f, 0.0f, 0.05f);
+            _aperture = System.Math.Clamp(_aperture + 0.003f, 0.0f, 0.05f);
             settingsChanged = true;
         }
         if (Pressed(Key.O)) {
-            _aperture = Math.Clamp(_aperture - 0.003f, 0.0f, 0.05f);
+            _aperture = System.Math.Clamp(_aperture - 0.003f, 0.0f, 0.05f);
             settingsChanged = true;
         }
 

@@ -12,7 +12,9 @@
   <ItemGroup>
     <ProjectReference Include="..\Sia.RenderGraph\Sia.RenderGraph.csproj" />
     <ProjectReference Include="..\Sia.WebGPU\Sia.WebGPU.csproj" />
-    <PackageReference Include="Sia.Prelude" Version="2.1.1" />
+    <PackageReference Include="Sia.Prelude" Version="2.1.2" />
+    <PackageReference Include="Sia.Math" Version="0.0.3" />
+    <PackageReference Include="Sia.CodeGenerators" Version="2.1.2" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0-browser'">
@@ -21,5 +23,8 @@
 
   <ItemGroup>
     <EmbeddedResource Include="UI/Render/Shaders/ui_node.wgsl" />
+    <EmbeddedResource Include="Scene/Render/Shaders/scene_common.wgsl" />
+    <EmbeddedResource Include="Scene/Render/Shaders/depth_prepass.wgsl" />
+    <EmbeddedResource Include="Scene/Render/Shaders/unlit_forward.wgsl" />
   </ItemGroup>
 </Project>

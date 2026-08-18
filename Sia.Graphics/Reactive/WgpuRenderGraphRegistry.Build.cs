@@ -33,7 +33,9 @@ public sealed partial class WgpuRenderGraphRegistry
         }
 
         foreach (var (key, entry) in Ordered(_passes)) {
-            var pass = builder.AddPass(entry.Name);
+            var pass = entry.Kind == RenderGraphPassKind.Compute
+                ? builder.AddComputePass(entry.Name)
+                : builder.AddPass(entry.Name);
             passBuilders.Add(key, pass);
             passHandles.Add(key, pass.Handle);
         }

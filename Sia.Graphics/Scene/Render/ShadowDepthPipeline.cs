@@ -3,52 +3,40 @@ using Sia.WebGPU;
 
 namespace Sia.Graphics.Scene;
 
-public sealed unsafe class ForwardOpaquePipeline
+public sealed unsafe class ShadowDepthPipeline
 {
     internal Entity RenderPipeline { get; }
     internal Entity BindGroupLayout { get; }
-    internal Entity LightingBindGroupLayout { get; }
 
-    private ForwardOpaquePipeline(Entity renderPipeline, Entity bindGroupLayout, Entity lightingBindGroupLayout)
+    private ShadowDepthPipeline(Entity renderPipeline, Entity bindGroupLayout)
     {
         RenderPipeline = renderPipeline;
         BindGroupLayout = bindGroupLayout;
-        LightingBindGroupLayout = lightingBindGroupLayout;
     }
 
-    public static ForwardOpaquePipeline Create(
-        World world, Entity device, WGPUTextureFormat colorFormat, WGPUTextureFormat depthFormat)
+    public static ShadowDepthPipeline Create(World world, Entity device)
     {
         var deviceHandle = device.GetWgpu<WGPUDevice>();
         var shaderModule = world.OwnWgpu(
-            Wgpu.CreateWgslShaderModule(deviceHandle, SceneShaderSource.LoadForwardPbr(), "forward_pbr"));
+            Wgpu.CreateWgslShaderModule(deviceHandle, SceneShaderSource.LoadShadowDepth(), "shadow_depth"));
         var bindGroupLayout = world.OwnWgpu(SceneBindGroupLayout.Create(
-            deviceHandle, instanceVisibility: WGPUShaderStage.Vertex | WGPUShaderStage.Fragment));
-        var lightingBindGroupLayout = world.OwnWgpu(SceneLightingBindGroupLayout.Create(deviceHandle));
+            deviceHandle, instanceVisibility: WGPUShaderStage.Vertex));
         var pipelineLayout = world.OwnWgpu(SceneBindGroupLayout.CreatePipelineLayout(
-            deviceHandle,
-            bindGroupLayout.GetWgpu<WGPUBindGroupLayout>(),
-            lightingBindGroupLayout.GetWgpu<WGPUBindGroupLayout>()));
+            deviceHandle, bindGroupLayout.GetWgpu<WGPUBindGroupLayout>()));
         var renderPipeline = world.OwnWgpu(CreateRenderPipeline(
             deviceHandle,
             shaderModule.GetWgpu<WGPUShaderModule>(),
-            pipelineLayout.GetWgpu<WGPUPipelineLayout>(),
-            colorFormat,
-            depthFormat));
-        return new ForwardOpaquePipeline(renderPipeline, bindGroupLayout, lightingBindGroupLayout);
+            pipelineLayout.GetWgpu<WGPUPipelineLayout>()));
+        return new ShadowDepthPipeline(renderPipeline, bindGroupLayout);
     }
 
     private static WgpuHandle<WGPURenderPipeline> CreateRenderPipeline(
         WgpuHandle<WGPUDevice> device,
         WgpuHandle<WGPUShaderModule> shaderModule,
-        WgpuHandle<WGPUPipelineLayout> pipelineLayout,
-        WGPUTextureFormat colorFormat,
-        WGPUTextureFormat depthFormat)
+        WgpuHandle<WGPUPipelineLayout> pipelineLayout)
     {
         var vertexEntryPoint = "vertex"u8;
-        var fragmentEntryPoint = "fragment"u8;
-        fixed (byte* vertexEntry = vertexEntryPoint)
-        fixed (byte* fragmentEntry = fragmentEntryPoint) {
+        fixed (byte* vertexEntry = vertexEntryPoint) {
             Span<WGPUVertexAttribute> attributes = stackalloc WGPUVertexAttribute[SceneVertexLayout.AttributeCount];
             SceneVertexLayout.Fill(attributes);
 
@@ -59,23 +47,12 @@ public sealed unsafe class ForwardOpaquePipeline
                 vertexBuffer.AttributeCount = (nuint)attributes.Length;
                 vertexBuffer.Attributes = attributesPtr;
 
-                var colorTarget = WGPUColorTargetState.Default;
-                colorTarget.Format = colorFormat;
-                colorTarget.WriteMask = WGPUColorWriteMask.All;
-
-                var fragment = WGPUFragmentState.Default;
-                fragment.Module = (WGPUShaderModule*)shaderModule.DangerousGetHandle();
-                fragment.EntryPoint = new WGPUStringView {
-                    Data = fragmentEntry,
-                    Length = (nuint)fragmentEntryPoint.Length
-                };
-                fragment.TargetCount = 1;
-                fragment.Targets = &colorTarget;
-
                 var depthStencil = WGPUDepthStencilState.Default;
-                depthStencil.Format = depthFormat;
-                depthStencil.DepthWriteEnabled = WGPUOptionalBool.False;
-                depthStencil.DepthCompare = WGPUCompareFunction.LessEqual;
+                depthStencil.Format = WGPUTextureFormat.Depth32Float;
+                depthStencil.DepthWriteEnabled = WGPUOptionalBool.True;
+                depthStencil.DepthCompare = WGPUCompareFunction.Less;
+                depthStencil.DepthBias = 2;
+                depthStencil.DepthBiasSlopeScale = 2.0f;
 
                 var descriptor = WGPURenderPipelineDescriptor.Default;
                 descriptor.Layout = (WGPUPipelineLayout*)pipelineLayout.DangerousGetHandle();
@@ -93,7 +70,7 @@ public sealed unsafe class ForwardOpaquePipeline
                 descriptor.Primitive.CullMode = WGPUCullMode.Back;
                 descriptor.DepthStencil = &depthStencil;
                 descriptor.Multisample = WGPUMultisampleState.Default;
-                descriptor.Fragment = &fragment;
+                descriptor.Fragment = null;
                 return Wgpu.CreateRenderPipeline(device, in descriptor);
             }
         }

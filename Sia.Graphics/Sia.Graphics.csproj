@@ -23,5 +23,8 @@
 
   <ItemGroup>
     <EmbeddedResource Include="UI/Render/Shaders/ui_node.wgsl" />
+    <EmbeddedResource Include="Scene/Render/Shaders/scene_common.wgsl" />
+    <EmbeddedResource Include="Scene/Render/Shaders/depth_prepass.wgsl" />
+    <EmbeddedResource Include="Scene/Render/Shaders/unlit_forward.wgsl" />
   </ItemGroup>
 </Project>

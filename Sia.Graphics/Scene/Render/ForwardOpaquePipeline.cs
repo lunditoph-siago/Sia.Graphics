@@ -8,12 +8,15 @@ public sealed unsafe class ForwardOpaquePipeline
     internal Entity RenderPipeline { get; }
     internal Entity BindGroupLayout { get; }
     internal Entity LightingBindGroupLayout { get; }
+    internal Entity IblBindGroupLayout { get; }
 
-    private ForwardOpaquePipeline(Entity renderPipeline, Entity bindGroupLayout, Entity lightingBindGroupLayout)
+    private ForwardOpaquePipeline(
+        Entity renderPipeline, Entity bindGroupLayout, Entity lightingBindGroupLayout, Entity iblBindGroupLayout)
     {
         RenderPipeline = renderPipeline;
         BindGroupLayout = bindGroupLayout;
         LightingBindGroupLayout = lightingBindGroupLayout;
+        IblBindGroupLayout = iblBindGroupLayout;
     }
 
     public static ForwardOpaquePipeline Create(
@@ -25,17 +28,19 @@ public sealed unsafe class ForwardOpaquePipeline
         var bindGroupLayout = world.OwnWgpu(SceneBindGroupLayout.Create(
             deviceHandle, instanceVisibility: WGPUShaderStage.Vertex | WGPUShaderStage.Fragment));
         var lightingBindGroupLayout = world.OwnWgpu(SceneLightingBindGroupLayout.Create(deviceHandle));
+        var iblBindGroupLayout = world.OwnWgpu(SceneIblBindGroupLayout.Create(deviceHandle));
         var pipelineLayout = world.OwnWgpu(SceneBindGroupLayout.CreatePipelineLayout(
             deviceHandle,
             bindGroupLayout.GetWgpu<WGPUBindGroupLayout>(),
-            lightingBindGroupLayout.GetWgpu<WGPUBindGroupLayout>()));
+            lightingBindGroupLayout.GetWgpu<WGPUBindGroupLayout>(),
+            iblBindGroupLayout.GetWgpu<WGPUBindGroupLayout>()));
         var renderPipeline = world.OwnWgpu(CreateRenderPipeline(
             deviceHandle,
             shaderModule.GetWgpu<WGPUShaderModule>(),
             pipelineLayout.GetWgpu<WGPUPipelineLayout>(),
             colorFormat,
             depthFormat));
-        return new ForwardOpaquePipeline(renderPipeline, bindGroupLayout, lightingBindGroupLayout);
+        return new ForwardOpaquePipeline(renderPipeline, bindGroupLayout, lightingBindGroupLayout, iblBindGroupLayout);
     }
 
     private static WgpuHandle<WGPURenderPipeline> CreateRenderPipeline(

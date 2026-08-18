@@ -1,5 +1,7 @@
 #define_import_path scene::pbr
 
+#import scene::ibl::{evaluate_sh_irradiance, sample_prefiltered_specular, sample_brdf_lut, fresnel_schlick_roughness}
+
 const PBR_PI: f32 = 3.14159265359;
 
 fn distribution_ggx(n_dot_h: f32, roughness: f32) -> f32 {
@@ -52,4 +54,35 @@ fn direct_lighting(
     let diffuse = k_d * base_color / PBR_PI;
 
     return (diffuse + specular) * radiance * n_dot_l;
+}
+
+fn indirect_lighting(
+    normal: vec3<f32>,
+    view_dir: vec3<f32>,
+    base_color: vec3<f32>,
+    metallic: f32,
+    roughness: f32,
+    sh: array<vec4<f32>, 9>,
+    prefiltered_env: texture_cube<f32>,
+    prefiltered_sampler: sampler,
+    prefiltered_mip_count: f32,
+    brdf_lut: texture_2d<f32>,
+    brdf_lut_sampler: sampler,
+) -> vec3<f32> {
+    let n_dot_v = max(dot(normal, view_dir), 1e-4);
+    let f0 = mix(vec3<f32>(0.04), base_color, metallic);
+    let f = fresnel_schlick_roughness(n_dot_v, f0, roughness);
+
+    let k_s = f;
+    let k_d = (vec3<f32>(1.0) - k_s) * (1.0 - metallic);
+    let irradiance = evaluate_sh_irradiance(sh, normal);
+    let diffuse = k_d * base_color * irradiance / PBR_PI;
+
+    let reflect_dir = reflect(-view_dir, normal);
+    let prefiltered = sample_prefiltered_specular(
+        prefiltered_env, prefiltered_sampler, reflect_dir, roughness, prefiltered_mip_count);
+    let env_brdf = sample_brdf_lut(brdf_lut, brdf_lut_sampler, n_dot_v, roughness);
+    let specular = prefiltered * (f * env_brdf.x + vec3<f32>(env_brdf.y));
+
+    return diffuse + specular;
 }

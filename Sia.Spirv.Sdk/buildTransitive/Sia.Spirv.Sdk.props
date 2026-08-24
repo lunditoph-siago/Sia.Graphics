@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <SiaSpirvDisableWorkloadIntegration>true</SiaSpirvDisableWorkloadIntegration>
+  </PropertyGroup>
+  <Import Project="$(MSBuildThisFileDirectory)..\Sdk\Sia.Spirv.Integration.props" />
+</Project>

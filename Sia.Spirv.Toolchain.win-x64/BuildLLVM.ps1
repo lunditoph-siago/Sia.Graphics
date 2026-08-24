@@ -7,7 +7,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 if ([string]::IsNullOrWhiteSpace($SourceDirectory)) {
   $SourceDirectory = Join-Path $repositoryRoot "artifacts\dotnet-llvm-project"
 }

@@ -26,14 +26,18 @@ public static partial class RenderGraphCompiler
                 initializedTextures);
 
             foreach (var use in pass.Buffers) {
-                foreach (var previous in bufferHistory[use.BufferIndex]) {
+                var history = bufferHistory[use.BufferIndex];
+                foreach (var previous in history) {
                     if (RenderGraphValidation.Overlaps(use.Range, previous.Range) &&
                         (Writes(use.Access) || Writes(previous.Access))) {
                         AddDependency(dependencies, passIndex, previous.PassIndex);
                     }
                 }
 
-                bufferHistory[use.BufferIndex].Add(new BufferHistory(
+                if (Writes(use.Access)) {
+                    RemoveMatchingHistory(history, use.Range);
+                }
+                history.Add(new BufferHistory(
                     passIndex,
                     use.Access,
                     use.Range));
@@ -41,7 +45,8 @@ public static partial class RenderGraphCompiler
 
             foreach (var use in pass.Textures) {
                 var format = definition.Textures[use.TextureIndex].Descriptor.Format;
-                foreach (var previous in textureHistory[use.TextureIndex]) {
+                var history = textureHistory[use.TextureIndex];
+                foreach (var previous in history) {
                     if (RenderGraphValidation.Overlaps(
                             format,
                             use.Subresources,
@@ -51,7 +56,10 @@ public static partial class RenderGraphCompiler
                     }
                 }
 
-                textureHistory[use.TextureIndex].Add(new TextureHistory(
+                if (Writes(use.Access)) {
+                    RemoveMatchingHistory(history, use.Subresources);
+                }
+                history.Add(new TextureHistory(
                     passIndex,
                     use.Access,
                     use.Subresources));
@@ -182,6 +190,28 @@ public static partial class RenderGraphCompiler
     {
         if (dependency != passIndex) {
             dependencies[passIndex].Add(dependency);
+        }
+    }
+
+    private static void RemoveMatchingHistory(
+        List<BufferHistory> history,
+        RenderGraphBufferRange range)
+    {
+        for (var index = history.Count - 1; index >= 0; index--) {
+            if (history[index].Range == range) {
+                history.RemoveAt(index);
+            }
+        }
+    }
+
+    private static void RemoveMatchingHistory(
+        List<TextureHistory> history,
+        RenderGraphTextureSubresourceRange subresources)
+    {
+        for (var index = history.Count - 1; index >= 0; index--) {
+            if (history[index].Subresources == subresources) {
+                history.RemoveAt(index);
+            }
         }
     }
 

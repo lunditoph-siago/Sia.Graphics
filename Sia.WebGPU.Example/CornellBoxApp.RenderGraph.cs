@@ -181,6 +181,16 @@ internal sealed unsafe partial class CornellBoxApp
         _samplingBindGroupsUsedThisFrame.Clear();
     }
 
+    private void ReleaseSamplingBindGroups()
+    {
+        foreach (var key in _samplingBindGroups.Keys.ToArray()) {
+            var bindGroup = _samplingBindGroups[key];
+            Wgpu.Release(ref bindGroup);
+        }
+        _samplingBindGroups.Clear();
+        _samplingBindGroupsUsedThisFrame.Clear();
+    }
+
     private void DisposeRenderGraph()
     {
         if (_renderGraphMount is { } mount && mount.IsMounted) {
@@ -191,12 +201,7 @@ internal sealed unsafe partial class CornellBoxApp
         _renderGraph = null;
         _renderGraphWorld = null;
 
-        foreach (var key in _samplingBindGroups.Keys.ToArray()) {
-            var bindGroup = _samplingBindGroups[key];
-            Wgpu.Release(ref bindGroup);
-        }
-        _samplingBindGroups.Clear();
-        _samplingBindGroupsUsedThisFrame.Clear();
+        ReleaseSamplingBindGroups();
     }
 
     private readonly record struct RenderGraphProps(

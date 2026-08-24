@@ -100,7 +100,10 @@ public static class WgpuRenderGraphExecutor
                         "WebGPU could not create the render graph command encoder.");
                 }
 
-                foreach (var group in plan.Graph.PassGroups) {
+                for (var groupIndex = 0;
+                    groupIndex < plan.Graph.PassGroups.Count;
+                    groupIndex++) {
+                    var group = plan.Graph.PassGroups[groupIndex];
                     var groupRenderPass = scratch.RentGroupState();
                     for (var offset = 0; offset < group.Count; offset++) {
                         var pass = plan.Graph.Passes[group.StartExecutionIndex + offset];
@@ -171,7 +174,8 @@ public static class WgpuRenderGraphExecutor
         Dictionary<RenderGraphBufferHandle, WgpuHandle<WGPUBuffer>> buffers,
         HashSet<RenderGraphBufferHandle> ownedBuffers)
     {
-        foreach (var item in plan.Buffers) {
+        for (var index = 0; index < plan.Buffers.Count; index++) {
+            var item = plan.Buffers[index];
             var resource = item.Resource;
             if (!resource.Lifetime.IsUsed) {
                 continue;
@@ -211,7 +215,8 @@ public static class WgpuRenderGraphExecutor
         Dictionary<RenderGraphTextureHandle, WgpuHandle<WGPUTexture>> textures,
         HashSet<RenderGraphTextureHandle> ownedTextures)
     {
-        foreach (var item in plan.Textures) {
+        for (var index = 0; index < plan.Textures.Count; index++) {
+            var item = plan.Textures[index];
             var resource = item.Resource;
             if (!resource.Lifetime.IsUsed) {
                 continue;

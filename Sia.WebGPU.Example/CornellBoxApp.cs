@@ -115,10 +115,12 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         ResizeIfNeeded(force: true);
     }
 
-    private WGPURequestAdapterOptions BuildAdapterOptions() => new() {
+    private WGPURequestAdapterOptions BuildAdapterOptions(
+        WGPUFeatureLevel featureLevel = WGPUFeatureLevel.Core,
+        WGPUPowerPreference powerPreference = WGPUPowerPreference.HighPerformance) => new() {
         NextInChain = null,
-        FeatureLevel = WGPUFeatureLevel.Core,
-        PowerPreference = WGPUPowerPreference.HighPerformance,
+        FeatureLevel = featureLevel,
+        PowerPreference = powerPreference,
         ForceFallbackAdapter = 0,
         BackendType = WGPUBackendType.Undefined,
         CompatibleSurface = Pointer(_surface),
@@ -384,6 +386,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             return true;
         }
 
+        ReleaseSamplingBindGroups();
         ReleaseAccumulationResources();
         _framebufferWidth = size.Width;
         _framebufferHeight = size.Height;

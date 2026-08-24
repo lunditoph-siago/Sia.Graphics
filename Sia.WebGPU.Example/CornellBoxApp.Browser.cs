@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices.JavaScript;
 using Sia.GLFW;
 using Sia.Window;
 
@@ -25,6 +26,7 @@ internal sealed partial class CornellBoxApp
             return false;
         }
 
+        ResizeWindowToCanvas();
         Glfw.PollEvents();
 
         var currentTime = timestampMilliseconds / 1000.0;
@@ -48,10 +50,11 @@ internal sealed partial class CornellBoxApp
     {
         Glfw.Initialize();
         _glfwInitialized = true;
+        var initialSize = GetCanvasSize();
         _window = Glfw.CreateWindow(
             new WindowDescriptor(
-                _initialWidth,
-                _initialHeight,
+                initialSize.Width,
+                initialSize.Height,
                 "Sia.WebGPU · Cornell Box Path Tracer",
                 Resizable: true),
             new GlfwWindowOptions(ClientApi.NoApi));
@@ -59,7 +62,7 @@ internal sealed partial class CornellBoxApp
         _instance = Wgpu.CreateInstance();
         _surface = CreateSurface(_instance, _window);
 
-        _adapter = await Wgpu.RequestAdapterAsync(_instance, BuildAdapterOptions());
+        _adapter = await RequestBrowserAdapterAsync();
 
         var surfaceInfo = GetSurfaceInfo(_surface, _adapter);
         _surfaceFormat = surfaceInfo.Format;
@@ -74,6 +77,45 @@ internal sealed partial class CornellBoxApp
         InitializeUi();
         InitializeRenderGraph();
         ResizeIfNeeded(force: true);
+    }
+
+    private void ResizeWindowToCanvas()
+    {
+        var target = GetCanvasSize();
+        var current = Glfw.GetSize(_window);
+        if (target.Width != current.Width || target.Height != current.Height) {
+            Glfw.SetSize(_window, target);
+        }
+    }
+
+    private static WindowSize GetCanvasSize() =>
+        new(GetCanvasWidth(), GetCanvasHeight());
+
+    [JSImport("getCanvasWidth", "main.js")]
+    private static partial int GetCanvasWidth();
+
+    [JSImport("getCanvasHeight", "main.js")]
+    private static partial int GetCanvasHeight();
+
+    private async Task<WgpuHandle<WGPUAdapter>> RequestBrowserAdapterAsync()
+    {
+        try {
+            return await Wgpu.RequestAdapterAsync(_instance, BuildAdapterOptions());
+        }
+        catch (WgpuException coreError) {
+            try {
+                return await Wgpu.RequestAdapterAsync(
+                    _instance,
+                    BuildAdapterOptions(
+                        WGPUFeatureLevel.Compatibility,
+                        WGPUPowerPreference.Undefined));
+            }
+            catch (WgpuException compatibilityError) {
+                throw new WgpuException(
+                    $"Browser adapter requests failed. Core: {coreError.Message} " +
+                    $"Compatibility: {compatibilityError.Message}");
+            }
+        }
     }
 }
 #endif

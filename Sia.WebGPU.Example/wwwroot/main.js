@@ -1,5 +1,15 @@
 import { dotnet } from './_framework/dotnet.js';
 
+const canvas = document.getElementById('canvas');
+
+function getCanvasWidth() {
+    return Math.max(1, Math.round(window.innerWidth));
+}
+
+function getCanvasHeight() {
+    return Math.max(1, Math.round(window.innerHeight));
+}
+
 function showError(message) {
     let overlay = document.getElementById('error-overlay');
 
@@ -23,11 +33,35 @@ function showError(message) {
             word-break:break-word;
             z-index:99999;
         `;
+        overlay.setAttribute('role', 'alert');
+        overlay.setAttribute('aria-live', 'assertive');
         document.body.appendChild(overlay);
     }
 
     overlay.textContent += message + '\n\n';
+    overlay.scrollTop = overlay.scrollHeight;
 }
+
+function formatErrorValue(value) {
+    if (value instanceof Error) {
+        return value.stack ?? `${value.name}: ${value.message}`;
+    }
+    if (typeof value === 'string') {
+        return value;
+    }
+
+    try {
+        return JSON.stringify(value, null, 2) ?? String(value);
+    } catch {
+        return String(value);
+    }
+}
+
+const originalConsoleError = console.error.bind(console);
+console.error = (...values) => {
+    originalConsoleError(...values);
+    showError('[console.error] ' + values.map(formatErrorValue).join(' '));
+};
 
 window.addEventListener('error', (e) => {
     showError('[error] ' + (e.error?.stack ?? e.message));
@@ -38,18 +72,14 @@ window.addEventListener('unhandledrejection', (e) => {
 });
 
 try {
-    const { runMain, Module } = await dotnet.create();
+    const { runMain, Module, setModuleImports } = await dotnet.create();
 
-    Module.canvas = document.getElementById('canvas');
+    Module.canvas = canvas;
     Module.print = console.log;
-
-    Module.printErr = (line) => {
-        console.error(line);
-        showError('[stderr] ' + line);
-    };
+    Module.printErr = (line) => console.error('[stderr]', line);
+    setModuleImports('main.js', { getCanvasWidth, getCanvasHeight });
 
     await runMain();
 } catch (err) {
-    console.error(err);
-    showError('[startup] ' + (err?.stack ?? err));
+    console.error('[startup]', err);
 }

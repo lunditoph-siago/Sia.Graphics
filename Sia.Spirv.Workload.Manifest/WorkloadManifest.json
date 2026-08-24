@@ -5,7 +5,8 @@
     "spirv-tools": {
       "description": "Sia C# to SPIR-V compiler and LLVM/Khronos validation toolchain",
       "packs": [
-        "Sia.Spirv.Sdk"
+        "Sia.Spirv.Sdk",
+        "Sia.Spirv.Toolchain.win-x64"
       ],
       "platforms": [
         "win-x64"
@@ -14,6 +15,10 @@
   },
   "packs": {
     "Sia.Spirv.Sdk": {
+      "kind": "sdk",
+      "version": "0.1.0-preview.1"
+    },
+    "Sia.Spirv.Toolchain.win-x64": {
       "kind": "sdk",
       "version": "0.1.0-preview.1"
     }

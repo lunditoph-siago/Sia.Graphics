@@ -44,19 +44,20 @@ The Windows x64 first roll pins these sources:
 - Khronos SPIRV-Tools `v2026.2`
 - the SPIRV-Headers commit recorded by SPIRV-Tools `v2026.2`
 
-Build LLVM with `native/llvm/build-toolchain.ps1`, then build the Khronos tools
-with `native/spirv-tools/build-toolchain.ps1`. Both scripts install into
-`artifacts/llvm-toolchain`. The scripts also stage the upstream licenses. The
-prebuilt executables are delivered by `Sia.Spirv.Toolchain.win-x64`; the managed
-SDK package does not contain native binaries. Consumers therefore do not use a
-system LLVM, Vulkan SDK, or separately installed `spirv-val`.
+Build LLVM with `Sia.Spirv.Toolchain.win-x64/BuildLLVM.ps1`, then build the
+Khronos tools with `Sia.Spirv.Toolchain.win-x64/BuildSpirvTools.ps1`. Both
+scripts install into `artifacts/llvm-toolchain`. The scripts also stage the
+upstream licenses. The prebuilt executables are delivered by
+`Sia.Spirv.Toolchain.win-x64`; the managed SDK package does not contain native
+binaries. Consumers therefore do not use a system LLVM, Vulkan SDK, or
+separately installed `spirv-val`.
 
 ## Workload packages
 
 Build the initial NuGet and workload packages with:
 
 ```powershell
-./eng/build-spirv-workload.ps1
+./Sia.Spirv.Workload.Manifest/Pack.ps1
 ```
 
 The output includes the managed `Sia.Spirv.Sdk` pack, the prebuilt
@@ -68,7 +69,7 @@ been bootstrapped. For the workspace-local SDK, install the baseline manifest
 and then the workload from the generated package source:
 
 ```powershell
-./eng/bootstrap-spirv-workload.ps1
+./Sia.Spirv.Workload.Manifest/Install.ps1
 ../.dotnet/dotnet workload install spirv-tools `
   --source ./artifacts/packages `
   --skip-manifest-update

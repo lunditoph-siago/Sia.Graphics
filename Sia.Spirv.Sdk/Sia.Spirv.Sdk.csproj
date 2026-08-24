@@ -6,11 +6,13 @@
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
     <PackageId>Sia.Spirv.Sdk</PackageId>
     <PackageVersion>0.1.0-preview.1</PackageVersion>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <Description>MSBuild SDK for compiling C# GPU kernels to SPIR-V with LLVM.</Description>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Sia.Spirv.Tool\Sia.Spirv.Tool.csproj"
                       ReferenceOutputAssembly="false" />
+    <None Include="README.md" Pack="true" PackagePath="" />
     <None Include="Sdk\**\*" Pack="true" PackagePath="Sdk" />
     <None Include="buildTransitive\**\*" Pack="true" PackagePath="buildTransitive" />
     <None Include="..\Sia.Spirv.Tool\bin\$(Configuration)\net10.0\**\*"

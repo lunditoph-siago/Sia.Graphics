@@ -1,68 +1,59 @@
-# Local repository constraints
-.editorconfig
-CONTRIBUTING.md
-
-# Build outputs
-[Bb]in/
-[Oo]bj/
-[Oo]bj_*/
+# Build results
 [Dd]ebug/
 [Dd]ebugPublic/
 [Rr]elease/
 [Rr]eleases/
-artifacts/
-TestResults/
 x64/
 x86/
-build/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
 bld/
-!Sia.WebGPU.Native/build/
-!Sia.WebGPU.Native/build/**
-msbuild.log
-msbuild.err
-msbuild.wrn
-Sia.WebGPU.Native/runtimes/
+[Bb]in/
+[Oo]bj/
+[Oo]bj_*/
+[Ll]og/
+[Ll]ogs/
 
-# IDE and user files
-.vs/
-.vscode/
-.devcontainer/
-.idea/
-*.suo
-*.user
-*.userosscache
-*.sln.docstates
-
-# Compiled files and packages
-*.com
-*.class
-*.dll
-*.exe
-*.o
-*.so
-*.7z
-*.dmg
-*.gz
-*.iso
-*.jar
-*.rar
-*.tar
-*.zip
-
-# Logs, databases, and temporary files
-*.log
-*.sql
-*.sqlite
-*.swp
-*.*~
-*.pyc
+# .NET Core
 project.lock.json
+project.fragment.lock.json
+artifacts/
 
-# Operating system files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+# ASP.NET Scaffolding
+ScaffoldingReadMe.txt
+
+# NuGet Packages
+*.nupkg
+# NuGet Symbol Packages
+*.snupkg
+
+# dotenv environment variables file
+.env
+
+# Others
+~$*
+*~
+CodeCoverage/
+
+# MSBuild Binary and Structured Log
+*.binlog
+
+# MSTest test Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# NUnit
+*.VisualState.xml
+TestResult.xml
+nunit-*.xml
+
+# Visual Studio Code
+.vscode
+.devcontainer
+
+# Visual Studio
+.vs/
+
+# Jetbrain
+.idea/

@@ -8,13 +8,14 @@
     <SiaSpirvSkipMicrosoftNetSdkTargetsImport>true</SiaSpirvSkipMicrosoftNetSdkTargetsImport>
     <EnableSpirvCompilation>true</EnableSpirvCompilation>
     <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
-    <SpirvCompilerToolPath>$(MSBuildThisFileDirectory)..\..\Sia.Spirv.Tool\bin\$(Configuration)\net10.0\Sia.Spirv.Tool.dll</SpirvCompilerToolPath>
-    <SpirvToolchainDirectory>$(MSBuildThisFileDirectory)..\..\artifacts\llvm-toolchain\bin</SpirvToolchainDirectory>
+    <SpirvCompilerToolPath>$(MSBuildThisFileDirectory)..\Sia.Spirv.Tool\bin\$(Configuration)\net10.0\Sia.Spirv.Tool.dll</SpirvCompilerToolPath>
+    <SpirvToolchainDirectory>$(MSBuildThisFileDirectory)..\artifacts\llvm-toolchain\bin</SpirvToolchainDirectory>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\Sia.Spirv.Core\Sia.Spirv.Core.csproj" />
-    <ProjectReference Include="..\..\Sia.Spirv.Tool\Sia.Spirv.Tool.csproj"
+    <ProjectReference Include="..\Sia.Spirv.Core\Sia.Spirv.Core.csproj" />
+    <ProjectReference Include="..\Sia.Spirv.Runtime\Sia.Spirv.Runtime.csproj" />
+    <ProjectReference Include="..\Sia.Spirv.Tool\Sia.Spirv.Tool.csproj"
                       ReferenceOutputAssembly="false" />
   </ItemGroup>
-  <Import Project="..\..\Sia.Spirv.Sdk\Sdk\Sdk.targets" />
+  <Import Project="..\Sia.Spirv.Sdk\Sdk\Sdk.targets" />
 </Project>

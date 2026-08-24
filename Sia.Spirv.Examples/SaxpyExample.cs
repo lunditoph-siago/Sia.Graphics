@@ -1,14 +1,9 @@
 using Sia.Spirv;
 
-namespace Sia.Spirv.Sample;
+namespace Sia.Spirv.Examples;
 
-internal static class Program
+internal static class SaxpyExample
 {
-    public static void Main()
-    {
-        Console.WriteLine("Build this project to generate the SPIR-V artifacts under bin/<configuration>/net11.0/spirv.");
-    }
-
     [SpirvKernel(64)]
     private static void Saxpy(
         StorageBuffer<float> x,

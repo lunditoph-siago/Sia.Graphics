@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <IsPackable>true</IsPackable>
+    <PackageId>Sia.Spirv.Workload.Manifest-11.0.100</PackageId>
+    <PackageVersion>0.1.0-preview.1</PackageVersion>
+    <Description>Workload manifest for the Sia LLVM SPIR-V toolchain.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="WorkloadManifest.json" Pack="true" PackagePath="data" />
+    <None Include="WorkloadManifest.targets" Pack="true" PackagePath="data" />
+  </ItemGroup>
+</Project>

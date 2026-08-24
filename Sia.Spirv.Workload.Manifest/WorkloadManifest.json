@@ -1,0 +1,21 @@
+{
+  "version": "0.1.0-preview.1",
+  "description": "Sia C# to SPIR-V compiler powered by the LLVM 23 SPIR-V backend.",
+  "workloads": {
+    "spirv-tools": {
+      "description": "Sia C# to SPIR-V compiler and LLVM/Khronos validation toolchain",
+      "packs": [
+        "Sia.Spirv.Sdk"
+      ],
+      "platforms": [
+        "win-x64"
+      ]
+    }
+  },
+  "packs": {
+    "Sia.Spirv.Sdk": {
+      "kind": "sdk",
+      "version": "0.1.0-preview.1"
+    }
+  }
+}

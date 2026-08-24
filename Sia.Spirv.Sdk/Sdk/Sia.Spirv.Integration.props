@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <EnableSpirvCompilation Condition="'$(EnableSpirvCompilation)' == ''">true</EnableSpirvCompilation>
+    <SpirvTargetEnvironment Condition="'$(SpirvTargetEnvironment)' == ''">vulkan1.2</SpirvTargetEnvironment>
+    <SpirvOptimizationLevel Condition="'$(SpirvOptimizationLevel)' == ''">2</SpirvOptimizationLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Sia.Spirv.Core">
+      <HintPath>$(MSBuildThisFileDirectory)..\tools\net10.0\Sia.Spirv.Core.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,43 @@
+<Project>
+  <PropertyGroup>
+    <EnableSpirvCompilation Condition="'$(EnableSpirvCompilation)' == ''">true</EnableSpirvCompilation>
+    <SpirvTargetEnvironment Condition="'$(SpirvTargetEnvironment)' == ''">vulkan1.2</SpirvTargetEnvironment>
+    <SpirvOptimizationLevel Condition="'$(SpirvOptimizationLevel)' == ''">2</SpirvOptimizationLevel>
+    <SpirvCompilerToolPath Condition="'$(SpirvCompilerToolPath)' == ''">$(MSBuildThisFileDirectory)..\tools\net10.0\Sia.Spirv.Tool.dll</SpirvCompilerToolPath>
+    <SpirvDotNetHost Condition="'$(DotNetHostPath)' != ''">$(DotNetHostPath)</SpirvDotNetHost>
+    <SpirvDotNetHost Condition="'$(SpirvDotNetHost)' == ''">dotnet</SpirvDotNetHost>
+    <SpirvToolchainDirectory Condition="'$(SpirvToolchainDirectory)' == '' and Exists('$(MSBuildThisFileDirectory)..\tools\win-x64\llc.exe')">$(MSBuildThisFileDirectory)..\tools\win-x64</SpirvToolchainDirectory>
+    <_SpirvToolchainArgument Condition="'$(SpirvToolchainDirectory)' != ''"> --toolchain &quot;$(SpirvToolchainDirectory)&quot;</_SpirvToolchainArgument>
+  </PropertyGroup>
+
+  <Target Name="CompileSiaSpirvKernels"
+          AfterTargets="CopyFilesToOutputDirectory"
+          Condition="'$(EnableSpirvCompilation)' == 'true' and '$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true'">
+    <PropertyGroup>
+      <SpirvOutputDirectory Condition="'$(SpirvOutputDirectory)' == ''">$(TargetDir)spirv</SpirvOutputDirectory>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(SpirvCompilerToolPath)')"
+           Text="The Sia SPIR-V compiler was not found at '$(SpirvCompilerToolPath)'." />
+    <MakeDir Directories="$(SpirvOutputDirectory)" />
+    <Exec Command="&quot;$(SpirvDotNetHost)&quot; &quot;$(SpirvCompilerToolPath)&quot; compile --assembly &quot;$(TargetPath)&quot; --output &quot;$(SpirvOutputDirectory)&quot; --target $(SpirvTargetEnvironment) --optimization $(SpirvOptimizationLevel)$(_SpirvToolchainArgument)" />
+    <ItemGroup>
+      <FileWrites Include="$(SpirvOutputDirectory)\**\*" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="PublishSiaSpirvArtifacts"
+          AfterTargets="Publish"
+          DependsOnTargets="CompileSiaSpirvKernels"
+          Condition="'$(EnableSpirvCompilation)' == 'true' and '$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true'">
+    <ItemGroup>
+      <_SiaSpirvPublishArtifact Include="$(SpirvOutputDirectory)\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_SiaSpirvPublishArtifact)"
+          DestinationFiles="@(_SiaSpirvPublishArtifact->'$(PublishDir)spirv\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Import Project="Sdk.targets"
+          Sdk="Microsoft.NET.Sdk"
+          Condition="'$(SiaSpirvSkipMicrosoftNetSdkTargetsImport)' != 'true'" />
+</Project>

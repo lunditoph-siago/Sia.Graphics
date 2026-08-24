@@ -1,0 +1,4 @@
+<Project>
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+  <Import Project="Sia.Spirv.Integration.props" />
+</Project>

@@ -97,6 +97,12 @@ foreach ($tool in @("llc.exe", "opt.exe", "llvm-as.exe", "llvm-dis.exe")) {
   Copy-Item -LiteralPath (Join-Path $BuildDirectory "bin\$tool") -Destination $installBin -Force
 }
 
+$installLicenses = Join-Path $InstallDirectory "licenses"
+New-Item -ItemType Directory -Force -Path $installLicenses | Out-Null
+Copy-Item -LiteralPath (Join-Path $llvmSource "LICENSE.TXT") `
+  -Destination (Join-Path $installLicenses "LLVM.txt") `
+  -Force
+
 & (Join-Path $installBin "llc.exe") --version
 if ($LASTEXITCODE -ne 0) {
   throw "The built llc executable could not be launched."

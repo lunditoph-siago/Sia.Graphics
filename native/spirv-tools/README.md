@@ -21,4 +21,6 @@ Build the command-line tools:
 ```
 
 The script installs `spirv-as`, `spirv-dis`, `spirv-link`, `spirv-opt`, and
-`spirv-val` beside LLVM in `artifacts/llvm-toolchain/bin`.
+`spirv-val` beside LLVM in `artifacts/llvm-toolchain/bin`. The SPIRV-Tools and
+SPIRV-Headers licenses are staged under `artifacts/llvm-toolchain/licenses` for
+the prebuilt host-toolchain package.

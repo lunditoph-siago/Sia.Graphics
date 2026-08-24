@@ -92,6 +92,15 @@ foreach ($tool in $targets) {
   Copy-Item -LiteralPath (Join-Path $BuildDirectory "tools\$tool.exe") -Destination $installBin -Force
 }
 
+$installLicenses = Join-Path $InstallDirectory "licenses"
+New-Item -ItemType Directory -Force -Path $installLicenses | Out-Null
+Copy-Item -LiteralPath (Join-Path $SourceDirectory "LICENSE") `
+  -Destination (Join-Path $installLicenses "SPIRV-Tools.txt") `
+  -Force
+Copy-Item -LiteralPath (Join-Path $headersDirectory "LICENSE") `
+  -Destination (Join-Path $installLicenses "SPIRV-Headers.txt") `
+  -Force
+
 & (Join-Path $installBin "spirv-val.exe") --version
 if ($LASTEXITCODE -ne 0) {
   throw "The built spirv-val executable could not be launched."

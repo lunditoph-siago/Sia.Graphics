@@ -19,7 +19,9 @@ Build the host toolchain on Windows:
 ./native/llvm/build-toolchain.ps1
 ```
 
-The output is written to `artifacts/llvm-toolchain/bin`. Build artifacts and
-third-party sources are intentionally excluded from the repository. Build the
-Khronos validation tools described in `../spirv-tools/README.md` into the same
-directory before using the managed compiler.
+The tools are written to `artifacts/llvm-toolchain/bin` and the LLVM license is
+staged under `artifacts/llvm-toolchain/licenses` for packaging. Build artifacts,
+prebuilt binaries, and third-party sources are intentionally excluded from the
+repository. Build the Khronos validation tools described in
+`../spirv-tools/README.md` into the same directory before using the managed
+compiler.

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "hostRid": "win-x64",
+  "llvm": {
+    "repository": "https://github.com/dotnet/llvm-project.git",
+    "branch": "dotnet/main-23.x",
+    "commit": "10eea834e26333cb0d3e71e75faa536144ecc099"
+  },
+  "spirvTools": {
+    "version": "v2026.2",
+    "commit": "0539c81f69a3daeb706fd3477dca61435b475156"
+  },
+  "spirvHeaders": {
+    "commit": "ad9184e76a66b1001c29db9b0a3e87f646c64de0"
+  }
+}

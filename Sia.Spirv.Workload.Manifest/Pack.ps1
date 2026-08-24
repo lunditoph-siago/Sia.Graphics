@@ -1,3 +1,4 @@
+# Packs and validates every package that composes the spirv-tools workload.
 [CmdletBinding()]
 param(
   [string]$Configuration = "Release",

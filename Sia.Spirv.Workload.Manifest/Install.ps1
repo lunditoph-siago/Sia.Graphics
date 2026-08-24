@@ -1,3 +1,4 @@
+# Installs the baseline manifest into a specific portable .NET SDK.
 [CmdletBinding()]
 param(
   [string]$DotNetRoot = "",

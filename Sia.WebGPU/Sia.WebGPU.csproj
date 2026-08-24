@@ -24,7 +24,4 @@
     <SupportedOSPlatformVersion>0.0</SupportedOSPlatformVersion>
   </PropertyGroup>
 
-  <ItemGroup>
-    <InternalsVisibleTo Include="Sia.WebGPU.Tests" />
-  </ItemGroup>
 </Project>

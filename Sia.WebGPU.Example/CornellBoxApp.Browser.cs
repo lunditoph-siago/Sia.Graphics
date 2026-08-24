@@ -72,6 +72,7 @@ internal sealed partial class CornellBoxApp
         CreateUniformBuffer();
         CreatePipelines();
         InitializeUi();
+        InitializeRenderGraph();
         ResizeIfNeeded(force: true);
     }
 }

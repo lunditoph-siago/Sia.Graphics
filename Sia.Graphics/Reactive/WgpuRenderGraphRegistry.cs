@@ -115,20 +115,34 @@ public sealed partial class WgpuRenderGraphRegistry : IAddon, IDisposable
 
         var plan = PreparePlan();
         var bindings = PrepareBindings();
-        var nextExports = WgpuRenderGraphExecutor.Execute(
-            plan,
-            _device,
-            _queue,
-            bindings,
-            _viewCache,
-            _executionScratch,
-            out var renderPassCount);
-        var previousExports = _exports;
-        _exports = nextExports;
+        int renderPassCount;
+        if (_exportedBuffers.Count == 0 && _exportedTextures.Count == 0) {
+            WgpuRenderGraphExecutor.ExecuteWithoutExports(
+                plan,
+                _device,
+                _queue,
+                bindings,
+                _viewCache,
+                _executionScratch,
+                out renderPassCount);
+            _exports?.Dispose();
+            _exports = null;
+        }
+        else {
+            var nextExports = WgpuRenderGraphExecutor.Execute(
+                plan,
+                _device,
+                _queue,
+                bindings,
+                _viewCache,
+                _executionScratch,
+                out renderPassCount);
+            _exports?.Dispose();
+            _exports = nextExports;
+        }
         _executedPlan = plan;
         LastRenderPassCount = renderPassCount;
         ExecutionCount++;
-        previousExports?.Dispose();
     }
 
     public RenderGraphBufferHandle GetBufferHandle(RenderGraphBufferKey key)

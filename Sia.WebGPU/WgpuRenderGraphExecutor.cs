@@ -22,6 +22,47 @@ public static class WgpuRenderGraphExecutor
         WgpuRenderGraphExecutionScratch scratch,
         out int physicalRenderPassCount)
     {
+        return ExecuteCore(
+            plan,
+            device,
+            queue,
+            bindings,
+            viewCache,
+            scratch,
+            captureExports: true,
+            out physicalRenderPassCount)!;
+    }
+
+    public static void ExecuteWithoutExports(
+        WgpuRenderGraphPlan plan,
+        WgpuHandle<WGPUDevice> device,
+        WgpuHandle<WGPUQueue> queue,
+        WgpuRenderGraphBindings bindings,
+        WgpuRenderGraphViewCache viewCache,
+        WgpuRenderGraphExecutionScratch scratch,
+        out int physicalRenderPassCount)
+    {
+        _ = ExecuteCore(
+            plan,
+            device,
+            queue,
+            bindings,
+            viewCache,
+            scratch,
+            captureExports: false,
+            out physicalRenderPassCount);
+    }
+
+    private static WgpuRenderGraphExports? ExecuteCore(
+        WgpuRenderGraphPlan plan,
+        WgpuHandle<WGPUDevice> device,
+        WgpuHandle<WGPUQueue> queue,
+        WgpuRenderGraphBindings bindings,
+        WgpuRenderGraphViewCache viewCache,
+        WgpuRenderGraphExecutionScratch scratch,
+        bool captureExports,
+        out int physicalRenderPassCount)
+    {
         physicalRenderPassCount = 0;
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(bindings);
@@ -97,15 +138,18 @@ public static class WgpuRenderGraphExecutor
                 Wgpu.Submit(queue, [commandBuffer]);
             }
 
-            var exports = new WgpuRenderGraphExports(plan);
-            TransferExports(
-                plan,
-                buffers,
-                textures,
-                ownedBuffers,
-                ownedTextures,
-                exports);
-            return exports;
+            if (captureExports) {
+                var exports = new WgpuRenderGraphExports(plan);
+                TransferExports(
+                    plan,
+                    buffers,
+                    textures,
+                    ownedBuffers,
+                    ownedTextures,
+                    exports);
+                return exports;
+            }
+            return null;
         }
         finally {
             for (var index = transientViews.Count - 1; index >= 0; index--) {

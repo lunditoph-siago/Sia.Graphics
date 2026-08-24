@@ -5,6 +5,7 @@
     <Project Path="Sia.Spirv.Compiler/Sia.Spirv.Compiler.csproj" />
     <Project Path="Sia.Spirv.Tool/Sia.Spirv.Tool.csproj" />
     <Project Path="Sia.Spirv.Sdk/Sia.Spirv.Sdk.csproj" />
+    <Project Path="Sia.Spirv.Toolchain.win-x64/Sia.Spirv.Toolchain.win-x64.csproj" />
     <Project Path="Sia.Spirv.Runtime/Sia.Spirv.Runtime.csproj" />
     <Project Path="Sia.Spirv.Workload.Manifest/Sia.Spirv.Workload.Manifest.csproj" />
     <Project Path="Sia.Spirv.Tests/Sia.Spirv.Tests.csproj" />

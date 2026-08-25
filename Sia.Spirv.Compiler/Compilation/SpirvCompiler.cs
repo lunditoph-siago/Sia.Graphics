@@ -23,6 +23,10 @@ public sealed class SpirvCompiler
         ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
         options ??= new SpirvCompilationOptions();
+        if (options.EmitWgsl && options.KernelAbi != SpirvKernelAbi.WebGpu) {
+            throw new ArgumentException(
+                "WGSL output requires the WebGPU kernel ABI.", nameof(options));
+        }
 
         var frontend = new SpirvFrontend().Analyze(assemblyPath);
         var errors = frontend.Diagnostics
@@ -38,6 +42,7 @@ public sealed class SpirvCompiler
         var toolchain = LlvmToolchain.Locate(options.ToolchainDirectory);
         var llvmVersion = toolchain.GetLlvmVersion();
         var spirvToolsVersion = toolchain.GetSpirvToolsVersion();
+        var nagaVersion = options.EmitWgsl ? toolchain.GetNagaVersion() : null;
         var assemblyHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(assemblyPath)));
         Directory.CreateDirectory(outputDirectory);
 
@@ -47,24 +52,40 @@ public sealed class SpirvCompiler
             var llvmPath = Path.Combine(outputDirectory, $"{fileName}.ll");
             var rawLlvmPath = Path.Combine(outputDirectory, $"{fileName}.raw.ll");
             var spirvPath = Path.Combine(outputDirectory, $"{fileName}.spv");
+            var wgslPath = Path.Combine(outputDirectory, $"{fileName}.wgsl");
             var manifestPath = Path.Combine(outputDirectory, $"{fileName}.spv.json");
+            if (!options.EmitWgsl) {
+                File.Delete(wgslPath);
+            }
             var sourceHash = ComputeSourceHash(
                 assemblyHash,
                 kernel,
                 options,
                 llvmVersion,
-                spirvToolsVersion);
-            if (IsCacheHit(manifestPath, spirvPath, llvmPath, sourceHash, options.EmitLlvmIr)) {
+                spirvToolsVersion,
+                nagaVersion);
+            if (IsCacheHit(
+                manifestPath,
+                spirvPath,
+                wgslPath,
+                llvmPath,
+                sourceHash,
+                options.EmitWgsl,
+                options.EmitLlvmIr)) {
                 artifacts.Add(new SpirvArtifact(
                     kernel,
                     spirvPath,
+                    options.EmitWgsl ? wgslPath : null,
                     manifestPath,
                     options.EmitLlvmIr ? llvmPath : null,
                     true));
                 continue;
             }
+            if (options.EmitWgsl) {
+                File.Delete(wgslPath);
+            }
 
-            var module = new LlvmIrEmitter().Emit(assemblyPath, kernel);
+            var module = new LlvmIrEmitter().Emit(assemblyPath, kernel, options.KernelAbi);
             File.WriteAllText(rawLlvmPath, module.Text, new UTF8Encoding(false));
             try {
                 toolchain.Optimize(rawLlvmPath, llvmPath);
@@ -74,12 +95,16 @@ public sealed class SpirvCompiler
                     options.OptimizationLevel,
                     options.TargetEnvironment);
                 toolchain.Validate(spirvPath, options.TargetEnvironment);
+                if (options.EmitWgsl) {
+                    toolchain.OptimizeForWebGpu(spirvPath);
+                    toolchain.Validate(spirvPath, options.TargetEnvironment);
+                    toolchain.ConvertToWgsl(spirvPath, wgslPath);
+                }
             }
             catch (Exception exception) when (exception is InvalidDataException or IOException) {
                 throw new SpirvCompilationException(
                     $"Failed to compile '{kernel.QualifiedName}':{Environment.NewLine}{exception.Message}");
-            }
-            finally {
+            } finally {
                 File.Delete(rawLlvmPath);
             }
 
@@ -91,6 +116,7 @@ public sealed class SpirvCompiler
                 options,
                 llvmVersion,
                 spirvToolsVersion,
+                nagaVersion,
                 spirvPath,
                 sourceHash);
             File.WriteAllText(
@@ -100,6 +126,7 @@ public sealed class SpirvCompiler
             artifacts.Add(new SpirvArtifact(
                 kernel,
                 spirvPath,
+                options.EmitWgsl ? wgslPath : null,
                 manifestPath,
                 options.EmitLlvmIr ? llvmPath : null,
                 false));
@@ -112,6 +139,7 @@ public sealed class SpirvCompiler
         SpirvCompilationOptions options,
         string llvmVersion,
         string spirvToolsVersion,
+        string? nagaVersion,
         string spirvPath,
         string sourceHash)
     {
@@ -128,8 +156,7 @@ public sealed class SpirvCompiler
                     GetScalarName(parameter.ScalarType),
                     0,
                     binding++));
-            }
-            else {
+            } else {
                 pushConstants.Add(new SpirvManifestPushConstant(
                     parameter.Name,
                     GetScalarName(parameter.ScalarType),
@@ -138,8 +165,17 @@ public sealed class SpirvCompiler
                 offset += 4;
             }
         }
+        if (options.KernelAbi == SpirvKernelAbi.WebGpu && pushConstants.Count != 0) {
+            resources.Add(new SpirvManifestResource(
+                "sia.parameters",
+                "storage-buffer",
+                "read-write",
+                "uint32",
+                0,
+                binding));
+        }
         return new SpirvArtifactManifest(
-            1,
+            2,
             kernel.Name,
             kernel.QualifiedName,
             kernel.MetadataToken,
@@ -151,18 +187,22 @@ public sealed class SpirvCompiler
             ReadSpirvVersion(spirvPath),
             resources,
             pushConstants,
-            new SpirvManifestToolchain(llvmVersion, spirvToolsVersion),
-            sourceHash);
+            new SpirvManifestToolchain(llvmVersion, spirvToolsVersion, nagaVersion),
+            sourceHash,
+            options.KernelAbi == SpirvKernelAbi.WebGpu ? "webgpu" : "vulkan");
     }
 
     private static bool IsCacheHit(
         string manifestPath,
         string spirvPath,
+        string wgslPath,
         string llvmPath,
         string sourceHash,
+        bool emitWgsl,
         bool emitLlvmIr)
     {
         if (!File.Exists(manifestPath) || !File.Exists(spirvPath) ||
+            emitWgsl && !File.Exists(wgslPath) ||
             emitLlvmIr && !File.Exists(llvmPath)) {
             return false;
         }
@@ -180,7 +220,8 @@ public sealed class SpirvCompiler
         SpirvKernel kernel,
         SpirvCompilationOptions options,
         string llvmVersion,
-        string spirvToolsVersion)
+        string spirvToolsVersion,
+        string? nagaVersion)
     {
         var compilerVersion = typeof(SpirvCompiler).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0";
@@ -190,10 +231,13 @@ public sealed class SpirvCompiler
             kernel.MetadataToken,
             compilerVersion,
             options.TargetEnvironment,
+            options.KernelAbi,
+            options.EmitWgsl,
             options.OptimizationLevel,
             options.EmitLlvmIr,
             llvmVersion,
-            spirvToolsVersion);
+            spirvToolsVersion,
+            nagaVersion);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input)));
     }
 

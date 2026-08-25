@@ -23,6 +23,8 @@ internal static class SpirvCommandLine
             var options = new SpirvCompilationOptions {
                 ToolchainDirectory = values.GetValueOrDefault("toolchain"),
                 TargetEnvironment = values.GetValueOrDefault("target") ?? "vulkan1.2",
+                KernelAbi = ParseKernelAbi(values.GetValueOrDefault("abi") ?? "vulkan"),
+                EmitWgsl = values.ContainsKey("emit-wgsl"),
                 OptimizationLevel = int.Parse(
                     values.GetValueOrDefault("optimization") ?? "2",
                     System.Globalization.CultureInfo.InvariantCulture),
@@ -35,6 +37,9 @@ internal static class SpirvCommandLine
             foreach (var artifact in artifacts) {
                 var state = artifact.CacheHit ? "cached" : "compiled";
                 Console.WriteLine($"SPIR-V {state}: {artifact.Kernel.QualifiedName} -> {artifact.SpirvPath}");
+                if (artifact.WgslPath != null) {
+                    Console.WriteLine($"WGSL {state}: {artifact.Kernel.QualifiedName} -> {artifact.WgslPath}");
+                }
             }
             return 0;
         }
@@ -66,7 +71,7 @@ internal static class SpirvCommandLine
                 throw new ArgumentException($"Unexpected argument '{argument}'.");
             }
             var name = argument[2..];
-            if (name == "no-llvm-ir") {
+            if (name is "emit-wgsl" or "no-llvm-ir") {
                 values[name] = null;
                 continue;
             }
@@ -88,11 +93,19 @@ internal static class SpirvCommandLine
         return value;
     }
 
+    private static SpirvKernelAbi ParseKernelAbi(string value) => value switch {
+        "vulkan" => SpirvKernelAbi.Vulkan,
+        "webgpu" => SpirvKernelAbi.WebGpu,
+        _ => throw new ArgumentException(
+            $"SPIR-V kernel ABI '{value}' is not supported. Use 'vulkan' or 'webgpu'.")
+    };
+
     private static void WriteUsage()
     {
         Console.WriteLine(
             "Usage: sia-spirv compile --assembly <path> --output <directory> " +
             "[--toolchain <directory>] [--target vulkan1.2|vulkan1.3] " +
+            "[--abi vulkan|webgpu] [--emit-wgsl] " +
             "[--optimization 0..3] [--no-llvm-ir]");
     }
 }

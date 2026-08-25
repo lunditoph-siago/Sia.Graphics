@@ -37,9 +37,9 @@ public sealed class SpirvArtifactRegistryTests
 
             var artifact = registry.Get("Example.Kernel");
             Assert.Equal("Kernel", artifact.Manifest.EntryPoint);
+            Assert.Equal("vulkan", artifact.Manifest.KernelAbi);
             Assert.Equal(20, artifact.Bytecode.Length);
-        }
-        finally {
+        } finally {
             Directory.Delete(directory, true);
         }
     }

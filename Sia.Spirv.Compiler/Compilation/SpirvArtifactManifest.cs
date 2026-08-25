@@ -11,7 +11,8 @@ internal sealed record SpirvArtifactManifest(
     IReadOnlyList<SpirvManifestResource> Resources,
     IReadOnlyList<SpirvManifestPushConstant> PushConstants,
     SpirvManifestToolchain Toolchain,
-    string SourceHash);
+    string SourceHash,
+    string KernelAbi);
 
 internal sealed record SpirvManifestWorkgroupSize(uint X, uint Y, uint Z);
 
@@ -29,4 +30,4 @@ internal sealed record SpirvManifestPushConstant(
     int Offset,
     int Size);
 
-internal sealed record SpirvManifestToolchain(string Llvm, string SpirvTools);
+internal sealed record SpirvManifestToolchain(string Llvm, string SpirvTools, string? Naga);

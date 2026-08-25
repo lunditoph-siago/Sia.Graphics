@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Metadata;
 using Sia.Spirv.Compiler.Model;
 
@@ -13,9 +14,13 @@ public sealed class LlvmIrEmitter
 {
     private readonly StringBuilder _body = new();
     private readonly HashSet<LlvmValueType> _bufferTypes = [];
+    private SpirvKernelAbi _kernelAbi;
     private int _nextValueId;
 
-    public LlvmIrModule Emit(string assemblyPath, SpirvKernel kernel)
+    public LlvmIrModule Emit(
+        string assemblyPath,
+        SpirvKernel kernel,
+        SpirvKernelAbi kernelAbi = SpirvKernelAbi.Vulkan)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
         ArgumentNullException.ThrowIfNull(kernel);
@@ -30,6 +35,7 @@ public sealed class LlvmIrEmitter
 
         _body.Clear();
         _bufferTypes.Clear();
+        _kernelAbi = kernelAbi;
         _nextValueId = 0;
 
         var parameterValues = new LlvmValue[kernel.Parameters.Count];
@@ -90,11 +96,9 @@ public sealed class LlvmIrEmitter
             if (!terminated) {
                 if (block.Successors.Count == 1) {
                     EmitLine($"br label %bb{block.Successors[0]}");
-                }
-                else if (block.Successors.Count == 0) {
+                } else if (block.Successors.Count == 0) {
                     EmitLine("ret void");
-                }
-                else {
+                } else {
                     throw CreateUnsupported(
                         block.Instructions[^1].Offset,
                         "A basic block with multiple successors requires an explicit conditional branch.");
@@ -223,11 +227,20 @@ public sealed class LlvmIrEmitter
         var hasPushConstants = kernel.Parameters.Any(
             static parameter => parameter.Kind == SpirvKernelParameterKind.PushConstant);
         string? pushConstantValue = null;
-        if (hasPushConstants) {
+        string? parameterHandle = null;
+        if (hasPushConstants && _kernelAbi == SpirvKernelAbi.Vulkan) {
             pushConstantValue = NextValue("push.constants");
             prologue.Append("  ").Append(pushConstantValue)
                 .Append(" = load %sia.push.constants, ptr addrspace(13) @sia.push.constants, align 4")
                 .AppendLine();
+        } else if (hasPushConstants) {
+            parameterHandle = NextValue("parameters");
+            prologue.Append("  ").Append(parameterHandle).Append(" = call ")
+                .Append(GetParameterTargetType()).Append(" @llvm.spv.resource.handlefrombinding.")
+                .Append(GetParameterMangling()).Append("(i32 0, i32 ")
+                .Append(kernel.Parameters.Count(static parameter =>
+                    parameter.Kind == SpirvKernelParameterKind.StorageBuffer))
+                .AppendLine(", i32 1, i32 0, ptr nonnull @.str.parameters)");
         }
 
         foreach (var parameter in kernel.Parameters) {
@@ -244,12 +257,31 @@ public sealed class LlvmIrEmitter
                     .Append(parameter.Position).AppendLine(")");
                 values[parameter.Position] = new LlvmValue(value, type);
                 binding++;
-            }
-            else {
+            } else {
                 var type = GetScalarType(parameter.ScalarType);
-                var value = NextValue(SanitizeIdentifier(parameter.Name));
-                prologue.Append("  ").Append(value).Append(" = extractvalue %sia.push.constants ")
-                    .Append(pushConstantValue).Append(", ").Append(pushConstantIndex).AppendLine();
+                string value;
+                if (_kernelAbi == SpirvKernelAbi.Vulkan) {
+                    value = NextValue(SanitizeIdentifier(parameter.Name));
+                    prologue.Append("  ").Append(value).Append(" = extractvalue %sia.push.constants ")
+                        .Append(pushConstantValue).Append(", ").Append(pushConstantIndex).AppendLine();
+                } else {
+                    var identifier = SanitizeIdentifier(parameter.Name);
+                    var pointer = NextValue($"{identifier}.pointer");
+                    var word = NextValue($"{identifier}.word");
+                    prologue.Append("  ").Append(pointer).Append(" = call ptr addrspace(11) ")
+                        .Append("@llvm.spv.resource.getpointer.p11.").Append(GetParameterMangling())
+                        .Append('(').Append(GetParameterTargetType()).Append(' ').Append(parameterHandle)
+                        .Append(", i32 ").Append(pushConstantIndex).AppendLine(")");
+                    prologue.Append("  ").Append(word).Append(" = load i32, ptr addrspace(11) ")
+                        .Append(pointer).AppendLine(", align 4");
+                    if (type == LlvmValueType.Float32) {
+                        value = NextValue(identifier);
+                        prologue.Append("  ").Append(value).Append(" = bitcast i32 ")
+                            .Append(word).AppendLine(" to float");
+                    } else {
+                        value = word;
+                    }
+                }
                 values[parameter.Position] = new LlvmValue(value, type);
                 pushConstantIndex++;
             }
@@ -270,7 +302,7 @@ public sealed class LlvmIrEmitter
         var pushConstants = kernel.Parameters
             .Where(static parameter => parameter.Kind == SpirvKernelParameterKind.PushConstant)
             .ToArray();
-        if (pushConstants.Length != 0) {
+        if (pushConstants.Length != 0 && _kernelAbi == SpirvKernelAbi.Vulkan) {
             module.Append("%sia.push.constants = type { ");
             module.Append(string.Join(", ", pushConstants.Select(parameter =>
                 GetLlvmType(GetScalarType(parameter.ScalarType)))));
@@ -281,16 +313,12 @@ public sealed class LlvmIrEmitter
 
         foreach (var parameter in kernel.Parameters.Where(
             static parameter => parameter.Kind == SpirvKernelParameterKind.StorageBuffer)) {
-            var bytes = Encoding.UTF8.GetBytes(parameter.Name);
-            module.Append("@.str.").Append(parameter.Position)
-                .Append(" = private unnamed_addr constant [").Append(bytes.Length + 1)
-                .Append(" x i8] c\"");
-            foreach (var value in bytes) {
-                module.Append('\\').Append(value.ToString("X2"));
-            }
-            module.AppendLine("\\00\", align 1");
+            EmitResourceName(module, $".str.{parameter.Position}", parameter.Name);
         }
-        if (kernel.Parameters.Any(static parameter => parameter.Kind == SpirvKernelParameterKind.StorageBuffer)) {
+        if (pushConstants.Length != 0 && _kernelAbi == SpirvKernelAbi.WebGpu) {
+            EmitResourceName(module, ".str.parameters", "sia.parameters");
+        }
+        if (kernel.Parameters.Count != 0) {
             module.AppendLine();
         }
     }
@@ -303,6 +331,15 @@ public sealed class LlvmIrEmitter
         foreach (var type in _bufferTypes.OrderBy(static type => type)) {
             var targetType = GetBufferTargetType(type);
             var mangling = GetBufferMangling(type);
+            module.Append("declare ").Append(targetType)
+                .Append(" @llvm.spv.resource.handlefrombinding.").Append(mangling)
+                .AppendLine("(i32, i32, i32, i32, ptr)");
+            module.Append("declare ptr addrspace(11) @llvm.spv.resource.getpointer.p11.")
+                .Append(mangling).Append('(').Append(targetType).AppendLine(", i32)");
+        }
+        if (_kernelAbi == SpirvKernelAbi.WebGpu) {
+            var targetType = GetParameterTargetType();
+            var mangling = GetParameterMangling();
             module.Append("declare ").Append(targetType)
                 .Append(" @llvm.spv.resource.handlefrombinding.").Append(mangling)
                 .AppendLine("(i32, i32, i32, i32, ptr)");
@@ -512,14 +549,12 @@ public sealed class LlvmIrEmitter
             declaringType = GetTypeName(reader, reference.Parent);
             name = reader.GetString(reference.Name);
             signature = reference.DecodeMethodSignature(new KernelTypeProvider(), genericContext: null);
-        }
-        else if (handle.Kind == HandleKind.MethodDefinition) {
+        } else if (handle.Kind == HandleKind.MethodDefinition) {
             var definition = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
             declaringType = MetadataNames.GetTypeName(reader, definition.GetDeclaringType());
             name = reader.GetString(definition.Name);
             signature = definition.DecodeSignature(new KernelTypeProvider(), genericContext: null);
-        }
-        else {
+        } else {
             throw new InvalidDataException($"Token 0x{token:x8} is not a method.");
         }
 
@@ -578,6 +613,24 @@ public sealed class LlvmIrEmitter
 
     private static string GetBufferMangling(LlvmValueType type) =>
         $"tspirv.VulkanBuffer_a0{(GetBufferElementType(type) == LlvmValueType.Float32 ? "f32" : "i32")}_12_1t";
+
+    private static string GetParameterTargetType() =>
+        "target(\"spirv.VulkanBuffer\", [0 x i32], 12, 0)";
+
+    private static string GetParameterMangling() =>
+        "tspirv.VulkanBuffer_a0i32_12_0t";
+
+    private static void EmitResourceName(StringBuilder module, string identifier, string name)
+    {
+        var bytes = Encoding.UTF8.GetBytes(name);
+        module.Append('@').Append(identifier)
+            .Append(" = private unnamed_addr constant [").Append(bytes.Length + 1)
+            .Append(" x i8] c\"");
+        foreach (var value in bytes) {
+            module.Append('\\').Append(value.ToString("X2"));
+        }
+        module.AppendLine("\\00\", align 1");
+    }
 
     private static bool IsBuffer(LlvmValueType type) => type is
         LlvmValueType.BufferInt32 or

@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <SiaSpirvSkipMicrosoftNetSdkTargetsImport>true</SiaSpirvSkipMicrosoftNetSdkTargetsImport>
+  </PropertyGroup>
+  <Import Project="$(MSBuildThisFileDirectory)..\Sdk\Sdk.targets" />
+</Project>

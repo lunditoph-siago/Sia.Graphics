@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <SiaSpirvDisableWorkloadIntegration>true</SiaSpirvDisableWorkloadIntegration>
+    <SiaSpirvSkipMicrosoftNetSdkTargetsImport>true</SiaSpirvSkipMicrosoftNetSdkTargetsImport>
+    <EnableSpirvCompilation>true</EnableSpirvCompilation>
+    <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
+    <SpirvCompilerToolPath>$(MSBuildThisFileDirectory)..\Sia.Spirv.Tool\bin\$(Configuration)\net10.0\Sia.Spirv.Tool.dll</SpirvCompilerToolPath>
+    <SpirvHostRuntimeIdentifier>$(NETCoreSdkRuntimeIdentifier)</SpirvHostRuntimeIdentifier>
+    <SpirvToolchainDirectory Condition="'$(SpirvHostRuntimeIdentifier)' == 'win-x64'">$(MSBuildThisFileDirectory)../artifacts/llvm-toolchain/bin</SpirvToolchainDirectory>
+    <SpirvToolchainDirectory Condition="'$(SpirvHostRuntimeIdentifier)' != 'win-x64'">$(MSBuildThisFileDirectory)../artifacts/llvm-toolchain-$(SpirvHostRuntimeIdentifier)/bin</SpirvToolchainDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Sia.Spirv.Core\Sia.Spirv.Core.csproj" />
+    <ProjectReference Include="..\Sia.Spirv.Runtime\Sia.Spirv.Runtime.csproj" />
+    <ProjectReference Include="..\Sia.Spirv.Tool\Sia.Spirv.Tool.csproj"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <Import Project="..\Sia.Spirv.Sdk\Sdk\Sdk.targets" />
+</Project>

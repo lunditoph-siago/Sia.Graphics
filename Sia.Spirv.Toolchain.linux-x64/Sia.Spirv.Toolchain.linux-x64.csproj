@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <IsPackable>true</IsPackable>
+    <PackageId>Sia.Spirv.Toolchain.linux-x64</PackageId>
+    <PackageDescription>Prebuilt LLVM 23 and Khronos SPIRV-Tools host toolchain for Linux x64.</PackageDescription>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="ToolchainManifest.json" Pack="true" PackagePath="metadata" />
+    <None Include="Sdk\**\*" Pack="true" PackagePath="Sdk" />
+    <None Include="buildTransitive\**\*" Pack="true" PackagePath="buildTransitive" />
+    <None Include="..\artifacts\llvm-toolchain-linux-x64\bin\*"
+          Pack="true"
+          PackagePath="tools\linux-x64" />
+    <None Include="..\artifacts\llvm-toolchain-linux-x64\licenses\*.txt"
+          Pack="true"
+          PackagePath="licenses" />
+    <_RequiredSpirvTool Include="llc;opt;llvm-as;llvm-dis;spirv-as;spirv-dis;spirv-link;spirv-opt;spirv-val" />
+    <_RequiredSpirvLicense Include="LLVM.txt;SPIRV-Tools.txt;SPIRV-Headers.txt" />
+  </ItemGroup>
+
+  <Target Name="ValidateSpirvToolchainPackInputs" BeforeTargets="Pack">
+    <Error Condition="!Exists('..\artifacts\llvm-toolchain-linux-x64\bin\%(_RequiredSpirvTool.Identity)')"
+           Text="Required prebuilt tool '%(_RequiredSpirvTool.Identity)' was not found. Build the native toolchain first." />
+    <Error Condition="!Exists('..\artifacts\llvm-toolchain-linux-x64\licenses\%(_RequiredSpirvLicense.Identity)')"
+           Text="Required native license '%(_RequiredSpirvLicense.Identity)' was not staged. Build the native toolchain first." />
+  </Target>
+</Project>

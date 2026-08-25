@@ -4,44 +4,456 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
 
 permissions:
   contents: read
+  id-token: write
+  attestations: write
+
+env:
+  DOTNET_SDK_VERSION: 11.0.100-preview.7.26381.103
+  LLVM_COMMIT: 10eea834e26333cb0d3e71e75faa536144ecc099
+  SPIRV_TOOLS_COMMIT: 0539c81f69a3daeb706fd3477dca61435b475156
+  SPIRV_HEADERS_COMMIT: ad9184e76a66b1001c29db9b0a3e87f646c64de0
+  NATIVE_BUILD_REVISION: 2
 
 jobs:
-  build:
-    env:
-      BUILD_CONFIG: 'Release'
-      SOLUTION: 'Sia.Graphics.slnx'
-      PACKAGE_OUTPUT_DIRECTORY: ${{github.workspace}}/output
-
+  prepare:
     runs-on: ubuntu-latest
-
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      feature_band: ${{ steps.release.outputs.feature_band }}
     steps:
-      - uses: actions/checkout@v7
+      - name: Resolve release version
+        id: release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            if ('${{ github.ref_type }}' -ne 'tag' -or
+                '${{ github.ref_name }}' -notmatch '^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+              throw 'Publishing requires a version tag such as v0.1.0-preview.1.'
+            }
+            $version = '${{ github.ref_name }}'.Substring(1)
+          }
+          else {
+            $version = '0.1.0-ci.${{ github.run_number }}'
+          }
+          $match = [Regex]::Match(
+            $env:DOTNET_SDK_VERSION,
+            '^\d+\.\d+\.\d+(?:-[^.]+\.\d+)?')
+          if (!$match.Success) {
+            throw "Could not derive a feature band from '$env:DOTNET_SDK_VERSION'."
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "feature_band=$($match.Value)" >> $env:GITHUB_OUTPUT
+
+  native:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            runner: windows-latest
+          - rid: linux-x64
+            runner: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Checkout dotnet LLVM 23
+        uses: actions/checkout@v7
+        with:
+          repository: dotnet/llvm-project
+          ref: ${{ env.LLVM_COMMIT }}
+          path: artifacts/dotnet-llvm-project
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout SPIRV-Tools
+        uses: actions/checkout@v7
+        with:
+          repository: KhronosGroup/SPIRV-Tools
+          ref: ${{ env.SPIRV_TOOLS_COMMIT }}
+          path: artifacts/spirv-tools
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout SPIRV-Headers
+        uses: actions/checkout@v7
+        with:
+          repository: KhronosGroup/SPIRV-Headers
+          ref: ${{ env.SPIRV_HEADERS_COMMIT }}
+          path: artifacts/spirv-tools/external/spirv-headers
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Compute native fingerprint
+        id: native-build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($source in @(
+            @('artifacts/dotnet-llvm-project', $env:LLVM_COMMIT),
+            @('artifacts/spirv-tools', $env:SPIRV_TOOLS_COMMIT),
+            @('artifacts/spirv-tools/external/spirv-headers', $env:SPIRV_HEADERS_COMMIT))) {
+            $actual = git -C $source[0] rev-parse HEAD
+            if ($actual -ne $source[1]) {
+              throw "Unexpected commit '$actual' in '$($source[0])'."
+            }
+          }
+          if (!(Test-Path artifacts/dotnet-llvm-project/llvm/lib/Target/SPIRV)) {
+            throw 'The dotnet LLVM checkout does not contain the SPIR-V backend.'
+          }
+          $cmakeVersion = (cmake --version | Select-Object -First 1).Trim()
+          $ninjaVersion = (ninja --version).Trim()
+          if ($IsWindows) {
+            $vswhere = Join-Path ${env:ProgramFiles(x86)} `
+              'Microsoft Visual Studio/Installer/vswhere.exe'
+            $compilerVersion = (& $vswhere -latest -products * `
+              -property installationVersion).Trim()
+          }
+          else {
+            $compilerVersion = (c++ --version | Select-Object -First 1).Trim()
+          }
+          $inputText = @(
+            '${{ matrix.rid }}',
+            $env:LLVM_COMMIT,
+            $env:SPIRV_TOOLS_COMMIT,
+            $env:SPIRV_HEADERS_COMMIT,
+            $env:NATIVE_BUILD_REVISION,
+            $cmakeVersion,
+            $ninjaVersion,
+            $compilerVersion) -join "`n"
+          $bytes = [Text.Encoding]::UTF8.GetBytes($inputText)
+          $fingerprint = [Convert]::ToHexString(
+            [Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+          "fingerprint=$fingerprint" >> $env:GITHUB_OUTPUT
+
+      - name: Restore native cache
+        id: native-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            artifacts/llvm-build-${{ matrix.rid }}
+            artifacts/spirv-tools-build-${{ matrix.rid }}
+          key: spirv-native-${{ matrix.rid }}-${{ steps.native-build.outputs.fingerprint }}
+
+      - name: Normalize source timestamps
+        if: steps.native-cache.outputs.cache-hit == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($repository in @(
+            'artifacts/dotnet-llvm-project',
+            'artifacts/spirv-tools',
+            'artifacts/spirv-tools/external/spirv-headers')) {
+            $timestamp = [DateTimeOffset]::Parse(
+              (git -C $repository show -s --format=%cI HEAD)).UtcDateTime
+            $root = [IO.Path]::GetFullPath($repository)
+            foreach ($relativePath in git -C $repository ls-files) {
+              $path = [IO.Path]::GetFullPath((Join-Path $root $relativePath))
+              if ([IO.File]::Exists($path)) {
+                [IO.File]::SetLastWriteTimeUtc($path, $timestamp)
+              }
+            }
+          }
+
+      - name: Build Windows toolchain
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $arguments = @{
+            BuildDirectory = 'artifacts/llvm-build-win-x64'
+            InstallDirectory = 'artifacts/llvm-toolchain'
+            BuildJobs = 2
+          }
+          if ('${{ steps.native-cache.outputs.cache-hit }}' -eq 'true') {
+            $arguments.SkipConfigure = $true
+          }
+          ./Sia.Spirv.Toolchain.win-x64/BuildLLVM.ps1 @arguments
+          $arguments.BuildDirectory = 'artifacts/spirv-tools-build-win-x64'
+          ./Sia.Spirv.Toolchain.win-x64/BuildSpirvTools.ps1 @arguments
+
+      - name: Build Linux toolchain
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          SIA_NATIVE_SKIP_CONFIGURE: ${{ steps.native-cache.outputs.cache-hit == 'true' && '1' || '0' }}
+        run: |
+          ./Sia.Spirv.Toolchain.linux-x64/BuildLLVM.sh
+          ./Sia.Spirv.Toolchain.linux-x64/BuildSpirvTools.sh
+
+      - name: Save native cache
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            artifacts/llvm-build-${{ matrix.rid }}
+            artifacts/spirv-tools-build-${{ matrix.rid }}
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
+
+      - name: Run native SPIR-V smoke test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = if ($IsWindows) {
+            'artifacts/llvm-toolchain/bin'
+          }
+          else {
+            'artifacts/llvm-toolchain-linux-x64/bin'
+          }
+          $suffix = if ($IsWindows) { '.exe' } else { '' }
+          $nativeMagic = [IO.File]::ReadAllBytes(
+            (Join-Path $root "llc$suffix"))[0..3]
+          if ($IsWindows -and ($nativeMagic[0] -ne 0x4D -or $nativeMagic[1] -ne 0x5A)) {
+            throw 'llc is not a PE executable.'
+          }
+          if (!$IsWindows -and ($nativeMagic -join ',') -ne '127,69,76,70') {
+            throw 'llc is not an ELF executable.'
+          }
+          & (Join-Path $root "llc$suffix") `
+            Sia.Spirv.Workload.Manifest/SmokeTest.ll `
+            -filetype=obj -o artifacts/SmokeTest.spv
+          if ($LASTEXITCODE -ne 0) { throw 'llc smoke test failed.' }
+          & (Join-Path $root "spirv-val$suffix") `
+            --target-env vulkan1.2 artifacts/SmokeTest.spv
+          if ($LASTEXITCODE -ne 0) { throw 'spirv-val smoke test failed.' }
+          $bytes = [IO.File]::ReadAllBytes('artifacts/SmokeTest.spv')
+          if ($bytes.Length -lt 20 -or ($bytes[0..3] -join ',') -ne '3,2,35,7') {
+            throw 'The smoke output is not a SPIR-V binary.'
+          }
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 11.x
+          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
-      - name: Restore dependencies
-        run: dotnet restore $SOLUTION
-
-      - name: Get version from tag
+      - name: Pack native toolchain
+        shell: pwsh
         run: |
-          VERSION=${{github.ref_name}}
-          echo "VERSION=${VERSION:1}" >> $GITHUB_ENV
+          $ErrorActionPreference = 'Stop'
+          $project = 'Sia.Spirv.Toolchain.${{ matrix.rid }}/' +
+            'Sia.Spirv.Toolchain.${{ matrix.rid }}.csproj'
+          dotnet pack $project --configuration Release `
+            --output artifacts/packages `
+            -p:PackageVersion=${{ needs.prepare.outputs.version }}
+          if ($LASTEXITCODE -ne 0) { throw 'Native pack failed.' }
+          if (!$IsWindows) {
+            $package = Get-ChildItem artifacts/packages/*.nupkg | Select-Object -First 1
+            $archive = [IO.Compression.ZipFile]::Open(
+              $package.FullName, [IO.Compression.ZipArchiveMode]::Update)
+            try {
+              foreach ($tool in @(
+                'llc', 'opt', 'llvm-as', 'llvm-dis', 'spirv-as', 'spirv-dis',
+                'spirv-link', 'spirv-opt', 'spirv-val')) {
+                $archive.GetEntry("tools/linux-x64/$tool").ExternalAttributes = -2115174400
+              }
+            }
+            finally {
+              $archive.Dispose()
+            }
+          }
 
-      - name: Build project
-        run: dotnet build $SOLUTION --configuration $BUILD_CONFIG -p:Version=$VERSION --no-restore
+      - name: Upload native package
+        uses: actions/upload-artifact@v7
+        with:
+          name: packages-native-${{ matrix.rid }}
+          path: artifacts/packages/*.nupkg
+          if-no-files-found: error
+          compression-level: 0
 
-      - name: Run tests
-        run: dotnet test /p:Configuration=$BUILD_CONFIG --no-restore --no-build --verbosity normal
+  managed:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
-      - name: Pack project
-        run: dotnet pack $SOLUTION --configuration $BUILD_CONFIG -p:PackageVersion=$VERSION --no-restore --no-build --output $PACKAGE_OUTPUT_DIRECTORY
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
-      - name: Publish packages
+      - name: Restore
+        shell: pwsh
         run: |
-          dotnet nuget push ${PACKAGE_OUTPUT_DIRECTORY}/*.nupkg -k ${{secrets.NUGET_API_KEY}} -s 'https://api.nuget.org/v3/index.json' --skip-duplicate
+          dotnet restore Sia.Spirv.Tests/Sia.Spirv.Tests.csproj
+          dotnet restore Sia.Spirv.Sdk/Sia.Spirv.Sdk.csproj
+          dotnet restore Sia.Spirv.Workload.Manifest/Sia.Spirv.Workload.Manifest.csproj
+
+      - name: Test
+        run: >
+          dotnet test Sia.Spirv.Tests/Sia.Spirv.Tests.csproj
+          --configuration Release --no-restore
+          -p:UseSharedCompilation=false -m:1 -nr:false
+
+      - name: Pack managed packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $projects = @(
+            'Sia.Spirv.Core/Sia.Spirv.Core.csproj',
+            'Sia.Spirv.Runtime/Sia.Spirv.Runtime.csproj',
+            'Sia.Spirv.Sdk/Sia.Spirv.Sdk.csproj',
+            'Sia.Spirv.Bootstrap/Sia.Spirv.Bootstrap.csproj',
+            'Sia.Spirv.Workload.Manifest/Sia.Spirv.Workload.Manifest.csproj')
+          foreach ($project in $projects) {
+            dotnet pack $project --configuration Release --no-restore `
+              --output artifacts/packages `
+              -p:PackageVersion=${{ needs.prepare.outputs.version }} `
+              -p:SiaSpirvSdkFeatureBand=${{ needs.prepare.outputs.feature_band }}
+            if ($LASTEXITCODE -ne 0) { throw "Packing '$project' failed." }
+          }
+          $packages = @(Get-ChildItem artifacts/packages/*.nupkg)
+          if ($packages.Count -ne 5) {
+            throw "Expected five managed packages, found $($packages.Count)."
+          }
+
+      - name: Upload managed packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: packages-managed
+          path: artifacts/packages/*.nupkg
+          if-no-files-found: error
+          compression-level: 0
+
+  verify:
+    needs: [prepare, native, managed]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            runner: windows-latest
+          - rid: linux-x64
+            runner: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+
+      - name: Download packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: packages-*
+          merge-multiple: true
+          path: artifacts/packages
+
+      - name: Verify and install packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./Sia.Spirv.Workload.Manifest/VerifyPackages.ps1 `
+            -PackageDirectory artifacts/packages `
+            -PackageVersion '${{ needs.prepare.outputs.version }}' `
+            -SdkFeatureBand '${{ needs.prepare.outputs.feature_band }}'
+          $toolPath = Join-Path $env:RUNNER_TEMP 'sia-spirv-bootstrap'
+          dotnet tool install Sia.Spirv.Bootstrap `
+            --tool-path $toolPath `
+            --add-source artifacts/packages `
+            --version '${{ needs.prepare.outputs.version }}' `
+            --no-cache
+          if ($LASTEXITCODE -ne 0) { throw 'Bootstrap tool install failed.' }
+          $shim = Join-Path $toolPath $(if ($IsWindows) {
+            'dotnet-spirv.exe'
+          } else {
+            'dotnet-spirv'
+          })
+          & $shim install `
+            --dotnet (Get-Command dotnet).Source `
+            --source (Resolve-Path artifacts/packages).Path
+          if ($LASTEXITCODE -ne 0) { throw 'Workload install failed.' }
+
+      - name: Build workload smoke project
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $project = 'Sia.Spirv.Tests.WorkloadSmoke/Sia.Spirv.Tests.WorkloadSmoke.csproj'
+          dotnet restore $project
+          dotnet build $project --configuration Release --no-restore
+          if ($LASTEXITCODE -ne 0) { throw 'Workload smoke build failed.' }
+          $output = 'Sia.Spirv.Tests.WorkloadSmoke/bin/Release/net11.0/spirv'
+          $modules = @(Get-ChildItem -LiteralPath $output -Filter '*.spv')
+          if ($modules.Count -ne 1) {
+            throw "Expected one SPIR-V module, found $($modules.Count)."
+          }
+          $bytes = [IO.File]::ReadAllBytes($modules[0].FullName)
+          if (($bytes[0..3] -join ',') -ne '3,2,35,7') {
+            throw 'The workload output is not a SPIR-V binary.'
+          }
+          $suffix = if ($IsWindows) { '.exe' } else { '' }
+          $validator = Join-Path $env:DOTNET_ROOT (
+            'packs/Sia.Spirv.Toolchain.${{ matrix.rid }}/' +
+            '${{ needs.prepare.outputs.version }}/tools/${{ matrix.rid }}/spirv-val' +
+            $suffix)
+          & $validator --target-env vulkan1.2 $modules[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged spirv-val failed.' }
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [prepare, native, managed, verify]
+    runs-on: ubuntu-latest
+    environment: nuget.org
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: packages-*
+          merge-multiple: true
+          path: artifacts/packages
+
+      - name: Attest packages
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: artifacts/packages/*.nupkg
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+
+      - name: Push packages
+        shell: pwsh
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '${{ needs.prepare.outputs.version }}'
+          $featureBand = '${{ needs.prepare.outputs.feature_band }}'
+          $packageIds = @(
+            'Sia.Spirv.Core',
+            'Sia.Spirv.Runtime',
+            'Sia.Spirv.Sdk',
+            'Sia.Spirv.Bootstrap',
+            'Sia.Spirv.Toolchain.win-x64',
+            'Sia.Spirv.Toolchain.linux-x64',
+            "Sia.Spirv.Workload.Manifest-$featureBand")
+          foreach ($packageId in $packageIds) {
+            $package = "artifacts/packages/$packageId.$version.nupkg"
+            dotnet nuget push $package `
+              --api-key $env:NUGET_API_KEY `
+              --source https://api.nuget.org/v3/index.json
+            if ($LASTEXITCODE -ne 0) {
+              throw "Publishing '$packageId' failed."
+            }
+          }

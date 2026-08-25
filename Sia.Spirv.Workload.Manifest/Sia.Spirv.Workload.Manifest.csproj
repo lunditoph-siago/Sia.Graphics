@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <IsPackable>true</IsPackable>
+    <SiaSpirvSdkFeatureBand Condition="'$(SiaSpirvSdkFeatureBand)' == ''">$([System.Text.RegularExpressions.Regex]::Match('$(NETCoreSdkVersion)', '^\d+\.\d+\.\d+(?:-[^.]+\.\d+)?').Value)</SiaSpirvSdkFeatureBand>
+    <PackageId>Sia.Spirv.Workload.Manifest-$(SiaSpirvSdkFeatureBand)</PackageId>
+    <PackageDescription>Workload manifest for the Sia LLVM SPIR-V toolchain.</PackageDescription>
+    <_GeneratedWorkloadManifest>$(BaseIntermediateOutputPath)$(Configuration)\WorkloadManifest.json</_GeneratedWorkloadManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(_GeneratedWorkloadManifest)" Pack="true" PackagePath="data\WorkloadManifest.json" />
+    <None Include="WorkloadManifest.targets" Pack="true" PackagePath="data" />
+  </ItemGroup>
+
+  <Target Name="GenerateSpirvWorkloadManifest" BeforeTargets="GenerateNuspec">
+    <PropertyGroup>
+      <_WorkloadManifestJson><![CDATA[{
+  "version": "$(PackageVersion)",
+  "description": "Sia C# to SPIR-V compiler powered by the LLVM 23 SPIR-V backend.",
+  "workloads": {
+    "spirv-tools": {
+      "description": "Sia C# to SPIR-V compiler and LLVM/Khronos validation toolchain",
+      "packs": [
+        "Sia.Spirv.Sdk",
+        "Sia.Spirv.Toolchain"
+      ],
+      "platforms": [
+        "win-x64",
+        "linux-x64"
+      ]
+    }
+  },
+  "packs": {
+    "Sia.Spirv.Sdk": {
+      "kind": "sdk",
+      "version": "$(PackageVersion)"
+    },
+    "Sia.Spirv.Toolchain": {
+      "kind": "sdk",
+      "version": "$(PackageVersion)",
+      "alias-to": {
+        "win-x64": "Sia.Spirv.Toolchain.win-x64",
+        "linux-x64": "Sia.Spirv.Toolchain.linux-x64"
+      }
+    }
+  }
+}]]></_WorkloadManifestJson>
+    </PropertyGroup>
+    <Error Condition="'$(SiaSpirvSdkFeatureBand)' == ''"
+           Text="Could not derive the .NET SDK feature band from '$(NETCoreSdkVersion)'. Set SiaSpirvSdkFeatureBand explicitly." />
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <WriteLinesToFile File="$(_GeneratedWorkloadManifest)"
+                      Lines="$(_WorkloadManifestJson)"
+                      Overwrite="true"
+                      Encoding="UTF-8" />
+  </Target>
+</Project>

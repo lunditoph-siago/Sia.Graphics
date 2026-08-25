@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <PackageId>Sia.Spirv.Sdk</PackageId>
+    <PackageDescription>MSBuild SDK for compiling C# GPU kernels to SPIR-V with LLVM.</PackageDescription>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);CollectSpirvSdkTools</TargetsForTfmSpecificContentInPackage>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Sia.Spirv.Tool\Sia.Spirv.Tool.csproj"
+                      ReferenceOutputAssembly="false" />
+    <None Include="Sdk\**\*" Pack="true" PackagePath="Sdk" />
+    <None Include="buildTransitive\**\*" Pack="true" PackagePath="buildTransitive" />
+  </ItemGroup>
+
+  <Target Name="CollectSpirvSdkTools" DependsOnTargets="Build">
+    <ItemGroup>
+      <TfmSpecificPackageFile Include="..\Sia.Spirv.Tool\bin\$(Configuration)\net10.0\**\*">
+        <PackagePath>tools/net10.0/%(RecursiveDir)%(Filename)%(Extension)</PackagePath>
+      </TfmSpecificPackageFile>
+    </ItemGroup>
+  </Target>
+</Project>

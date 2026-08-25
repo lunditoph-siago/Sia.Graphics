@@ -1,0 +1,14 @@
+<Project>
+  <PropertyGroup>
+    <_SiaSpirvUseWorkloadIntegration Condition="'$(EnableSpirvCompilation)' == 'true' and '$(SiaSpirvDisableWorkloadIntegration)' != 'true'">true</_SiaSpirvUseWorkloadIntegration>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(_SiaSpirvUseWorkloadIntegration)' == 'true'">
+    <SiaSpirvSkipMicrosoftNetSdkTargetsImport>true</SiaSpirvSkipMicrosoftNetSdkTargetsImport>
+  </PropertyGroup>
+  <Import Project="Sia.Spirv.Integration.props"
+          Sdk="Sia.Spirv.Sdk"
+          Condition="'$(_SiaSpirvUseWorkloadIntegration)' == 'true'" />
+  <Import Project="Sdk.targets"
+          Sdk="Sia.Spirv.Sdk"
+          Condition="'$(_SiaSpirvUseWorkloadIntegration)' == 'true'" />
+</Project>

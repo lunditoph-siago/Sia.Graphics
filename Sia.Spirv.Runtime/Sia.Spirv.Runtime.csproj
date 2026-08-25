@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>Sia.Spirv.Runtime</PackageId>
+    <PackageDescription>Runtime support for C# GPU kernels compiled to SPIR-V.</PackageDescription>
+  </PropertyGroup>
+</Project>

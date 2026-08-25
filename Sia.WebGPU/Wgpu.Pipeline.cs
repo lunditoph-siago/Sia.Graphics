@@ -1,3 +1,6 @@
+using System.Buffers.Binary;
+using System.Runtime.InteropServices;
+
 namespace Sia.WebGPU;
 
 public static unsafe partial class Wgpu
@@ -37,6 +40,65 @@ public static unsafe partial class Wgpu
 
         return CreateShaderModule(device, in descriptor);
     }
+
+    public static WgpuHandle<WGPUShaderModule> CreateSpirvShaderModule(
+        WgpuHandle<WGPUDevice> device,
+        ReadOnlySpan<byte> spirv,
+        string? label = null)
+    {
+        if (OperatingSystem.IsBrowser()) {
+            throw new PlatformNotSupportedException(
+                "Browser WebGPU accepts WGSL shader modules, not SPIR-V modules.");
+        }
+        if (spirv.Length < 20 || spirv.Length % sizeof(uint) != 0 ||
+            BinaryPrimitives.ReadUInt32LittleEndian(spirv) != 0x07230203) {
+            throw new ArgumentException("The shader is not a valid SPIR-V binary module.", nameof(spirv));
+        }
+        if (!BitConverter.IsLittleEndian) {
+            throw new PlatformNotSupportedException("SPIR-V bytecode loading requires a little-endian host.");
+        }
+        return CreateSpirvShaderModule(device, MemoryMarshal.Cast<byte, uint>(spirv), label);
+    }
+
+    public static WgpuHandle<WGPUShaderModule> CreateSpirvShaderModule(
+        WgpuHandle<WGPUDevice> device,
+        ReadOnlySpan<uint> spirv,
+        string? label = null)
+    {
+        if (OperatingSystem.IsBrowser()) {
+            throw new PlatformNotSupportedException(
+                "Browser WebGPU accepts WGSL shader modules, not SPIR-V modules.");
+        }
+        if (spirv.Length < 5 || spirv[0] != 0x07230203) {
+            throw new ArgumentException("The shader is not a valid SPIR-V binary module.", nameof(spirv));
+        }
+
+        using var labelString = WgpuOwnedString.Create(label);
+        fixed (uint* code = spirv) {
+            var source = new WGPUShaderSourceSPIRV {
+                Chain = new WGPUChainedStruct {
+                    Next = null,
+                    SType = WGPUSType.ShaderSourceSPIRV,
+                },
+                CodeSize = checked((uint)spirv.Length),
+                Code = code,
+            };
+            var descriptor = new WGPUShaderModuleDescriptor {
+                NextInChain = &source.Chain,
+                Label = labelString.View,
+            };
+            return CreateShaderModule(device, in descriptor);
+        }
+    }
+
+    public static WgpuHandle<WGPUShaderModule> CreatePortableShaderModule(
+        WgpuHandle<WGPUDevice> device,
+        ReadOnlySpan<byte> spirv,
+        string wgsl,
+        string? label = null) =>
+        OperatingSystem.IsBrowser()
+            ? CreateWgslShaderModule(device, wgsl, label)
+            : CreateSpirvShaderModule(device, spirv, label);
 
     public static WgpuHandle<WGPUBindGroupLayout> CreateBindGroupLayout(
         WgpuHandle<WGPUDevice> device,

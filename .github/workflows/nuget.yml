@@ -20,7 +20,7 @@ env:
 
 jobs:
   prepare:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.release.outputs.version }}
       feature_band: ${{ steps.release.outputs.feature_band }}
@@ -56,9 +56,9 @@ jobs:
       matrix:
         include:
           - rid: win-x64
-            runner: windows-2025
+            runner: windows-latest
           - rid: linux-x64
-            runner: ubuntu-22.04
+            runner: ubuntu-latest
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
     steps:
@@ -271,7 +271,7 @@ jobs:
 
   managed:
     needs: prepare
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -333,9 +333,9 @@ jobs:
       matrix:
         include:
           - rid: win-x64
-            runner: windows-2025
+            runner: windows-latest
           - rid: linux-x64
-            runner: ubuntu-22.04
+            runner: ubuntu-latest
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
@@ -408,7 +408,7 @@ jobs:
   release:
     if: github.ref_type == 'tag'
     needs: [prepare, native, managed, verify]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     environment: nuget.org
     permissions:
       contents: read

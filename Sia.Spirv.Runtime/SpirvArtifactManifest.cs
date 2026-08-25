@@ -11,4 +11,5 @@ public sealed record SpirvArtifactManifest(
     IReadOnlyList<SpirvResourceBinding> Resources,
     IReadOnlyList<SpirvPushConstant> PushConstants,
     SpirvToolchainInfo Toolchain,
-    string SourceHash);
+    string SourceHash,
+    string KernelAbi = "vulkan");

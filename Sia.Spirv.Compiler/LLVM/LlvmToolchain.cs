@@ -5,7 +5,7 @@ namespace Sia.Spirv.Compiler.LLVM;
 
 public sealed class LlvmToolchain
 {
-    private static readonly string ExecutableSuffix = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
+    private static readonly string _executableSuffix = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
 
     public LlvmToolchain(string directory)
     {
@@ -92,6 +92,30 @@ public sealed class LlvmToolchain
     public void Validate(string inputPath, string targetEnvironment) =>
         Run(ToolName("spirv-val"), "--target-env", targetEnvironment, inputPath);
 
+    public void OptimizeForWebGpu(string inputPath)
+    {
+        var temporaryPath = $"{inputPath}.webgpu.tmp";
+        try {
+            Run(ToolName("spirv-opt"), "-O", inputPath, "-o", temporaryPath);
+            File.Move(temporaryPath, inputPath, true);
+        } finally {
+            File.Delete(temporaryPath);
+        }
+    }
+
+    public void ConvertToWgsl(string spirvPath, string wgslPath)
+    {
+        EnsureToolExists(ToolName("naga"));
+        var temporaryPath = $"{wgslPath}.tmp.wgsl";
+        try {
+            Run(ToolName("naga"), spirvPath, temporaryPath);
+            Run(ToolName("naga"), temporaryPath);
+            File.Move(temporaryPath, wgslPath, true);
+        } finally {
+            File.Delete(temporaryPath);
+        }
+    }
+
     public string GetLlvmVersion()
     {
         var output = Run(ToolName("llc"), "--version");
@@ -102,6 +126,12 @@ public sealed class LlvmToolchain
     }
 
     public string GetSpirvToolsVersion() => FirstLine(Run(ToolName("spirv-val"), "--version"));
+
+    public string GetNagaVersion()
+    {
+        EnsureToolExists(ToolName("naga"));
+        return FirstLine(Run(ToolName("naga"), "--version"));
+    }
 
     private string Run(string tool, params string[] arguments)
     {
@@ -146,5 +176,5 @@ public sealed class LlvmToolchain
     private static string FirstLine(string value) =>
         value.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
 
-    private static string ToolName(string name) => $"{name}{ExecutableSuffix}";
+    private static string ToolName(string name) => $"{name}{_executableSuffix}";
 }

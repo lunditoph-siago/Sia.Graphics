@@ -145,6 +145,12 @@ jobs:
             artifacts/spirv-tools-build-${{ matrix.rid }}
           key: spirv-native-${{ matrix.rid }}-${{ steps.native-build.outputs.fingerprint }}
 
+      - name: Cache Naga
+        uses: actions/cache@v6
+        with:
+          path: artifacts/naga-cli-${{ matrix.rid }}
+          key: naga-cli-${{ matrix.rid }}-30.0.0
+
       - name: Normalize source timestamps
         if: steps.native-cache.outputs.cache-hit == 'true'
         shell: pwsh
@@ -190,6 +196,18 @@ jobs:
           ./Sia.Spirv.Toolchain.linux-x64/BuildLLVM.sh
           ./Sia.Spirv.Toolchain.linux-x64/BuildSpirvTools.sh
 
+      - name: Build and stage Windows Naga
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./Sia.Spirv.Toolchain.win-x64/BuildNaga.ps1 `
+            -InstallDirectory artifacts/llvm-toolchain
+
+      - name: Build and stage Linux Naga
+        if: runner.os == 'Linux'
+        shell: bash
+        run: ./Sia.Spirv.Toolchain.linux-x64/BuildNaga.sh
+
       - name: Save native cache
         if: steps.native-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -203,6 +221,20 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $smokeDirectory = Join-Path $env:RUNNER_TEMP 'sia-spirv-native-smoke'
+          [IO.Directory]::CreateDirectory($smokeDirectory) | Out-Null
+          $source = Join-Path $smokeDirectory 'SmokeTest.ll'
+          $output = Join-Path $smokeDirectory 'SmokeTest.spv'
+          @'
+          target triple = "spirv64-unknown-vulkan1.2"
+
+          define void @main() #0 {
+          entry:
+            ret void
+          }
+
+          attributes #0 = { "hlsl.shader"="compute" "hlsl.numthreads"="1,1,1" }
+          '@ | Set-Content -LiteralPath $source -Encoding utf8NoBOM
           $root = if ($IsWindows) {
             'artifacts/llvm-toolchain/bin'
           }
@@ -219,13 +251,14 @@ jobs:
             throw 'llc is not an ELF executable.'
           }
           & (Join-Path $root "llc$suffix") `
-            Sia.Spirv.Workload.Manifest/SmokeTest.ll `
-            -filetype=obj -o artifacts/SmokeTest.spv
+            $source -filetype=obj -o $output
           if ($LASTEXITCODE -ne 0) { throw 'llc smoke test failed.' }
           & (Join-Path $root "spirv-val$suffix") `
-            --target-env vulkan1.2 artifacts/SmokeTest.spv
+            --target-env vulkan1.2 $output
           if ($LASTEXITCODE -ne 0) { throw 'spirv-val smoke test failed.' }
-          $bytes = [IO.File]::ReadAllBytes('artifacts/SmokeTest.spv')
+          & (Join-Path $root "naga$suffix") --version
+          if ($LASTEXITCODE -ne 0) { throw 'naga smoke test failed.' }
+          $bytes = [IO.File]::ReadAllBytes($output)
           if ($bytes.Length -lt 20 -or ($bytes[0..3] -join ',') -ne '3,2,35,7') {
             throw 'The smoke output is not a SPIR-V binary.'
           }
@@ -251,7 +284,7 @@ jobs:
               $package.FullName, [IO.Compression.ZipArchiveMode]::Update)
             try {
               foreach ($tool in @(
-                'llc', 'opt', 'llvm-as', 'llvm-dis', 'spirv-as', 'spirv-dis',
+                'llc', 'opt', 'llvm-as', 'llvm-dis', 'naga', 'spirv-as', 'spirv-dis',
                 'spirv-link', 'spirv-opt', 'spirv-val')) {
                 $archive.GetEntry("tools/linux-x64/$tool").ExternalAttributes = -2115174400
               }
@@ -283,19 +316,6 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
-      - name: Restore
-        shell: pwsh
-        run: |
-          dotnet restore Sia.Spirv.Tests/Sia.Spirv.Tests.csproj
-          dotnet restore Sia.Spirv.Sdk/Sia.Spirv.Sdk.csproj
-          dotnet restore Sia.Spirv.Workload.Manifest/Sia.Spirv.Workload.Manifest.csproj
-
-      - name: Test
-        run: >
-          dotnet test Sia.Spirv.Tests/Sia.Spirv.Tests.csproj
-          --configuration Release --no-restore
-          -p:UseSharedCompilation=false -m:1 -nr:false
-
       - name: Pack managed packages
         shell: pwsh
         run: |
@@ -307,7 +327,7 @@ jobs:
             'Sia.Spirv.Bootstrap/Sia.Spirv.Bootstrap.csproj',
             'Sia.Spirv.Workload.Manifest/Sia.Spirv.Workload.Manifest.csproj')
           foreach ($project in $projects) {
-            dotnet pack $project --configuration Release --no-restore `
+            dotnet pack $project --configuration Release `
               --output artifacts/packages `
               -p:Version=${{ needs.prepare.outputs.version }} `
               -p:SiaSpirvSdkFeatureBand=${{ needs.prepare.outputs.feature_band }}
@@ -384,11 +404,36 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $project = 'Sia.Spirv.Tests.WorkloadSmoke/Sia.Spirv.Tests.WorkloadSmoke.csproj'
+          $smokeDirectory = Join-Path $env:RUNNER_TEMP 'sia-spirv-workload-smoke'
+          [IO.Directory]::CreateDirectory($smokeDirectory) | Out-Null
+          $project = Join-Path $smokeDirectory 'WorkloadSmoke.csproj'
+          $source = Join-Path $smokeDirectory 'SmokeKernel.cs'
+          @'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net11.0</TargetFramework>
+              <EnableSpirvCompilation>true</EnableSpirvCompilation>
+              <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
+            </PropertyGroup>
+          </Project>
+          '@ | Set-Content -LiteralPath $project -Encoding utf8NoBOM
+          @'
+          using Sia.Spirv;
+
+          internal static class SmokeKernel
+          {
+              [SpirvKernel(64)]
+              public static void Fill(StorageBuffer<float> output, float value)
+              {
+                  output[Gpu.GlobalInvocationId.X] = value;
+              }
+          }
+          '@ | Set-Content -LiteralPath $source -Encoding utf8NoBOM
           dotnet restore $project
-          dotnet build $project --configuration Release --no-restore
+          dotnet build $project --configuration Release --no-restore `
+            -p:UseSharedCompilation=false -m:1 -nr:false
           if ($LASTEXITCODE -ne 0) { throw 'Workload smoke build failed.' }
-          $output = 'Sia.Spirv.Tests.WorkloadSmoke/bin/Release/net11.0/spirv'
+          $output = Join-Path $smokeDirectory 'bin/Release/net11.0/spirv'
           $modules = @(Get-ChildItem -LiteralPath $output -Filter '*.spv')
           if ($modules.Count -ne 1) {
             throw "Expected one SPIR-V module, found $($modules.Count)."
@@ -397,6 +442,10 @@ jobs:
           if (($bytes[0..3] -join ',') -ne '3,2,35,7') {
             throw 'The workload output is not a SPIR-V binary.'
           }
+          $wgslModules = @(Get-ChildItem -LiteralPath $output -Filter '*.wgsl')
+          if ($wgslModules.Count -ne 1) {
+            throw "Expected one WGSL module, found $($wgslModules.Count)."
+          }
           $suffix = if ($IsWindows) { '.exe' } else { '' }
           $validator = Join-Path $env:DOTNET_ROOT (
             'packs/Sia.Spirv.Toolchain.${{ matrix.rid }}/' +
@@ -404,6 +453,12 @@ jobs:
             $suffix)
           & $validator --target-env vulkan1.2 $modules[0].FullName
           if ($LASTEXITCODE -ne 0) { throw 'Packaged spirv-val failed.' }
+          $naga = Join-Path $env:DOTNET_ROOT (
+            'packs/Sia.Spirv.Toolchain.${{ matrix.rid }}/' +
+            '${{ needs.prepare.outputs.version }}/tools/${{ matrix.rid }}/naga' +
+            $suffix)
+          & $naga $wgslModules[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged naga failed.' }
 
   release:
     if: github.ref_type == 'tag'

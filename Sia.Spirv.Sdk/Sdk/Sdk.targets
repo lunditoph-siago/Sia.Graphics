@@ -2,6 +2,8 @@
   <PropertyGroup>
     <EnableSpirvCompilation Condition="'$(EnableSpirvCompilation)' == ''">true</EnableSpirvCompilation>
     <SpirvTargetEnvironment Condition="'$(SpirvTargetEnvironment)' == ''">vulkan1.2</SpirvTargetEnvironment>
+    <SpirvKernelAbi Condition="'$(SpirvKernelAbi)' == ''">webgpu</SpirvKernelAbi>
+    <SpirvEmitWgsl Condition="'$(SpirvEmitWgsl)' == ''">true</SpirvEmitWgsl>
     <SpirvOptimizationLevel Condition="'$(SpirvOptimizationLevel)' == ''">2</SpirvOptimizationLevel>
     <SpirvCompilerToolPath Condition="'$(SpirvCompilerToolPath)' == ''">$(MSBuildThisFileDirectory)..\tools\net10.0\Sia.Spirv.Tool.dll</SpirvCompilerToolPath>
     <SpirvDotNetHost Condition="'$(DotNetHostPath)' != ''">$(DotNetHostPath)</SpirvDotNetHost>
@@ -14,6 +16,7 @@
     <_SiaSpirvWorkloadToolchainDirectory Condition="'$(NetCoreRoot)' != ''">$(NetCoreRoot)packs/$(_SiaSpirvToolchainPackageId)/$(SpirvToolchainPackageVersion)/tools/$(SpirvHostRuntimeIdentifier)</_SiaSpirvWorkloadToolchainDirectory>
     <SpirvToolchainDirectory Condition="'$(SpirvToolchainDirectory)' == '' and Exists('$(_SiaSpirvWorkloadToolchainDirectory)/llc$(SpirvToolExecutableSuffix)')">$(_SiaSpirvWorkloadToolchainDirectory)</SpirvToolchainDirectory>
     <_SpirvToolchainArgument Condition="'$(SpirvToolchainDirectory)' != ''"> --toolchain &quot;$(SpirvToolchainDirectory)&quot;</_SpirvToolchainArgument>
+    <_SpirvWgslArgument Condition="'$(SpirvEmitWgsl)' == 'true'"> --emit-wgsl</_SpirvWgslArgument>
   </PropertyGroup>
 
   <Target Name="CompileSiaSpirvKernels"
@@ -28,8 +31,10 @@
            Text="The prebuilt Sia SPIR-V host toolchain was not found. Install the spirv-tools workload or reference $(_SiaSpirvToolchainPackageId)." />
     <Error Condition="!Exists('$(SpirvToolchainDirectory)/spirv-val$(SpirvToolExecutableSuffix)')"
            Text="The SPIR-V validator was not found under '$(SpirvToolchainDirectory)'." />
+    <Error Condition="'$(SpirvEmitWgsl)' == 'true' and !Exists('$(SpirvToolchainDirectory)/naga$(SpirvToolExecutableSuffix)')"
+           Text="The Naga shader translator was not found under '$(SpirvToolchainDirectory)'. Install or update the spirv-tools workload." />
     <MakeDir Directories="$(SpirvOutputDirectory)" />
-    <Exec Command="&quot;$(SpirvDotNetHost)&quot; &quot;$(SpirvCompilerToolPath)&quot; compile --assembly &quot;$(TargetPath)&quot; --output &quot;$(SpirvOutputDirectory)&quot; --target $(SpirvTargetEnvironment) --optimization $(SpirvOptimizationLevel)$(_SpirvToolchainArgument)" />
+    <Exec Command="&quot;$(SpirvDotNetHost)&quot; &quot;$(SpirvCompilerToolPath)&quot; compile --assembly &quot;$(TargetPath)&quot; --output &quot;$(SpirvOutputDirectory)&quot; --target $(SpirvTargetEnvironment) --abi $(SpirvKernelAbi) --optimization $(SpirvOptimizationLevel)$(_SpirvWgslArgument)$(_SpirvToolchainArgument)" />
     <ItemGroup>
       <FileWrites Include="$(SpirvOutputDirectory)\**\*" />
     </ItemGroup>

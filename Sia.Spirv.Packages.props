@@ -1,8 +1,0 @@
-<Project>
-  <PropertyGroup>
-    <SiaSpirvPackageVersion Condition="'$(SiaSpirvPackageVersion)' == '' and '$(PackageVersion)' != ''">$(PackageVersion)</SiaSpirvPackageVersion>
-    <SiaSpirvPackageVersion Condition="'$(SiaSpirvPackageVersion)' == ''">0.1.0-preview.1</SiaSpirvPackageVersion>
-    <Version>$(SiaSpirvPackageVersion)</Version>
-    <PackageVersion>$(SiaSpirvPackageVersion)</PackageVersion>
-  </PropertyGroup>
-</Project>

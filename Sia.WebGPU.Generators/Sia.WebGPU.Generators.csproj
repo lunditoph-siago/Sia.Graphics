@@ -10,6 +10,7 @@
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
     <IsRoslynComponent>true</IsRoslynComponent>
     <NoWarn>$(NoWarn);RS1035;RS2008</NoWarn>
+    <PackageId>Sia.WebGPU.Generators</PackageId>
     <LibClangVersion>16.0.6</LibClangVersion>
   </PropertyGroup>
 

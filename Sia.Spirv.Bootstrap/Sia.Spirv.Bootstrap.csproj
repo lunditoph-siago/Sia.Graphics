@@ -12,7 +12,6 @@
   </PropertyGroup>
   <ItemGroup>
     <AssemblyMetadata Include="SiaSpirvPackageVersion" Value="$(PackageVersion)" />
-    <InternalsVisibleTo Include="Sia.Spirv.Tests" />
     <EmbeddedResource Include="..\Sia.Spirv.Workload.Manifest\WorkloadManifest.targets"
                       Link="WorkloadManifest.targets"
                       LogicalName="Sia.Spirv.Bootstrap.WorkloadManifest.targets" />

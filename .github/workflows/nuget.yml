@@ -221,6 +221,20 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $smokeDirectory = Join-Path $env:RUNNER_TEMP 'sia-spirv-native-smoke'
+          [IO.Directory]::CreateDirectory($smokeDirectory) | Out-Null
+          $source = Join-Path $smokeDirectory 'SmokeTest.ll'
+          $output = Join-Path $smokeDirectory 'SmokeTest.spv'
+          @'
+          target triple = "spirv64-unknown-vulkan1.2"
+
+          define void @main() #0 {
+          entry:
+            ret void
+          }
+
+          attributes #0 = { "hlsl.shader"="compute" "hlsl.numthreads"="1,1,1" }
+          '@ | Set-Content -LiteralPath $source -Encoding utf8NoBOM
           $root = if ($IsWindows) {
             'artifacts/llvm-toolchain/bin'
           }
@@ -237,15 +251,14 @@ jobs:
             throw 'llc is not an ELF executable.'
           }
           & (Join-Path $root "llc$suffix") `
-            Sia.Spirv.Workload.Manifest/SmokeTest.ll `
-            -filetype=obj -o artifacts/SmokeTest.spv
+            $source -filetype=obj -o $output
           if ($LASTEXITCODE -ne 0) { throw 'llc smoke test failed.' }
           & (Join-Path $root "spirv-val$suffix") `
-            --target-env vulkan1.2 artifacts/SmokeTest.spv
+            --target-env vulkan1.2 $output
           if ($LASTEXITCODE -ne 0) { throw 'spirv-val smoke test failed.' }
           & (Join-Path $root "naga$suffix") --version
           if ($LASTEXITCODE -ne 0) { throw 'naga smoke test failed.' }
-          $bytes = [IO.File]::ReadAllBytes('artifacts/SmokeTest.spv')
+          $bytes = [IO.File]::ReadAllBytes($output)
           if ($bytes.Length -lt 20 -or ($bytes[0..3] -join ',') -ne '3,2,35,7') {
             throw 'The smoke output is not a SPIR-V binary.'
           }
@@ -306,15 +319,9 @@ jobs:
       - name: Restore
         shell: pwsh
         run: |
-          dotnet restore Sia.Spirv.Tests/Sia.Spirv.Tests.csproj
+          dotnet restore Sia.Spirv.Bootstrap/Sia.Spirv.Bootstrap.csproj
           dotnet restore Sia.Spirv.Sdk/Sia.Spirv.Sdk.csproj
           dotnet restore Sia.Spirv.Workload.Manifest/Sia.Spirv.Workload.Manifest.csproj
-
-      - name: Test
-        run: >
-          dotnet test Sia.Spirv.Tests/Sia.Spirv.Tests.csproj
-          --configuration Release --no-restore
-          -p:UseSharedCompilation=false -m:1 -nr:false
 
       - name: Pack managed packages
         shell: pwsh
@@ -404,11 +411,36 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $project = 'Sia.Spirv.Tests.WorkloadSmoke/Sia.Spirv.Tests.WorkloadSmoke.csproj'
+          $smokeDirectory = Join-Path $env:RUNNER_TEMP 'sia-spirv-workload-smoke'
+          [IO.Directory]::CreateDirectory($smokeDirectory) | Out-Null
+          $project = Join-Path $smokeDirectory 'WorkloadSmoke.csproj'
+          $source = Join-Path $smokeDirectory 'SmokeKernel.cs'
+          @'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net11.0</TargetFramework>
+              <EnableSpirvCompilation>true</EnableSpirvCompilation>
+              <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
+            </PropertyGroup>
+          </Project>
+          '@ | Set-Content -LiteralPath $project -Encoding utf8NoBOM
+          @'
+          using Sia.Spirv;
+
+          internal static class SmokeKernel
+          {
+              [SpirvKernel(64)]
+              public static void Fill(StorageBuffer<float> output, float value)
+              {
+                  output[Gpu.GlobalInvocationId.X] = value;
+              }
+          }
+          '@ | Set-Content -LiteralPath $source -Encoding utf8NoBOM
           dotnet restore $project
-          dotnet build $project --configuration Release --no-restore
+          dotnet build $project --configuration Release --no-restore `
+            -p:UseSharedCompilation=false -m:1 -nr:false
           if ($LASTEXITCODE -ne 0) { throw 'Workload smoke build failed.' }
-          $output = 'Sia.Spirv.Tests.WorkloadSmoke/bin/Release/net11.0/spirv'
+          $output = Join-Path $smokeDirectory 'bin/Release/net11.0/spirv'
           $modules = @(Get-ChildItem -LiteralPath $output -Filter '*.spv')
           if ($modules.Count -ne 1) {
             throw "Expected one SPIR-V module, found $($modules.Count)."

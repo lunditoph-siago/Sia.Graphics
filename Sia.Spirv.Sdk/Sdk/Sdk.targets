@@ -6,9 +6,13 @@
     <SpirvCompilerToolPath Condition="'$(SpirvCompilerToolPath)' == ''">$(MSBuildThisFileDirectory)..\tools\net10.0\Sia.Spirv.Tool.dll</SpirvCompilerToolPath>
     <SpirvDotNetHost Condition="'$(DotNetHostPath)' != ''">$(DotNetHostPath)</SpirvDotNetHost>
     <SpirvDotNetHost Condition="'$(SpirvDotNetHost)' == ''">dotnet</SpirvDotNetHost>
-    <SpirvToolchainPackageVersion Condition="'$(SpirvToolchainPackageVersion)' == ''">0.1.0-preview.1</SpirvToolchainPackageVersion>
-    <_SiaSpirvWorkloadToolchainDirectory Condition="'$(NetCoreRoot)' != ''">$(NetCoreRoot)packs\Sia.Spirv.Toolchain.win-x64\$(SpirvToolchainPackageVersion)\tools\win-x64</_SiaSpirvWorkloadToolchainDirectory>
-    <SpirvToolchainDirectory Condition="'$(SpirvToolchainDirectory)' == '' and Exists('$(_SiaSpirvWorkloadToolchainDirectory)\llc.exe')">$(_SiaSpirvWorkloadToolchainDirectory)</SpirvToolchainDirectory>
+    <_SiaSpirvSdkPackageDirectory>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</_SiaSpirvSdkPackageDirectory>
+    <SpirvToolchainPackageVersion Condition="'$(SpirvToolchainPackageVersion)' == ''">$([System.IO.Path]::GetFileName('$(_SiaSpirvSdkPackageDirectory)'))</SpirvToolchainPackageVersion>
+    <SpirvHostRuntimeIdentifier Condition="'$(SpirvHostRuntimeIdentifier)' == ''">$(NETCoreSdkRuntimeIdentifier)</SpirvHostRuntimeIdentifier>
+    <SpirvToolExecutableSuffix Condition="$([MSBuild]::IsOSPlatform('Windows'))">.exe</SpirvToolExecutableSuffix>
+    <_SiaSpirvToolchainPackageId>Sia.Spirv.Toolchain.$(SpirvHostRuntimeIdentifier)</_SiaSpirvToolchainPackageId>
+    <_SiaSpirvWorkloadToolchainDirectory Condition="'$(NetCoreRoot)' != ''">$(NetCoreRoot)packs/$(_SiaSpirvToolchainPackageId)/$(SpirvToolchainPackageVersion)/tools/$(SpirvHostRuntimeIdentifier)</_SiaSpirvWorkloadToolchainDirectory>
+    <SpirvToolchainDirectory Condition="'$(SpirvToolchainDirectory)' == '' and Exists('$(_SiaSpirvWorkloadToolchainDirectory)/llc$(SpirvToolExecutableSuffix)')">$(_SiaSpirvWorkloadToolchainDirectory)</SpirvToolchainDirectory>
     <_SpirvToolchainArgument Condition="'$(SpirvToolchainDirectory)' != ''"> --toolchain &quot;$(SpirvToolchainDirectory)&quot;</_SpirvToolchainArgument>
   </PropertyGroup>
 
@@ -20,9 +24,9 @@
     </PropertyGroup>
     <Error Condition="!Exists('$(SpirvCompilerToolPath)')"
            Text="The Sia SPIR-V compiler was not found at '$(SpirvCompilerToolPath)'." />
-    <Error Condition="'$(SpirvToolchainDirectory)' == '' or !Exists('$(SpirvToolchainDirectory)\llc.exe')"
-           Text="The prebuilt Sia SPIR-V host toolchain was not found. Install the spirv-tools workload or reference Sia.Spirv.Toolchain.win-x64." />
-    <Error Condition="!Exists('$(SpirvToolchainDirectory)\spirv-val.exe')"
+    <Error Condition="'$(SpirvToolchainDirectory)' == '' or !Exists('$(SpirvToolchainDirectory)/llc$(SpirvToolExecutableSuffix)')"
+           Text="The prebuilt Sia SPIR-V host toolchain was not found. Install the spirv-tools workload or reference $(_SiaSpirvToolchainPackageId)." />
+    <Error Condition="!Exists('$(SpirvToolchainDirectory)/spirv-val$(SpirvToolExecutableSuffix)')"
            Text="The SPIR-V validator was not found under '$(SpirvToolchainDirectory)'." />
     <MakeDir Directories="$(SpirvOutputDirectory)" />
     <Exec Command="&quot;$(SpirvDotNetHost)&quot; &quot;$(SpirvCompilerToolPath)&quot; compile --assembly &quot;$(TargetPath)&quot; --output &quot;$(SpirvOutputDirectory)&quot; --target $(SpirvTargetEnvironment) --optimization $(SpirvOptimizationLevel)$(_SpirvToolchainArgument)" />

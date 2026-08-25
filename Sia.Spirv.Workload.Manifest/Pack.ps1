@@ -1,54 +1,111 @@
-# Packs and validates every package that composes the spirv-tools workload.
+# Packs and validates the packages that compose the spirv-tools workload.
 [CmdletBinding()]
 param(
   [string]$Configuration = "Release",
-  [string]$OutputDirectory = ""
+  [string]$OutputDirectory = "",
+  [string]$DotNetPath = "",
+  [string]$PackageVersion = "",
+  [string]$SdkFeatureBand = "",
+  [string[]]$HostRuntimeIdentifiers = @()
 )
 
 $ErrorActionPreference = "Stop"
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$dotnet = (Resolve-Path (Join-Path $repositoryRoot "..\.dotnet\dotnet.exe")).Path
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
   $OutputDirectory = Join-Path $repositoryRoot "artifacts\packages"
 }
-
-$requiredTools = @(
-  "llc.exe",
-  "opt.exe",
-  "llvm-as.exe",
-  "llvm-dis.exe",
-  "spirv-as.exe",
-  "spirv-dis.exe",
-  "spirv-link.exe",
-  "spirv-opt.exe",
-  "spirv-val.exe"
-)
-foreach ($tool in $requiredTools) {
-  $toolPath = Join-Path $repositoryRoot "artifacts\llvm-toolchain\bin\$tool"
-  if (!(Test-Path -LiteralPath $toolPath)) {
-    throw "Required tool '$toolPath' was not found. Build the native toolchain first."
+if ([string]::IsNullOrWhiteSpace($DotNetPath)) {
+  $portableDotNet = Join-Path $repositoryRoot "..\.dotnet\dotnet.exe"
+  $DotNetPath = if (Test-Path -LiteralPath $portableDotNet) {
+    (Resolve-Path -LiteralPath $portableDotNet).Path
+  }
+  else {
+    (Get-Command dotnet -ErrorAction Stop).Source
   }
 }
+if ([string]::IsNullOrWhiteSpace($PackageVersion)) {
+  [xml]$packageProperties = Get-Content -LiteralPath (
+    Join-Path $repositoryRoot "Sia.Spirv.Packages.props")
+  $PackageVersion = $packageProperties.Project.PropertyGroup.SiaSpirvPackageVersion.InnerText
+}
+if ([string]::IsNullOrWhiteSpace($SdkFeatureBand)) {
+  $sdkVersion = (& $DotNetPath --version).Trim()
+  if ($LASTEXITCODE -ne 0) {
+    throw "Failed to determine the .NET SDK version."
+  }
+  $featureBandMatch = [Regex]::Match(
+    $sdkVersion, '^\d+\.\d+\.\d+(?:-[^.]+\.\d+)?')
+  if (!$featureBandMatch.Success) {
+    throw "Could not derive an SDK feature band from '$sdkVersion'."
+  }
+  $SdkFeatureBand = $featureBandMatch.Value
+}
+if ($HostRuntimeIdentifiers.Count -eq 0) {
+  $HostRuntimeIdentifiers = if ($IsWindows) {
+    @("win-x64")
+  }
+  elseif ($IsLinux) {
+    @("linux-x64")
+  }
+  else {
+    throw "Only Windows x64 and Linux x64 build hosts are supported."
+  }
+}
+
+$requiredToolNames = @(
+  "llc", "opt", "llvm-as", "llvm-dis", "spirv-as", "spirv-dis",
+  "spirv-link", "spirv-opt", "spirv-val")
 $requiredLicenses = @("LLVM.txt", "SPIRV-Tools.txt", "SPIRV-Headers.txt")
-foreach ($license in $requiredLicenses) {
-  $licensePath = Join-Path $repositoryRoot "artifacts\llvm-toolchain\licenses\$license"
-  if (!(Test-Path -LiteralPath $licensePath)) {
-    throw "Required license '$licensePath' was not found. Build the native toolchain first."
+$toolchains = @{
+  "win-x64" = @{
+    Directory = "artifacts\llvm-toolchain"
+    Extension = ".exe"
+    Project = "Sia.Spirv.Toolchain.win-x64\Sia.Spirv.Toolchain.win-x64.csproj"
+  }
+  "linux-x64" = @{
+    Directory = "artifacts\llvm-toolchain-linux-x64"
+    Extension = ""
+    Project = "Sia.Spirv.Toolchain.linux-x64\Sia.Spirv.Toolchain.linux-x64.csproj"
+  }
+}
+foreach ($hostRid in $HostRuntimeIdentifiers) {
+  if (!$toolchains.ContainsKey($hostRid)) {
+    throw "Unsupported host RID '$hostRid'."
+  }
+  $toolchain = $toolchains[$hostRid]
+  foreach ($toolName in $requiredToolNames) {
+    $toolPath = Join-Path $repositoryRoot (
+      "$($toolchain.Directory)\bin\$toolName$($toolchain.Extension)")
+    if (!(Test-Path -LiteralPath $toolPath)) {
+      throw "Required tool '$toolPath' was not found. Build the native toolchain first."
+    }
+  }
+  foreach ($license in $requiredLicenses) {
+    $licensePath = Join-Path $repositoryRoot (
+      "$($toolchain.Directory)\licenses\$license")
+    if (!(Test-Path -LiteralPath $licensePath)) {
+      throw "Required license '$licensePath' was not found. Build the native toolchain first."
+    }
   }
 }
 
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
-$projects = @(
+$projects = [Collections.Generic.List[string]]@(
   "Sia.Spirv.Core\Sia.Spirv.Core.csproj",
-  "Sia.Spirv.Runtime\Sia.Spirv.Runtime.csproj",
-  "Sia.Spirv.Toolchain.win-x64\Sia.Spirv.Toolchain.win-x64.csproj",
-  "Sia.Spirv.Sdk\Sia.Spirv.Sdk.csproj",
-  "Sia.Spirv.Workload.Manifest\Sia.Spirv.Workload.Manifest.csproj"
+  "Sia.Spirv.Runtime\Sia.Spirv.Runtime.csproj"
 )
+foreach ($hostRid in $HostRuntimeIdentifiers) {
+  $projects.Add($toolchains[$hostRid].Project)
+}
+$projects.Add("Sia.Spirv.Sdk\Sia.Spirv.Sdk.csproj")
+$projects.Add("Sia.Spirv.Bootstrap\Sia.Spirv.Bootstrap.csproj")
+$projects.Add("Sia.Spirv.Workload.Manifest\Sia.Spirv.Workload.Manifest.csproj")
 foreach ($project in $projects) {
-  & $dotnet pack (Join-Path $repositoryRoot $project) `
+  & $DotNetPath pack (Join-Path $repositoryRoot $project) `
     --configuration $Configuration `
     --output $OutputDirectory `
+    -p:SiaSpirvPackageVersion=$PackageVersion `
+    -p:SiaSpirvSdkFeatureBand=$SdkFeatureBand `
     -p:UseSharedCompilation=false `
     -p:BuildInParallel=false
   if ($LASTEXITCODE -ne 0) {
@@ -56,34 +113,30 @@ foreach ($project in $projects) {
   }
 }
 
-function Get-PackageEntries([string]$packagePath) {
-  $archive = [IO.Compression.ZipFile]::OpenRead($packagePath)
+if ("linux-x64" -in $HostRuntimeIdentifiers) {
+  $linuxPackagePath = Join-Path $OutputDirectory (
+    "Sia.Spirv.Toolchain.linux-x64.$PackageVersion.nupkg")
+  $archive = [IO.Compression.ZipFile]::Open(
+    $linuxPackagePath, [IO.Compression.ZipArchiveMode]::Update)
   try {
-    return @($archive.Entries | ForEach-Object FullName)
+    foreach ($toolName in $requiredToolNames) {
+      $entryName = "tools/linux-x64/$toolName"
+      $entry = $archive.GetEntry($entryName)
+      if ($null -eq $entry) {
+        throw "The Linux toolchain package does not contain '$entryName'."
+      }
+      $entry.ExternalAttributes = -2115174400
+    }
   }
   finally {
     $archive.Dispose()
   }
 }
 
-$packageVersion = "0.1.0-preview.1"
-$sdkPackage = Join-Path $OutputDirectory "Sia.Spirv.Sdk.$packageVersion.nupkg"
-$toolchainPackage = Join-Path $OutputDirectory (
-  "Sia.Spirv.Toolchain.win-x64.$packageVersion.nupkg")
-$sdkEntries = Get-PackageEntries $sdkPackage
-$toolchainEntries = Get-PackageEntries $toolchainPackage
-if ($sdkEntries | Where-Object { $_.StartsWith("tools/win-x64/", [StringComparison]::OrdinalIgnoreCase) }) {
-  throw "The managed SDK package unexpectedly contains the native host toolchain."
-}
-foreach ($tool in $requiredTools) {
-  if (!("tools/win-x64/$tool" -in $toolchainEntries)) {
-    throw "The host toolchain package does not contain '$tool'."
-  }
-}
-foreach ($license in $requiredLicenses) {
-  if (!("licenses/$license" -in $toolchainEntries)) {
-    throw "The host toolchain package does not contain '$license'."
-  }
-}
+& (Join-Path $PSScriptRoot "VerifyPackages.ps1") `
+  -PackageDirectory $OutputDirectory `
+  -PackageVersion $PackageVersion `
+  -SdkFeatureBand $SdkFeatureBand `
+  -HostRuntimeIdentifiers $HostRuntimeIdentifiers
 
-Write-Output "Verified split managed SDK and Windows x64 host-toolchain packages."
+Write-Output "Packed the managed SDK and $($HostRuntimeIdentifiers -join ', ') host toolchains."

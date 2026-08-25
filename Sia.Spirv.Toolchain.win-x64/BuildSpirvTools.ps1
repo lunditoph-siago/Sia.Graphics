@@ -2,7 +2,9 @@
 param(
   [string]$SourceDirectory = "",
   [string]$BuildDirectory = "",
-  [string]$InstallDirectory = ""
+  [string]$InstallDirectory = "",
+  [int]$BuildJobs = 2,
+  [switch]$SkipConfigure
 )
 
 $ErrorActionPreference = "Stop"
@@ -75,13 +77,19 @@ $configureArguments = @(
   "-DBUILD_SHARED_LIBS=OFF"
 )
 
-& cmake @configureArguments
-if ($LASTEXITCODE -ne 0) {
-  throw "SPIRV-Tools CMake configuration failed with exit code $LASTEXITCODE."
+if (!$SkipConfigure) {
+  & cmake @configureArguments
+  if ($LASTEXITCODE -ne 0) {
+    throw "SPIRV-Tools CMake configuration failed with exit code $LASTEXITCODE."
+  }
+}
+elseif (!(Test-Path -LiteralPath (Join-Path $BuildDirectory "build.ninja"))) {
+  throw "The cached SPIRV-Tools build tree '$BuildDirectory' is not configured."
 }
 
 $targets = @("spirv-as", "spirv-dis", "spirv-link", "spirv-opt", "spirv-val")
-& cmake --build $BuildDirectory --target @targets --config Release
+& cmake --build $BuildDirectory --target @targets `
+  --config Release --parallel $BuildJobs
 if ($LASTEXITCODE -ne 0) {
   throw "SPIRV-Tools build failed with exit code $LASTEXITCODE."
 }

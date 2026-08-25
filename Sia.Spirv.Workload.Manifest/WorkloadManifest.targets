@@ -1,7 +1,6 @@
 <Project>
   <PropertyGroup>
-    <_SiaSpirvWorkloadSdkDirectory>$(NetCoreRoot)packs\Sia.Spirv.Sdk\0.1.0-preview.1\Sdk</_SiaSpirvWorkloadSdkDirectory>
-    <_SiaSpirvUseWorkloadIntegration Condition="'$(EnableSpirvCompilation)' == 'true' and '$(SiaSpirvDisableWorkloadIntegration)' != 'true' and Exists('$(_SiaSpirvWorkloadSdkDirectory)\Sdk.props')">true</_SiaSpirvUseWorkloadIntegration>
+    <_SiaSpirvUseWorkloadIntegration Condition="'$(EnableSpirvCompilation)' == 'true' and '$(SiaSpirvDisableWorkloadIntegration)' != 'true'">true</_SiaSpirvUseWorkloadIntegration>
   </PropertyGroup>
   <PropertyGroup Condition="'$(_SiaSpirvUseWorkloadIntegration)' == 'true'">
     <SiaSpirvSkipMicrosoftNetSdkTargetsImport>true</SiaSpirvSkipMicrosoftNetSdkTargetsImport>

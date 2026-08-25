@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Sia.Spirv.Bootstrap\Sia.Spirv.Bootstrap.csproj" />
     <ProjectReference Include="..\Sia.Spirv.Compiler\Sia.Spirv.Compiler.csproj" />
     <ProjectReference Include="..\Sia.Spirv.Compiler.IR\Sia.Spirv.Compiler.IR.csproj" />
     <ProjectReference Include="..\Sia.Spirv.Core\Sia.Spirv.Core.csproj" />

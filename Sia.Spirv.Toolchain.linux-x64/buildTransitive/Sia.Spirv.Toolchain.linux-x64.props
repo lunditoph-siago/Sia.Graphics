@@ -1,0 +1,5 @@
+<Project>
+  <PropertyGroup>
+    <SpirvToolchainDirectory Condition="'$(SpirvToolchainDirectory)' == ''">$(MSBuildThisFileDirectory)../tools/linux-x64</SpirvToolchainDirectory>
+  </PropertyGroup>
+</Project>

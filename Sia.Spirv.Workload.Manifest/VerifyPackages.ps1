@@ -1,0 +1,107 @@
+# Verifies package boundaries and RID-specific native payloads.
+[CmdletBinding()]
+param(
+  [Parameter(Mandatory = $true)]
+  [string]$PackageDirectory,
+  [Parameter(Mandatory = $true)]
+  [string]$PackageVersion,
+  [Parameter(Mandatory = $true)]
+  [string]$SdkFeatureBand,
+  [string[]]$HostRuntimeIdentifiers = @("win-x64", "linux-x64")
+)
+
+$ErrorActionPreference = "Stop"
+$PackageDirectory = (Resolve-Path -LiteralPath $PackageDirectory).Path
+$requiredToolNames = @(
+  "llc", "opt", "llvm-as", "llvm-dis", "spirv-as", "spirv-dis",
+  "spirv-link", "spirv-opt", "spirv-val")
+$requiredLicenses = @("LLVM.txt", "SPIRV-Tools.txt", "SPIRV-Headers.txt")
+$requiredSdkTools = @(
+  "Sia.Spirv.Core.dll", "Sia.Spirv.Tool.dll", "Sia.Spirv.Tool.deps.json",
+  "Sia.Spirv.Tool.runtimeconfig.json")
+
+function Get-Package([string]$packageId) {
+  $path = Join-Path $PackageDirectory "$packageId.$PackageVersion.nupkg"
+  if (!(Test-Path -LiteralPath $path)) {
+    throw "Expected package '$path' was not found."
+  }
+  return $path
+}
+
+$sdkPackage = [IO.Compression.ZipFile]::OpenRead((Get-Package "Sia.Spirv.Sdk"))
+try {
+  if ($sdkPackage.Entries | Where-Object FullName -Like "tools/*-x64/*") {
+    throw "The managed SDK package unexpectedly contains a native host toolchain."
+  }
+  foreach ($tool in $requiredSdkTools) {
+    if ($null -eq $sdkPackage.GetEntry("tools/net10.0/$tool")) {
+      throw "The managed SDK package does not contain 'tools/net10.0/$tool'."
+    }
+  }
+}
+finally {
+  $sdkPackage.Dispose()
+}
+
+foreach ($hostRid in $HostRuntimeIdentifiers) {
+  if ($hostRid -notin @("win-x64", "linux-x64")) {
+    throw "Unsupported host RID '$hostRid'."
+  }
+  $extension = if ($hostRid -eq "win-x64") { ".exe" } else { "" }
+  $package = [IO.Compression.ZipFile]::OpenRead(
+    (Get-Package "Sia.Spirv.Toolchain.$hostRid"))
+  try {
+    foreach ($toolName in $requiredToolNames) {
+      $entryName = "tools/$hostRid/$toolName$extension"
+      $entry = $package.GetEntry($entryName)
+      if ($null -eq $entry) {
+        throw "The $hostRid toolchain package does not contain '$entryName'."
+      }
+      if ($hostRid -eq "linux-x64") {
+        $unixMode = ($entry.ExternalAttributes -shr 16) -band 0x1FF
+        if (($unixMode -band 0x49) -eq 0) {
+          throw "The Linux package entry '$entryName' is not executable."
+        }
+      }
+    }
+    foreach ($license in $requiredLicenses) {
+      if ($null -eq $package.GetEntry("licenses/$license")) {
+        throw "The $hostRid toolchain package does not contain license '$license'."
+      }
+    }
+  }
+  finally {
+    $package.Dispose()
+  }
+}
+
+$manifestPackageId = "Sia.Spirv.Workload.Manifest-$SdkFeatureBand"
+$manifestPackage = [IO.Compression.ZipFile]::OpenRead(
+  (Get-Package $manifestPackageId))
+try {
+  $manifestEntry = $manifestPackage.GetEntry("data/WorkloadManifest.json")
+  if ($null -eq $manifestEntry) {
+    throw "The workload manifest package does not contain WorkloadManifest.json."
+  }
+  $reader = [IO.StreamReader]::new($manifestEntry.Open())
+  try {
+    $manifest = $reader.ReadToEnd() | ConvertFrom-Json -Depth 20
+  }
+  finally {
+    $reader.Dispose()
+  }
+  if ($manifest.version -ne $PackageVersion) {
+    throw "The workload manifest version does not match '$PackageVersion'."
+  }
+  foreach ($hostRid in $HostRuntimeIdentifiers) {
+    $alias = $manifest.packs.'Sia.Spirv.Toolchain'.'alias-to'.$hostRid
+    if ($alias -ne "Sia.Spirv.Toolchain.$hostRid") {
+      throw "The workload manifest does not map '$hostRid' to its host package."
+    }
+  }
+}
+finally {
+  $manifestPackage.Dispose()
+}
+
+Write-Output "Verified managed/native package separation for $($HostRuntimeIdentifiers -join ', ')."

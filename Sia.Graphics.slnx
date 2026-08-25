@@ -1,10 +1,12 @@
 <Solution>
   <Folder Name="/SPIR-V/">
+    <Project Path="Sia.Spirv.Bootstrap/Sia.Spirv.Bootstrap.csproj" />
     <Project Path="Sia.Spirv.Core/Sia.Spirv.Core.csproj" />
     <Project Path="Sia.Spirv.Compiler.IR/Sia.Spirv.Compiler.IR.csproj" />
     <Project Path="Sia.Spirv.Compiler/Sia.Spirv.Compiler.csproj" />
     <Project Path="Sia.Spirv.Tool/Sia.Spirv.Tool.csproj" />
     <Project Path="Sia.Spirv.Sdk/Sia.Spirv.Sdk.csproj" />
+    <Project Path="Sia.Spirv.Toolchain.linux-x64/Sia.Spirv.Toolchain.linux-x64.csproj" />
     <Project Path="Sia.Spirv.Toolchain.win-x64/Sia.Spirv.Toolchain.win-x64.csproj" />
     <Project Path="Sia.Spirv.Runtime/Sia.Spirv.Runtime.csproj" />
     <Project Path="Sia.Spirv.Workload.Manifest/Sia.Spirv.Workload.Manifest.csproj" />

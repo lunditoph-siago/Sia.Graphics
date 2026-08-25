@@ -2,7 +2,9 @@
 param(
   [string]$SourceDirectory = "",
   [string]$BuildDirectory = "",
-  [string]$InstallDirectory = ""
+  [string]$InstallDirectory = "",
+  [int]$BuildJobs = 2,
+  [switch]$SkipConfigure
 )
 
 $ErrorActionPreference = "Stop"
@@ -81,12 +83,18 @@ $configureArguments = @(
   "-DLLVM_ENABLE_CURL=OFF"
 )
 
-& cmake @configureArguments
-if ($LASTEXITCODE -ne 0) {
-  throw "LLVM CMake configuration failed with exit code $LASTEXITCODE."
+if (!$SkipConfigure) {
+  & cmake @configureArguments
+  if ($LASTEXITCODE -ne 0) {
+    throw "LLVM CMake configuration failed with exit code $LASTEXITCODE."
+  }
+}
+elseif (!(Test-Path -LiteralPath (Join-Path $BuildDirectory "build.ninja"))) {
+  throw "The cached LLVM build tree '$BuildDirectory' is not configured."
 }
 
-& cmake --build $BuildDirectory --target llc opt llvm-as llvm-dis --config Release
+& cmake --build $BuildDirectory --target llc opt llvm-as llvm-dis `
+  --config Release --parallel $BuildJobs
 if ($LASTEXITCODE -ne 0) {
   throw "LLVM tool build failed with exit code $LASTEXITCODE."
 }

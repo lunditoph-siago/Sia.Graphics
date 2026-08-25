@@ -1,16 +1,19 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace Sia.Spirv.Compiler.LLVM;
 
 public sealed class LlvmToolchain
 {
+    private static readonly string ExecutableSuffix = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
+
     public LlvmToolchain(string directory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
         Directory = Path.GetFullPath(directory);
-        EnsureToolExists("llc.exe");
-        EnsureToolExists("opt.exe");
-        EnsureToolExists("spirv-val.exe");
+        EnsureToolExists(ToolName("llc"));
+        EnsureToolExists(ToolName("opt"));
+        EnsureToolExists(ToolName("spirv-val"));
     }
 
     public string Directory { get; }
@@ -24,14 +27,19 @@ public sealed class LlvmToolchain
         };
         var current = new DirectoryInfo(Environment.CurrentDirectory);
         while (current != null) {
+            candidates.Add(Path.Combine(
+                current.FullName,
+                "artifacts",
+                $"llvm-toolchain-{RuntimeInformation.RuntimeIdentifier}",
+                "bin"));
             candidates.Add(Path.Combine(current.FullName, "artifacts", "llvm-toolchain", "bin"));
             current = current.Parent;
         }
 
         foreach (var candidate in candidates.Where(static candidate => !string.IsNullOrWhiteSpace(candidate))) {
-            if (File.Exists(Path.Combine(candidate!, "llc.exe")) &&
-                File.Exists(Path.Combine(candidate!, "opt.exe")) &&
-                File.Exists(Path.Combine(candidate!, "spirv-val.exe"))) {
+            if (File.Exists(Path.Combine(candidate!, ToolName("llc"))) &&
+                File.Exists(Path.Combine(candidate!, ToolName("opt"))) &&
+                File.Exists(Path.Combine(candidate!, ToolName("spirv-val")))) {
                 return new LlvmToolchain(candidate!);
             }
         }
@@ -43,7 +51,7 @@ public sealed class LlvmToolchain
     public void Optimize(string inputPath, string outputPath)
     {
         Run(
-            "opt.exe",
+            ToolName("opt"),
             "-S",
             "-passes=mem2reg,simplifycfg",
             inputPath,
@@ -71,7 +79,7 @@ public sealed class LlvmToolchain
                 nameof(targetEnvironment))
         };
         Run(
-            "llc.exe",
+            ToolName("llc"),
             "--filetype=obj",
             $"--mtriple={triple}",
             "-O",
@@ -82,18 +90,18 @@ public sealed class LlvmToolchain
     }
 
     public void Validate(string inputPath, string targetEnvironment) =>
-        Run("spirv-val.exe", "--target-env", targetEnvironment, inputPath);
+        Run(ToolName("spirv-val"), "--target-env", targetEnvironment, inputPath);
 
     public string GetLlvmVersion()
     {
-        var output = Run("llc.exe", "--version");
+        var output = Run(ToolName("llc"), "--version");
         return output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
             .Select(static line => line.Trim())
             .FirstOrDefault(static line => line.StartsWith("LLVM version", StringComparison.Ordinal)) ??
             FirstLine(output);
     }
 
-    public string GetSpirvToolsVersion() => FirstLine(Run("spirv-val.exe", "--version"));
+    public string GetSpirvToolsVersion() => FirstLine(Run(ToolName("spirv-val"), "--version"));
 
     private string Run(string tool, params string[] arguments)
     {
@@ -137,4 +145,6 @@ public sealed class LlvmToolchain
 
     private static string FirstLine(string value) =>
         value.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
+
+    private static string ToolName(string name) => $"{name}{ExecutableSuffix}";
 }

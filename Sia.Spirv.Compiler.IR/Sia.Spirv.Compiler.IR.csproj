@@ -4,7 +4,6 @@
     <LangVersion>14</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <IsPackable>true</IsPackable>
-    <PackageId>Sia.Spirv.Compiler.IR</PackageId>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
 </Project>

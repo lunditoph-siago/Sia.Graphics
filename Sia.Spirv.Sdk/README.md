@@ -1,4 +1,4 @@
-# Sia SPIR-V first roll
+# Sia SPIR-V SDK
 
 This repository contains the first end-to-end version of the Sia C# kernel
 compiler. LLVM 23 is the only production code-generation path. The managed
@@ -38,45 +38,52 @@ SPIRV-Tools version. A second unchanged build reuses the validated artifact.
 
 ## Native toolchain
 
-The Windows x64 first roll pins these sources:
+The Windows x64 and Linux x64 toolchains pin these sources:
 
 - `dotnet/llvm-project`, branch `dotnet/main-23.x`
 - Khronos SPIRV-Tools `v2026.2`
 - the SPIRV-Headers commit recorded by SPIRV-Tools `v2026.2`
 
-Build LLVM with `Sia.Spirv.Toolchain.win-x64/BuildLLVM.ps1`, then build the
-Khronos tools with `Sia.Spirv.Toolchain.win-x64/BuildSpirvTools.ps1`. Both
-scripts install into `artifacts/llvm-toolchain`. The scripts also stage the
-upstream licenses. The prebuilt executables are delivered by
-`Sia.Spirv.Toolchain.win-x64`; the managed SDK package does not contain native
-binaries. Consumers therefore do not use a system LLVM, Vulkan SDK, or
-separately installed `spirv-val`.
+The repository owns PowerShell build entry points for Windows and shell entry
+points for Linux. CI builds both hosts from the pinned revisions, validates a
+real SPIR-V module, and publishes the executables as separate RID packages.
+The managed SDK package does not contain native binaries. Consumers therefore
+do not use a system LLVM, Vulkan SDK, or separately installed `spirv-val`.
 
 ## Workload packages
 
-Build the initial NuGet and workload packages with:
+Register and install the public workload with:
+
+```bash
+dotnet tool install --global Sia.Spirv.Bootstrap --version 0.1.0-preview.1
+dotnet spirv install
+```
+
+The bootstrap is required once because a stock .NET SDK cannot discover a new
+independent workload ID before its baseline manifest exists. It selects the
+active SDK feature band, registers the manifest, and then runs `dotnet workload
+install spirv-tools`. Re-run it after moving to a new SDK feature band.
+
+Repository builds can produce and validate the package set locally with:
 
 ```powershell
 ./Sia.Spirv.Workload.Manifest/Pack.ps1
 ```
 
-The output includes the managed `Sia.Spirv.Sdk` pack, the prebuilt
-`Sia.Spirv.Toolchain.win-x64` host pack, and the
-`Sia.Spirv.Workload.Manifest-11.0.100` manifest package. The manifest defines
-the Windows x64 `spirv-tools` workload. A stock third-party .NET installation
-does not know an independent workload ID until its feature-band manifest has
-been bootstrapped. For the workspace-local SDK, install the baseline manifest
-and then the workload from the generated package source:
+The output includes `Sia.Spirv.Core`, `Sia.Spirv.Runtime`, `Sia.Spirv.Sdk`, the
+current host's RID toolchain, the bootstrap tool, and a manifest package whose
+ID contains the active SDK feature band. The release workflow combines and
+verifies both native RID packages before publishing the manifest last.
+
+For the workspace-local SDK, a local package source can be tested with:
 
 ```powershell
-./Sia.Spirv.Workload.Manifest/Install.ps1
+./Sia.Spirv.Workload.Manifest/Install.ps1 `
+  -PackageDirectory ./artifacts/packages
 ../.dotnet/dotnet workload install spirv-tools `
   --source ./artifacts/packages `
   --skip-manifest-update
 ```
-
-The published bootstrap installer performs the first step; subsequent installs
-use the intended `dotnet workload install spirv-tools` command.
 
 CI or a project that cannot install workloads can use the NuGet fallback. Both
 references are private build dependencies; `buildTransitive` imports the same
@@ -87,7 +94,7 @@ SDK integration used by the workload:
   <PackageReference Include="Sia.Spirv.Sdk"
                     Version="0.1.0-preview.1"
                     PrivateAssets="all" />
-  <PackageReference Include="Sia.Spirv.Toolchain.win-x64"
+  <PackageReference Include="Sia.Spirv.Toolchain.$(NETCoreSdkRuntimeIdentifier)"
                     Version="0.1.0-preview.1"
                     PrivateAssets="all" />
 </ItemGroup>

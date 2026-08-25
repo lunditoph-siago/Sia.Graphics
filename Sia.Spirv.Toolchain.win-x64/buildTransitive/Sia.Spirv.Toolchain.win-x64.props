@@ -1,5 +1,5 @@
 <Project>
   <PropertyGroup>
-    <SpirvToolchainDirectory Condition="'$(SpirvToolchainDirectory)' == ''">$(MSBuildThisFileDirectory)..\tools\win-x64</SpirvToolchainDirectory>
+    <SpirvToolchainDirectory Condition="'$(SpirvToolchainDirectory)' == ''">$(MSBuildThisFileDirectory)../tools/win-x64</SpirvToolchainDirectory>
   </PropertyGroup>
 </Project>

@@ -13,9 +13,9 @@ param(
 $ErrorActionPreference = "Stop"
 $PackageDirectory = (Resolve-Path -LiteralPath $PackageDirectory).Path
 $requiredToolNames = @(
-  "llc", "opt", "llvm-as", "llvm-dis", "spirv-as", "spirv-dis",
+  "llc", "opt", "llvm-as", "llvm-dis", "naga", "spirv-as", "spirv-dis",
   "spirv-link", "spirv-opt", "spirv-val")
-$requiredLicenses = @("LLVM.txt", "SPIRV-Tools.txt", "SPIRV-Headers.txt")
+$requiredLicenses = @("LLVM.txt", "Naga.txt", "SPIRV-Tools.txt", "SPIRV-Headers.txt")
 $requiredSdkTools = @(
   "Sia.Spirv.Core.dll", "Sia.Spirv.Tool.dll", "Sia.Spirv.Tool.deps.json",
   "Sia.Spirv.Tool.runtimeconfig.json")

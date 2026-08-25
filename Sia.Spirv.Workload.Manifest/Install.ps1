@@ -3,7 +3,8 @@
 param(
   [string]$DotNetRoot = "",
   [string]$PackageDirectory = "",
-  [string]$ManifestVersion = ""
+  [Parameter(Mandatory)]
+  [string]$ManifestVersion
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,12 +19,6 @@ if ([string]::IsNullOrWhiteSpace($PackageDirectory)) {
   $PackageDirectory = Join-Path $repositoryRoot "artifacts\packages"
 }
 $PackageDirectory = (Resolve-Path -LiteralPath $PackageDirectory).Path
-if ([string]::IsNullOrWhiteSpace($ManifestVersion)) {
-  [xml]$packageProperties = Get-Content -LiteralPath (
-    Join-Path $repositoryRoot "Sia.Spirv.Packages.props")
-  $ManifestVersion = $packageProperties.Project.PropertyGroup.SiaSpirvPackageVersion.InnerText
-}
-
 $dotnetName = if ($IsWindows) { "dotnet.exe" } else { "dotnet" }
 $dotnet = Join-Path $DotNetRoot $dotnetName
 if (!(Test-Path -LiteralPath $dotnet)) {

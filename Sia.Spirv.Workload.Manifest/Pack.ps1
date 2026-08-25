@@ -4,7 +4,8 @@ param(
   [string]$Configuration = "Release",
   [string]$OutputDirectory = "",
   [string]$DotNetPath = "",
-  [string]$PackageVersion = "",
+  [Parameter(Mandatory)]
+  [string]$PackageVersion,
   [string]$SdkFeatureBand = "",
   [string[]]$HostRuntimeIdentifiers = @()
 )
@@ -22,11 +23,6 @@ if ([string]::IsNullOrWhiteSpace($DotNetPath)) {
   else {
     (Get-Command dotnet -ErrorAction Stop).Source
   }
-}
-if ([string]::IsNullOrWhiteSpace($PackageVersion)) {
-  [xml]$packageProperties = Get-Content -LiteralPath (
-    Join-Path $repositoryRoot "Sia.Spirv.Packages.props")
-  $PackageVersion = $packageProperties.Project.PropertyGroup.SiaSpirvPackageVersion.InnerText
 }
 if ([string]::IsNullOrWhiteSpace($SdkFeatureBand)) {
   $sdkVersion = (& $DotNetPath --version).Trim()
@@ -53,9 +49,9 @@ if ($HostRuntimeIdentifiers.Count -eq 0) {
 }
 
 $requiredToolNames = @(
-  "llc", "opt", "llvm-as", "llvm-dis", "spirv-as", "spirv-dis",
+  "llc", "opt", "llvm-as", "llvm-dis", "naga", "spirv-as", "spirv-dis",
   "spirv-link", "spirv-opt", "spirv-val")
-$requiredLicenses = @("LLVM.txt", "SPIRV-Tools.txt", "SPIRV-Headers.txt")
+$requiredLicenses = @("LLVM.txt", "Naga.txt", "SPIRV-Tools.txt", "SPIRV-Headers.txt")
 $toolchains = @{
   "win-x64" = @{
     Directory = "artifacts\llvm-toolchain"
@@ -104,7 +100,7 @@ foreach ($project in $projects) {
   & $DotNetPath pack (Join-Path $repositoryRoot $project) `
     --configuration $Configuration `
     --output $OutputDirectory `
-    -p:SiaSpirvPackageVersion=$PackageVersion `
+    -p:Version=$PackageVersion `
     -p:SiaSpirvSdkFeatureBand=$SdkFeatureBand `
     -p:UseSharedCompilation=false `
     -p:BuildInParallel=false

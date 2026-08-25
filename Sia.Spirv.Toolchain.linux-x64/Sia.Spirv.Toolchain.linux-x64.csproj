@@ -5,7 +5,7 @@
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
     <IsPackable>true</IsPackable>
     <PackageId>Sia.Spirv.Toolchain.linux-x64</PackageId>
-    <PackageDescription>Prebuilt LLVM 23 and Khronos SPIRV-Tools host toolchain for Linux x64.</PackageDescription>
+    <PackageDescription>Prebuilt LLVM 23, SPIRV-Tools, and Naga host toolchain for Linux x64.</PackageDescription>
   </PropertyGroup>
   <ItemGroup>
     <None Include="ToolchainManifest.json" Pack="true" PackagePath="metadata" />
@@ -17,8 +17,8 @@
     <None Include="..\artifacts\llvm-toolchain-linux-x64\licenses\*.txt"
           Pack="true"
           PackagePath="licenses" />
-    <_RequiredSpirvTool Include="llc;opt;llvm-as;llvm-dis;spirv-as;spirv-dis;spirv-link;spirv-opt;spirv-val" />
-    <_RequiredSpirvLicense Include="LLVM.txt;SPIRV-Tools.txt;SPIRV-Headers.txt" />
+    <_RequiredSpirvTool Include="llc;opt;llvm-as;llvm-dis;naga;spirv-as;spirv-dis;spirv-link;spirv-opt;spirv-val" />
+    <_RequiredSpirvLicense Include="LLVM.txt;Naga.txt;SPIRV-Tools.txt;SPIRV-Headers.txt" />
   </ItemGroup>
 
   <Target Name="ValidateSpirvToolchainPackInputs" BeforeTargets="Pack">

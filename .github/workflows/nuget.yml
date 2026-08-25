@@ -145,6 +145,12 @@ jobs:
             artifacts/spirv-tools-build-${{ matrix.rid }}
           key: spirv-native-${{ matrix.rid }}-${{ steps.native-build.outputs.fingerprint }}
 
+      - name: Cache Naga
+        uses: actions/cache@v6
+        with:
+          path: artifacts/naga-cli-${{ matrix.rid }}
+          key: naga-cli-${{ matrix.rid }}-30.0.0
+
       - name: Normalize source timestamps
         if: steps.native-cache.outputs.cache-hit == 'true'
         shell: pwsh
@@ -190,6 +196,18 @@ jobs:
           ./Sia.Spirv.Toolchain.linux-x64/BuildLLVM.sh
           ./Sia.Spirv.Toolchain.linux-x64/BuildSpirvTools.sh
 
+      - name: Build and stage Windows Naga
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./Sia.Spirv.Toolchain.win-x64/BuildNaga.ps1 `
+            -InstallDirectory artifacts/llvm-toolchain
+
+      - name: Build and stage Linux Naga
+        if: runner.os == 'Linux'
+        shell: bash
+        run: ./Sia.Spirv.Toolchain.linux-x64/BuildNaga.sh
+
       - name: Save native cache
         if: steps.native-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -225,6 +243,8 @@ jobs:
           & (Join-Path $root "spirv-val$suffix") `
             --target-env vulkan1.2 artifacts/SmokeTest.spv
           if ($LASTEXITCODE -ne 0) { throw 'spirv-val smoke test failed.' }
+          & (Join-Path $root "naga$suffix") --version
+          if ($LASTEXITCODE -ne 0) { throw 'naga smoke test failed.' }
           $bytes = [IO.File]::ReadAllBytes('artifacts/SmokeTest.spv')
           if ($bytes.Length -lt 20 -or ($bytes[0..3] -join ',') -ne '3,2,35,7') {
             throw 'The smoke output is not a SPIR-V binary.'
@@ -251,7 +271,7 @@ jobs:
               $package.FullName, [IO.Compression.ZipArchiveMode]::Update)
             try {
               foreach ($tool in @(
-                'llc', 'opt', 'llvm-as', 'llvm-dis', 'spirv-as', 'spirv-dis',
+                'llc', 'opt', 'llvm-as', 'llvm-dis', 'naga', 'spirv-as', 'spirv-dis',
                 'spirv-link', 'spirv-opt', 'spirv-val')) {
                 $archive.GetEntry("tools/linux-x64/$tool").ExternalAttributes = -2115174400
               }
@@ -397,6 +417,10 @@ jobs:
           if (($bytes[0..3] -join ',') -ne '3,2,35,7') {
             throw 'The workload output is not a SPIR-V binary.'
           }
+          $wgslModules = @(Get-ChildItem -LiteralPath $output -Filter '*.wgsl')
+          if ($wgslModules.Count -ne 1) {
+            throw "Expected one WGSL module, found $($wgslModules.Count)."
+          }
           $suffix = if ($IsWindows) { '.exe' } else { '' }
           $validator = Join-Path $env:DOTNET_ROOT (
             'packs/Sia.Spirv.Toolchain.${{ matrix.rid }}/' +
@@ -404,6 +428,12 @@ jobs:
             $suffix)
           & $validator --target-env vulkan1.2 $modules[0].FullName
           if ($LASTEXITCODE -ne 0) { throw 'Packaged spirv-val failed.' }
+          $naga = Join-Path $env:DOTNET_ROOT (
+            'packs/Sia.Spirv.Toolchain.${{ matrix.rid }}/' +
+            '${{ needs.prepare.outputs.version }}/tools/${{ matrix.rid }}/naga' +
+            $suffix)
+          & $naga $wgslModules[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged naga failed.' }
 
   release:
     if: github.ref_type == 'tag'

@@ -243,7 +243,7 @@ jobs:
             'Sia.Spirv.Toolchain.${{ matrix.rid }}.csproj'
           dotnet pack $project --configuration Release `
             --output artifacts/packages `
-            -p:PackageVersion=${{ needs.prepare.outputs.version }}
+            -p:Version=${{ needs.prepare.outputs.version }}
           if ($LASTEXITCODE -ne 0) { throw 'Native pack failed.' }
           if (!$IsWindows) {
             $package = Get-ChildItem artifacts/packages/*.nupkg | Select-Object -First 1
@@ -309,7 +309,7 @@ jobs:
           foreach ($project in $projects) {
             dotnet pack $project --configuration Release --no-restore `
               --output artifacts/packages `
-              -p:PackageVersion=${{ needs.prepare.outputs.version }} `
+              -p:Version=${{ needs.prepare.outputs.version }} `
               -p:SiaSpirvSdkFeatureBand=${{ needs.prepare.outputs.feature_band }}
             if ($LASTEXITCODE -ne 0) { throw "Packing '$project' failed." }
           }

@@ -316,13 +316,6 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
-      - name: Restore
-        shell: pwsh
-        run: |
-          dotnet restore Sia.Spirv.Bootstrap/Sia.Spirv.Bootstrap.csproj
-          dotnet restore Sia.Spirv.Sdk/Sia.Spirv.Sdk.csproj
-          dotnet restore Sia.Spirv.Workload.Manifest/Sia.Spirv.Workload.Manifest.csproj
-
       - name: Pack managed packages
         shell: pwsh
         run: |
@@ -334,7 +327,7 @@ jobs:
             'Sia.Spirv.Bootstrap/Sia.Spirv.Bootstrap.csproj',
             'Sia.Spirv.Workload.Manifest/Sia.Spirv.Workload.Manifest.csproj')
           foreach ($project in $projects) {
-            dotnet pack $project --configuration Release --no-restore `
+            dotnet pack $project --configuration Release `
               --output artifacts/packages `
               -p:Version=${{ needs.prepare.outputs.version }} `
               -p:SiaSpirvSdkFeatureBand=${{ needs.prepare.outputs.feature_band }}

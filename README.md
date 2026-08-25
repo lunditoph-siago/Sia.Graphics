@@ -3,6 +3,23 @@
 `Sia.Graphics` contains the backend-neutral render-graph IR, WebGPU lowering,
 and Sia.NET reactive integration.
 
+## Getting started
+
+Install the optional SPIR-V workload:
+
+```bash
+dotnet tool install --global Sia.Spirv.Bootstrap
+dotnet spirv install
+```
+
+Enable C# kernel compilation in the project:
+
+```xml
+<PropertyGroup>
+  <EnableSpirvCompilation>true</EnableSpirvCompilation>
+</PropertyGroup>
+```
+
 ## Reactive render graphs
 
 ```csharp

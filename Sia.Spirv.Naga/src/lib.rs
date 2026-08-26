@@ -1,6 +1,9 @@
+mod spirv_scan;
+
 use std::{mem::size_of, ptr};
 
 use naga::{
+    AddressSpace, StorageAccess,
     back::wgsl::{self, WriterFlags},
     front::spv,
     valid::{Capabilities, ValidationFlags, Validator},
@@ -138,19 +141,55 @@ pub unsafe extern "C" fn sia_spirv_context_translate(context: *mut SiaSpirvConte
 }
 
 pub fn translate_spirv_to_wgsl(spirv: &[u8]) -> Result<String, String> {
-    let module = spv::parse_u8_slice(spirv, &spv::Options::default())
+    let mut module = spv::parse_u8_slice(spirv, &spv::Options::default())
         .map_err(|error| format!("SPIR-V parsing failed: {error}"))?;
-    let info = Validator::new(ValidationFlags::all(), Capabilities::default())
+    apply_storage_access_decorations(spirv, &mut module);
+    let capabilities = Capabilities::default() | Capabilities::SHADER_FLOAT16_IN_FLOAT32;
+    let info = Validator::new(ValidationFlags::all(), capabilities)
         .validate(&module)
         .map_err(|error| format!("SPIR-V validation failed: {error}"))?;
     wgsl::write_string(&module, &info, WriterFlags::empty())
         .map_err(|error| format!("WGSL generation failed: {error}"))
 }
 
+/// naga's SPIR-V front end drops the `NonWritable` decoration when it
+/// lowers a binding into [`naga::AddressSpace::Storage`], so a
+/// `ReadOnlyStorageBuffer<T>` round-trips through naga as a writable
+/// `var<storage, read_write>` in the emitted WGSL. wgpu then rejects
+/// binding a `read-only-storage` buffer to it. This recovers which
+/// (descriptor set, binding) pairs were declared `NonWritable` in the
+/// raw module (see [`spirv_scan`]) and reapplies that onto naga's own
+/// module before it gets written out as WGSL.
+fn apply_storage_access_decorations(spirv: &[u8], module: &mut naga::Module) {
+    // naga already accepted this module, so `decode_words`/`scan`
+    // should never actually return `None` here; the early-outs just
+    // mean this stays a no-op instead of panicking if that changes.
+    let Some(words) = spirv_scan::decode_words(spirv) else {
+        return;
+    };
+    let Some(annotations) = spirv_scan::scan(&words) else {
+        return;
+    };
+    let read_only_bindings = spirv_scan::read_only_bindings(&annotations);
+
+    for (_, variable) in module.global_variables.iter_mut() {
+        let Some(binding) = &variable.binding else {
+            continue;
+        };
+        if !read_only_bindings.contains(&(binding.group, binding.binding)) {
+            continue;
+        }
+        if let AddressSpace::Storage { access } = &mut variable.space {
+            *access &= !StorageAccess::STORE;
+        }
+    }
+}
+
 pub fn validate_wgsl(source: &str) -> Result<(), String> {
     let module = naga::front::wgsl::parse_str(source)
         .map_err(|error| format!("WGSL parsing failed: {error}"))?;
-    Validator::new(ValidationFlags::all(), Capabilities::default())
+    let capabilities = Capabilities::default() | Capabilities::SHADER_FLOAT16_IN_FLOAT32;
+    Validator::new(ValidationFlags::all(), capabilities)
         .validate(&module)
         .map_err(|error| format!("WGSL validation failed: {error}"))?;
     Ok(())
@@ -159,6 +198,100 @@ pub fn validate_wgsl(source: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A minimal Vulkan 1.2 (SPIR-V 1.5) compute module with a single
+    /// storage buffer resource at (set 0, binding 0) whose sole member
+    /// is decorated `NonWritable` — the shape the LLVM SPIR-V backend
+    /// emits for `Sia.Spirv.ReadOnlyStorageBuffer<T>`. Assembled with
+    /// `spirv-as --target-env spv1.5` from:
+    ///
+    /// ```text
+    /// OpCapability Shader
+    /// OpMemoryModel Logical GLSL450
+    /// OpEntryPoint GLCompute %main "main"
+    /// OpExecutionMode %main LocalSize 1 1 1
+    /// OpDecorate %runtimearr_uint ArrayStride 4
+    /// OpDecorate %block Block
+    /// OpMemberDecorate %block 0 Offset 0
+    /// OpMemberDecorate %block 0 NonWritable
+    /// OpDecorate %var DescriptorSet 0
+    /// OpDecorate %var Binding 0
+    /// %void = OpTypeVoid
+    /// %func_void = OpTypeFunction %void
+    /// %uint = OpTypeInt 32 0
+    /// %runtimearr_uint = OpTypeRuntimeArray %uint
+    /// %block = OpTypeStruct %runtimearr_uint
+    /// %ptr_storage_block = OpTypePointer StorageBuffer %block
+    /// %var = OpVariable %ptr_storage_block StorageBuffer
+    /// %main = OpFunction %void None %func_void
+    /// %entry = OpLabel
+    /// OpReturn
+    /// OpFunctionEnd
+    /// ```
+    const READONLY_STORAGE_BUFFER_SPIRV_WORDS: &[u32] = &[
+        0x07230203, 0x00010500, 0x00070000, 0x0000000a, 0x00000000, 0x00020011, 0x00000001,
+        0x0003000e, 0x00000000, 0x00000001, 0x0005000f, 0x00000005, 0x00000001, 0x6e69616d,
+        0x00000000, 0x00060010, 0x00000001, 0x00000011, 0x00000001, 0x00000001, 0x00000001,
+        0x00040047, 0x00000002, 0x00000006, 0x00000004, 0x00030047, 0x00000003, 0x00000002,
+        0x00050048, 0x00000003, 0x00000000, 0x00000023, 0x00000000, 0x00040048, 0x00000003,
+        0x00000000, 0x00000018, 0x00040047, 0x00000004, 0x00000022, 0x00000000, 0x00040047,
+        0x00000004, 0x00000021, 0x00000000, 0x00020013, 0x00000005, 0x00030021, 0x00000006,
+        0x00000005, 0x00040015, 0x00000007, 0x00000020, 0x00000000, 0x0003001d, 0x00000002,
+        0x00000007, 0x0003001e, 0x00000003, 0x00000002, 0x00040020, 0x00000008, 0x0000000c,
+        0x00000003, 0x0004003b, 0x00000008, 0x00000004, 0x0000000c, 0x00050036, 0x00000005,
+        0x00000001, 0x00000000, 0x00000006, 0x000200f8, 0x00000009, 0x000100fd, 0x00010038,
+    ];
+
+    fn readonly_storage_buffer_spirv() -> Vec<u8> {
+        READONLY_STORAGE_BUFFER_SPIRV_WORDS
+            .iter()
+            .flat_map(|word| word.to_le_bytes())
+            .collect()
+    }
+
+    #[test]
+    fn naga_drops_non_writable_on_its_own() {
+        // Documents the naga behavior `apply_storage_access_decorations`
+        // exists to work around: parsing this fixture with no patching
+        // yields a writable `AddressSpace::Storage`, even though the
+        // module decorates the buffer's only member `NonWritable`. If
+        // this assertion ever fails, naga started preserving the
+        // decoration itself and the workaround can be deleted.
+        let spirv = readonly_storage_buffer_spirv();
+        let module = spv::parse_u8_slice(&spirv, &spv::Options::default())
+            .expect("fixture module should parse");
+        let (_, variable) = module
+            .global_variables
+            .iter()
+            .next()
+            .expect("fixture declares exactly one global variable");
+        let AddressSpace::Storage { access } = variable.space else {
+            panic!("fixture variable should be in the Storage address space");
+        };
+        assert!(
+            access.contains(StorageAccess::STORE),
+            "expected naga to (incorrectly) report the buffer as writable"
+        );
+    }
+
+    #[test]
+    fn translate_spirv_to_wgsl_marks_non_writable_buffer_read_only() {
+        // naga's WGSL writer never spells out `read` explicitly for a
+        // storage buffer: a bare `var<storage>` (no access qualifier)
+        // *is* its read-only form, per the WGSL default; it only ever
+        // writes out `read_write` or `atomic` explicitly. So proving
+        // the fix worked means proving neither of those appears.
+        let spirv = readonly_storage_buffer_spirv();
+        let wgsl = translate_spirv_to_wgsl(&spirv).expect("fixture module should translate");
+        assert!(
+            wgsl.contains("var<storage>"),
+            "expected a bare (read-only) storage buffer declaration in:\n{wgsl}"
+        );
+        assert!(
+            !wgsl.contains("read_write") && !wgsl.contains("atomic"),
+            "expected no writable storage buffer declaration in:\n{wgsl}"
+        );
+    }
 
     #[test]
     fn abi_reports_translation_errors() {

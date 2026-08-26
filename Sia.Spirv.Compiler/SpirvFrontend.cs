@@ -29,6 +29,8 @@ public sealed class SpirvFrontend
         }
 
         var reader = peReader.GetMetadataReader();
+        using var intrinsics = IntrinsicCatalog.Open(assemblyPath);
+        var resolver = new CilCallResolver(reader, intrinsics);
         var kernels = new List<SpirvKernel>();
         var diagnostics = new List<SpirvDiagnostic>();
         foreach (var typeHandle in reader.TypeDefinitions) {
@@ -62,7 +64,8 @@ public sealed class SpirvFrontend
                         "The kernel method body does not contain CIL bytes.");
                     var instructions = CilInstructionDecoder.Decode(il);
                     var graph = CilControlFlowGraph.Create(instructions, il.Length);
-                    new CilStackAnalyzer(reader, methodHandle).Validate(graph);
+                    var view = new ShaderCilView(graph, resolver);
+                    new CilStackAnalyzer(reader, methodHandle).Validate(view);
 
                     if (body.ExceptionRegions.Length != 0) {
                         diagnostics.Add(new SpirvDiagnostic(
@@ -72,7 +75,7 @@ public sealed class SpirvFrontend
                             qualifiedName));
                     }
 
-                    SpirvLegalityAnalyzer.Analyze(qualifiedName, graph, diagnostics);
+                    SpirvLegalityAnalyzer.Analyze(qualifiedName, view, diagnostics);
                     kernels.Add(new SpirvKernel(
                         declaringType,
                         methodName,

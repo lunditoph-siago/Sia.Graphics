@@ -1,6 +1,6 @@
 namespace Sia.Spirv.Compiler.Metadata;
 
-internal sealed record KernelType(
+public sealed record KernelType(
     string Name,
     KernelType? ElementType = null,
     bool IsByReference = false)

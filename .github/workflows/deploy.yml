@@ -30,6 +30,11 @@ jobs:
         with:
           dotnet-version: 11.x
 
+      - name: Install SPIR-V workload
+        run: |
+          dotnet tool install --global Sia.Spirv.Bootstrap
+          dotnet spirv install
+
       - name: Restore WebAssembly workload
         run: dotnet workload restore "$EXAMPLES_PROJECT"
 

@@ -464,11 +464,16 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $projects = @(
+            'Sia.Graphics/Sia.Graphics.csproj',
+            'Sia.RenderGraph/Sia.RenderGraph.csproj',
             'Sia.Spirv.Core/Sia.Spirv.Core.csproj',
             'Sia.Spirv.Runtime/Sia.Spirv.Runtime.csproj',
             'Sia.Spirv.Sdk/Sia.Spirv.Sdk.csproj',
             'Sia.Spirv.Bootstrap/Sia.Spirv.Bootstrap.csproj',
-            'Sia.Spirv.Workload.Manifest/Sia.Spirv.Workload.Manifest.csproj')
+            'Sia.Spirv.Workload.Manifest/Sia.Spirv.Workload.Manifest.csproj',
+            'Sia.WebGPU/Sia.WebGPU.csproj',
+            'Sia.WebGPU.Generators/Sia.WebGPU.Generators.csproj',
+            'Sia.WebGPU.Native/Sia.WebGPU.Native.csproj')
           foreach ($project in $projects) {
             dotnet pack $project --configuration Release `
               --output artifacts/packages `
@@ -477,8 +482,8 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "Packing '$project' failed." }
           }
           $packages = @(Get-ChildItem artifacts/packages/*.nupkg)
-          if ($packages.Count -ne 5) {
-            throw "Expected five managed packages, found $($packages.Count)."
+          if ($packages.Count -ne 10) {
+            throw "Expected ten managed packages, found $($packages.Count)."
           }
 
       - name: Upload managed packages
@@ -880,13 +885,18 @@ jobs:
           $version = '${{ needs.prepare.outputs.version }}'
           $featureBand = '${{ needs.prepare.outputs.feature_band }}'
           $packageIds = @(
+            'Sia.Graphics',
+            'Sia.RenderGraph',
             'Sia.Spirv.Core',
             'Sia.Spirv.Runtime',
             'Sia.Spirv.Sdk',
             'Sia.Spirv.Bootstrap',
             'Sia.Spirv.Toolchain.win-x64',
             'Sia.Spirv.Toolchain.linux-x64',
-            "Sia.Spirv.Workload.Manifest-$featureBand")
+            "Sia.Spirv.Workload.Manifest-$featureBand",
+            'Sia.WebGPU',
+            'Sia.WebGPU.Generators',
+            'Sia.WebGPU.Native')
           foreach ($packageId in $packageIds) {
             $package = "artifacts/packages/$packageId.$version.nupkg"
             dotnet nuget push $package `

@@ -28,10 +28,9 @@ public static unsafe partial class Wgpu
 
     public static WgpuHandle<WGPUInstance> CreateSpirvInstance()
     {
-        if (OperatingSystem.IsBrowser()) {
-            return CreateInstance();
-        }
-
+#if BROWSER
+        return CreateInstance();
+#else
         var feature = WGPUInstanceFeatureName.ShaderSourceSPIRV;
         var descriptor = new WGPUInstanceDescriptor {
             NextInChain = null,
@@ -40,6 +39,7 @@ public static unsafe partial class Wgpu
             RequiredLimits = null,
         };
         return CreateInstance(in descriptor);
+#endif
     }
 
     public static WgpuHandle<WGPUInstance> CreateInstance(in WGPUInstanceDescriptor descriptor)

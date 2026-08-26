@@ -32,7 +32,8 @@ internal sealed class UiRenderCache : IAddon
         changes.ConsumeRenderDirtyEntities(_dirtyEntities);
         if (_preparedStructureVersion != changes.RenderStructureVersion) {
             Rebuild();
-        } else {
+        }
+        else {
             foreach (var entity in _dirtyEntities) {
                 UiExtraction.Extract(entity, _entityNodes);
                 if (!_store.Update(entity, _entityNodes)) {

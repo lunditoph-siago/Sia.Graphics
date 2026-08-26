@@ -21,7 +21,8 @@ internal static partial class FlexboxLayout
                 ctx.Lines.Add(new FlexLine { Items = current });
                 current = [i];
                 used = outer;
-            } else {
+            }
+            else {
                 current.Add(i);
                 used = withGap;
             }
@@ -71,7 +72,8 @@ internal static partial class FlexboxLayout
                     var item = span[indices[k]];
                     if (frozen[k]) {
                         usedByFrozen += item.TargetMainSize + item.MarginMainSum;
-                    } else {
+                    }
+                    else {
                         basisUnfrozen += item.HypotheticalMainSize + item.MarginMainSum;
                         growSum += item.Style.FlexGrow;
                         shrinkSum += item.Style.FlexShrink * item.HypotheticalMainSize;

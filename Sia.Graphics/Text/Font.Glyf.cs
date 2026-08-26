@@ -48,7 +48,8 @@ public sealed partial class Font
             var start = (uint)reader.ReadUInt16() * 2;
             var end = (uint)reader.ReadUInt16() * 2;
             return (start, end);
-        } else {
+        }
+        else {
             if ((glyphId + 2) * 4 > loca.Length)
                 return (0, 0);
             var reader = new BigEndianReader(loca) { Position = glyphId * 4 };
@@ -107,7 +108,8 @@ public sealed partial class Font
             if ((flag & 0x02) != 0) { // X_SHORT_VECTOR
                 var delta = reader.ReadUInt8();
                 x += (flag & 0x10) != 0 ? delta : -delta;
-            } else if ((flag & 0x10) == 0) { // not short, not "same" => signed 16-bit delta
+            }
+            else if ((flag & 0x10) == 0) { // not short, not "same" => signed 16-bit delta
                 x += reader.ReadInt16();
             }
             xs[i] = x;
@@ -120,7 +122,8 @@ public sealed partial class Font
             if ((flag & 0x04) != 0) { // Y_SHORT_VECTOR
                 var delta = reader.ReadUInt8();
                 y += (flag & 0x20) != 0 ? delta : -delta;
-            } else if ((flag & 0x20) == 0) {
+            }
+            else if ((flag & 0x20) == 0) {
                 y += reader.ReadInt16();
             }
             ys[i] = y;
@@ -157,7 +160,8 @@ public sealed partial class Font
                 var a1 = reader.ReadInt16();
                 var a2 = reader.ReadInt16();
                 if ((flags & argsAreXy) != 0) { dx = a1; dy = a2; }
-            } else {
+            }
+            else {
                 var a1 = reader.ReadInt8();
                 var a2 = reader.ReadInt8();
                 if ((flags & argsAreXy) != 0) { dx = a1; dy = a2; }
@@ -165,10 +169,12 @@ public sealed partial class Font
 
             if ((flags & haveScale) != 0) {
                 reader.ReadInt16();
-            } else if ((flags & haveXyScale) != 0) {
+            }
+            else if ((flags & haveXyScale) != 0) {
                 reader.ReadInt16();
                 reader.ReadInt16();
-            } else if ((flags & haveTwoByTwo) != 0) {
+            }
+            else if ((flags & haveTwoByTwo) != 0) {
                 reader.ReadInt16();
                 reader.ReadInt16();
                 reader.ReadInt16();

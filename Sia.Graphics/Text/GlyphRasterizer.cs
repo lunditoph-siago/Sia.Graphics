@@ -61,7 +61,8 @@ public static class GlyphRasterizer
         if (startIndex < 0) {
             start = Midpoint(points[0], points[1]);
             firstOffCurveIndex = 0;
-        } else {
+        }
+        else {
             start = points[startIndex];
             firstOffCurveIndex = (startIndex + 1) % points.Count;
         }
@@ -79,14 +80,16 @@ public static class GlyphRasterizer
                 current = point;
                 i = (i + 1) % n;
                 visited++;
-            } else {
+            }
+            else {
                 var next = points[(i + 1) % n];
                 GlyphPoint end;
                 var consumedNext = false;
                 if (next.OnCurve) {
                     end = next;
                     consumedNext = true;
-                } else {
+                }
+                else {
                     end = Midpoint(point, next);
                 }
                 AppendQuadratic(result, current, point, end, scale);

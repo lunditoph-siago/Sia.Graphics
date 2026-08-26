@@ -81,7 +81,8 @@ internal static partial class GridLayout
                         => MathF.Max(track.GrowthLimit, maxMeasured),
                     _ => track.GrowthLimit
                 };
-            } else {
+            }
+            else {
                 var existing = 0f;
                 var eligibleCount = 0;
                 for (var i = start; i < start + span; i++) {
@@ -137,7 +138,8 @@ internal static partial class GridLayout
                 if (capacity <= share) {
                     free -= capacity;
                     tracks[idx].BaseSize = tracks[idx].GrowthLimit;
-                } else {
+                }
+                else {
                     tracks[idx].BaseSize += share;
                     free -= share;
                     stillEligible.Add(idx);

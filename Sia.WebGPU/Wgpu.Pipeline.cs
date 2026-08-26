@@ -50,17 +50,15 @@ public static unsafe partial class Wgpu
             BinaryPrimitives.ReadUInt32LittleEndian(spirv) != 0x07230203) {
             throw new ArgumentException("The shader is not a valid SPIR-V binary module.", nameof(spirv));
         }
-        if (OperatingSystem.IsBrowser()) {
 #if BROWSER
-            return CreateWgslShaderModule(device, TranslateSpirvToWgsl(spirv.ToArray()), label);
+        return CreateWgslShaderModule(device, TranslateSpirvToWgsl(spirv.ToArray()), label);
 #else
-            throw new PlatformNotSupportedException("The browser SPIR-V polyfill is only available for browser targets.");
-#endif
-        }
         if (!BitConverter.IsLittleEndian) {
-            throw new PlatformNotSupportedException("SPIR-V bytecode loading requires a little-endian host.");
+            throw new PlatformNotSupportedException(
+                "SPIR-V bytecode loading requires a little-endian host.");
         }
         return CreateSpirvShaderModule(device, MemoryMarshal.Cast<byte, uint>(spirv), label);
+#endif
     }
 
     public static WgpuHandle<WGPUShaderModule> CreateSpirvShaderModule(
@@ -71,15 +69,12 @@ public static unsafe partial class Wgpu
         if (spirv.Length < 5 || spirv[0] != 0x07230203) {
             throw new ArgumentException("The shader is not a valid SPIR-V binary module.", nameof(spirv));
         }
-        if (OperatingSystem.IsBrowser()) {
 #if BROWSER
-            var bytes = MemoryMarshal.AsBytes(spirv).ToArray();
-            return CreateWgslShaderModule(device, TranslateSpirvToWgsl(bytes), label);
+        return CreateWgslShaderModule(
+            device,
+            TranslateSpirvToWgsl(MemoryMarshal.AsBytes(spirv).ToArray()),
+            label);
 #else
-            throw new PlatformNotSupportedException("The browser SPIR-V polyfill is only available for browser targets.");
-#endif
-        }
-
         using var labelString = WgpuOwnedString.Create(label);
         fixed (uint* code = spirv) {
             var source = new WGPUShaderSourceSPIRV {
@@ -96,16 +91,8 @@ public static unsafe partial class Wgpu
             };
             return CreateShaderModule(device, in descriptor);
         }
+#endif
     }
-
-    public static WgpuHandle<WGPUShaderModule> CreatePortableShaderModule(
-        WgpuHandle<WGPUDevice> device,
-        ReadOnlySpan<byte> spirv,
-        string wgsl,
-        string? label = null) =>
-        OperatingSystem.IsBrowser()
-            ? CreateWgslShaderModule(device, wgsl, label)
-            : CreateSpirvShaderModule(device, spirv, label);
 
     public static WgpuHandle<WGPUBindGroupLayout> CreateBindGroupLayout(
         WgpuHandle<WGPUDevice> device,

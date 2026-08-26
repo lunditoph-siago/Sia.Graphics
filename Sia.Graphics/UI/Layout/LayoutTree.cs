@@ -18,7 +18,8 @@ public sealed class LayoutTree
             _children.Add([]);
             _measures.Add(measure);
             _results.Add(LayoutResult.Zero);
-        } else {
+        }
+        else {
             _styles[id.Value] = style;
             _children[id.Value].Clear();
             _measures[id.Value] = measure;

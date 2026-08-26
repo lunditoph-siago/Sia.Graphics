@@ -32,14 +32,16 @@ public static class WgslConditionalCompiler
             if (isDirective) {
                 ProcessDirectiveLine(trimmed, scopes, defs, lineNo, diagnostics);
                 sb.AppendLine();
-            } else {
+            }
+            else {
                 var active = scopes.Count == 0 || scopes.All(s => s.IsActive);
                 if (active) {
                     var line = rawLine.ToString();
                     if (defNames.Count > 0)
                         line = SubstituteDefs(line, defs);
                     sb.AppendLine(line);
-                } else {
+                }
+                else {
                     sb.AppendLine();
                 }
             }
@@ -80,24 +82,31 @@ public static class WgslConditionalCompiler
         if (normalized.StartsWith("#ifdef ")) {
             var name = normalized["#ifdef ".Length..].Trim();
             EnterScope(scopes, defs.ContainsKey(name), lineNo);
-        } else if (normalized.StartsWith("#ifndef ")) {
+        }
+        else if (normalized.StartsWith("#ifndef ")) {
             var name = normalized["#ifndef ".Length..].Trim();
             EnterScope(scopes, !defs.ContainsKey(name), lineNo);
-        } else if (normalized.StartsWith("#if ")) {
+        }
+        else if (normalized.StartsWith("#if ")) {
             var cond = normalized["#if ".Length..].Trim();
             EnterScope(scopes, EvaluateIf(cond, defs), lineNo);
-        } else if (normalized.StartsWith("#else ifdef ")) {
+        }
+        else if (normalized.StartsWith("#else ifdef ")) {
             var name = normalized["#else ifdef ".Length..].Trim();
             EnterElseBranch(scopes, defs.ContainsKey(name));
-        } else if (normalized.StartsWith("#else ifndef ")) {
+        }
+        else if (normalized.StartsWith("#else ifndef ")) {
             var name = normalized["#else ifndef ".Length..].Trim();
             EnterElseBranch(scopes, !defs.ContainsKey(name));
-        } else if (normalized.StartsWith("#else if ")) {
+        }
+        else if (normalized.StartsWith("#else if ")) {
             var cond = normalized["#else if ".Length..].Trim();
             EnterElseBranch(scopes, EvaluateIf(cond, defs));
-        } else if (normalized == "#else" || normalized.StartsWith("#else ")) {
+        }
+        else if (normalized == "#else" || normalized.StartsWith("#else ")) {
             EnterElseBranch(scopes, true);
-        } else if (normalized.StartsWith("#endif")) {
+        }
+        else if (normalized.StartsWith("#endif")) {
             if (scopes.Count > 0)
                 scopes.Pop();
             else {

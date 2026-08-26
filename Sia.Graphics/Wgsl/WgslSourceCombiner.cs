@@ -70,7 +70,8 @@ public static class WgslSourceCombiner
             if (!line.IsEmpty &&
                 (line.StartsWith("enable ") || line.StartsWith("requires ") || line.StartsWith("diagnostic "))) {
                 sb.AppendLine();
-            } else {
+            }
+            else {
                 sb.AppendLine(rawLine.ToString());
             }
         }

@@ -35,7 +35,8 @@ internal sealed class WgslFileSystemImportResolver
                 _cache[resolvedPath] = source;
                 _pathToModuleName[resolvedPath] = resolvedPath;
             }
-        } else {
+        }
+        else {
             // Module path like "dumb::pbr_types" — find file with matching #define_import_path
             _moduleRegistry ??= BuildModuleRegistry();
 
@@ -43,7 +44,8 @@ internal sealed class WgslFileSystemImportResolver
                 source = File.ReadAllText(modulePath);
                 _cache[importPath] = source;
                 _cache[modulePath] = source;
-            } else {
+            }
+            else {
                 source = null;
                 _cache[importPath] = null;
             }
@@ -83,11 +85,13 @@ internal sealed class WgslFileSystemImportResolver
                     var directives = WgslDirectiveParser.Parse(content);
                     if (directives.ImportPath != null)
                         registry[directives.ImportPath] = wgslFile;
-                } catch {
+                }
+                catch {
                     // Skip files that can't be read
                 }
             }
-        } catch {
+        }
+        catch {
             // Directory scan failed — empty registry
         }
         return registry;

@@ -57,32 +57,40 @@ public static class WgslDirectiveParser
             var arg = line["#import ".Length..].TrimStart();
             var (path, items, alias) = ParseImportArg(arg);
             imports.Add(new WgslImportDirective(path, items, alias, lineNo));
-        } else if (line.StartsWith("#define_import_path ")) {
+        }
+        else if (line.StartsWith("#define_import_path ")) {
             importPath = line["#define_import_path ".Length..].Trim().ToString();
-        } else if (line.StartsWith("#define ")) {
+        }
+        else if (line.StartsWith("#define ")) {
             var def = line["#define ".Length..].Trim();
             var spaceIdx = def.IndexOf(' ');
             if (spaceIdx > 0) {
                 var name = def[..spaceIdx].ToString();
                 var value = def[(spaceIdx + 1)..].Trim().ToString();
                 defines[name] = value;
-            } else {
+            }
+            else {
                 defines[def.ToString()] = "";
             }
-        } else if (line.StartsWith("#ifdef ")) {
+        }
+        else if (line.StartsWith("#ifdef ")) {
             var name = line["#ifdef ".Length..].Trim().ToString();
             conditionals.Add(new WgslConditionalDirective(WgslConditionalKind.Ifdef, name, null, null, lineNo));
-        } else if (line.StartsWith("#ifndef ")) {
+        }
+        else if (line.StartsWith("#ifndef ")) {
             var name = line["#ifndef ".Length..].Trim().ToString();
             conditionals.Add(new WgslConditionalDirective(WgslConditionalKind.Ifndef, name, null, null, lineNo));
-        } else if (line.StartsWith("#if ")) {
+        }
+        else if (line.StartsWith("#if ")) {
             var cond = line["#if ".Length..].Trim().ToString();
             var parts = ParseIfCondition(cond);
             conditionals.Add(new WgslConditionalDirective(
                 WgslConditionalKind.If, parts.name, parts.op, parts.value, lineNo));
-        } else if (line.StartsWith("#else")) {
+        }
+        else if (line.StartsWith("#else")) {
             conditionals.Add(new WgslConditionalDirective(WgslConditionalKind.Else, null, null, null, lineNo));
-        } else if (line.StartsWith("#endif")) {
+        }
+        else if (line.StartsWith("#endif")) {
             conditionals.Add(new WgslConditionalDirective(WgslConditionalKind.Endif, null, null, null, lineNo));
         }
     }

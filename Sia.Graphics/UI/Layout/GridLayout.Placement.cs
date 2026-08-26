@@ -48,7 +48,8 @@ internal static partial class GridLayout
                 Occupy(occupied, rowStart, rowSpan, c, colSpan);
                 maxRow = System.Math.Max(maxRow, rowStart + rowSpan - 1);
                 maxCol = System.Math.Max(maxCol, c + colSpan - 1);
-            } else if (!rowDef && colDef) {
+            }
+            else if (!rowDef && colDef) {
                 var r = FindFreeSecondary(occupied, primaryFixed: colStart, primarySpan: colSpan, secondarySpan: rowSpan,
                     primaryIsRow: false);
                 span[i].RowStart = r; span[i].RowSpan = rowSpan;
@@ -56,13 +57,15 @@ internal static partial class GridLayout
                 Occupy(occupied, r, rowSpan, colStart, colSpan);
                 maxRow = System.Math.Max(maxRow, r + rowSpan - 1);
                 maxCol = System.Math.Max(maxCol, colStart + colSpan - 1);
-            } else {
+            }
+            else {
                 int r, c;
                 if (rowFlow) {
                     var colBound = System.Math.Max(explicitCols, colSpan);
                     (r, c) = FindFreeCellScan(occupied, cursorRow, cursorCol, colSpan, rowSpan, colBound, rowMajor: true);
                     cursorRow = r; cursorCol = c + colSpan;
-                } else {
+                }
+                else {
                     var rowBound = System.Math.Max(explicitRows, rowSpan);
                     (r, c) = FindFreeCellScan(occupied, cursorRow, cursorCol, rowSpan, colSpan, rowBound, rowMajor: false);
                     cursorCol = c; cursorRow = r + rowSpan;

@@ -59,7 +59,7 @@ internal sealed partial class CornellBoxApp
                 Resizable: true),
             new GlfwWindowOptions(ClientApi.NoApi));
 
-        _instance = Wgpu.CreateInstance();
+        _instance = Wgpu.CreateSpirvInstance();
         _surface = CreateSurface(_instance, _window);
 
         _adapter = await RequestBrowserAdapterAsync();

@@ -75,7 +75,8 @@ internal static partial class FlexboxLayout
         float leading = 0f, between = 0f, autoShare = 0f;
         if (autoMarginSlots > 0 && freeMain > 0f) {
             autoShare = freeMain / autoMarginSlots;
-        } else {
+        }
+        else {
             (leading, between) = DistributeSpace(ctx.ContainerStyle.JustifyContent, freeMain, indices.Count);
         }
 
@@ -100,7 +101,8 @@ internal static partial class FlexboxLayout
             if (crossAutoSlots > 0 && freeInLineCross > 0f) {
                 var share = freeInLineCross / crossAutoSlots;
                 crossPos = line.CrossOffset + (item.MarginCrossAutoStart ? share : marginCrossStart);
-            } else {
+            }
+            else {
                 var offset = align switch {
                     AlignItems.End or AlignItems.FlexEnd => freeInLineCross,
                     AlignItems.Center => freeInLineCross / 2f,

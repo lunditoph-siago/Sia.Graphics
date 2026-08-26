@@ -112,9 +112,11 @@ public sealed class LlvmIrEmitter
             if (!terminated) {
                 if (block.Successors.Count == 1) {
                     EmitLine($"br label %bb{block.Successors[0]}");
-                } else if (block.Successors.Count == 0) {
+                }
+                else if (block.Successors.Count == 0) {
                     EmitLine("ret void");
-                } else {
+                }
+                else {
                     throw CreateUnsupported(
                         block.Instructions[^1].Offset,
                         "A basic block with multiple successors requires an explicit conditional branch.");
@@ -249,7 +251,8 @@ public sealed class LlvmIrEmitter
             prologue.Append("  ").Append(pushConstantValue)
                 .Append(" = load %sia.push.constants, ptr addrspace(13) @sia.push.constants, align 4")
                 .AppendLine();
-        } else if (hasPushConstants) {
+        }
+        else if (hasPushConstants) {
             parameterHandle = NextValue("parameters");
             prologue.Append("  ").Append(parameterHandle).Append(" = call ")
                 .Append(GetParameterTargetType()).Append(" @llvm.spv.resource.handlefrombinding.")
@@ -273,14 +276,16 @@ public sealed class LlvmIrEmitter
                     .Append(parameter.Position).AppendLine(")");
                 values[parameter.Position] = new LlvmValue(value, type);
                 binding++;
-            } else {
+            }
+            else {
                 var type = GetScalarType(parameter.ScalarType);
                 string value;
                 if (_kernelAbi == SpirvKernelAbi.Vulkan) {
                     value = NextValue(SanitizeIdentifier(parameter.Name));
                     prologue.Append("  ").Append(value).Append(" = extractvalue %sia.push.constants ")
                         .Append(pushConstantValue).Append(", ").Append(pushConstantIndex).AppendLine();
-                } else {
+                }
+                else {
                     var identifier = SanitizeIdentifier(parameter.Name);
                     var pointer = NextValue($"{identifier}.pointer");
                     var word = NextValue($"{identifier}.word");
@@ -294,7 +299,8 @@ public sealed class LlvmIrEmitter
                         value = NextValue(identifier);
                         prologue.Append("  ").Append(value).Append(" = bitcast i32 ")
                             .Append(word).AppendLine(" to float");
-                    } else {
+                    }
+                    else {
                         value = word;
                     }
                 }
@@ -782,12 +788,14 @@ public sealed class LlvmIrEmitter
             declaringType = GetTypeName(reader, reference.Parent);
             name = reader.GetString(reference.Name);
             signature = reference.DecodeMethodSignature(new KernelTypeProvider(), genericContext: null);
-        } else if (handle.Kind == HandleKind.MethodDefinition) {
+        }
+        else if (handle.Kind == HandleKind.MethodDefinition) {
             var definition = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
             declaringType = MetadataNames.GetTypeName(reader, definition.GetDeclaringType());
             name = reader.GetString(definition.Name);
             signature = definition.DecodeSignature(new KernelTypeProvider(), genericContext: null);
-        } else {
+        }
+        else {
             throw new InvalidDataException($"Token 0x{token:x8} is not a method.");
         }
 

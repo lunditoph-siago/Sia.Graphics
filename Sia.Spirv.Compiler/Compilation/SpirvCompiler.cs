@@ -104,7 +104,8 @@ public sealed class SpirvCompiler
             catch (Exception exception) when (exception is InvalidDataException or IOException) {
                 throw new SpirvCompilationException(
                     $"Failed to compile '{kernel.QualifiedName}':{Environment.NewLine}{exception.Message}");
-            } finally {
+            }
+            finally {
                 File.Delete(rawLlvmPath);
             }
 
@@ -156,7 +157,8 @@ public sealed class SpirvCompiler
                     GetScalarName(parameter.ScalarType),
                     0,
                     binding++));
-            } else {
+            }
+            else {
                 pushConstants.Add(new SpirvManifestPushConstant(
                     parameter.Name,
                     GetScalarName(parameter.ScalarType),

@@ -71,7 +71,8 @@ public sealed class UiRenderer(UiPipeline pipeline)
                 Wgpu.WriteBuffer(queue, _paintOrderBuffer.GetWgpu<WGPUBuffer>(), 0, paintOrder);
             }
             _uploadedVersion = cache.PreparedVersion;
-        } else if (!_primitiveBuffer.IsValid || !_paintOrderBuffer.IsValid) {
+        }
+        else if (!_primitiveBuffer.IsValid || !_paintOrderBuffer.IsValid) {
             EnsurePrimitiveBufferCapacity(world, _primitiveStride);
             EnsurePaintOrderBufferCapacity(world, sizeof(uint));
         }

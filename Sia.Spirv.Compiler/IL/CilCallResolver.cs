@@ -58,7 +58,8 @@ public sealed class CilCallResolver(MetadataReader reader, IntrinsicCatalog intr
             throw new InvalidDataException($"Token 0x{token:x8} is not a method.");
         }
 
-        var intrinsic = intrinsics.Resolve(declaringType, name, signature);
+        var intrinsic = MathBinding.Resolve(declaringType, name, signature)
+            ?? intrinsics.Resolve(declaringType, name, signature);
         return new ResolvedCall(declaringType, name, signature, intrinsic);
     }
 

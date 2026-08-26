@@ -6,9 +6,8 @@ namespace Sia.Spirv.Compiler.IL;
 
 /// <summary>
 /// The identity of a <c>call</c>/<c>callvirt</c> target, resolved once by
-/// <see cref="CilCallResolver"/> and shared by every consumer that needs it
-/// (stack-depth analysis, legality checks, LLVM IR generation) instead of
-/// each re-decoding the same metadata token independently.
+/// <see cref="CilCallResolver"/> and shared across stack analysis,
+/// legality checks, and LLVM IR generation.
 /// </summary>
 public sealed record ResolvedCall(
     string DeclaringType,

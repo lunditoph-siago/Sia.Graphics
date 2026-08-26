@@ -1,10 +1,8 @@
 namespace Sia.Spirv;
 
 /// <summary>
-/// Identifies a GPU operation a marker method in this assembly stands in
-/// for. The compiler recovers this from the method's <see
-/// cref="SpirvIntrinsicAttribute"/> instead of matching on its declaring
-/// type name and method name.
+/// Identifies a GPU operation a marker method stands in for, recovered
+/// from <see cref="SpirvIntrinsicAttribute"/> rather than matched by name.
 /// </summary>
 public enum IntrinsicKind
 {
@@ -43,11 +41,8 @@ public enum IntrinsicKind
     Pow,
     Abs,
 
-    // Float3Construct through Float3Reflect are never attributed with
-    // [SpirvIntrinsic]: they identify operations on Sia.Math.float3/math,
-    // a real SIMD type this compiler does not own and must not ask to
-    // carry SPIR-V-specific metadata. The compiler recognizes them
-    // structurally instead — see Sia.Spirv.Compiler.Metadata.MathBinding.
+    // Never attributed with [SpirvIntrinsic]: Sia.Math.float3/math is an
+    // independent SIMD type; recognized structurally instead (MathBinding).
     Float3Construct,
     Float3Broadcast,
     Float3GetX,

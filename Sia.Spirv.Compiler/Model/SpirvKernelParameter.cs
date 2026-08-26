@@ -4,4 +4,7 @@ public sealed record SpirvKernelParameter(
     string Name,
     int Position,
     SpirvKernelParameterKind Kind,
-    SpirvScalarType ScalarType);
+    SpirvScalarType ScalarType)
+{
+    public bool IsResource => Kind != SpirvKernelParameterKind.PushConstant;
+}

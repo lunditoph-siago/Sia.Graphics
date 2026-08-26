@@ -148,8 +148,11 @@ jobs:
       - name: Cache Naga
         uses: actions/cache@v6
         with:
-          path: artifacts/naga-cli-${{ matrix.rid }}
-          key: naga-cli-${{ matrix.rid }}-30.0.0
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            Sia.Spirv.Naga/target
+          key: sia-spirv-naga-${{ matrix.rid }}-${{ hashFiles('Sia.Spirv.Naga/Cargo.lock') }}
 
       - name: Normalize source timestamps
         if: steps.native-cache.outputs.cache-hit == 'true'
@@ -333,6 +336,66 @@ jobs:
               throw "$stage WGSL entry point was not preserved."
             }
           }
+          $abiSmoke = Join-Path $smokeDirectory 'verify-native-abi.py'
+          @'
+          import ctypes
+          import pathlib
+          import sys
+
+          class Abi(ctypes.Structure):
+              _fields_ = [
+                  ('version', ctypes.c_uint32),
+                  ('struct_size', ctypes.c_uint32),
+                  ('status', ctypes.c_int32),
+                  ('flags', ctypes.c_uint32),
+                  ('input_pointer', ctypes.POINTER(ctypes.c_uint8)),
+                  ('input_length', ctypes.c_size_t),
+                  ('output_pointer', ctypes.POINTER(ctypes.c_uint8)),
+                  ('output_length', ctypes.c_size_t),
+              ]
+
+          library = ctypes.CDLL(sys.argv[1])
+          library.sia_spirv_abi_version.restype = ctypes.c_uint32
+          library.sia_spirv_context_create.restype = ctypes.c_void_p
+          library.sia_spirv_context_destroy.argtypes = [ctypes.c_void_p]
+          library.sia_spirv_context_abi.argtypes = [ctypes.c_void_p]
+          library.sia_spirv_context_abi.restype = ctypes.POINTER(Abi)
+          library.sia_spirv_context_resize_input.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+          library.sia_spirv_context_resize_input.restype = ctypes.c_int32
+          library.sia_spirv_context_translate.argtypes = [ctypes.c_void_p]
+          library.sia_spirv_context_translate.restype = ctypes.c_int32
+          if library.sia_spirv_abi_version() != 1:
+              raise RuntimeError('Unexpected Sia SPIR-V ABI version.')
+          spirv = pathlib.Path(sys.argv[2]).read_bytes()
+          context = library.sia_spirv_context_create()
+          try:
+              if library.sia_spirv_context_resize_input(context, len(spirv)) != 0:
+                  raise RuntimeError('Allocating the native ABI input failed.')
+              abi = library.sia_spirv_context_abi(context).contents
+              ctypes.memmove(abi.input_pointer, spirv, len(spirv))
+              if library.sia_spirv_context_translate(context) != 0:
+                  abi = library.sia_spirv_context_abi(context).contents
+                  raise RuntimeError(ctypes.string_at(
+                      abi.output_pointer, abi.output_length).decode())
+              abi = library.sia_spirv_context_abi(context).contents
+              wgsl = ctypes.string_at(abi.output_pointer, abi.output_length).decode()
+              if sys.argv[3] not in wgsl:
+                  raise RuntimeError(f"Native ABI did not preserve '{sys.argv[3]}'.")
+          finally:
+              library.sia_spirv_context_destroy(context)
+          '@ | Set-Content -LiteralPath $abiSmoke -Encoding utf8NoBOM
+          $abiLibrary = Join-Path $root $(if ($IsWindows) {
+            'sia_spirv_naga.dll'
+          } else {
+            'libsia_spirv_naga.so'
+          })
+          foreach ($stage in @('compute', 'vertex', 'fragment')) {
+            python $abiSmoke $abiLibrary `
+              (Join-Path $smokeDirectory "$stage.spv") "@$stage"
+            if ($LASTEXITCODE -ne 0) {
+              throw "$stage native Naga ABI smoke failed."
+            }
+          }
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -355,8 +418,8 @@ jobs:
               $package.FullName, [IO.Compression.ZipArchiveMode]::Update)
             try {
               foreach ($tool in @(
-                'llc', 'opt', 'llvm-as', 'llvm-dis', 'naga', 'spirv-as', 'spirv-dis',
-                'spirv-link', 'spirv-opt', 'spirv-val')) {
+                'llc', 'opt', 'llvm-as', 'llvm-dis', 'libsia_spirv_naga.so', 'naga',
+                'spirv-as', 'spirv-dis', 'spirv-link', 'spirv-opt', 'spirv-val')) {
                 $archive.GetEntry("tools/linux-x64/$tool").ExternalAttributes = -2115174400
               }
             }
@@ -386,6 +449,15 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+
+      - name: Cache Naga Wasm
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            Sia.Spirv.Naga/target
+          key: sia-spirv-naga-browser-${{ hashFiles('Sia.Spirv.Naga/Cargo.lock') }}
 
       - name: Pack managed packages
         shell: pwsh
@@ -597,22 +669,58 @@ jobs:
           '@ | Set-Content `
             -LiteralPath (Join-Path $smokeDirectory 'PostProcessKernels.cs') `
             -Encoding utf8NoBOM
+          @'
+          using Sia.Spirv;
+
+          namespace Smoke.Modules;
+
+          internal static class RasterShaders
+          {
+              [SpirvVertexShader]
+              public static void FullscreenVertex()
+              {
+                  var vertexIndex = Gpu.VertexIndex;
+                  var x = -1.0f;
+                  var y = -1.0f;
+                  if (vertexIndex == 1u) {
+                      x = 3.0f;
+                  }
+                  else if (vertexIndex == 2u) {
+                      y = 3.0f;
+                  }
+
+                  Gpu.SetPosition(x, y, 0.0f, 1.0f);
+                  Gpu.SetOutput(0, x * 0.5f + 0.5f, y * 0.5f + 0.5f, 0.0f, 1.0f);
+              }
+
+              [SpirvFragmentShader]
+              public static void SolidFragment()
+              {
+                  var u = Gpu.GetInput(0, 0);
+                  var v = Gpu.GetInput(0, 1);
+                  var x = Gpu.GetFragmentPosition(0);
+                  Gpu.SetOutput(0, u, v, x, 1.0f);
+              }
+          }
+          '@ | Set-Content `
+            -LiteralPath (Join-Path $smokeDirectory 'RasterShaders.cs') `
+            -Encoding utf8NoBOM
           dotnet restore $project
           dotnet build $project --configuration Release --no-restore `
             -p:UseSharedCompilation=false -m:1 -nr:false
           if ($LASTEXITCODE -ne 0) { throw 'Workload suite build failed.' }
           $output = Join-Path $smokeDirectory 'bin/Release/net11.0/spirv'
           $modules = @(Get-ChildItem -LiteralPath $output -Filter '*.spv')
-          if ($modules.Count -ne 3) {
-            throw "Expected three SPIR-V modules, found $($modules.Count)."
+          if ($modules.Count -ne 5) {
+            throw "Expected five SPIR-V modules, found $($modules.Count)."
           }
           $wgslModules = @(Get-ChildItem -LiteralPath $output -Filter '*.wgsl')
-          if ($wgslModules.Count -ne 3) {
-            throw "Expected three WGSL modules, found $($wgslModules.Count)."
+          if ($wgslModules.Count -ne 5) {
+            throw "Expected five WGSL modules, found $($wgslModules.Count)."
           }
           $manifests = @(Get-ChildItem -LiteralPath $output -Filter '*.spv.json')
-          if ($manifests.Count -ne 3) {
-            throw "Expected three manifests, found $($manifests.Count)."
+          if ($manifests.Count -ne 5) {
+            throw "Expected five manifests, found $($manifests.Count)."
           }
           $suffix = if ($IsWindows) { '.exe' } else { '' }
           $validator = Join-Path $env:DOTNET_ROOT (
@@ -638,9 +746,17 @@ jobs:
               throw "Packaged naga failed for '$([IO.Path]::GetFileName($wgsl))'."
             }
             $wgslText = Get-Content -LiteralPath $wgsl -Raw
-            if ($wgslText -notmatch '@compute' -or
-                $wgslText -notmatch '@group\(0\)' -or
-                $wgslText -match 'var<push_constant>') {
+            $expectedStage = if ($module.BaseName -match 'FullscreenVertex') {
+              '@vertex'
+            } elseif ($module.BaseName -match 'SolidFragment') {
+              '@fragment'
+            } else {
+              '@compute'
+            }
+            if ($wgslText -notmatch $expectedStage -or
+                $wgslText -match 'var<push_constant>' -or
+                ($expectedStage -eq '@compute' -and
+                  $wgslText -notmatch '@group\(0\)')) {
               throw "'$([IO.Path]::GetFileName($wgsl))' is not WebGPU-compatible WGSL."
             }
           }
@@ -648,6 +764,15 @@ jobs:
             Integrate = '64,1,1'
             ToneMap = '128,1,1'
             Classify2D = '8,4,1'
+            FullscreenVertex = '1,1,1'
+            SolidFragment = '1,1,1'
+          }
+          $expectedStages = @{
+            Integrate = 'compute'
+            ToneMap = 'compute'
+            Classify2D = 'compute'
+            FullscreenVertex = 'vertex'
+            SolidFragment = 'fragment'
           }
           foreach ($manifest in $manifests) {
             $metadata = Get-Content -LiteralPath $manifest.FullName -Raw |
@@ -658,19 +783,64 @@ jobs:
               $metadata.workgroupSize.z) -join ','
             if ($metadata.schemaVersion -ne 2 -or
                 $metadata.kernelAbi -ne 'webgpu' -or
+                $metadata.shaderStage -ne $expectedStages[$metadata.entryPoint] -or
                 $workgroup -ne $expectedWorkgroups[$metadata.entryPoint]) {
               throw "'$($manifest.Name)' has invalid WebGPU metadata."
             }
-            $parameterResource = $metadata.resources |
-              Where-Object name -eq 'sia.parameters'
-            if ($null -eq $parameterResource -or
-                $parameterResource.binding -ne 2 -or
-                $metadata.pushConstants.Count -lt 2) {
-              throw "'$($manifest.Name)' does not expose the WebGPU parameter buffer."
+            if ($metadata.shaderStage -eq 'compute') {
+              $parameterResource = $metadata.resources |
+                Where-Object name -eq 'sia.parameters'
+              if ($null -eq $parameterResource -or
+                  $parameterResource.binding -ne 2 -or
+                  $metadata.pushConstants.Count -lt 2) {
+                throw "'$($manifest.Name)' does not expose the WebGPU parameter buffer."
+              }
+            } elseif (@($metadata.resources).Count -ne 0 -or
+                      @($metadata.pushConstants).Count -ne 0) {
+              throw "'$($manifest.Name)' exposes unexpected raster resources."
             }
             $bindings = @($metadata.resources | ForEach-Object binding)
             if (@($bindings | Sort-Object -Unique).Count -ne $bindings.Count) {
               throw "'$($manifest.Name)' contains duplicate resource bindings."
+            }
+          }
+          $sdkBrowser = Join-Path $env:DOTNET_ROOT (
+            'packs/Sia.Spirv.Sdk/${{ needs.prepare.outputs.version }}/tools/browser')
+          $wasm = Join-Path $sdkBrowser 'sia-spirv-naga.wasm'
+          $loader = Join-Path $sdkBrowser 'sia-spirv-polyfill.js'
+          if (!(Test-Path -LiteralPath $wasm) -or !(Test-Path -LiteralPath $loader)) {
+            throw 'The packaged Naga browser ABI is incomplete.'
+          }
+          $nodeSmoke = Join-Path $smokeDirectory 'verify-naga-abi.mjs'
+          @'
+          import { readFile } from 'node:fs/promises';
+          import { pathToFileURL } from 'node:url';
+
+          const [loaderPath, wasmPath, spirvPath, expectedStage] = process.argv.slice(2);
+          const [{ createSpirvPolyfill }, wasm, spirv] = await Promise.all([
+            import(pathToFileURL(loaderPath)),
+            readFile(wasmPath),
+            readFile(spirvPath),
+          ]);
+          const translate = await createSpirvPolyfill(
+            `data:application/wasm;base64,${wasm.toString('base64')}`);
+          const wgsl = translate(spirv);
+          translate.dispose();
+          if (!wgsl.includes(expectedStage)) {
+            throw new Error(`Naga Wasm did not preserve '${expectedStage}'.`);
+          }
+          '@ | Set-Content -LiteralPath $nodeSmoke -Encoding utf8NoBOM
+          foreach ($module in $modules) {
+            $expectedStage = if ($module.BaseName -match 'FullscreenVertex') {
+              '@vertex'
+            } elseif ($module.BaseName -match 'SolidFragment') {
+              '@fragment'
+            } else {
+              '@compute'
+            }
+            node $nodeSmoke $loader $wasm $module.FullName $expectedStage
+            if ($LASTEXITCODE -ne 0) {
+              throw "The packaged Naga Wasm ABI failed for '$($module.Name)'."
             }
           }
 

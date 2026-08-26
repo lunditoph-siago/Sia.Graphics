@@ -14,6 +14,8 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private const int _initialWidth = 1280;
     private const int _initialHeight = 720;
     private const int _uniformSize = 80;
+    private const string _rasterShaderArtifactName =
+        "Sia.WebGPU.Example.CornellBoxRasterShaders.FullscreenVertex";
 
     private readonly WgpuHandle<WGPUTexture>[] _accumulationTextures = new WgpuHandle<WGPUTexture>[2];
     private readonly HashSet<Key> _pressedKeys = [];
@@ -29,6 +31,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private WgpuHandle<WGPUPipelineLayout> _pipelineLayout;
     private WgpuHandle<WGPURenderPipeline> _pathPipeline;
     private WgpuHandle<WGPURenderPipeline> _presentationPipeline;
+    private byte[]? _browserVertexSpirv;
 
     private WGPUTextureFormat _surfaceFormat;
     private WGPUCompositeAlphaMode _alphaMode;
@@ -94,7 +97,9 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
                 Resizable: true),
             new GlfwWindowOptions(ClientApi.NoApi));
 
-        _instance = Wgpu.CreateInstance();
+        _instance = OperatingSystem.IsBrowser()
+            ? Wgpu.CreateInstance()
+            : Wgpu.CreateSpirvInstance();
         _surface = CreateSurface(_instance, _window);
 
         var adapterOptions = BuildAdapterOptions();
@@ -307,25 +312,60 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         };
         _pipelineLayout = Wgpu.CreatePipelineLayout(_device, in pipelineLayoutDescriptor);
 
-        var shader = Wgpu.CreateWgslShaderModule(
+        var fragmentShader = Wgpu.CreateWgslShaderModule(
             _device,
             CornellBoxShaders.Source,
             "Cornell Box path tracer");
+        var vertexShader = default(WgpuHandle<WGPUShaderModule>);
         try {
-            _pathPipeline = CreateRenderPipeline(shader, "path_main", WGPUTextureFormat.RGBA16Float);
-            _presentationPipeline = CreateRenderPipeline(shader, "present_main", _surfaceFormat);
+#if BROWSER
+            vertexShader = Wgpu.CreateSpirvShaderModule(
+                _device,
+                _browserVertexSpirv ?? throw new InvalidOperationException(
+                    "The browser SPIR-V shader was not loaded."),
+                "C# full-screen vertex shader");
+            _pathPipeline = CreateRenderPipeline(
+                vertexShader,
+                nameof(CornellBoxRasterShaders.FullscreenVertex),
+                fragmentShader,
+                "path_main",
+                WGPUTextureFormat.RGBA16Float);
+            _presentationPipeline = CreateRenderPipeline(
+                vertexShader,
+                nameof(CornellBoxRasterShaders.FullscreenVertex),
+                fragmentShader,
+                "present_main",
+                _surfaceFormat);
+#else
+            vertexShader = CreateCSharpVertexShader();
+            _pathPipeline = CreateRenderPipeline(
+                vertexShader,
+                nameof(CornellBoxRasterShaders.FullscreenVertex),
+                fragmentShader,
+                "path_main",
+                WGPUTextureFormat.RGBA16Float);
+            _presentationPipeline = CreateRenderPipeline(
+                vertexShader,
+                nameof(CornellBoxRasterShaders.FullscreenVertex),
+                fragmentShader,
+                "present_main",
+                _surfaceFormat);
+#endif
         }
         finally {
-            Wgpu.Release(ref shader);
+            Wgpu.Release(ref vertexShader);
+            Wgpu.Release(ref fragmentShader);
         }
     }
 
     private WgpuHandle<WGPURenderPipeline> CreateRenderPipeline(
-        WgpuHandle<WGPUShaderModule> shader,
+        WgpuHandle<WGPUShaderModule> vertexShader,
+        string vertexEntryPoint,
+        WgpuHandle<WGPUShaderModule> fragmentShader,
         string fragmentEntryPoint,
         WGPUTextureFormat targetFormat)
     {
-        using var vertexEntryPoint = new NativeString("vs_main");
+        using var vertexEntry = new NativeString(vertexEntryPoint);
         using var fragmentEntry = new NativeString(fragmentEntryPoint);
 
         var colorTarget = new WGPUColorTargetState {
@@ -336,7 +376,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         };
         var fragment = new WGPUFragmentState {
             NextInChain = null,
-            Module = Pointer(shader),
+            Module = Pointer(fragmentShader),
             EntryPoint = fragmentEntry.View,
             ConstantCount = 0,
             Constants = null,
@@ -349,8 +389,8 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             Layout = Pointer(_pipelineLayout),
             Vertex = new WGPUVertexState {
                 NextInChain = null,
-                Module = Pointer(shader),
-                EntryPoint = vertexEntryPoint.View,
+                Module = Pointer(vertexShader),
+                EntryPoint = vertexEntry.View,
                 ConstantCount = 0,
                 Constants = null,
                 BufferCount = 0,
@@ -375,6 +415,20 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         };
         return Wgpu.CreateRenderPipeline(_device, in descriptor);
     }
+
+#if !BROWSER
+    private WgpuHandle<WGPUShaderModule> CreateCSharpVertexShader()
+    {
+        var directory = Path.Combine(AppContext.BaseDirectory, "spirv");
+        var spirv = File.ReadAllBytes(Path.Combine(directory, _rasterShaderArtifactName + ".spv"));
+        var wgsl = File.ReadAllText(Path.Combine(directory, _rasterShaderArtifactName + ".wgsl"));
+        return Wgpu.CreatePortableShaderModule(
+            _device,
+            spirv,
+            wgsl,
+            "C# full-screen vertex shader");
+    }
+#endif
 
     private bool ResizeIfNeeded(bool force = false)
     {

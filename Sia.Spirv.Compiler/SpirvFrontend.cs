@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using Sia.Spirv;
 using Sia.Spirv.Compiler.Analysis;
 using Sia.Spirv.Compiler.Diagnostics;
 using Sia.Spirv.Compiler.IL;
@@ -13,6 +14,8 @@ namespace Sia.Spirv.Compiler;
 public sealed class SpirvFrontend
 {
     private const string _kernelAttributeName = "Sia.Spirv.SpirvKernelAttribute";
+    private const string _vertexAttributeName = "Sia.Spirv.SpirvVertexShaderAttribute";
+    private const string _fragmentAttributeName = "Sia.Spirv.SpirvFragmentShaderAttribute";
 
     public SpirvFrontendResult Analyze(string assemblyPath)
     {
@@ -33,7 +36,11 @@ public sealed class SpirvFrontend
             var declaringType = MetadataNames.GetTypeName(reader, typeHandle);
             foreach (var methodHandle in type.GetMethods()) {
                 var method = reader.GetMethodDefinition(methodHandle);
-                if (!TryGetWorkgroupSize(reader, method, out var workgroupSize)) {
+                if (!TryGetShaderDeclaration(
+                    reader,
+                    method,
+                    out var stage,
+                    out var workgroupSize)) {
                     continue;
                 }
 
@@ -43,6 +50,7 @@ public sealed class SpirvFrontend
                     reader,
                     method,
                     qualifiedName,
+                    stage,
                     workgroupSize,
                     diagnostics)) {
                     continue;
@@ -69,6 +77,7 @@ public sealed class SpirvFrontend
                         declaringType,
                         methodName,
                         MetadataTokens.GetToken(methodHandle),
+                        stage,
                         workgroupSize,
                         DecodeParameters(reader, method),
                         graph));
@@ -86,38 +95,56 @@ public sealed class SpirvFrontend
         return new SpirvFrontendResult(kernels, diagnostics);
     }
 
-    private static bool TryGetWorkgroupSize(
+    private static bool TryGetShaderDeclaration(
         MetadataReader reader,
         MethodDefinition method,
+        out SpirvShaderStage stage,
         out SpirvWorkgroupSize workgroupSize)
     {
+        SpirvShaderStage? declaredStage = null;
+        workgroupSize = new SpirvWorkgroupSize(1, 1, 1);
         foreach (var attributeHandle in method.GetCustomAttributes()) {
             var attribute = reader.GetCustomAttribute(attributeHandle);
-            if (MetadataNames.GetAttributeTypeName(reader, attribute) != _kernelAttributeName) {
+            var attributeName = MetadataNames.GetAttributeTypeName(reader, attribute);
+            SpirvShaderStage currentStage;
+            if (attributeName == _kernelAttributeName) {
+                currentStage = SpirvShaderStage.Compute;
+                var value = attribute.DecodeValue(new CustomAttributeTypeProvider());
+                if (value.FixedArguments.Length != 3) {
+                    throw new BadImageFormatException(
+                        "SpirvKernelAttribute must contain three fixed arguments.");
+                }
+                workgroupSize = new SpirvWorkgroupSize(
+                    Convert.ToUInt32(value.FixedArguments[0].Value),
+                    Convert.ToUInt32(value.FixedArguments[1].Value),
+                    Convert.ToUInt32(value.FixedArguments[2].Value));
+            }
+            else if (attributeName == _vertexAttributeName) {
+                currentStage = SpirvShaderStage.Vertex;
+            }
+            else if (attributeName == _fragmentAttributeName) {
+                currentStage = SpirvShaderStage.Fragment;
+            }
+            else {
                 continue;
             }
 
-            var value = attribute.DecodeValue(new CustomAttributeTypeProvider());
-            if (value.FixedArguments.Length != 3) {
+            if (declaredStage != null) {
                 throw new BadImageFormatException(
-                    "SpirvKernelAttribute must contain three fixed arguments.");
+                    "A SPIR-V shader method must declare exactly one shader stage attribute.");
             }
-
-            workgroupSize = new SpirvWorkgroupSize(
-                Convert.ToUInt32(value.FixedArguments[0].Value),
-                Convert.ToUInt32(value.FixedArguments[1].Value),
-                Convert.ToUInt32(value.FixedArguments[2].Value));
-            return true;
+            declaredStage = currentStage;
         }
 
-        workgroupSize = default;
-        return false;
+        stage = declaredStage.GetValueOrDefault();
+        return declaredStage != null;
     }
 
     private static bool ValidateKernelDeclaration(
         MetadataReader reader,
         MethodDefinition method,
         string qualifiedName,
+        SpirvShaderStage stage,
         SpirvWorkgroupSize workgroupSize,
         ICollection<SpirvDiagnostic> diagnostics)
     {
@@ -127,7 +154,7 @@ public sealed class SpirvFrontend
             diagnostics.Add(new SpirvDiagnostic(
                 SpirvDiagnosticIds.InvalidKernelSignature,
                 SpirvDiagnosticSeverity.Error,
-                "A SPIR-V kernel must be a static method returning void.",
+                "A SPIR-V shader must be a static method returning void.",
                 qualifiedName));
             valid = false;
         }
@@ -136,12 +163,13 @@ public sealed class SpirvFrontend
             diagnostics.Add(new SpirvDiagnostic(
                 SpirvDiagnosticIds.InvalidKernelSignature,
                 SpirvDiagnosticSeverity.Error,
-                "A SPIR-V kernel must have a CIL method body.",
+                "A SPIR-V shader must have a CIL method body.",
                 qualifiedName));
             valid = false;
         }
 
-        if (workgroupSize.X == 0 || workgroupSize.Y == 0 || workgroupSize.Z == 0) {
+        if (stage == SpirvShaderStage.Compute &&
+            (workgroupSize.X == 0 || workgroupSize.Y == 0 || workgroupSize.Z == 0)) {
             diagnostics.Add(new SpirvDiagnostic(
                 SpirvDiagnosticIds.InvalidWorkgroupSize,
                 SpirvDiagnosticSeverity.Error,

@@ -46,13 +46,16 @@ public static unsafe partial class Wgpu
         ReadOnlySpan<byte> spirv,
         string? label = null)
     {
-        if (OperatingSystem.IsBrowser()) {
-            throw new PlatformNotSupportedException(
-                "Browser WebGPU accepts WGSL shader modules, not SPIR-V modules.");
-        }
         if (spirv.Length < 20 || spirv.Length % sizeof(uint) != 0 ||
             BinaryPrimitives.ReadUInt32LittleEndian(spirv) != 0x07230203) {
             throw new ArgumentException("The shader is not a valid SPIR-V binary module.", nameof(spirv));
+        }
+        if (OperatingSystem.IsBrowser()) {
+#if BROWSER
+            return CreateWgslShaderModule(device, TranslateSpirvToWgsl(spirv.ToArray()), label);
+#else
+            throw new PlatformNotSupportedException("The browser SPIR-V polyfill is only available for browser targets.");
+#endif
         }
         if (!BitConverter.IsLittleEndian) {
             throw new PlatformNotSupportedException("SPIR-V bytecode loading requires a little-endian host.");
@@ -65,12 +68,16 @@ public static unsafe partial class Wgpu
         ReadOnlySpan<uint> spirv,
         string? label = null)
     {
-        if (OperatingSystem.IsBrowser()) {
-            throw new PlatformNotSupportedException(
-                "Browser WebGPU accepts WGSL shader modules, not SPIR-V modules.");
-        }
         if (spirv.Length < 5 || spirv[0] != 0x07230203) {
             throw new ArgumentException("The shader is not a valid SPIR-V binary module.", nameof(spirv));
+        }
+        if (OperatingSystem.IsBrowser()) {
+#if BROWSER
+            var bytes = MemoryMarshal.AsBytes(spirv).ToArray();
+            return CreateWgslShaderModule(device, TranslateSpirvToWgsl(bytes), label);
+#else
+            throw new PlatformNotSupportedException("The browser SPIR-V polyfill is only available for browser targets.");
+#endif
         }
 
         using var labelString = WgpuOwnedString.Create(label);

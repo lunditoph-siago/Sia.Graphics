@@ -12,7 +12,8 @@ internal sealed record SpirvArtifactManifest(
     IReadOnlyList<SpirvManifestPushConstant> PushConstants,
     SpirvManifestToolchain Toolchain,
     string SourceHash,
-    string KernelAbi);
+    string KernelAbi,
+    string ShaderStage);
 
 internal sealed record SpirvManifestWorkgroupSize(uint X, uint Y, uint Z);
 

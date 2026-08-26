@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using Sia.Spirv;
 using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Metadata;
 using Sia.Spirv.Compiler.Model;
@@ -14,7 +15,14 @@ public sealed class LlvmIrEmitter
 {
     private readonly StringBuilder _body = new();
     private readonly HashSet<LlvmValueType> _bufferTypes = [];
+    private readonly HashSet<uint> _stageInputs = [];
+    private readonly HashSet<uint> _stageOutputs = [];
     private SpirvKernelAbi _kernelAbi;
+    private SpirvShaderStage _shaderStage;
+    private bool _readsVertexIndex;
+    private bool _readsInstanceIndex;
+    private bool _readsFragmentPosition;
+    private bool _writesPosition;
     private int _nextValueId;
 
     public LlvmIrModule Emit(
@@ -35,7 +43,14 @@ public sealed class LlvmIrEmitter
 
         _body.Clear();
         _bufferTypes.Clear();
+        _stageInputs.Clear();
+        _stageOutputs.Clear();
         _kernelAbi = kernelAbi;
+        _shaderStage = kernel.Stage;
+        _readsVertexIndex = false;
+        _readsInstanceIndex = false;
+        _readsFragmentPosition = false;
+        _writesPosition = false;
         _nextValueId = 0;
 
         var parameterValues = new LlvmValue[kernel.Parameters.Count];
@@ -44,6 +59,10 @@ public sealed class LlvmIrEmitter
         EmitParameterGlobals(kernel, prologue, parameterValues);
         EmitLocalAllocations(localTypes, prologue);
         EmitBlocks(reader, kernel, localTypes, parameterValues, prologue);
+        if (kernel.Stage == SpirvShaderStage.Vertex && !_writesPosition) {
+            throw new InvalidDataException(
+                $"Vertex shader '{kernel.QualifiedName}' must call Gpu.SetPosition.");
+        }
 
         var module = new StringBuilder();
         module.AppendLine("target triple = \"spirv64-unknown-vulkan1.2\"");
@@ -53,12 +72,9 @@ public sealed class LlvmIrEmitter
         module.Append(_body);
         module.AppendLine("}");
         module.AppendLine();
-        EmitIntrinsicDeclarations(module);
-        module.Append("attributes #0 = { \"hlsl.numthreads\"=\"")
-            .Append(kernel.WorkgroupSize.X).Append(',')
-            .Append(kernel.WorkgroupSize.Y).Append(',')
-            .Append(kernel.WorkgroupSize.Z)
-            .AppendLine("\" \"hlsl.shader\"=\"compute\" }");
+        EmitIntrinsicDeclarations(kernel, module);
+        EmitShaderAttributes(kernel, module);
+        EmitLocationMetadata(module);
         return new LlvmIrModule(module.ToString(), entryPoint);
     }
 
@@ -311,6 +327,8 @@ public sealed class LlvmIrEmitter
             module.AppendLine();
         }
 
+        EmitStageGlobalDeclarations(module);
+
         foreach (var parameter in kernel.Parameters.Where(
             static parameter => parameter.Kind == SpirvKernelParameterKind.StorageBuffer)) {
             EmitResourceName(module, $".str.{parameter.Position}", parameter.Name);
@@ -323,11 +341,47 @@ public sealed class LlvmIrEmitter
         }
     }
 
-    private void EmitIntrinsicDeclarations(StringBuilder module)
+    private void EmitStageGlobalDeclarations(StringBuilder module)
     {
-        module.AppendLine("declare i32 @llvm.spv.thread.id.i32(i32)");
-        module.AppendLine("declare i32 @llvm.spv.thread.id.in.group.i32(i32)");
-        module.AppendLine("declare i32 @llvm.spv.group.id.i32(i32)");
+        if (_readsVertexIndex) {
+            module.AppendLine(
+                "@__spirv_BuiltInVertexIndex = external hidden addrspace(7) global i32");
+        }
+        if (_readsInstanceIndex) {
+            module.AppendLine(
+                "@__spirv_BuiltInInstanceIndex = external hidden addrspace(7) global i32");
+        }
+        if (_readsFragmentPosition) {
+            module.AppendLine(
+                "@__spirv_BuiltInFragCoord = external hidden addrspace(7) global <4 x float>");
+        }
+        if (_writesPosition) {
+            module.AppendLine(
+                "@__spirv_BuiltInPosition = external hidden addrspace(8) global <4 x float>");
+        }
+        foreach (var location in _stageInputs.Order()) {
+            module.Append("@sia.input.location.").Append(location)
+                .Append(" = external hidden addrspace(7) global <4 x float>, !spirv.Decorations !")
+                .Append(GetLocationMetadataId(location)).AppendLine();
+        }
+        foreach (var location in _stageOutputs.Order()) {
+            module.Append("@sia.output.location.").Append(location)
+                .Append(" = external hidden addrspace(8) global <4 x float>, !spirv.Decorations !")
+                .Append(GetLocationMetadataId(location)).AppendLine();
+        }
+        if (_readsVertexIndex || _readsInstanceIndex || _readsFragmentPosition ||
+            _writesPosition || _stageInputs.Count != 0 || _stageOutputs.Count != 0) {
+            module.AppendLine();
+        }
+    }
+
+    private void EmitIntrinsicDeclarations(SpirvKernel kernel, StringBuilder module)
+    {
+        if (kernel.Stage == SpirvShaderStage.Compute) {
+            module.AppendLine("declare i32 @llvm.spv.thread.id.i32(i32)");
+            module.AppendLine("declare i32 @llvm.spv.thread.id.in.group.i32(i32)");
+            module.AppendLine("declare i32 @llvm.spv.group.id.i32(i32)");
+        }
         foreach (var type in _bufferTypes.OrderBy(static type => type)) {
             var targetType = GetBufferTargetType(type);
             var mangling = GetBufferMangling(type);
@@ -349,6 +403,49 @@ public sealed class LlvmIrEmitter
         module.AppendLine();
     }
 
+    private static void EmitShaderAttributes(SpirvKernel kernel, StringBuilder module)
+    {
+        if (kernel.Stage == SpirvShaderStage.Compute) {
+            module.Append("attributes #0 = { \"hlsl.numthreads\"=\"")
+                .Append(kernel.WorkgroupSize.X).Append(',')
+                .Append(kernel.WorkgroupSize.Y).Append(',')
+                .Append(kernel.WorkgroupSize.Z)
+                .AppendLine("\" \"hlsl.shader\"=\"compute\" }");
+            return;
+        }
+
+        var stage = kernel.Stage == SpirvShaderStage.Vertex ? "vertex" : "pixel";
+        module.Append("attributes #0 = { \"hlsl.shader\"=\"")
+            .Append(stage).AppendLine("\" }");
+    }
+
+    private void EmitLocationMetadata(StringBuilder module)
+    {
+        var locations = _stageInputs.Concat(_stageOutputs).Distinct().Order().ToArray();
+        if (locations.Length == 0) {
+            return;
+        }
+
+        module.AppendLine();
+        for (var index = 0; index < locations.Length; index++) {
+            var decorationsId = index * 2;
+            var locationId = decorationsId + 1;
+            module.Append('!').Append(decorationsId).Append(" = !{!")
+                .Append(locationId).AppendLine("}");
+            module.Append('!').Append(locationId).Append(" = !{i32 30, i32 ")
+                .Append(locations[index]).AppendLine("}");
+        }
+    }
+
+    private int GetLocationMetadataId(uint location)
+    {
+        var locations = _stageInputs.Concat(_stageOutputs).Distinct().Order().ToArray();
+        var index = Array.IndexOf(locations, location);
+        return index < 0
+            ? throw new InvalidOperationException($"Location {location} was not registered.")
+            : index * 2;
+    }
+
     private void EmitCall(
         MetadataReader reader,
         int token,
@@ -362,8 +459,8 @@ public sealed class LlvmIrEmitter
         }
         var instance = method.IsInstance ? Pop(stack, offset) : default;
 
-        if (method.DeclaringType == "Sia.Spirv.Gpu" && method.Name.StartsWith("get_", StringComparison.Ordinal)) {
-            stack.Push(EmitBuiltinVector(method.Name, offset));
+        if (method.DeclaringType == "Sia.Spirv.Gpu" &&
+            TryEmitGpuIntrinsic(method.Name, arguments, offset, stack)) {
             return;
         }
         if (method.DeclaringType == "Sia.Spirv.UInt3" &&
@@ -392,13 +489,149 @@ public sealed class LlvmIrEmitter
             stack.Push(new LlvmValue(pointer, GetBufferElementType(instance.Type), true));
             return;
         }
-        if (method.DeclaringType == "Sia.Spirv.Gpu" && method.Name == "Barrier") {
-            throw CreateUnsupported(offset, "Gpu.Barrier is reserved but not implemented in the first LLVM backend slice.");
-        }
-
         throw CreateUnsupported(
             offset,
             $"Call to '{method.DeclaringType}.{method.Name}' is not a supported GPU intrinsic.");
+    }
+
+    private bool TryEmitGpuIntrinsic(
+        string methodName,
+        IReadOnlyList<LlvmValue> arguments,
+        int offset,
+        Stack<LlvmValue> stack)
+    {
+        if (methodName is "get_GlobalInvocationId" or "get_LocalInvocationId" or "get_WorkGroupId") {
+            EnsureShaderStage(SpirvShaderStage.Compute, methodName, offset);
+            stack.Push(EmitBuiltinVector(methodName, offset));
+            return true;
+        }
+        if (methodName == "get_VertexIndex") {
+            EnsureShaderStage(SpirvShaderStage.Vertex, methodName, offset);
+            _readsVertexIndex = true;
+            stack.Push(EmitInputScalar("@__spirv_BuiltInVertexIndex"));
+            return true;
+        }
+        if (methodName == "get_InstanceIndex") {
+            EnsureShaderStage(SpirvShaderStage.Vertex, methodName, offset);
+            _readsInstanceIndex = true;
+            stack.Push(EmitInputScalar("@__spirv_BuiltInInstanceIndex"));
+            return true;
+        }
+        if (methodName == "GetInput") {
+            EnsureRasterizationStage(methodName, offset);
+            var location = GetConstantIndex(arguments[0], uint.MaxValue, "location", offset);
+            var component = GetConstantIndex(arguments[1], 3, "component", offset);
+            _stageInputs.Add(location);
+            stack.Push(EmitInputComponent($"@sia.input.location.{location}", component));
+            return true;
+        }
+        if (methodName == "GetFragmentPosition") {
+            EnsureShaderStage(SpirvShaderStage.Fragment, methodName, offset);
+            var component = GetConstantIndex(arguments[0], 3, "component", offset);
+            _readsFragmentPosition = true;
+            stack.Push(EmitInputComponent("@__spirv_BuiltInFragCoord", component));
+            return true;
+        }
+        if (methodName == "SetPosition") {
+            EnsureShaderStage(SpirvShaderStage.Vertex, methodName, offset);
+            _writesPosition = true;
+            EmitOutputVector("@__spirv_BuiltInPosition", arguments, offset);
+            return true;
+        }
+        if (methodName == "SetOutput") {
+            EnsureRasterizationStage(methodName, offset);
+            var location = GetConstantIndex(arguments[0], uint.MaxValue, "location", offset);
+            _stageOutputs.Add(location);
+            EmitOutputVector($"@sia.output.location.{location}", arguments.Skip(1).ToArray(), offset);
+            return true;
+        }
+        if (methodName == "Barrier") {
+            EnsureShaderStage(SpirvShaderStage.Compute, methodName, offset);
+            throw CreateUnsupported(
+                offset,
+                "Gpu.Barrier is reserved but not implemented in the first LLVM backend slice.");
+        }
+        return false;
+    }
+
+    private LlvmValue EmitInputScalar(string global)
+    {
+        var result = NextValue();
+        EmitLine($"{result} = load i32, ptr addrspace(7) {global}, align 4");
+        return new LlvmValue(result, LlvmValueType.UInt32);
+    }
+
+    private LlvmValue EmitInputComponent(string global, uint component)
+    {
+        var vector = NextValue();
+        EmitLine($"{vector} = load <4 x float>, ptr addrspace(7) {global}, align 16");
+        var result = NextValue();
+        EmitLine($"{result} = extractelement <4 x float> {vector}, i32 {component}");
+        return new LlvmValue(result, LlvmValueType.Float32);
+    }
+
+    private void EmitOutputVector(
+        string global,
+        IReadOnlyList<LlvmValue> components,
+        int offset)
+    {
+        if (components.Count != 4) {
+            throw CreateUnsupported(offset, "A raster output must contain four float components.");
+        }
+        foreach (var component in components) {
+            EnsureCompatible(LlvmValueType.Float32, component.Type, offset);
+        }
+
+        var first = NextValue();
+        EmitLine($"{first} = insertelement <4 x float> poison, float {components[0].Expression}, i32 0");
+        var second = NextValue();
+        EmitLine($"{second} = insertelement <4 x float> {first}, float {components[1].Expression}, i32 1");
+        var third = NextValue();
+        EmitLine($"{third} = insertelement <4 x float> {second}, float {components[2].Expression}, i32 2");
+        var fourth = NextValue();
+        EmitLine($"{fourth} = insertelement <4 x float> {third}, float {components[3].Expression}, i32 3");
+        EmitLine($"store <4 x float> {fourth}, ptr addrspace(8) {global}, align 16");
+    }
+
+    private static uint GetConstantIndex(
+        LlvmValue value,
+        uint maximum,
+        string name,
+        int offset)
+    {
+        if (value.Type is not (LlvmValueType.Int32 or LlvmValueType.UInt32) ||
+            !uint.TryParse(
+                value.Expression,
+                System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var result) ||
+            result > maximum) {
+            throw CreateUnsupported(
+                offset,
+                $"Raster {name} must be a compile-time uint constant from 0 through {maximum}.");
+        }
+        return result;
+    }
+
+    private void EnsureShaderStage(
+        SpirvShaderStage expected,
+        string intrinsic,
+        int offset)
+    {
+        if (_shaderStage != expected) {
+            throw CreateUnsupported(
+                offset,
+                $"Gpu.{intrinsic} requires a {expected.ToString().ToLowerInvariant()} shader.");
+        }
+    }
+
+    private void EnsureRasterizationStage(string intrinsic, int offset)
+    {
+        if (_shaderStage is not (SpirvShaderStage.Vertex or SpirvShaderStage.Fragment)) {
+            throw CreateUnsupported(
+                offset,
+                $"Gpu.{intrinsic} requires a vertex or fragment shader.");
+        }
     }
 
     private LlvmValue EmitBuiltinVector(string methodName, int offset)

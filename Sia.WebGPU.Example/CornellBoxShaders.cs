@@ -13,7 +13,7 @@ internal static class CornellBoxShaders
 
         struct VertexOutput {
             @builtin(position) position: vec4f,
-            @location(0) uv: vec2f,
+            @location(0) uv: vec4f,
         }
 
         struct Ray {
@@ -49,7 +49,7 @@ internal static class CornellBoxShaders
             var output: VertexOutput;
             let position = positions[vertex_index];
             output.position = vec4f(position, 0.0, 1.0);
-            output.uv = position * 0.5 + vec2f(0.5);
+            output.uv = vec4f(position * 0.5 + vec2f(0.5), 0.0, 1.0);
             return output;
         }
 
@@ -385,7 +385,7 @@ internal static class CornellBoxShaders
                 color = pow(color, vec3f(1.0 / 2.2));
             }
 
-            let centered = input.uv * 2.0 - vec2f(1.0);
+            let centered = input.uv.xy * 2.0 - vec2f(1.0);
             let vignette = 1.0 - 0.12 * dot(centered, centered);
             return vec4f(color * vignette, 1.0);
         }

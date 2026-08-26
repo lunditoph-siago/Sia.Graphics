@@ -189,7 +189,8 @@ public sealed class SpirvCompiler
             pushConstants,
             new SpirvManifestToolchain(llvmVersion, spirvToolsVersion, nagaVersion),
             sourceHash,
-            options.KernelAbi == SpirvKernelAbi.WebGpu ? "webgpu" : "vulkan");
+            options.KernelAbi == SpirvKernelAbi.WebGpu ? "webgpu" : "vulkan",
+            kernel.Stage.ToString().ToLowerInvariant());
     }
 
     private static bool IsCacheHit(
@@ -229,6 +230,7 @@ public sealed class SpirvCompiler
             '|',
             assemblyHash,
             kernel.MetadataToken,
+            kernel.Stage,
             compilerVersion,
             options.TargetEnvironment,
             options.KernelAbi,

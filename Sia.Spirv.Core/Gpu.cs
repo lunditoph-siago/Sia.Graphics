@@ -1,6 +1,6 @@
 namespace Sia.Spirv;
 
-public static class Gpu
+public static partial class Gpu
 {
     public static UInt3 GlobalInvocationId =>
         throw CreatePlatformException();

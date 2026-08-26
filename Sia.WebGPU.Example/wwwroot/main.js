@@ -1,4 +1,5 @@
 import { dotnet } from './_framework/dotnet.js';
+import { createSpirvPolyfill } from './spirv/sia-spirv-polyfill.js';
 
 const canvas = document.getElementById('canvas');
 
@@ -8,6 +9,19 @@ function getCanvasWidth() {
 
 function getCanvasHeight() {
     return Math.max(1, Math.round(window.innerHeight));
+}
+
+async function loadBinaryBase64(path) {
+    const response = await fetch(path);
+    if (!response.ok) {
+        throw new Error(`Unable to load '${path}': ${response.status} ${response.statusText}`);
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    let binary = '';
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+    }
+    return btoa(binary);
 }
 
 function showError(message) {
@@ -73,11 +87,14 @@ window.addEventListener('unhandledrejection', (e) => {
 
 try {
     const { runMain, Module, setModuleImports } = await dotnet.create();
+    const translateSpirvToWgsl = await createSpirvPolyfill(
+        new URL('./spirv/sia-spirv-naga.wasm', import.meta.url));
 
     Module.canvas = canvas;
     Module.print = console.log;
     Module.printErr = (line) => console.error('[stderr]', line);
-    setModuleImports('main.js', { getCanvasWidth, getCanvasHeight });
+    setModuleImports('main.js', { getCanvasWidth, getCanvasHeight, loadBinaryBase64 });
+    setModuleImports('sia-spirv-polyfill.js', { translateSpirvToWgsl });
 
     await runMain();
 } catch (err) {

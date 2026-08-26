@@ -1,4 +1,5 @@
 using System.Reflection.Emit;
+using Sia.Spirv;
 using Sia.Spirv.Compiler.Diagnostics;
 using Sia.Spirv.Compiler.IL;
 
@@ -14,8 +15,16 @@ internal static class SpirvLegalityAnalyzer
         foreach (var block in view.Graph.Blocks) {
             for (var index = 0; index < block.Instructions.Count; index++) {
                 var instruction = block.Instructions[index];
-                if (instruction.OpCode is var opCode &&
-                    (opCode == OpCodes.Newobj || opCode == OpCodes.Newarr || opCode == OpCodes.Box)) {
+                if (instruction.OpCode == OpCodes.Newarr || instruction.OpCode == OpCodes.Box) {
+                    Add(
+                        diagnostics,
+                        SpirvDiagnosticIds.ManagedHeapAllocation,
+                        "Managed heap allocation is not supported inside a SPIR-V kernel.",
+                        method,
+                        instruction.Offset);
+                }
+                else if (instruction.OpCode == OpCodes.Newobj &&
+                    !IsRecognizedValueTypeConstructor(view, block, index)) {
                     Add(
                         diagnostics,
                         SpirvDiagnosticIds.ManagedHeapAllocation,
@@ -70,6 +79,18 @@ internal static class SpirvLegalityAnalyzer
     {
         var call = view.ResolveCall(block, index);
         return call.Intrinsic is not null || call.DeclaringType == "Sia.Spirv.UInt3";
+    }
+
+    // newobj is stack allocation everywhere else (a class instance, a
+    // managed struct with fields the emitter cannot represent) except this
+    // one recognized shape: constructing a Sia.Math.float3, which the
+    // emitter lowers to a bare <3 x float> SSA value — never a heap
+    // allocation, and never anything the general newobj ban should let
+    // through by accident.
+    private static bool IsRecognizedValueTypeConstructor(ShaderCilView view, CilBasicBlock block, int index)
+    {
+        var call = view.ResolveCall(block, index);
+        return call.Intrinsic is IntrinsicKind.Float3Construct or IntrinsicKind.Float3Broadcast;
     }
 
     private static void Add(

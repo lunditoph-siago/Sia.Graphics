@@ -8,6 +8,7 @@ internal enum LlvmValueType
     UInt32,
     Float32,
     UInt3,
+    Float32x3,
     Texture2DFloat,
     Texture2DArrayFloat,
     Sampler,

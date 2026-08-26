@@ -148,8 +148,11 @@ jobs:
       - name: Cache Naga
         uses: actions/cache@v6
         with:
-          path: artifacts/naga-cli-${{ matrix.rid }}
-          key: naga-cli-${{ matrix.rid }}-30.0.0
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            Sia.Spirv.Naga/target
+          key: sia-spirv-naga-${{ matrix.rid }}-${{ hashFiles('Sia.Spirv.Naga/Cargo.lock') }}
 
       - name: Normalize source timestamps
         if: steps.native-cache.outputs.cache-hit == 'true'
@@ -217,24 +220,77 @@ jobs:
             artifacts/spirv-tools-build-${{ matrix.rid }}
           key: ${{ steps.native-cache.outputs.cache-primary-key }}
 
-      - name: Run native SPIR-V smoke test
+      - name: Run native shader suite
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $smokeDirectory = Join-Path $env:RUNNER_TEMP 'sia-spirv-native-smoke'
+          $smokeDirectory = Join-Path $env:RUNNER_TEMP 'sia-spirv-native-suite'
           [IO.Directory]::CreateDirectory($smokeDirectory) | Out-Null
-          $source = Join-Path $smokeDirectory 'SmokeTest.ll'
-          $output = Join-Path $smokeDirectory 'SmokeTest.spv'
-          @'
+          $sources = @{
+            compute = @'
           target triple = "spirv64-unknown-vulkan1.2"
 
-          define void @main() #0 {
+          @.str.input = private unnamed_addr constant [6 x i8] c"input\00", align 1
+          @.str.output = private unnamed_addr constant [7 x i8] c"output\00", align 1
+
+          define void @compute_main() #0 {
           entry:
+            %input = call target("spirv.VulkanBuffer", [0 x float], 12, 1) @llvm.spv.resource.handlefrombinding.tspirv.VulkanBuffer_a0f32_12_1t(i32 0, i32 0, i32 1, i32 0, ptr nonnull @.str.input)
+            %output = call target("spirv.VulkanBuffer", [0 x float], 12, 1) @llvm.spv.resource.handlefrombinding.tspirv.VulkanBuffer_a0f32_12_1t(i32 0, i32 1, i32 1, i32 0, ptr nonnull @.str.output)
+            %index = call i32 @llvm.spv.thread.id.i32(i32 0)
+            %input.ptr = call ptr addrspace(11) @llvm.spv.resource.getpointer.p11.tspirv.VulkanBuffer_a0f32_12_1t(target("spirv.VulkanBuffer", [0 x float], 12, 1) %input, i32 %index)
+            %value = load float, ptr addrspace(11) %input.ptr, align 4
+            %scaled = fmul float %value, 1.500000e+00
+            %biased = fadd float %scaled, 2.500000e-01
+            %output.ptr = call ptr addrspace(11) @llvm.spv.resource.getpointer.p11.tspirv.VulkanBuffer_a0f32_12_1t(target("spirv.VulkanBuffer", [0 x float], 12, 1) %output, i32 %index)
+            store float %biased, ptr addrspace(11) %output.ptr, align 4
             ret void
           }
 
-          attributes #0 = { "hlsl.shader"="compute" "hlsl.numthreads"="1,1,1" }
-          '@ | Set-Content -LiteralPath $source -Encoding utf8NoBOM
+          declare i32 @llvm.spv.thread.id.i32(i32)
+          declare target("spirv.VulkanBuffer", [0 x float], 12, 1) @llvm.spv.resource.handlefrombinding.tspirv.VulkanBuffer_a0f32_12_1t(i32, i32, i32, i32, ptr)
+          declare ptr addrspace(11) @llvm.spv.resource.getpointer.p11.tspirv.VulkanBuffer_a0f32_12_1t(target("spirv.VulkanBuffer", [0 x float], 12, 1), i32)
+
+          attributes #0 = { "hlsl.shader"="compute" "hlsl.numthreads"="8,4,1" }
+          '@
+            vertex = @'
+          target triple = "spirv64-unknown-vulkan1.2"
+
+          @__spirv_BuiltInPosition = external hidden addrspace(8) global <4 x float>
+          @vertexColor = external hidden addrspace(8) global <4 x float>, !spirv.Decorations !0
+
+          define void @vertex_main() #0 {
+          entry:
+            store <4 x float> <float 7.500000e-01, float 5.000000e-01, float 2.500000e-01, float 1.000000e+00>, ptr addrspace(8) @vertexColor, align 16
+            store <4 x float> <float -1.000000e+00, float -1.000000e+00, float 0.000000e+00, float 1.000000e+00>, ptr addrspace(8) @__spirv_BuiltInPosition, align 16
+            ret void
+          }
+
+          attributes #0 = { "hlsl.shader"="vertex" }
+
+          !0 = !{!1}
+          !1 = !{i32 30, i32 0}
+          '@
+            fragment = @'
+          target triple = "spirv64-unknown-vulkan1.2"
+
+          @fragmentInput = external hidden addrspace(7) global <4 x float>, !spirv.Decorations !0
+          @fragmentColor = external hidden addrspace(8) global <4 x float>, !spirv.Decorations !0
+
+          define void @fragment_main() #0 {
+          entry:
+            %input = load <4 x float>, ptr addrspace(7) @fragmentInput, align 16
+            %color = fmul <4 x float> %input, <float 7.500000e-01, float 7.500000e-01, float 7.500000e-01, float 1.000000e+00>
+            store <4 x float> %color, ptr addrspace(8) @fragmentColor, align 16
+            ret void
+          }
+
+          attributes #0 = { "hlsl.shader"="pixel" }
+
+          !0 = !{!1}
+          !1 = !{i32 30, i32 0}
+          '@
+          }
           $root = if ($IsWindows) {
             'artifacts/llvm-toolchain/bin'
           }
@@ -250,17 +306,95 @@ jobs:
           if (!$IsWindows -and ($nativeMagic -join ',') -ne '127,69,76,70') {
             throw 'llc is not an ELF executable.'
           }
-          & (Join-Path $root "llc$suffix") `
-            $source -filetype=obj -o $output
-          if ($LASTEXITCODE -ne 0) { throw 'llc smoke test failed.' }
-          & (Join-Path $root "spirv-val$suffix") `
-            --target-env vulkan1.2 $output
-          if ($LASTEXITCODE -ne 0) { throw 'spirv-val smoke test failed.' }
-          & (Join-Path $root "naga$suffix") --version
-          if ($LASTEXITCODE -ne 0) { throw 'naga smoke test failed.' }
-          $bytes = [IO.File]::ReadAllBytes($output)
-          if ($bytes.Length -lt 20 -or ($bytes[0..3] -join ',') -ne '3,2,35,7') {
-            throw 'The smoke output is not a SPIR-V binary.'
+          foreach ($stage in @('compute', 'vertex', 'fragment')) {
+            $source = Join-Path $smokeDirectory "$stage.ll"
+            $rawSpirv = Join-Path $smokeDirectory "$stage.raw.spv"
+            $spirv = Join-Path $smokeDirectory "$stage.spv"
+            $wgsl = Join-Path $smokeDirectory "$stage.wgsl"
+            $sources[$stage] | Set-Content -LiteralPath $source -Encoding utf8NoBOM
+            & (Join-Path $root "llc$suffix") `
+              $source -filetype=obj -O 3 -o $rawSpirv
+            if ($LASTEXITCODE -ne 0) { throw "$stage llc compilation failed." }
+            & (Join-Path $root "spirv-val$suffix") `
+              --target-env vulkan1.2 $rawSpirv
+            if ($LASTEXITCODE -ne 0) { throw "$stage raw validation failed." }
+            & (Join-Path $root "spirv-opt$suffix") `
+              -O $rawSpirv -o $spirv
+            if ($LASTEXITCODE -ne 0) { throw "$stage WebGPU optimization failed." }
+            & (Join-Path $root "spirv-val$suffix") `
+              --target-env vulkan1.2 $spirv
+            if ($LASTEXITCODE -ne 0) { throw "$stage optimized validation failed." }
+            & (Join-Path $root "naga$suffix") $spirv $wgsl
+            if ($LASTEXITCODE -ne 0) { throw "$stage WGSL conversion failed." }
+            & (Join-Path $root "naga$suffix") $wgsl
+            if ($LASTEXITCODE -ne 0) { throw "$stage WGSL validation failed." }
+            $bytes = [IO.File]::ReadAllBytes($spirv)
+            if ($bytes.Length -lt 20 -or ($bytes[0..3] -join ',') -ne '3,2,35,7') {
+              throw "$stage output is not a SPIR-V binary."
+            }
+            if ((Get-Content -LiteralPath $wgsl -Raw) -notmatch "@$stage") {
+              throw "$stage WGSL entry point was not preserved."
+            }
+          }
+          $abiSmoke = Join-Path $smokeDirectory 'verify-native-abi.py'
+          @'
+          import ctypes
+          import pathlib
+          import sys
+
+          class Abi(ctypes.Structure):
+              _fields_ = [
+                  ('version', ctypes.c_uint32),
+                  ('struct_size', ctypes.c_uint32),
+                  ('status', ctypes.c_int32),
+                  ('flags', ctypes.c_uint32),
+                  ('input_pointer', ctypes.POINTER(ctypes.c_uint8)),
+                  ('input_length', ctypes.c_size_t),
+                  ('output_pointer', ctypes.POINTER(ctypes.c_uint8)),
+                  ('output_length', ctypes.c_size_t),
+              ]
+
+          library = ctypes.CDLL(sys.argv[1])
+          library.sia_spirv_abi_version.restype = ctypes.c_uint32
+          library.sia_spirv_context_create.restype = ctypes.c_void_p
+          library.sia_spirv_context_destroy.argtypes = [ctypes.c_void_p]
+          library.sia_spirv_context_abi.argtypes = [ctypes.c_void_p]
+          library.sia_spirv_context_abi.restype = ctypes.POINTER(Abi)
+          library.sia_spirv_context_resize_input.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+          library.sia_spirv_context_resize_input.restype = ctypes.c_int32
+          library.sia_spirv_context_translate.argtypes = [ctypes.c_void_p]
+          library.sia_spirv_context_translate.restype = ctypes.c_int32
+          if library.sia_spirv_abi_version() != 1:
+              raise RuntimeError('Unexpected Sia SPIR-V ABI version.')
+          spirv = pathlib.Path(sys.argv[2]).read_bytes()
+          context = library.sia_spirv_context_create()
+          try:
+              if library.sia_spirv_context_resize_input(context, len(spirv)) != 0:
+                  raise RuntimeError('Allocating the native ABI input failed.')
+              abi = library.sia_spirv_context_abi(context).contents
+              ctypes.memmove(abi.input_pointer, spirv, len(spirv))
+              if library.sia_spirv_context_translate(context) != 0:
+                  abi = library.sia_spirv_context_abi(context).contents
+                  raise RuntimeError(ctypes.string_at(
+                      abi.output_pointer, abi.output_length).decode())
+              abi = library.sia_spirv_context_abi(context).contents
+              wgsl = ctypes.string_at(abi.output_pointer, abi.output_length).decode()
+              if sys.argv[3] not in wgsl:
+                  raise RuntimeError(f"Native ABI did not preserve '{sys.argv[3]}'.")
+          finally:
+              library.sia_spirv_context_destroy(context)
+          '@ | Set-Content -LiteralPath $abiSmoke -Encoding utf8NoBOM
+          $abiLibrary = Join-Path $root $(if ($IsWindows) {
+            'sia_spirv_naga.dll'
+          } else {
+            'libsia_spirv_naga.so'
+          })
+          foreach ($stage in @('compute', 'vertex', 'fragment')) {
+            python $abiSmoke $abiLibrary `
+              (Join-Path $smokeDirectory "$stage.spv") "@$stage"
+            if ($LASTEXITCODE -ne 0) {
+              throw "$stage native Naga ABI smoke failed."
+            }
           }
 
       - name: Setup .NET
@@ -284,8 +418,8 @@ jobs:
               $package.FullName, [IO.Compression.ZipArchiveMode]::Update)
             try {
               foreach ($tool in @(
-                'llc', 'opt', 'llvm-as', 'llvm-dis', 'naga', 'spirv-as', 'spirv-dis',
-                'spirv-link', 'spirv-opt', 'spirv-val')) {
+                'llc', 'opt', 'llvm-as', 'llvm-dis', 'libsia_spirv_naga.so', 'naga',
+                'spirv-as', 'spirv-dis', 'spirv-link', 'spirv-opt', 'spirv-val')) {
                 $archive.GetEntry("tools/linux-x64/$tool").ExternalAttributes = -2115174400
               }
             }
@@ -315,6 +449,15 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+
+      - name: Cache Naga Wasm
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            Sia.Spirv.Naga/target
+          key: sia-spirv-naga-browser-${{ hashFiles('Sia.Spirv.Naga/Cargo.lock') }}
 
       - name: Pack managed packages
         shell: pwsh
@@ -400,65 +543,306 @@ jobs:
             --source (Resolve-Path artifacts/packages).Path
           if ($LASTEXITCODE -ne 0) { throw 'Workload install failed.' }
 
-      - name: Build workload smoke project
+      - name: Build modular WebGPU workload suite
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $smokeDirectory = Join-Path $env:RUNNER_TEMP 'sia-spirv-workload-smoke'
+          $smokeDirectory = Join-Path $env:RUNNER_TEMP 'sia-spirv-workload-suite'
           [IO.Directory]::CreateDirectory($smokeDirectory) | Out-Null
-          $project = Join-Path $smokeDirectory 'WorkloadSmoke.csproj'
-          $source = Join-Path $smokeDirectory 'SmokeKernel.cs'
+          $project = Join-Path $smokeDirectory 'WorkloadSuite.csproj'
           @'
           <Project Sdk="Microsoft.NET.Sdk">
             <PropertyGroup>
               <TargetFramework>net11.0</TargetFramework>
               <EnableSpirvCompilation>true</EnableSpirvCompilation>
               <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
+              <SpirvKernelAbi>webgpu</SpirvKernelAbi>
+              <SpirvEmitWgsl>true</SpirvEmitWgsl>
+              <SpirvOptimizationLevel>3</SpirvOptimizationLevel>
             </PropertyGroup>
           </Project>
           '@ | Set-Content -LiteralPath $project -Encoding utf8NoBOM
           @'
+          namespace Smoke.Modules;
+
+          internal static class ShaderConstants
+          {
+              public const float Minimum = -1.0f;
+              public const float Maximum = 1.0f;
+              public const float SmoothFactor = 3.0f;
+              public const float SmoothScale = 2.0f;
+          }
+          '@ | Set-Content `
+            -LiteralPath (Join-Path $smokeDirectory 'ShaderConstants.cs') `
+            -Encoding utf8NoBOM
+          @'
           using Sia.Spirv;
 
-          internal static class SmokeKernel
+          namespace Smoke.Modules;
+
+          internal static class SimulationKernels
           {
               [SpirvKernel(64)]
-              public static void Fill(StorageBuffer<float> output, float value)
+              public static void Integrate(
+                  StorageBuffer<float> positions,
+                  StorageBuffer<float> velocities,
+                  float deltaTime,
+                  float damping,
+                  uint count)
               {
-                  output[Gpu.GlobalInvocationId.X] = value;
+                  var index = Gpu.GlobalInvocationId.X;
+                  if (index >= count) {
+                      return;
+                  }
+
+                  var velocity = velocities[index] * damping;
+                  var position = positions[index] + velocity * deltaTime;
+                  if (position > ShaderConstants.Maximum) {
+                      position = ShaderConstants.Maximum;
+                      velocity = 0.0f - velocity;
+                  }
+                  else if (position < ShaderConstants.Minimum) {
+                      position = ShaderConstants.Minimum;
+                      velocity = 0.0f - velocity;
+                  }
+
+                  positions[index] = position;
+                  velocities[index] = velocity;
               }
           }
-          '@ | Set-Content -LiteralPath $source -Encoding utf8NoBOM
+          '@ | Set-Content `
+            -LiteralPath (Join-Path $smokeDirectory 'SimulationKernels.cs') `
+            -Encoding utf8NoBOM
+          @'
+          using Sia.Spirv;
+
+          namespace Smoke.Modules;
+
+          internal static class PostProcessKernels
+          {
+              [SpirvKernel(128)]
+              public static void ToneMap(
+                  StorageBuffer<float> input,
+                  StorageBuffer<float> output,
+                  float exposure,
+                  uint count)
+              {
+                  var index = Gpu.GlobalInvocationId.X;
+                  if (index >= count) {
+                      return;
+                  }
+
+                  var value = input[index] * exposure;
+                  if (value < 0.0f) {
+                      value = 0.0f;
+                  }
+                  if (value > 1.0f) {
+                      value = 1.0f;
+                  }
+                  output[index] = value * value *
+                      (ShaderConstants.SmoothFactor - ShaderConstants.SmoothScale * value);
+              }
+
+              [SpirvKernel(8, 4)]
+              public static void Classify2D(
+                  StorageBuffer<float> values,
+                  StorageBuffer<uint> classes,
+                  float threshold,
+                  uint width,
+                  uint height)
+              {
+                  var invocation = Gpu.GlobalInvocationId;
+                  var x = invocation.X;
+                  var y = invocation.Y;
+                  if (x >= width || y >= height) {
+                      return;
+                  }
+
+                  var index = y * width + x;
+                  var category = 0u;
+                  if (values[index] >= threshold) {
+                      category = 1u;
+                  }
+                  classes[index] = category;
+              }
+          }
+          '@ | Set-Content `
+            -LiteralPath (Join-Path $smokeDirectory 'PostProcessKernels.cs') `
+            -Encoding utf8NoBOM
+          @'
+          using Sia.Spirv;
+
+          namespace Smoke.Modules;
+
+          internal static class RasterShaders
+          {
+              [SpirvVertexShader]
+              public static void FullscreenVertex()
+              {
+                  var vertexIndex = Gpu.VertexIndex;
+                  var x = -1.0f;
+                  var y = -1.0f;
+                  if (vertexIndex == 1u) {
+                      x = 3.0f;
+                  }
+                  else if (vertexIndex == 2u) {
+                      y = 3.0f;
+                  }
+
+                  Gpu.SetPosition(x, y, 0.0f, 1.0f);
+                  Gpu.SetOutput(0, x * 0.5f + 0.5f, y * 0.5f + 0.5f, 0.0f, 1.0f);
+              }
+
+              [SpirvFragmentShader]
+              public static void SolidFragment()
+              {
+                  var u = Gpu.GetInput(0, 0);
+                  var v = Gpu.GetInput(0, 1);
+                  var x = Gpu.GetFragmentPosition(0);
+                  Gpu.SetOutput(0, u, v, x, 1.0f);
+              }
+          }
+          '@ | Set-Content `
+            -LiteralPath (Join-Path $smokeDirectory 'RasterShaders.cs') `
+            -Encoding utf8NoBOM
           dotnet restore $project
           dotnet build $project --configuration Release --no-restore `
             -p:UseSharedCompilation=false -m:1 -nr:false
-          if ($LASTEXITCODE -ne 0) { throw 'Workload smoke build failed.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Workload suite build failed.' }
           $output = Join-Path $smokeDirectory 'bin/Release/net11.0/spirv'
           $modules = @(Get-ChildItem -LiteralPath $output -Filter '*.spv')
-          if ($modules.Count -ne 1) {
-            throw "Expected one SPIR-V module, found $($modules.Count)."
-          }
-          $bytes = [IO.File]::ReadAllBytes($modules[0].FullName)
-          if (($bytes[0..3] -join ',') -ne '3,2,35,7') {
-            throw 'The workload output is not a SPIR-V binary.'
+          if ($modules.Count -ne 5) {
+            throw "Expected five SPIR-V modules, found $($modules.Count)."
           }
           $wgslModules = @(Get-ChildItem -LiteralPath $output -Filter '*.wgsl')
-          if ($wgslModules.Count -ne 1) {
-            throw "Expected one WGSL module, found $($wgslModules.Count)."
+          if ($wgslModules.Count -ne 5) {
+            throw "Expected five WGSL modules, found $($wgslModules.Count)."
+          }
+          $manifests = @(Get-ChildItem -LiteralPath $output -Filter '*.spv.json')
+          if ($manifests.Count -ne 5) {
+            throw "Expected five manifests, found $($manifests.Count)."
           }
           $suffix = if ($IsWindows) { '.exe' } else { '' }
           $validator = Join-Path $env:DOTNET_ROOT (
             'packs/Sia.Spirv.Toolchain.${{ matrix.rid }}/' +
-            '${{ needs.prepare.outputs.version }}/tools/${{ matrix.rid }}/spirv-val' +
-            $suffix)
-          & $validator --target-env vulkan1.2 $modules[0].FullName
-          if ($LASTEXITCODE -ne 0) { throw 'Packaged spirv-val failed.' }
+              '${{ needs.prepare.outputs.version }}/tools/${{ matrix.rid }}/spirv-val' +
+              $suffix)
           $naga = Join-Path $env:DOTNET_ROOT (
             'packs/Sia.Spirv.Toolchain.${{ matrix.rid }}/' +
             '${{ needs.prepare.outputs.version }}/tools/${{ matrix.rid }}/naga' +
             $suffix)
-          & $naga $wgslModules[0].FullName
-          if ($LASTEXITCODE -ne 0) { throw 'Packaged naga failed.' }
+          foreach ($module in $modules) {
+            $bytes = [IO.File]::ReadAllBytes($module.FullName)
+            if (($bytes[0..3] -join ',') -ne '3,2,35,7') {
+              throw "'$($module.Name)' is not a SPIR-V binary."
+            }
+            & $validator --target-env vulkan1.2 $module.FullName
+            if ($LASTEXITCODE -ne 0) {
+              throw "Packaged spirv-val failed for '$($module.Name)'."
+            }
+            $wgsl = Join-Path $output "$($module.BaseName).wgsl"
+            & $naga $wgsl
+            if ($LASTEXITCODE -ne 0) {
+              throw "Packaged naga failed for '$([IO.Path]::GetFileName($wgsl))'."
+            }
+            $wgslText = Get-Content -LiteralPath $wgsl -Raw
+            $expectedStage = if ($module.BaseName -match 'FullscreenVertex') {
+              '@vertex'
+            } elseif ($module.BaseName -match 'SolidFragment') {
+              '@fragment'
+            } else {
+              '@compute'
+            }
+            if ($wgslText -notmatch $expectedStage -or
+                $wgslText -match 'var<push_constant>' -or
+                ($expectedStage -eq '@compute' -and
+                  $wgslText -notmatch '@group\(0\)')) {
+              throw "'$([IO.Path]::GetFileName($wgsl))' is not WebGPU-compatible WGSL."
+            }
+          }
+          $expectedWorkgroups = @{
+            Integrate = '64,1,1'
+            ToneMap = '128,1,1'
+            Classify2D = '8,4,1'
+            FullscreenVertex = '1,1,1'
+            SolidFragment = '1,1,1'
+          }
+          $expectedStages = @{
+            Integrate = 'compute'
+            ToneMap = 'compute'
+            Classify2D = 'compute'
+            FullscreenVertex = 'vertex'
+            SolidFragment = 'fragment'
+          }
+          foreach ($manifest in $manifests) {
+            $metadata = Get-Content -LiteralPath $manifest.FullName -Raw |
+              ConvertFrom-Json
+            $workgroup = @(
+              $metadata.workgroupSize.x,
+              $metadata.workgroupSize.y,
+              $metadata.workgroupSize.z) -join ','
+            if ($metadata.schemaVersion -ne 2 -or
+                $metadata.kernelAbi -ne 'webgpu' -or
+                $metadata.shaderStage -ne $expectedStages[$metadata.entryPoint] -or
+                $workgroup -ne $expectedWorkgroups[$metadata.entryPoint]) {
+              throw "'$($manifest.Name)' has invalid WebGPU metadata."
+            }
+            if ($metadata.shaderStage -eq 'compute') {
+              $parameterResource = $metadata.resources |
+                Where-Object name -eq 'sia.parameters'
+              if ($null -eq $parameterResource -or
+                  $parameterResource.binding -ne 2 -or
+                  $metadata.pushConstants.Count -lt 2) {
+                throw "'$($manifest.Name)' does not expose the WebGPU parameter buffer."
+              }
+            } elseif (@($metadata.resources).Count -ne 0 -or
+                      @($metadata.pushConstants).Count -ne 0) {
+              throw "'$($manifest.Name)' exposes unexpected raster resources."
+            }
+            $bindings = @($metadata.resources | ForEach-Object binding)
+            if (@($bindings | Sort-Object -Unique).Count -ne $bindings.Count) {
+              throw "'$($manifest.Name)' contains duplicate resource bindings."
+            }
+          }
+          $sdkBrowser = Join-Path $env:DOTNET_ROOT (
+            'packs/Sia.Spirv.Sdk/${{ needs.prepare.outputs.version }}/tools/browser')
+          $wasm = Join-Path $sdkBrowser 'sia-spirv-naga.wasm'
+          $loader = Join-Path $sdkBrowser 'sia-spirv-polyfill.js'
+          if (!(Test-Path -LiteralPath $wasm) -or !(Test-Path -LiteralPath $loader)) {
+            throw 'The packaged Naga browser ABI is incomplete.'
+          }
+          $nodeSmoke = Join-Path $smokeDirectory 'verify-naga-abi.mjs'
+          @'
+          import { readFile } from 'node:fs/promises';
+          import { pathToFileURL } from 'node:url';
+
+          const [loaderPath, wasmPath, spirvPath, expectedStage] = process.argv.slice(2);
+          const [{ createSpirvPolyfill }, wasm, spirv] = await Promise.all([
+            import(pathToFileURL(loaderPath)),
+            readFile(wasmPath),
+            readFile(spirvPath),
+          ]);
+          const translate = await createSpirvPolyfill(
+            `data:application/wasm;base64,${wasm.toString('base64')}`);
+          const wgsl = translate(spirv);
+          translate.dispose();
+          if (!wgsl.includes(expectedStage)) {
+            throw new Error(`Naga Wasm did not preserve '${expectedStage}'.`);
+          }
+          '@ | Set-Content -LiteralPath $nodeSmoke -Encoding utf8NoBOM
+          foreach ($module in $modules) {
+            $expectedStage = if ($module.BaseName -match 'FullscreenVertex') {
+              '@vertex'
+            } elseif ($module.BaseName -match 'SolidFragment') {
+              '@fragment'
+            } else {
+              '@compute'
+            }
+            node $nodeSmoke $loader $wasm $module.FullName $expectedStage
+            if ($LASTEXITCODE -ne 0) {
+              throw "The packaged Naga Wasm ABI failed for '$($module.Name)'."
+            }
+          }
 
   release:
     if: github.ref_type == 'tag'

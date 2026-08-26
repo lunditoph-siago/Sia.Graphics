@@ -6,6 +6,7 @@
     <SpirvEmitWgsl Condition="'$(SpirvEmitWgsl)' == ''">true</SpirvEmitWgsl>
     <SpirvOptimizationLevel Condition="'$(SpirvOptimizationLevel)' == ''">2</SpirvOptimizationLevel>
     <SpirvCompilerToolPath Condition="'$(SpirvCompilerToolPath)' == ''">$(MSBuildThisFileDirectory)..\tools\net10.0\Sia.Spirv.Tool.dll</SpirvCompilerToolPath>
+    <SpirvBrowserPolyfillDirectory Condition="'$(SpirvBrowserPolyfillDirectory)' == ''">$(MSBuildThisFileDirectory)..\tools\browser</SpirvBrowserPolyfillDirectory>
     <SpirvDotNetHost Condition="'$(DotNetHostPath)' != ''">$(DotNetHostPath)</SpirvDotNetHost>
     <SpirvDotNetHost Condition="'$(SpirvDotNetHost)' == ''">dotnet</SpirvDotNetHost>
     <_SiaSpirvSdkPackageDirectory>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</_SiaSpirvSdkPackageDirectory>
@@ -44,11 +45,24 @@
           AfterTargets="Publish"
           DependsOnTargets="CompileSiaSpirvKernels"
           Condition="'$(EnableSpirvCompilation)' == 'true' and '$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true'">
+    <Error
+        Condition="'$(TargetPlatformIdentifier)' == 'browser' and !Exists('$(SpirvBrowserPolyfillDirectory)\sia-spirv-naga.wasm')"
+        Text="The browser Naga Wasm module was not found at '$(SpirvBrowserPolyfillDirectory)\sia-spirv-naga.wasm'. Install or update the spirv-tools workload." />
+    <Error
+        Condition="'$(TargetPlatformIdentifier)' == 'browser' and !Exists('$(SpirvBrowserPolyfillDirectory)\sia-spirv-polyfill.js')"
+        Text="The browser SPIR-V polyfill loader was not found at '$(SpirvBrowserPolyfillDirectory)\sia-spirv-polyfill.js'. Install or update the spirv-tools workload." />
     <ItemGroup>
       <_SiaSpirvPublishArtifact Include="$(SpirvOutputDirectory)\**\*" />
+      <_SiaSpirvPublishArtifact
+          Include="$(SpirvBrowserPolyfillDirectory)\sia-spirv-naga.wasm;$(SpirvBrowserPolyfillDirectory)\sia-spirv-polyfill.js"
+          Condition="'$(TargetPlatformIdentifier)' == 'browser'" />
     </ItemGroup>
+    <PropertyGroup>
+      <_SiaSpirvPublishDirectory>$(PublishDir)spirv</_SiaSpirvPublishDirectory>
+      <_SiaSpirvPublishDirectory Condition="'$(TargetPlatformIdentifier)' == 'browser'">$(PublishDir)wwwroot\spirv</_SiaSpirvPublishDirectory>
+    </PropertyGroup>
     <Copy SourceFiles="@(_SiaSpirvPublishArtifact)"
-          DestinationFiles="@(_SiaSpirvPublishArtifact->'$(PublishDir)spirv\%(RecursiveDir)%(Filename)%(Extension)')"
+          DestinationFiles="@(_SiaSpirvPublishArtifact->'$(_SiaSpirvPublishDirectory)\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
 

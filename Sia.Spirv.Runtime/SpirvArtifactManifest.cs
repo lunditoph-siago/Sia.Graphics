@@ -12,4 +12,5 @@ public sealed record SpirvArtifactManifest(
     IReadOnlyList<SpirvPushConstant> PushConstants,
     SpirvToolchainInfo Toolchain,
     string SourceHash,
-    string KernelAbi = "vulkan");
+    string KernelAbi = "vulkan",
+    string ShaderStage = "compute");

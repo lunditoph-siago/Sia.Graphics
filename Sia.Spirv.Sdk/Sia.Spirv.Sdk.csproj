@@ -15,10 +15,23 @@
     <None Include="buildTransitive\**\*" Pack="true" PackagePath="buildTransitive" />
   </ItemGroup>
 
-  <Target Name="CollectSpirvSdkTools" DependsOnTargets="Build">
+  <Target Name="BuildSpirvNagaBrowser">
+    <PropertyGroup>
+      <_SpirvNagaOutputDirectory>$([System.IO.Path]::GetFullPath('$(BaseIntermediateOutputPath)naga'))</_SpirvNagaOutputDirectory>
+    </PropertyGroup>
+    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\Sia.Spirv.Naga\Build.ps1&quot; -Target Browser -OutputDirectory &quot;$(_SpirvNagaOutputDirectory)&quot;" />
+  </Target>
+
+  <Target Name="CollectSpirvSdkTools" DependsOnTargets="Build;BuildSpirvNagaBrowser">
     <ItemGroup>
       <TfmSpecificPackageFile Include="..\Sia.Spirv.Tool\bin\$(Configuration)\net10.0\**\*">
         <PackagePath>tools/net10.0/%(RecursiveDir)%(Filename)%(Extension)</PackagePath>
+      </TfmSpecificPackageFile>
+      <TfmSpecificPackageFile Include="$(_SpirvNagaOutputDirectory)\browser\sia-spirv-naga.wasm">
+        <PackagePath>tools/browser</PackagePath>
+      </TfmSpecificPackageFile>
+      <TfmSpecificPackageFile Include="$(_SpirvNagaOutputDirectory)\browser\sia-spirv-polyfill.js">
+        <PackagePath>tools/browser</PackagePath>
       </TfmSpecificPackageFile>
     </ItemGroup>
   </Target>

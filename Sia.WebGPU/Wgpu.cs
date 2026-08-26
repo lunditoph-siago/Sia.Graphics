@@ -29,8 +29,7 @@ public static unsafe partial class Wgpu
     public static WgpuHandle<WGPUInstance> CreateSpirvInstance()
     {
         if (OperatingSystem.IsBrowser()) {
-            throw new PlatformNotSupportedException(
-                "Browser WebGPU accepts WGSL shader modules, not SPIR-V modules.");
+            return CreateInstance();
         }
 
         var feature = WGPUInstanceFeatureName.ShaderSourceSPIRV;

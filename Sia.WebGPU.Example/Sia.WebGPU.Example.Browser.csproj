@@ -15,6 +15,11 @@
     <WasmAllowUndefinedSymbols>true</WasmAllowUndefinedSymbols>
     <EmccFlags>--use-port=emdawnwebgpu</EmccFlags>
     <EmccExtraLDFlags>-sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH</EmccExtraLDFlags>
+    <EnableSpirvCompilation>true</EnableSpirvCompilation>
+    <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
+    <SpirvKernelAbi>webgpu</SpirvKernelAbi>
+    <SpirvEmitWgsl>true</SpirvEmitWgsl>
+    <SpirvOptimizationLevel>3</SpirvOptimizationLevel>
   </PropertyGroup>
 
   <ItemGroup>
@@ -30,6 +35,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Sia.Graphics\Sia.Graphics.csproj" />
+    <ProjectReference Include="..\Sia.Spirv.Core\Sia.Spirv.Core.csproj" />
     <ProjectReference Include="..\Sia.WebGPU\Sia.WebGPU.csproj" />
     <PackageReference Include="Sia.GLFW" Version="0.0.3" />
   </ItemGroup>
@@ -50,6 +56,12 @@
     <ItemGroup>
       <_WasmPInvokeModules Include="__Internal_emscripten" />
       <_WasmPInvokeModules Include="__Internal_glfw" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="RemoveBundledSpirvCoreReference" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="Sia.Spirv.Core" />
     </ItemGroup>
   </Target>
 

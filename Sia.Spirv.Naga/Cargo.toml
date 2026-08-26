@@ -1,0 +1,23 @@
+[package]
+name = "sia-spirv-naga"
+version = "0.0.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "naga"
+path = "src/main.rs"
+
+[dependencies]
+naga = { version = "30", default-features = false, features = ["spv-in", "wgsl-in", "wgsl-out"] }
+
+[build-dependencies]
+cbindgen = { version = "0.29", default-features = false }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

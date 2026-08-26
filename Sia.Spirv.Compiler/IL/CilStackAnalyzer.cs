@@ -9,8 +9,9 @@ internal sealed class CilStackAnalyzer(
     MetadataReader reader,
     MethodDefinitionHandle methodHandle)
 {
-    public void Validate(CilControlFlowGraph graph)
+    public void Validate(ShaderCilView view)
     {
+        var graph = view.Graph;
         if (graph.Blocks.Count == 0) {
             return;
         }
@@ -23,8 +24,9 @@ internal sealed class CilStackAnalyzer(
         while (pending.TryDequeue(out var blockId)) {
             var block = graph.Blocks[blockId];
             var depth = entryDepths[blockId]!.Value;
-            foreach (var instruction in block.Instructions) {
-                var (pop, push) = GetStackChange(instruction);
+            for (var index = 0; index < block.Instructions.Count; index++) {
+                var instruction = block.Instructions[index];
+                var (pop, push) = GetStackChange(view, block, index, instruction);
                 if (depth < pop) {
                     throw new InvalidDataException(
                         $"Evaluation stack underflow at IL_{instruction.Offset:x4}.");
@@ -48,25 +50,33 @@ internal sealed class CilStackAnalyzer(
         }
     }
 
-    private (int Pop, int Push) GetStackChange(CilInstruction instruction)
+    private (int Pop, int Push) GetStackChange(
+        ShaderCilView view,
+        CilBasicBlock block,
+        int instructionIndex,
+        CilInstruction instruction)
     {
         var pop = instruction.OpCode.StackBehaviourPop == StackBehaviour.Varpop
-            ? GetVariablePopCount(instruction)
+            ? GetVariablePopCount(view, block, instructionIndex, instruction)
             : GetFixedPopCount(instruction.OpCode.StackBehaviourPop);
         var push = instruction.OpCode.StackBehaviourPush == StackBehaviour.Varpush
-            ? GetVariablePushCount(instruction)
+            ? GetVariablePushCount(view, block, instructionIndex, instruction)
             : GetFixedPushCount(instruction.OpCode.StackBehaviourPush);
         return (pop, push);
     }
 
-    private int GetVariablePopCount(CilInstruction instruction)
+    private int GetVariablePopCount(
+        ShaderCilView view,
+        CilBasicBlock block,
+        int instructionIndex,
+        CilInstruction instruction)
     {
         if (instruction.OpCode == OpCodes.Ret) {
             return GetCurrentMethodSignature().ReturnType.IsVoid ? 0 : 1;
         }
         if (instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt) {
-            var signature = GetMethodSignature((int)instruction.Operand!);
-            return signature.ParameterTypes.Length + (signature.Header.IsInstance ? 1 : 0);
+            var call = view.ResolveCall(block, instructionIndex);
+            return call.ParameterCount + (call.IsInstance ? 1 : 0);
         }
         if (instruction.OpCode == OpCodes.Calli) {
             var signature = GetStandaloneMethodSignature((int)instruction.Operand!);
@@ -80,10 +90,14 @@ internal sealed class CilStackAnalyzer(
             $"Unsupported variable-pop opcode {instruction.OpCode.Name} at IL_{instruction.Offset:x4}.");
     }
 
-    private int GetVariablePushCount(CilInstruction instruction)
+    private int GetVariablePushCount(
+        ShaderCilView view,
+        CilBasicBlock block,
+        int instructionIndex,
+        CilInstruction instruction)
     {
         if (instruction.OpCode == OpCodes.Call || instruction.OpCode == OpCodes.Callvirt) {
-            return GetMethodSignature((int)instruction.Operand!).ReturnType.IsVoid ? 0 : 1;
+            return view.ResolveCall(block, instructionIndex).ReturnsVoid ? 0 : 1;
         }
         if (instruction.OpCode == OpCodes.Calli) {
             return GetStandaloneMethodSignature((int)instruction.Operand!).ReturnType.IsVoid ? 0 : 1;
@@ -100,6 +114,10 @@ internal sealed class CilStackAnalyzer(
         reader.GetMethodDefinition(methodHandle)
             .DecodeSignature(SignatureTypeProvider.Instance, genericContext: null);
 
+    // Newobj/Calli are not resolved through CilCallResolver: they never
+    // target a SPIR-V intrinsic (managed allocation and function pointers
+    // are already rejected elsewhere), so there is no need to consult the
+    // intrinsic catalog for them — only their raw stack shape matters here.
     private MethodSignature<SignatureType> GetMethodSignature(int token)
     {
         var handle = MetadataTokens.EntityHandle(token);

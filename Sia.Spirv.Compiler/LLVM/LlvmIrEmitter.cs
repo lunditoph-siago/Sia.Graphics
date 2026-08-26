@@ -17,12 +17,22 @@ public sealed class LlvmIrEmitter
     private readonly HashSet<LlvmValueType> _bufferTypes = [];
     private readonly HashSet<uint> _stageInputs = [];
     private readonly HashSet<uint> _stageOutputs = [];
+    private readonly HashSet<uint> _flatStageInputs = [];
+    private readonly HashSet<uint> _flatStageOutputs = [];
     private SpirvKernelAbi _kernelAbi;
     private SpirvShaderStage _shaderStage;
     private bool _readsVertexIndex;
     private bool _readsInstanceIndex;
     private bool _readsFragmentPosition;
     private bool _writesPosition;
+    private bool _usesTexture2DLoad;
+    private bool _usesTexture2DArrayLoad;
+    private bool _usesTexture2DArraySampleLevel;
+    private bool _usesUnpackHalf;
+    private bool _usesMin;
+    private bool _usesMax;
+    private bool _usesInverseSqrt;
+    private bool _usesDiscard;
     private int _nextValueId;
 
     public LlvmIrModule Emit(
@@ -45,12 +55,22 @@ public sealed class LlvmIrEmitter
         _bufferTypes.Clear();
         _stageInputs.Clear();
         _stageOutputs.Clear();
+        _flatStageInputs.Clear();
+        _flatStageOutputs.Clear();
         _kernelAbi = kernelAbi;
         _shaderStage = kernel.Stage;
         _readsVertexIndex = false;
         _readsInstanceIndex = false;
         _readsFragmentPosition = false;
         _writesPosition = false;
+        _usesTexture2DLoad = false;
+        _usesTexture2DArrayLoad = false;
+        _usesTexture2DArraySampleLevel = false;
+        _usesUnpackHalf = false;
+        _usesMin = false;
+        _usesMax = false;
+        _usesInverseSqrt = false;
+        _usesDiscard = false;
         _nextValueId = 0;
 
         var parameterValues = new LlvmValue[kernel.Parameters.Count];
@@ -257,14 +277,49 @@ public sealed class LlvmIrEmitter
             prologue.Append("  ").Append(parameterHandle).Append(" = call ")
                 .Append(GetParameterTargetType()).Append(" @llvm.spv.resource.handlefrombinding.")
                 .Append(GetParameterMangling()).Append("(i32 0, i32 ")
-                .Append(kernel.Parameters.Count(static parameter =>
-                    parameter.Kind == SpirvKernelParameterKind.StorageBuffer))
+                .Append(kernel.Parameters.Count(static parameter => parameter.IsResource))
                 .AppendLine(", i32 1, i32 0, ptr nonnull @.str.parameters)");
         }
 
         foreach (var parameter in kernel.Parameters) {
-            if (parameter.Kind == SpirvKernelParameterKind.StorageBuffer) {
-                var type = GetBufferType(parameter.ScalarType);
+            if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2D) {
+                var value = NextValue(SanitizeIdentifier(parameter.Name));
+                prologue.Append("  ").Append(value).Append(" = call ")
+                    .Append(GetTexture2DTargetType()).Append(" @llvm.spv.resource.handlefrombinding.")
+                    .Append(GetTexture2DMangling()).Append("(i32 0, i32 ").Append(binding)
+                    .Append(", i32 1, i32 0, ptr nonnull @.str.")
+                    .Append(parameter.Position).AppendLine(")");
+                values[parameter.Position] = new LlvmValue(value, LlvmValueType.Texture2DFloat);
+                binding++;
+            }
+            else if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2DArray) {
+                var value = NextValue(SanitizeIdentifier(parameter.Name));
+                prologue.Append("  ").Append(value).Append(" = call ")
+                    .Append(GetTexture2DArrayTargetType())
+                    .Append(" @llvm.spv.resource.handlefrombinding.")
+                    .Append(GetTexture2DArrayMangling()).Append("(i32 0, i32 ").Append(binding)
+                    .Append(", i32 1, i32 0, ptr nonnull @.str.")
+                    .Append(parameter.Position).AppendLine(")");
+                values[parameter.Position] = new LlvmValue(
+                    value, LlvmValueType.Texture2DArrayFloat);
+                binding++;
+            }
+            else if (parameter.Kind == SpirvKernelParameterKind.Sampler) {
+                var value = NextValue(SanitizeIdentifier(parameter.Name));
+                prologue.Append("  ").Append(value).Append(" = call ")
+                    .Append(GetSamplerTargetType())
+                    .Append(" @llvm.spv.resource.handlefrombinding.")
+                    .Append(GetSamplerMangling()).Append("(i32 0, i32 ").Append(binding)
+                    .Append(", i32 1, i32 0, ptr nonnull @.str.")
+                    .Append(parameter.Position).AppendLine(")");
+                values[parameter.Position] = new LlvmValue(value, LlvmValueType.Sampler);
+                binding++;
+            }
+            else if (parameter.Kind is SpirvKernelParameterKind.ReadOnlyStorageBuffer or
+                  SpirvKernelParameterKind.StorageBuffer) {
+                var type = GetBufferType(
+                    parameter.ScalarType,
+                    parameter.Kind == SpirvKernelParameterKind.ReadOnlyStorageBuffer);
                 _bufferTypes.Add(type);
                 var value = NextValue(SanitizeIdentifier(parameter.Name));
                 var targetType = GetBufferTargetType(type);
@@ -336,7 +391,7 @@ public sealed class LlvmIrEmitter
         EmitStageGlobalDeclarations(module);
 
         foreach (var parameter in kernel.Parameters.Where(
-            static parameter => parameter.Kind == SpirvKernelParameterKind.StorageBuffer)) {
+            static parameter => parameter.IsResource)) {
             EmitResourceName(module, $".str.{parameter.Position}", parameter.Name);
         }
         if (pushConstants.Length != 0 && _kernelAbi == SpirvKernelAbi.WebGpu) {
@@ -397,7 +452,64 @@ public sealed class LlvmIrEmitter
             module.Append("declare ptr addrspace(11) @llvm.spv.resource.getpointer.p11.")
                 .Append(mangling).Append('(').Append(targetType).AppendLine(", i32)");
         }
-        if (_kernelAbi == SpirvKernelAbi.WebGpu) {
+        if (kernel.Parameters.Any(static parameter =>
+            parameter.Kind == SpirvKernelParameterKind.SampledTexture2D)) {
+            module.Append("declare ").Append(GetTexture2DTargetType())
+                .Append(" @llvm.spv.resource.handlefrombinding.").Append(GetTexture2DMangling())
+                .AppendLine("(i32, i32, i32, i32, ptr)");
+        }
+        if (kernel.Parameters.Any(static parameter =>
+            parameter.Kind == SpirvKernelParameterKind.SampledTexture2DArray)) {
+            module.Append("declare ").Append(GetTexture2DArrayTargetType())
+                .Append(" @llvm.spv.resource.handlefrombinding.")
+                .Append(GetTexture2DArrayMangling())
+                .AppendLine("(i32, i32, i32, i32, ptr)");
+        }
+        if (kernel.Parameters.Any(static parameter =>
+            parameter.Kind == SpirvKernelParameterKind.Sampler)) {
+            module.Append("declare ").Append(GetSamplerTargetType())
+                .Append(" @llvm.spv.resource.handlefrombinding.")
+                .Append(GetSamplerMangling())
+                .AppendLine("(i32, i32, i32, i32, ptr)");
+        }
+        if (_usesTexture2DLoad) {
+            module.Append("declare <4 x float> @llvm.spv.resource.load.level.")
+                .Append(GetTexture2DLoadMangling()).Append('(')
+                .Append(GetTexture2DTargetType())
+                .AppendLine(", <2 x i32>, i32, <2 x i32>)");
+        }
+        if (_usesTexture2DArrayLoad) {
+            module.Append("declare <4 x float> @llvm.spv.resource.load.level.")
+                .Append(GetTexture2DArrayLoadMangling()).Append('(')
+                .Append(GetTexture2DArrayTargetType())
+                .AppendLine(", <3 x i32>, i32, <2 x i32>)");
+        }
+        if (_usesTexture2DArraySampleLevel) {
+            module.Append("declare <4 x float> @llvm.spv.resource.samplelevel.")
+                .Append(GetTexture2DArraySampleLevelMangling()).Append('(')
+                .Append(GetTexture2DArrayTargetType()).Append(", ")
+                .Append(GetSamplerTargetType())
+                .AppendLine(", <3 x float>, float, <2 x i32>)");
+        }
+        if (_usesUnpackHalf) {
+            module.AppendLine("declare <2 x float> @llvm.spv.unpackhalf2x16.v2f32(i32)");
+        }
+        if (_usesMin) {
+            module.AppendLine("declare float @llvm.minnum.f32(float, float)");
+        }
+        if (_usesMax) {
+            module.AppendLine("declare float @llvm.maxnum.f32(float, float)");
+        }
+        if (_usesInverseSqrt) {
+            module.AppendLine("declare float @llvm.spv.rsqrt.f32(float)");
+        }
+        if (_usesDiscard) {
+            module.AppendLine("declare void @llvm.spv.discard()");
+        }
+        if (_kernelAbi == SpirvKernelAbi.WebGpu &&
+            kernel.Parameters.Any(static parameter =>
+                parameter.Kind == SpirvKernelParameterKind.PushConstant) &&
+            !_bufferTypes.Contains(LlvmValueType.ReadOnlyBufferUInt32)) {
             var targetType = GetParameterTargetType();
             var mangling = GetParameterMangling();
             module.Append("declare ").Append(targetType)
@@ -433,24 +545,39 @@ public sealed class LlvmIrEmitter
         }
 
         module.AppendLine();
-        for (var index = 0; index < locations.Length; index++) {
-            var decorationsId = index * 2;
-            var locationId = decorationsId + 1;
+        var nextMetadataId = 0;
+        foreach (var location in locations) {
+            var decorationsId = nextMetadataId++;
+            var locationId = nextMetadataId++;
             module.Append('!').Append(decorationsId).Append(" = !{!")
-                .Append(locationId).AppendLine("}");
+                .Append(locationId);
+            if (IsFlatLocation(location)) {
+                module.Append(", !").Append(nextMetadataId);
+            }
+            module.AppendLine("}");
             module.Append('!').Append(locationId).Append(" = !{i32 30, i32 ")
-                .Append(locations[index]).AppendLine("}");
+                .Append(location).AppendLine("}");
+            if (IsFlatLocation(location)) {
+                module.Append('!').Append(nextMetadataId++).AppendLine(" = !{i32 14}");
+            }
         }
     }
 
     private int GetLocationMetadataId(uint location)
     {
         var locations = _stageInputs.Concat(_stageOutputs).Distinct().Order().ToArray();
-        var index = Array.IndexOf(locations, location);
-        return index < 0
-            ? throw new InvalidOperationException($"Location {location} was not registered.")
-            : index * 2;
+        var metadataId = 0;
+        foreach (var candidate in locations) {
+            if (candidate == location) {
+                return metadataId;
+            }
+            metadataId += IsFlatLocation(candidate) ? 3 : 2;
+        }
+        throw new InvalidOperationException($"Location {location} was not registered.");
     }
+
+    private bool IsFlatLocation(uint location) =>
+        _flatStageInputs.Contains(location) || _flatStageOutputs.Contains(location);
 
     private void EmitCall(
         MetadataReader reader,
@@ -483,7 +610,8 @@ public sealed class LlvmIrEmitter
             stack.Push(new LlvmValue(result, LlvmValueType.UInt32));
             return;
         }
-        if (method.DeclaringType == "Sia.Spirv.StorageBuffer`1" && method.Name == "get_Item") {
+        if (method.DeclaringType is "Sia.Spirv.ReadOnlyStorageBuffer`1" or
+            "Sia.Spirv.StorageBuffer`1" && method.Name == "get_Item") {
             if (!IsBuffer(instance.Type)) {
                 throw CreateUnsupported(offset, "StorageBuffer<T>.this[] requires a storage-buffer receiver.");
             }
@@ -493,6 +621,74 @@ public sealed class LlvmIrEmitter
             var mangling = GetBufferMangling(instance.Type);
             EmitLine($"{pointer} = call ptr addrspace(11) @llvm.spv.resource.getpointer.p11.{mangling}({targetType} {instance.Expression}, i32 {index.Expression})");
             stack.Push(new LlvmValue(pointer, GetBufferElementType(instance.Type), true));
+            return;
+        }
+        if (method.DeclaringType == "Sia.Spirv.Texture2D" && method.Name == "Load") {
+            if (instance.Type != LlvmValueType.Texture2DFloat) {
+                throw CreateUnsupported(offset, "Texture2D.Load requires a texture receiver.");
+            }
+            EnsureShaderStage(SpirvShaderStage.Fragment, method.Name, offset);
+            EnsureInteger(arguments[0], "x", offset);
+            EnsureInteger(arguments[1], "y", offset);
+            var component = GetConstantIndex(arguments[2], 3, "component", offset);
+            var first = NextValue();
+            EmitLine($"{first} = insertelement <2 x i32> poison, i32 {arguments[0].Expression}, i32 0");
+            var coordinates = NextValue();
+            EmitLine($"{coordinates} = insertelement <2 x i32> {first}, i32 {arguments[1].Expression}, i32 1");
+            var texel = NextValue();
+            EmitLine($"{texel} = call <4 x float> @llvm.spv.resource.load.level.{GetTexture2DLoadMangling()}({GetTexture2DTargetType()} {instance.Expression}, <2 x i32> {coordinates}, i32 0, <2 x i32> zeroinitializer)");
+            var result = NextValue();
+            EmitLine($"{result} = extractelement <4 x float> {texel}, i32 {component}");
+            _usesTexture2DLoad = true;
+            stack.Push(new LlvmValue(result, LlvmValueType.Float32));
+            return;
+        }
+        if (method.DeclaringType == "Sia.Spirv.Texture2DArray" && method.Name == "Load") {
+            if (instance.Type != LlvmValueType.Texture2DArrayFloat) {
+                throw CreateUnsupported(offset, "Texture2DArray.Load requires a texture-array receiver.");
+            }
+            EnsureShaderStage(SpirvShaderStage.Fragment, method.Name, offset);
+            EnsureInteger(arguments[0], "x", offset);
+            EnsureInteger(arguments[1], "y", offset);
+            EnsureInteger(arguments[2], "layer", offset);
+            var component = GetConstantIndex(arguments[3], 3, "component", offset);
+            var first = NextValue();
+            EmitLine($"{first} = insertelement <3 x i32> poison, i32 {arguments[0].Expression}, i32 0");
+            var second = NextValue();
+            EmitLine($"{second} = insertelement <3 x i32> {first}, i32 {arguments[1].Expression}, i32 1");
+            var coordinates = NextValue();
+            EmitLine($"{coordinates} = insertelement <3 x i32> {second}, i32 {arguments[2].Expression}, i32 2");
+            var texel = NextValue();
+            EmitLine($"{texel} = call <4 x float> @llvm.spv.resource.load.level.{GetTexture2DArrayLoadMangling()}({GetTexture2DArrayTargetType()} {instance.Expression}, <3 x i32> {coordinates}, i32 0, <2 x i32> zeroinitializer)");
+            var result = NextValue();
+            EmitLine($"{result} = extractelement <4 x float> {texel}, i32 {component}");
+            _usesTexture2DArrayLoad = true;
+            stack.Push(new LlvmValue(result, LlvmValueType.Float32));
+            return;
+        }
+        if (method.DeclaringType == "Sia.Spirv.Texture2DArray" &&
+            method.Name == "SampleLevel") {
+            if (instance.Type != LlvmValueType.Texture2DArrayFloat) {
+                throw CreateUnsupported(offset, "Texture2DArray.SampleLevel requires a texture-array receiver.");
+            }
+            EnsureShaderStage(SpirvShaderStage.Fragment, method.Name, offset);
+            EnsureCompatible(LlvmValueType.Sampler, arguments[0].Type, offset);
+            EnsureCompatible(LlvmValueType.Float32, arguments[1].Type, offset);
+            EnsureCompatible(LlvmValueType.Float32, arguments[2].Type, offset);
+            EnsureCompatible(LlvmValueType.Float32, arguments[3].Type, offset);
+            var component = GetConstantIndex(arguments[4], 3, "component", offset);
+            var first = NextValue();
+            EmitLine($"{first} = insertelement <3 x float> poison, float {arguments[1].Expression}, i32 0");
+            var second = NextValue();
+            EmitLine($"{second} = insertelement <3 x float> {first}, float {arguments[2].Expression}, i32 1");
+            var coordinates = NextValue();
+            EmitLine($"{coordinates} = insertelement <3 x float> {second}, float {arguments[3].Expression}, i32 2");
+            var texel = NextValue();
+            EmitLine($"{texel} = call <4 x float> @llvm.spv.resource.samplelevel.{GetTexture2DArraySampleLevelMangling()}({GetTexture2DArrayTargetType()} {instance.Expression}, {GetSamplerTargetType()} {arguments[0].Expression}, <3 x float> {coordinates}, float 0.000000e+00, <2 x i32> zeroinitializer)");
+            var result = NextValue();
+            EmitLine($"{result} = extractelement <4 x float> {texel}, i32 {component}");
+            _usesTexture2DArraySampleLevel = true;
+            stack.Push(new LlvmValue(result, LlvmValueType.Float32));
             return;
         }
         throw CreateUnsupported(
@@ -523,11 +719,14 @@ public sealed class LlvmIrEmitter
             stack.Push(EmitInputScalar("@__spirv_BuiltInInstanceIndex"));
             return true;
         }
-        if (methodName == "GetInput") {
+        if (methodName is "GetInput" or "GetFlatInput") {
             EnsureRasterizationStage(methodName, offset);
             var location = GetConstantIndex(arguments[0], uint.MaxValue, "location", offset);
             var component = GetConstantIndex(arguments[1], 3, "component", offset);
             _stageInputs.Add(location);
+            if (methodName == "GetFlatInput") {
+                _flatStageInputs.Add(location);
+            }
             stack.Push(EmitInputComponent($"@sia.input.location.{location}", component));
             return true;
         }
@@ -538,16 +737,120 @@ public sealed class LlvmIrEmitter
             stack.Push(EmitInputComponent("@__spirv_BuiltInFragCoord", component));
             return true;
         }
+        if (methodName == "AsFloat") {
+            EnsureCompatible(LlvmValueType.UInt32, arguments[0].Type, offset);
+            var result = NextValue();
+            EmitLine($"{result} = bitcast i32 {arguments[0].Expression} to float");
+            stack.Push(new LlvmValue(result, LlvmValueType.Float32));
+            return true;
+        }
+        if (methodName == "UnpackHalf") {
+            EnsureCompatible(LlvmValueType.UInt32, arguments[0].Type, offset);
+            var component = GetConstantIndex(arguments[1], 1, "component", offset);
+            var unpacked = NextValue();
+            EmitLine($"{unpacked} = call <2 x float> @llvm.spv.unpackhalf2x16.v2f32(i32 {arguments[0].Expression})");
+            var result = NextValue();
+            EmitLine($"{result} = extractelement <2 x float> {unpacked}, i32 {component}");
+            _usesUnpackHalf = true;
+            stack.Push(new LlvmValue(result, LlvmValueType.Float32));
+            return true;
+        }
+        if (methodName is "Min" or "Max") {
+            EnsureCompatible(LlvmValueType.Float32, arguments[0].Type, offset);
+            EnsureCompatible(LlvmValueType.Float32, arguments[1].Type, offset);
+            var intrinsic = methodName == "Min" ? "minnum" : "maxnum";
+            var result = NextValue();
+            EmitLine($"{result} = call float @llvm.{intrinsic}.f32(float {arguments[0].Expression}, float {arguments[1].Expression})");
+            _usesMin |= methodName == "Min";
+            _usesMax |= methodName == "Max";
+            stack.Push(new LlvmValue(result, LlvmValueType.Float32));
+            return true;
+        }
+        if (methodName == "InverseSqrt") {
+            EnsureCompatible(LlvmValueType.Float32, arguments[0].Type, offset);
+            var result = NextValue();
+            EmitLine($"{result} = call float @llvm.spv.rsqrt.f32(float {arguments[0].Expression})");
+            _usesInverseSqrt = true;
+            stack.Push(new LlvmValue(result, LlvmValueType.Float32));
+            return true;
+        }
+        if (methodName == "Saturate") {
+            EnsureCompatible(LlvmValueType.Float32, arguments[0].Type, offset);
+            var lower = NextValue();
+            EmitLine($"{lower} = call float @llvm.maxnum.f32(float {arguments[0].Expression}, float 0.000000e+00)");
+            var result = NextValue();
+            EmitLine($"{result} = call float @llvm.minnum.f32(float {lower}, float 1.000000e+00)");
+            _usesMin = true;
+            _usesMax = true;
+            stack.Push(new LlvmValue(result, LlvmValueType.Float32));
+            return true;
+        }
+        if (methodName is "LessThan" or "LessThanOrEqual" or
+            "GreaterThan" or "GreaterThanOrEqual" or "Equal") {
+            if (methodName == "Equal" && arguments[0].Type == LlvmValueType.UInt32) {
+                EnsureCompatible(LlvmValueType.UInt32, arguments[1].Type, offset);
+                var integerComparison = NextValue();
+                EmitLine($"{integerComparison} = icmp eq i32 {arguments[0].Expression}, {arguments[1].Expression}");
+                var integerResult = NextValue();
+                EmitLine($"{integerResult} = zext i1 {integerComparison} to i32");
+                stack.Push(new LlvmValue(integerResult, LlvmValueType.UInt32));
+                return true;
+            }
+            EnsureCompatible(LlvmValueType.Float32, arguments[0].Type, offset);
+            EnsureCompatible(LlvmValueType.Float32, arguments[1].Type, offset);
+            var predicate = methodName switch {
+                "LessThan" => "olt",
+                "LessThanOrEqual" => "ole",
+                "GreaterThan" => "ogt",
+                "GreaterThanOrEqual" => "oge",
+                _ => "oeq"
+            };
+            var comparison = NextValue();
+            EmitLine($"{comparison} = fcmp {predicate} float {arguments[0].Expression}, {arguments[1].Expression}");
+            var result = NextValue();
+            EmitLine($"{result} = zext i1 {comparison} to i32");
+            stack.Push(new LlvmValue(result, LlvmValueType.UInt32));
+            return true;
+        }
+        if (methodName == "Select") {
+            EnsureCompatible(LlvmValueType.Float32, arguments[0].Type, offset);
+            EnsureCompatible(LlvmValueType.Float32, arguments[1].Type, offset);
+            EnsureCompatible(LlvmValueType.UInt32, arguments[2].Type, offset);
+            var condition = NextValue();
+            EmitLine($"{condition} = icmp ne i32 {arguments[2].Expression}, 0");
+            var result = NextValue();
+            EmitLine($"{result} = select i1 {condition}, float {arguments[1].Expression}, float {arguments[0].Expression}");
+            stack.Push(new LlvmValue(result, LlvmValueType.Float32));
+            return true;
+        }
+        if (methodName == "Discard") {
+            EnsureShaderStage(SpirvShaderStage.Fragment, methodName, offset);
+            EmitLine("call void @llvm.spv.discard()");
+            _usesDiscard = true;
+            return true;
+        }
         if (methodName == "SetPosition") {
             EnsureShaderStage(SpirvShaderStage.Vertex, methodName, offset);
             _writesPosition = true;
+            if (_kernelAbi == SpirvKernelAbi.WebGpu) {
+                EnsureCompatible(LlvmValueType.Float32, arguments[1].Type, offset);
+                var invertedY = NextValue();
+                EmitLine($"{invertedY} = fneg float {arguments[1].Expression}");
+                var webGpuPosition = arguments.ToArray();
+                webGpuPosition[1] = new LlvmValue(invertedY, LlvmValueType.Float32);
+                EmitOutputVector("@__spirv_BuiltInPosition", webGpuPosition, offset);
+                return true;
+            }
             EmitOutputVector("@__spirv_BuiltInPosition", arguments, offset);
             return true;
         }
-        if (methodName == "SetOutput") {
+        if (methodName is "SetOutput" or "SetFlatOutput") {
             EnsureRasterizationStage(methodName, offset);
             var location = GetConstantIndex(arguments[0], uint.MaxValue, "location", offset);
             _stageOutputs.Add(location);
+            if (methodName == "SetFlatOutput") {
+                _flatStageOutputs.Add(location);
+            }
             EmitOutputVector($"@sia.output.location.{location}", arguments.Skip(1).ToArray(), offset);
             return true;
         }
@@ -822,6 +1125,9 @@ public sealed class LlvmIrEmitter
         "System.UInt32" => LlvmValueType.UInt32,
         "System.Single" => LlvmValueType.Float32,
         "Sia.Spirv.UInt3" => LlvmValueType.UInt3,
+        "Sia.Spirv.Texture2D" => LlvmValueType.Texture2DFloat,
+        "Sia.Spirv.Texture2DArray" => LlvmValueType.Texture2DArrayFloat,
+        "Sia.Spirv.Sampler" => LlvmValueType.Sampler,
         _ => throw new InvalidDataException($"CIL type '{type.Name}' is not supported by the LLVM backend.")
     };
 
@@ -835,14 +1141,21 @@ public sealed class LlvmIrEmitter
         _ => throw new ArgumentOutOfRangeException(nameof(type))
     };
 
-    private static LlvmValueType GetBufferType(SpirvScalarType type) => type switch {
-        SpirvScalarType.Int32 => LlvmValueType.BufferInt32,
-        SpirvScalarType.UInt32 => LlvmValueType.BufferUInt32,
-        SpirvScalarType.Float32 => LlvmValueType.BufferFloat32,
-        _ => throw new ArgumentOutOfRangeException(nameof(type))
-    };
+    private static LlvmValueType GetBufferType(SpirvScalarType type, bool readOnly) =>
+        (type, readOnly) switch {
+            (SpirvScalarType.Int32, true) => LlvmValueType.ReadOnlyBufferInt32,
+            (SpirvScalarType.UInt32, true) => LlvmValueType.ReadOnlyBufferUInt32,
+            (SpirvScalarType.Float32, true) => LlvmValueType.ReadOnlyBufferFloat32,
+            (SpirvScalarType.Int32, false) => LlvmValueType.BufferInt32,
+            (SpirvScalarType.UInt32, false) => LlvmValueType.BufferUInt32,
+            (SpirvScalarType.Float32, false) => LlvmValueType.BufferFloat32,
+            _ => throw new ArgumentOutOfRangeException(nameof(type))
+        };
 
     private static LlvmValueType GetBufferElementType(LlvmValueType type) => type switch {
+        LlvmValueType.ReadOnlyBufferInt32 => LlvmValueType.Int32,
+        LlvmValueType.ReadOnlyBufferUInt32 => LlvmValueType.UInt32,
+        LlvmValueType.ReadOnlyBufferFloat32 => LlvmValueType.Float32,
         LlvmValueType.BufferInt32 => LlvmValueType.Int32,
         LlvmValueType.BufferUInt32 => LlvmValueType.UInt32,
         LlvmValueType.BufferFloat32 => LlvmValueType.Float32,
@@ -850,16 +1163,43 @@ public sealed class LlvmIrEmitter
     };
 
     private static string GetBufferTargetType(LlvmValueType type) =>
-        $"target(\"spirv.VulkanBuffer\", [0 x {GetLlvmType(GetBufferElementType(type))}], 12, 1)";
+        $"target(\"spirv.VulkanBuffer\", [0 x {GetLlvmType(GetBufferElementType(type))}], 12, {(IsReadOnlyBuffer(type) ? 0 : 1)})";
 
     private static string GetBufferMangling(LlvmValueType type) =>
-        $"tspirv.VulkanBuffer_a0{(GetBufferElementType(type) == LlvmValueType.Float32 ? "f32" : "i32")}_12_1t";
+        $"tspirv.VulkanBuffer_a0{(GetBufferElementType(type) == LlvmValueType.Float32 ? "f32" : "i32")}_12_{(IsReadOnlyBuffer(type) ? 0 : 1)}t";
 
     private static string GetParameterTargetType() =>
         "target(\"spirv.VulkanBuffer\", [0 x i32], 12, 0)";
 
     private static string GetParameterMangling() =>
         "tspirv.VulkanBuffer_a0i32_12_0t";
+
+    private static string GetTexture2DTargetType() =>
+        "target(\"spirv.Image\", float, 1, 2, 0, 0, 1, 0)";
+
+    private static string GetTexture2DMangling() =>
+        "tspirv.Image_f32_1_2_0_0_1_0t";
+
+    private static string GetTexture2DLoadMangling() =>
+        "v4f32.tspirv.Image_f32_1_2_0_0_1_0t.v2i32.i32.v2i32";
+
+    private static string GetTexture2DArrayTargetType() =>
+        "target(\"spirv.Image\", float, 1, 2, 1, 0, 1, 0)";
+
+    private static string GetTexture2DArrayMangling() =>
+        "tspirv.Image_f32_1_2_1_0_1_0t";
+
+    private static string GetTexture2DArrayLoadMangling() =>
+        "v4f32.tspirv.Image_f32_1_2_1_0_1_0t.v3i32.i32.v2i32";
+
+    private static string GetTexture2DArraySampleLevelMangling() =>
+        "v4f32.tspirv.Image_f32_1_2_1_0_1_0t.tspirv.Samplert.v3f32.f32.v2i32";
+
+    private static string GetSamplerTargetType() =>
+        "target(\"spirv.Sampler\")";
+
+    private static string GetSamplerMangling() =>
+        "tspirv.Samplert";
 
     private static void EmitResourceName(StringBuilder module, string identifier, string name)
     {
@@ -874,9 +1214,17 @@ public sealed class LlvmIrEmitter
     }
 
     private static bool IsBuffer(LlvmValueType type) => type is
+        LlvmValueType.ReadOnlyBufferInt32 or
+        LlvmValueType.ReadOnlyBufferUInt32 or
+        LlvmValueType.ReadOnlyBufferFloat32 or
         LlvmValueType.BufferInt32 or
         LlvmValueType.BufferUInt32 or
         LlvmValueType.BufferFloat32;
+
+    private static bool IsReadOnlyBuffer(LlvmValueType type) => type is
+        LlvmValueType.ReadOnlyBufferInt32 or
+        LlvmValueType.ReadOnlyBufferUInt32 or
+        LlvmValueType.ReadOnlyBufferFloat32;
 
     private static string GetLlvmType(LlvmValueType type) => type switch {
         LlvmValueType.Void => "void",
@@ -884,6 +1232,9 @@ public sealed class LlvmIrEmitter
         LlvmValueType.Int32 or LlvmValueType.UInt32 => "i32",
         LlvmValueType.Float32 => "float",
         LlvmValueType.UInt3 => "<3 x i32>",
+        LlvmValueType.Texture2DFloat => GetTexture2DTargetType(),
+        LlvmValueType.Texture2DArrayFloat => GetTexture2DArrayTargetType(),
+        LlvmValueType.Sampler => GetSamplerTargetType(),
         _ when IsBuffer(type) => GetBufferTargetType(type),
         _ => throw new ArgumentOutOfRangeException(nameof(type))
     };
@@ -915,6 +1266,14 @@ public sealed class LlvmIrEmitter
             return;
         }
         throw CreateUnsupported(offset, $"Expected {expected}, but found {actual}.");
+    }
+
+    private static void EnsureInteger(LlvmValue value, string name, int offset)
+    {
+        if (value.Type is LlvmValueType.Int32 or LlvmValueType.UInt32) {
+            return;
+        }
+        throw CreateUnsupported(offset, $"Texture coordinate '{name}' must be a 32-bit integer.");
     }
 
     private static bool TryGetArgumentIndex(OpCode opCode, object? operand, out int index)
@@ -1067,7 +1426,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static string FormatFloat(float value) =>
-        value.ToString("0.000000000e+00", System.Globalization.CultureInfo.InvariantCulture);
+        $"0x{BitConverter.DoubleToUInt64Bits(value):X16}";
 
     private static InvalidDataException CreateUnsupported(int offset, string message) =>
         new($"{message} (IL_{offset:x4})");

@@ -95,9 +95,11 @@ public sealed class SpirvCompiler
                     options.OptimizationLevel,
                     options.TargetEnvironment);
                 toolchain.Validate(spirvPath, options.TargetEnvironment);
-                if (options.EmitWgsl) {
+                if (options.KernelAbi == SpirvKernelAbi.WebGpu) {
                     toolchain.OptimizeForWebGpu(spirvPath);
                     toolchain.Validate(spirvPath, options.TargetEnvironment);
+                }
+                if (options.EmitWgsl) {
                     toolchain.ConvertToWgsl(spirvPath, wgslPath);
                 }
             }
@@ -149,11 +151,41 @@ public sealed class SpirvCompiler
         var binding = 0;
         var offset = 0;
         foreach (var parameter in kernel.Parameters) {
-            if (parameter.Kind == SpirvKernelParameterKind.StorageBuffer) {
+            if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2D) {
+                resources.Add(new SpirvManifestResource(
+                    parameter.Name,
+                    "sampled-texture-2d",
+                    "read-only",
+                    "float32",
+                    0,
+                    binding++));
+            }
+            else if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2DArray) {
+                resources.Add(new SpirvManifestResource(
+                    parameter.Name,
+                    "sampled-texture-2d-array",
+                    "read-only",
+                    "float32",
+                    0,
+                    binding++));
+            }
+            else if (parameter.Kind == SpirvKernelParameterKind.Sampler) {
+                resources.Add(new SpirvManifestResource(
+                    parameter.Name,
+                    "sampler",
+                    "read-only",
+                    "float32",
+                    0,
+                    binding++));
+            }
+            else if (parameter.Kind is SpirvKernelParameterKind.ReadOnlyStorageBuffer or
+                  SpirvKernelParameterKind.StorageBuffer) {
                 resources.Add(new SpirvManifestResource(
                     parameter.Name,
                     "storage-buffer",
-                    "read-write",
+                    parameter.Kind == SpirvKernelParameterKind.ReadOnlyStorageBuffer
+                        ? "read-only"
+                        : "read-write",
                     GetScalarName(parameter.ScalarType),
                     0,
                     binding++));
@@ -171,7 +203,7 @@ public sealed class SpirvCompiler
             resources.Add(new SpirvManifestResource(
                 "sia.parameters",
                 "storage-buffer",
-                "read-write",
+                "read-only",
                 "uint32",
                 0,
                 binding));
@@ -228,12 +260,15 @@ public sealed class SpirvCompiler
     {
         var compilerVersion = typeof(SpirvCompiler).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0";
+        var compilerHash = Convert.ToHexString(SHA256.HashData(
+            File.ReadAllBytes(typeof(SpirvCompiler).Assembly.Location)));
         var input = string.Join(
             '|',
             assemblyHash,
             kernel.MetadataToken,
             kernel.Stage,
             compilerVersion,
+            compilerHash,
             options.TargetEnvironment,
             options.KernelAbi,
             options.EmitWgsl,

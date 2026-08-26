@@ -208,6 +208,20 @@ public sealed class SpirvFrontend
     private static (SpirvKernelParameterKind Kind, SpirvScalarType ScalarType)
         DecodeParameterType(KernelType type)
     {
+        if (type.Name == "Sia.Spirv.Texture2D") {
+            return (SpirvKernelParameterKind.SampledTexture2D, SpirvScalarType.Float32);
+        }
+        if (type.Name == "Sia.Spirv.Texture2DArray") {
+            return (SpirvKernelParameterKind.SampledTexture2DArray, SpirvScalarType.Float32);
+        }
+        if (type.Name == "Sia.Spirv.Sampler") {
+            return (SpirvKernelParameterKind.Sampler, SpirvScalarType.Float32);
+        }
+        if (type.Name == "Sia.Spirv.ReadOnlyStorageBuffer`1" && type.ElementType != null) {
+            return (
+                SpirvKernelParameterKind.ReadOnlyStorageBuffer,
+                DecodeScalarType(type.ElementType));
+        }
         if (type.Name == "Sia.Spirv.StorageBuffer`1" && type.ElementType != null) {
             return (SpirvKernelParameterKind.StorageBuffer, DecodeScalarType(type.ElementType));
         }

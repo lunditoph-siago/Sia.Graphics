@@ -26,6 +26,7 @@
     <ProjectReference Include="..\Sia.WebGPU.Native\Sia.WebGPU.Native.csproj" />
     <PackageReference Include="Sia.GLFW" Version="0.0.1" />
     <PackageReference Include="Sia.GLFW.Native" Version="0.0.1" />
+    <PackageReference Include="Sia.Math" Version="0.0.3" />
   </ItemGroup>
 
   <ItemGroup>

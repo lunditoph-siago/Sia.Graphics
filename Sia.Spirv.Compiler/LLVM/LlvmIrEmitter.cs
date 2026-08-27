@@ -1863,6 +1863,10 @@ public sealed class LlvmIrEmitter
                 ? LlvmValueType.UInt32
                 : LlvmValueType.Int32;
         }
+        if ((left == LlvmValueType.Boolean && right is LlvmValueType.Int32 or LlvmValueType.UInt32) ||
+            (right == LlvmValueType.Boolean && left is LlvmValueType.Int32 or LlvmValueType.UInt32)) {
+            return LlvmValueType.Boolean;
+        }
         throw CreateUnsupported(offset, $"Operands of type {left} and {right} are incompatible.");
     }
 

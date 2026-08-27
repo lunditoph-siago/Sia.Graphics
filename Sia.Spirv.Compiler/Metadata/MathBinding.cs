@@ -4,16 +4,11 @@ using Sia.Spirv;
 namespace Sia.Spirv.Compiler.Metadata;
 
 /// <summary>
-/// Recognizes calls into <c>Sia.Math.float3</c>/<c>Sia.Math.math</c> as GPU
-/// intrinsics, purely by declaring-type name + method name + parameter
-/// shape — never by attribute. Unlike <see cref="IntrinsicCatalog"/>,
-/// there is no metadata to open: <c>Sia.Math</c> is a real, independent
-/// SIMD library that must not be asked to carry SPIR-V-specific
-/// annotations just so its own shader-side bindings can find them. This
-/// table is therefore the single source of truth for which <c>float3</c>
-/// members this compiler understands; a call shape it doesn't recognize
-/// falls through to "not a supported GPU intrinsic" exactly like any
-/// other unrecognized call.
+/// Recognizes <c>Sia.Math.float3</c>/<c>Sia.Math.math</c> calls as GPU
+/// intrinsics by declaring-type/method/parameter shape, never by
+/// attribute — <c>Sia.Math</c> is an independent SIMD library and must
+/// not carry SPIR-V-specific metadata. An unrecognized shape falls
+/// through to "not a supported GPU intrinsic" like any other call.
 /// </summary>
 internal static class MathBinding
 {

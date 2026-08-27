@@ -60,14 +60,9 @@ public sealed class LlvmIrEmitter
         var methodBody = peReader.GetMethodBody(method.RelativeVirtualAddress);
         var localTypes = DecodeLocalTypes(reader, methodBody.LocalSignature);
 
-        // A transient view over this kernel's already-built CFG, scoped to
-        // this call: SpirvFrontend built its own ShaderCilView earlier for
-        // the frontend's own checks, but that one's resolver is bound to a
-        // MetadataReader that is disposed by the time Emit() runs later
-        // (SpirvCompiler.CompileAssembly analyzes the whole assembly once,
-        // then emits each kernel separately). Reachability and call
-        // resolution are cheap to recompute; reusing a disposed PEReader's
-        // memory is not safe at any price.
+        // Fresh view per call: SpirvFrontend's own ShaderCilView is bound to
+        // a MetadataReader disposed by the time Emit() runs later. Cheap to
+        // recompute; reusing a disposed PEReader's memory is not safe.
         using var intrinsics = IntrinsicCatalog.Open(assemblyPath);
         var resolver = new CilCallResolver(reader, intrinsics);
         var view = new ShaderCilView(kernel.ControlFlowGraph, resolver);
@@ -651,12 +646,9 @@ public sealed class LlvmIrEmitter
         int offset,
         Stack<LlvmValue> stack);
 
-    // Every Gpu.*/Texture2D*/StorageBuffer<T> intrinsic this backend
-    // supports, in one place. Sia.Spirv.Core declares each of these with
-    // [SpirvIntrinsic(IntrinsicKind.X)]; IntrinsicCatalog recovers that
-    // attribute from a call site's resolved method identity, so this table
-    // is the only place a new intrinsic needs a case added — never a string
-    // comparison against a declaring-type/method-name pair.
+    // Every supported Gpu.*/Texture2D*/StorageBuffer<T> intrinsic, keyed by
+    // IntrinsicKind (recovered via [SpirvIntrinsic]) — the only place a new
+    // intrinsic needs a case, never a declaring-type/method-name string match.
     private static readonly FrozenDictionary<IntrinsicKind, IntrinsicHandler> _intrinsics =
         new Dictionary<IntrinsicKind, IntrinsicHandler> {
             [IntrinsicKind.GlobalInvocationId] = EmitInvocationBuiltin,
@@ -727,10 +719,8 @@ public sealed class LlvmIrEmitter
         }
         var instance = call.IsInstance ? Pop(stack, offset) : default;
 
-        // UInt3.get_X/Y/Z are ordinary compiler-generated property getters
-        // (UInt3 is a plain record struct, not a throw-marker type), so
-        // they carry no [SpirvIntrinsic] attribute to recover — this is the
-        // one case matched on identity instead of IntrinsicKind.
+        // UInt3.get_X/Y/Z are ordinary record-struct getters with no
+        // [SpirvIntrinsic] to recover — matched on identity, not IntrinsicKind.
         if (call.DeclaringType == "Sia.Spirv.UInt3" &&
             call.Name is "get_X" or "get_Y" or "get_Z") {
             EmitVectorComponent(instance, call.Name, offset, stack);
@@ -745,11 +735,9 @@ public sealed class LlvmIrEmitter
             $"Call to '{call.DeclaringType}.{call.Name}' is not a supported GPU intrinsic.");
     }
 
-    // newobj never pops a receiver (there isn't one yet) — only the
-    // constructor arguments — so it cannot share EmitCall's instance
-    // handling. The only constructors this backend recognizes are
-    // Sia.Math.float3's (see MathBinding); SpirvLegalityAnalyzer rejects
-    // every other newobj before the emitter ever sees it.
+    // newobj has no receiver to pop, so it can't share EmitCall's instance
+    // handling. Only float3 constructors reach here — everything else is
+    // already rejected by SpirvLegalityAnalyzer.
     private void EmitNewobj(
         ShaderCilView view,
         CilBasicBlock block,
@@ -1284,13 +1272,10 @@ public sealed class LlvmIrEmitter
         EmitFloat3ConstructorResult(emitter, instance, result, stack);
     }
 
-    // Roslyn only reaches EmitNewobj (a bare value, nothing to write into)
-    // when a float3 is constructed as an intermediate expression value.
-    // The overwhelmingly common shape — `var v = new float3(...)` — never
-    // emits newobj at all: it takes the local's address (ldloca) and calls
-    // the constructor on it in place, arriving here through EmitCall with
-    // an IsReference instance instead. A constructor call always returns
-    // void, so that path must store into the receiver, never push a value.
+    // EmitNewobj only fires for a float3 used as an intermediate value.
+    // `var v = new float3(...)` takes the local's address instead and calls
+    // the ctor in place via EmitCall with an IsReference instance, which
+    // must store into the receiver rather than push a value.
     private static void EmitFloat3ConstructorResult(
         LlvmIrEmitter emitter,
         LlvmValue instance,
@@ -1888,12 +1873,9 @@ public sealed class LlvmIrEmitter
             actual is LlvmValueType.Int32 or LlvmValueType.UInt32) {
             return;
         }
-        // CIL has no distinct "bool constant" opcode — `true`/`false` are
-        // ldc.i4.1/ldc.i4.0, indistinguishable at the stack level from any
-        // other int32 constant. A bool-typed local's stloc therefore sees
-        // an Int32-tagged 0/1 value; the store's actual LLVM type always
-        // comes from `expected` (the local's declared type), so accepting
-        // an Int32/UInt32 source here never emits a mismatched type.
+        // CIL has no bool-constant opcode — true/false are ldc.i4.1/0,
+        // tagged Int32. The store's LLVM type comes from `expected`, so
+        // accepting Int32/UInt32 here never emits a mismatched type.
         if (expected == LlvmValueType.Boolean && actual is LlvmValueType.Int32 or LlvmValueType.UInt32) {
             return;
         }

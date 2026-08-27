@@ -31,7 +31,9 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private WgpuHandle<WGPUPipelineLayout> _pipelineLayout;
     private WgpuHandle<WGPURenderPipeline> _pathPipeline;
     private WgpuHandle<WGPURenderPipeline> _presentationPipeline;
+#if BROWSER
     private byte[]? _browserVertexSpirv;
+#endif
 
     private WGPUTextureFormat _surfaceFormat;
     private WGPUCompositeAlphaMode _alphaMode;
@@ -421,11 +423,9 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     {
         var directory = Path.Combine(AppContext.BaseDirectory, "spirv");
         var spirv = File.ReadAllBytes(Path.Combine(directory, _rasterShaderArtifactName + ".spv"));
-        var wgsl = File.ReadAllText(Path.Combine(directory, _rasterShaderArtifactName + ".wgsl"));
-        return Wgpu.CreatePortableShaderModule(
+        return Wgpu.CreateSpirvShaderModule(
             _device,
             spirv,
-            wgsl,
             "C# full-screen vertex shader");
     }
 #endif

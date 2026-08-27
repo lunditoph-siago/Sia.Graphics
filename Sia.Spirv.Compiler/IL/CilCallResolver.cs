@@ -5,16 +5,11 @@ using Sia.Spirv.Compiler.Metadata;
 namespace Sia.Spirv.Compiler.IL;
 
 /// <summary>
-/// Resolves a raw CIL <c>call</c>/<c>callvirt</c> metadata token into a
-/// <see cref="ResolvedCall"/>: the target's declaring type, name, and
-/// signature (following through a <see cref="MethodSpecificationHandle"/>
-/// for generic calls), plus its <see cref="IntrinsicKind"/> if
-/// <paramref name="intrinsics"/> recognizes it. This is the single place
-/// that walks <see cref="MethodDefinitionHandle"/>/
-/// <see cref="MemberReferenceHandle"/>/<see cref="MethodSpecificationHandle"/>
-/// — previously duplicated independently by the stack analyzer and the LLVM
-/// emitter. Results are cached per token: a kernel's body typically calls
-/// the same handful of intrinsics many times.
+/// Resolves a raw CIL <c>call</c>/<c>callvirt</c> token into a
+/// <see cref="ResolvedCall"/> (declaring type, name, signature, and
+/// <see cref="IntrinsicKind"/> if recognized). Single shared resolver for
+/// what the stack analyzer and LLVM emitter used to duplicate; results are
+/// cached per token.
 /// </summary>
 public sealed class CilCallResolver(MetadataReader reader, IntrinsicCatalog intrinsics)
 {
@@ -63,11 +58,9 @@ public sealed class CilCallResolver(MetadataReader reader, IntrinsicCatalog intr
         return new ResolvedCall(declaringType, name, signature, intrinsic);
     }
 
-    // MetadataNames.GetTypeName does not cover TypeSpecificationHandle: a
-    // MemberReference's declaring type is a type specification whenever the
-    // call target lives on a closed generic instantiation (ReadOnlyStorageBuffer<uint>,
-    // StorageBuffer<T>, ...), which is exactly the shape of every buffer
-    // intrinsic's receiver.
+    // MetadataNames.GetTypeName doesn't cover TypeSpecificationHandle, which
+    // is what every buffer intrinsic's receiver (ReadOnlyStorageBuffer<uint>,
+    // StorageBuffer<T>, ...) resolves to as a closed generic instantiation.
     private string GetDeclaringTypeName(EntityHandle handle) => handle.Kind switch {
         HandleKind.TypeSpecification => reader.GetTypeSpecification((TypeSpecificationHandle)handle)
             .DecodeSignature(new KernelTypeProvider(), genericContext: null).Name,

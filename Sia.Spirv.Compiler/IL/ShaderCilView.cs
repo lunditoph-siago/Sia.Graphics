@@ -1,14 +1,9 @@
 namespace Sia.Spirv.Compiler.IL;
 
 /// <summary>
-/// Wraps a <see cref="CilControlFlowGraph"/> with the analysis every
-/// consumer builds on top of it, without mutating or replacing the graph
-/// itself: which blocks are actually reachable from the entry block, and
-/// (lazily, via <see cref="CilCallResolver"/>) what a given call site
-/// resolves to. <see cref="CilInstruction"/>/<see cref="CilBasicBlock"/>/
-/// <see cref="CilControlFlowGraph"/> stay plain records of the raw CIL
-/// facts; reachability and call identity are derived, on-demand analysis
-/// results, not fields bolted onto the instructions themselves.
+/// Wraps a <see cref="CilControlFlowGraph"/> with derived analysis — which
+/// blocks are reachable from the entry block, and (lazily) what a call
+/// site resolves to — without mutating the graph itself.
 /// </summary>
 public sealed class ShaderCilView
 {
@@ -30,10 +25,6 @@ public sealed class ShaderCilView
 
     public bool IsReachable(CilBasicBlock block) => _reachableBlockIds.Contains(block.Id);
 
-    /// <summary>
-    /// Resolves the <c>call</c>/<c>callvirt</c> instruction at
-    /// <paramref name="instructionIndex"/> within <paramref name="block"/>.
-    /// </summary>
     public ResolvedCall ResolveCall(CilBasicBlock block, int instructionIndex) =>
         Resolver.Resolve((int)block.Instructions[instructionIndex].Operand!);
 

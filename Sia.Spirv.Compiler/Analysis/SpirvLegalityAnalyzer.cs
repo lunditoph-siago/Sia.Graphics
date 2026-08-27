@@ -67,26 +67,19 @@ internal static class SpirvLegalityAnalyzer
         }
     }
 
-    // Roslyn sometimes emits callvirt for a call it knows is not actually
-    // virtual dispatch (most notably to get the receiver's implicit
-    // null-check). A callvirt is safe here specifically because it resolves
-    // to one of Sia.Spirv.Core's own marker methods: those are declared on
-    // `readonly ref struct` receivers (Texture2D, StorageBuffer<T>, ...),
-    // which can never be boxed or reached through an interface, so no such
-    // call can ever be genuine virtual/interface dispatch. Anything the
-    // catalog does not recognize keeps the strict default.
+    // Roslyn emits callvirt for calls it knows aren't virtual dispatch (e.g.
+    // the receiver's null-check). Safe here because it resolves to a marker
+    // method on a `readonly ref struct` (Texture2D, StorageBuffer<T>, ...),
+    // which can never be boxed or reached through an interface.
     private static bool IsProvablyNonVirtualCall(ShaderCilView view, CilBasicBlock block, int index)
     {
         var call = view.ResolveCall(block, index);
         return call.Intrinsic is not null || call.DeclaringType == "Sia.Spirv.UInt3";
     }
 
-    // newobj is stack allocation everywhere else (a class instance, a
-    // managed struct with fields the emitter cannot represent) except this
-    // one recognized shape: constructing a Sia.Math.float3, which the
-    // emitter lowers to a bare <3 x float> SSA value — never a heap
-    // allocation, and never anything the general newobj ban should let
-    // through by accident.
+    // newobj is otherwise banned (heap/unrepresentable struct allocation)
+    // except this recognized shape: a float3 constructor, lowered to a
+    // bare <3 x float> SSA value, never a heap allocation.
     private static bool IsRecognizedValueTypeConstructor(ShaderCilView view, CilBasicBlock block, int index)
     {
         var call = view.ResolveCall(block, index);

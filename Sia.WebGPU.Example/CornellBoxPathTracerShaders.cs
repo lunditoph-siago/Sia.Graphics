@@ -3,20 +3,12 @@ using Sia.Spirv;
 
 namespace Sia.WebGPU.Example;
 
-// A faithful, hand-inlined port of the original WGSL path tracer (see
-// CornellBoxShaders.Source in git history at 7f1ba28) — CornellBoxShaders
-// itself still carries the placeholder screen-space "painting" that
-// replaced it; this class is additive on purpose so it does not disturb
-// that wiring. Swapping it in (and retiring the placeholder) belongs to
-// the separate example-migration pass. The Sia.Spirv compiler does not
-// support calling user-defined helper methods — only recognized
-// Gpu.*/Sia.Math.float3 intrinsics — so every WGSL helper function
-// (random, rotate_y, commit_hit, intersect_room/box/sphere/scene,
-// cosine_hemisphere, sample_direct_light, make_camera_ray, trace_path) is
-// inlined directly into the two entry points below, exactly preserving
-// the original algorithm and constants. `intersect_scene` in particular
-// appears twice in full (primary rays in the bounce loop, shadow rays in
-// direct light sampling) because there is no way to factor it out.
+// Faithful, hand-inlined port of the WGSL path tracer (see
+// CornellBoxShaders.Source at git 7f1ba28). Additive on purpose —
+// CornellBoxShaders still owns the placeholder wiring; swapping it in is
+// a separate example-migration pass. The compiler has no user-function
+// calls, so every WGSL helper is inlined; intersect_scene appears twice
+// (primary + shadow rays) because it can't be factored out.
 internal static class CornellBoxPathTracerShaders
 {
     private const float Pi = 3.14159265358979f;
@@ -324,17 +316,11 @@ internal static class CornellBoxPathTracerShaders
                 }
                 // ---- end intersect_scene ----
 
-                // The compiler's structured-control-flow lowering does not
-                // tolerate break/continue nested several levels deep or
-                // scattered mid-loop, and it fares far better with a
-                // genuinely exclusive if/else-if/else chain than with
-                // several independently `!shouldBreak`-guarded ifs (the
-                // guarded-if version merges the CFG back together after
-                // every single condition instead of once). shouldBreak is
-                // still needed for the single break at the loop's end; the
-                // "mirror bounce" shortcut (continue, in the WGSL original)
-                // becomes this chain's own branch instead of an actual
-                // continue.
+                // The structured-control-flow lowering can't handle deeply
+                // nested/scattered break/continue; an exclusive if/else-if
+                // chain works far better than independently guarded ifs.
+                // shouldBreak still covers the single end-of-loop break;
+                // the WGSL "mirror bounce" continue becomes its own branch.
                 var shouldBreak = false;
 
                 if (hitT >= 1e29f) {
@@ -391,9 +377,7 @@ internal static class CornellBoxPathTracerShaders
                         var blockerT = 1e30f;
                         {
                             // A shadow ray only needs the occlusion distance,
-                            // never the surface's albedo/normal/material —
-                            // unlike the primary-ray copy above, this pass
-                            // never reads `white`.
+                            // not albedo/normal/material — never reads `white`.
                             var t = (-1.0f - shadowOrigin.x) / shadowDirection.x;
                             var point = shadowOrigin + shadowDirection * t;
                             if (point.y >= 0.0f && point.y <= 2.0f && point.z >= -1.0f && point.z <= 1.0f &&

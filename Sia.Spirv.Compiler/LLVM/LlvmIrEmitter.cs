@@ -223,7 +223,8 @@ public sealed class LlvmIrEmitter
                             edges));
                         stack.Push(result);
                     }
-                } else {
+                }
+                else {
                     foreach (var value in edges[0].Values) {
                         stack.Push(value);
                     }
@@ -262,9 +263,11 @@ public sealed class LlvmIrEmitter
             if (!terminated) {
                 if (block.Successors.Count == 1) {
                     EmitLine($"br label %bb{block.Successors[0]}");
-                } else if (block.Successors.Count == 0) {
+                }
+                else if (block.Successors.Count == 0) {
                     EmitLine("ret void");
-                } else {
+                }
+                else {
                     throw CreateUnsupported(
                         block.Instructions[^1].Offset,
                         "A basic block with multiple successors requires an explicit conditional branch.");
@@ -487,7 +490,8 @@ public sealed class LlvmIrEmitter
             prologue.Append("  ").Append(pushConstantValue)
                 .Append(" = load %sia.push.constants, ptr addrspace(13) @sia.push.constants, align 4")
                 .AppendLine();
-        } else if (hasPushConstants) {
+        }
+        else if (hasPushConstants) {
             parameterHandle = NextValue("parameters");
             prologue.Append("  ").Append(parameterHandle).Append(" = call ")
                 .Append(GetParameterTargetType()).Append(" @llvm.spv.resource.handlefrombinding.")
@@ -506,7 +510,8 @@ public sealed class LlvmIrEmitter
                     .Append(parameter.Position).AppendLine(")");
                 values[parameter.Position] = new LlvmValue(value, LlvmValueType.Texture2DFloat);
                 binding++;
-            } else if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2DArray) {
+            }
+            else if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2DArray) {
                 var value = NextValue(SanitizeIdentifier(parameter.Name));
                 prologue.Append("  ").Append(value).Append(" = call ")
                     .Append(GetTexture2DArrayTargetType())
@@ -517,7 +522,8 @@ public sealed class LlvmIrEmitter
                 values[parameter.Position] = new LlvmValue(
                     value, LlvmValueType.Texture2DArrayFloat);
                 binding++;
-            } else if (parameter.Kind == SpirvKernelParameterKind.Sampler) {
+            }
+            else if (parameter.Kind == SpirvKernelParameterKind.Sampler) {
                 var value = NextValue(SanitizeIdentifier(parameter.Name));
                 prologue.Append("  ").Append(value).Append(" = call ")
                     .Append(GetSamplerTargetType())
@@ -527,7 +533,8 @@ public sealed class LlvmIrEmitter
                     .Append(parameter.Position).AppendLine(")");
                 values[parameter.Position] = new LlvmValue(value, LlvmValueType.Sampler);
                 binding++;
-            } else if (parameter.Kind is SpirvKernelParameterKind.ReadOnlyStorageBuffer or
+            }
+            else if (parameter.Kind is SpirvKernelParameterKind.ReadOnlyStorageBuffer or
                     SpirvKernelParameterKind.StorageBuffer) {
                 var type = GetBufferType(
                     parameter.ScalarType,
@@ -543,14 +550,16 @@ public sealed class LlvmIrEmitter
                     .Append(parameter.Position).AppendLine(")");
                 values[parameter.Position] = new LlvmValue(value, type);
                 binding++;
-            } else {
+            }
+            else {
                 var type = GetScalarType(parameter.ScalarType);
                 string value;
                 if (_kernelAbi == SpirvKernelAbi.Vulkan) {
                     value = NextValue(SanitizeIdentifier(parameter.Name));
                     prologue.Append("  ").Append(value).Append(" = extractvalue %sia.push.constants ")
                         .Append(pushConstantValue).Append(", ").Append(pushConstantIndex).AppendLine();
-                } else {
+                }
+                else {
                     var identifier = SanitizeIdentifier(parameter.Name);
                     var pointer = NextValue($"{identifier}.pointer");
                     var word = NextValue($"{identifier}.word");
@@ -564,7 +573,8 @@ public sealed class LlvmIrEmitter
                         value = NextValue(identifier);
                         prologue.Append("  ").Append(value).Append(" = bitcast i32 ")
                             .Append(word).AppendLine(" to float");
-                    } else {
+                    }
+                    else {
                         value = word;
                     }
                 }
@@ -1062,7 +1072,8 @@ public sealed class LlvmIrEmitter
         if (input.Type == LlvmValueType.UInt32) {
             result = emitter.EmitUnpackHalfScalar(input.Expression);
             resultType = LlvmValueType.Float32;
-        } else if (TryGetScalarVector(input.Type, out var scalarType, out var length) &&
+        }
+        else if (TryGetScalarVector(input.Type, out var scalarType, out var length) &&
               scalarType == LlvmValueType.UInt32) {
             resultType = GetVectorType(length);
             var components = new string[length];
@@ -1071,7 +1082,8 @@ public sealed class LlvmIrEmitter
                     emitter.ExtractVectorElement(input.Expression, input.Type, index));
             }
             result = emitter.EmitVector(components);
-        } else {
+        }
+        else {
             throw CreateUnsupported(offset, "math.f16tof32 requires a u32 scalar or vector.");
         }
         stack.Push(new LlvmValue(result, resultType));
@@ -1112,13 +1124,15 @@ public sealed class LlvmIrEmitter
             var scalarCondition = emitter.ToBoolean(condition, offset);
             conditionType = "i1";
             conditionExpression = scalarCondition.Expression;
-        } else if (TryGetScalarVector(condition.Type, out var conditionScalar, out var conditionLength) &&
+        }
+        else if (TryGetScalarVector(condition.Type, out var conditionScalar, out var conditionLength) &&
               conditionScalar == LlvmValueType.Boolean &&
               TryGetScalarVector(whenFalse.Type, out _, out var valueLength) &&
               conditionLength == valueLength) {
             conditionType = GetLlvmType(condition.Type);
             conditionExpression = condition.Expression;
-        } else {
+        }
+        else {
             throw CreateUnsupported(offset, "math.select condition must be bool or a matching bool vector.");
         }
         var result = emitter.NextValue();
@@ -1379,22 +1393,26 @@ public sealed class LlvmIrEmitter
         if (TryGetScalarVector(type, out _, out var length)) {
             if (values.Length == 1) {
                 result = emitter.EmitVectorBroadcast(type, values[0].Expression);
-            } else {
+            }
+            else {
                 result = emitter.EmitVector(
                     type,
                     values.Select(static value => value.Expression).ToArray());
             }
-        } else if (TryGetMatrixShape(type, out var rows, out var columns)) {
+        }
+        else if (TryGetMatrixShape(type, out var rows, out var columns)) {
             var columnValues = new string[columns];
             if (values.Length == 1) {
                 var column = emitter.EmitVectorBroadcast(values[0].Expression, rows);
                 Array.Fill(columnValues, column);
-            } else if (values.Length == columns &&
+            }
+            else if (values.Length == columns &&
                   values.All(value => value.Type == GetVectorType(rows))) {
                 for (var column = 0; column < columns; column++) {
                     columnValues[column] = values[column].Expression;
                 }
-            } else if (values.Length == rows * columns) {
+            }
+            else if (values.Length == rows * columns) {
                 for (var column = 0; column < columns; column++) {
                     var components = new string[rows];
                     for (var row = 0; row < rows; row++) {
@@ -1402,17 +1420,20 @@ public sealed class LlvmIrEmitter
                     }
                     columnValues[column] = emitter.EmitVector(components);
                 }
-            } else {
+            }
+            else {
                 throw CreateUnsupported(offset, $"Unsupported constructor shape for {call.DeclaringType}.");
             }
             result = emitter.EmitMatrix(type, columnValues);
-        } else {
+        }
+        else {
             throw CreateUnsupported(offset, $"Unsupported Sia.Math constructor type {type}.");
         }
 
         if (instance.IsReference) {
             emitter.EmitLine($"store {GetLlvmType(type)} {result}, ptr {instance.Expression}, align {GetAlignment(type)}");
-        } else {
+        }
+        else {
             stack.Push(new LlvmValue(result, type));
         }
     }
@@ -1488,12 +1509,15 @@ public sealed class LlvmIrEmitter
             result = emitter.NextValue();
             if (scalarType == LlvmValueType.Float32) {
                 emitter.EmitLine($"{result} = fneg {GetLlvmType(value.Type)} {value.Expression}");
-            } else if (scalarType == LlvmValueType.Int32) {
+            }
+            else if (scalarType == LlvmValueType.Int32) {
                 emitter.EmitLine($"{result} = sub {GetLlvmType(value.Type)} zeroinitializer, {value.Expression}");
-            } else {
+            }
+            else {
                 throw CreateUnsupported(offset, $"Negation is not supported for {value.Type}.");
             }
-        } else if (TryGetMatrixShape(value.Type, out var rows, out var columns)) {
+        }
+        else if (TryGetMatrixShape(value.Type, out var rows, out var columns)) {
             var outputColumns = new string[columns];
             for (var column = 0; column < columns; column++) {
                 var source = emitter.ExtractMatrixColumn(value.Expression, value.Type, column);
@@ -1502,7 +1526,8 @@ public sealed class LlvmIrEmitter
                 outputColumns[column] = negated;
             }
             result = emitter.EmitMatrix(value.Type, outputColumns);
-        } else {
+        }
+        else {
             throw CreateUnsupported(offset, $"Negation is not supported for {value.Type}.");
         }
         stack.Push(new LlvmValue(result, value.Type));
@@ -1788,7 +1813,8 @@ public sealed class LlvmIrEmitter
                 throw CreateUnsupported(offset, "Matrix and vector shapes are incompatible for math.mul.");
             }
             result = emitter.EmitMatrixVectorMultiply(left, right.Expression, leftRows, leftColumns);
-        } else if (TryGetVectorLength(left.Type, out var leftLength) &&
+        }
+        else if (TryGetVectorLength(left.Type, out var leftLength) &&
               TryGetMatrixShape(right.Type, out var rightRows, out var rightColumns)) {
             if (leftLength != rightRows) {
                 throw CreateUnsupported(offset, "Vector and matrix shapes are incompatible for math.mul.");
@@ -1801,7 +1827,8 @@ public sealed class LlvmIrEmitter
                     rightRows);
             }
             result = emitter.EmitVector(components);
-        } else if (TryGetMatrixShape(left.Type, out leftRows, out leftColumns) &&
+        }
+        else if (TryGetMatrixShape(left.Type, out leftRows, out leftColumns) &&
               TryGetMatrixShape(right.Type, out rightRows, out rightColumns)) {
             if (leftColumns != rightRows) {
                 throw CreateUnsupported(offset, "Matrix shapes are incompatible for math.mul.");
@@ -1815,7 +1842,8 @@ public sealed class LlvmIrEmitter
                     leftColumns);
             }
             result = emitter.EmitMatrix(resultType, columns);
-        } else {
+        }
+        else {
             throw CreateUnsupported(offset, "math.mul requires a matrix/vector combination.");
         }
         stack.Push(new LlvmValue(result, resultType));
@@ -2273,7 +2301,8 @@ public sealed class LlvmIrEmitter
         var result = NextValue();
         if (value.Type == LlvmValueType.Float32) {
             EmitLine($"{result} = fneg float {value.Expression}");
-        } else {
+        }
+        else {
             EmitLine($"{result} = sub {GetLlvmType(value.Type)} 0, {value.Expression}");
         }
         stack.Push(new LlvmValue(result, value.Type));

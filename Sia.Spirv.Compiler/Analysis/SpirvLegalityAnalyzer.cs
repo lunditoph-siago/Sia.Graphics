@@ -22,7 +22,8 @@ internal static class SpirvLegalityAnalyzer
                         "Managed heap allocation is not supported inside a SPIR-V kernel.",
                         method,
                         instruction.Offset);
-                } else if (instruction.OpCode == OpCodes.Newobj &&
+                }
+                else if (instruction.OpCode == OpCodes.Newobj &&
                       !IsRecognizedValueTypeConstructor(view, block, index)) {
                     Add(
                         diagnostics,
@@ -30,7 +31,8 @@ internal static class SpirvLegalityAnalyzer
                         "Managed heap allocation is not supported inside a SPIR-V kernel.",
                         method,
                         instruction.Offset);
-                } else if (instruction.OpCode is var exceptionOpCode &&
+                }
+                else if (instruction.OpCode is var exceptionOpCode &&
                       (exceptionOpCode == OpCodes.Throw ||
                        exceptionOpCode == OpCodes.Rethrow ||
                        exceptionOpCode == OpCodes.Leave ||
@@ -43,7 +45,8 @@ internal static class SpirvLegalityAnalyzer
                         "Exception handling is not supported inside a SPIR-V kernel.",
                         method,
                         instruction.Offset);
-                } else if (instruction.OpCode == OpCodes.Callvirt &&
+                }
+                else if (instruction.OpCode == OpCodes.Callvirt &&
                       !IsProvablyNonVirtualCall(view, block, index)) {
                     Add(
                         diagnostics,
@@ -51,7 +54,8 @@ internal static class SpirvLegalityAnalyzer
                         "Virtual and interface dispatch are not supported inside a SPIR-V kernel.",
                         method,
                         instruction.Offset);
-                } else if (instruction.OpCode == OpCodes.Ldstr) {
+                }
+                else if (instruction.OpCode == OpCodes.Ldstr) {
                     Add(
                         diagnostics,
                         SpirvDiagnosticIds.UnsupportedManagedValue,
@@ -63,19 +67,12 @@ internal static class SpirvLegalityAnalyzer
         }
     }
 
-    // Roslyn emits callvirt for calls it knows aren't virtual dispatch (e.g.
-    // the receiver's null-check). Safe here because it resolves to a marker
-    // method on a `readonly ref struct` (Texture2D, StorageBuffer<T>, ...),
-    // which can never be boxed or reached through an interface.
     private static bool IsProvablyNonVirtualCall(ShaderCilView view, CilBasicBlock block, int index)
     {
         var call = view.ResolveCall(block, index);
         return call.Intrinsic is not null || call.DeclaringType == "Sia.Spirv.UInt3";
     }
 
-    // newobj is otherwise banned (heap/unrepresentable struct allocation)
-    // except recognized Sia.Math vector/matrix constructors, which lower to
-    // aggregate SSA values and never allocate managed objects.
     private static bool IsRecognizedValueTypeConstructor(ShaderCilView view, CilBasicBlock block, int index)
     {
         var call = view.ResolveCall(block, index);

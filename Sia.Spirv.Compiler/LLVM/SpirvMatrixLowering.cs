@@ -92,7 +92,8 @@ internal static class SpirvMatrixLowering
                 output.Add(instruction.Words[1]);
                 output.Add(shape.ColumnType);
                 output.Add(shape.Columns);
-            } else {
+            }
+            else {
                 output.AddRange(instruction.Words.ToArray());
             }
         }

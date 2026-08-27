@@ -127,20 +127,113 @@ public sealed class LlvmIrEmitter
         IReadOnlyList<LlvmValue> parameters,
         StringBuilder prologue)
     {
-        var blockIdsByOffset = view.Graph.Blocks.ToDictionary(
+        var reachableBlocks = view.ReachableBlocks.ToArray();
+        var reachableBlockIds = reachableBlocks
+            .Select(static block => block.Id)
+            .ToHashSet();
+        var blockIdsByOffset = reachableBlocks.ToDictionary(
             static block => block.StartOffset,
             static block => block.Id);
+        var predecessorIds = Enumerable.Range(0, view.Graph.Blocks.Count)
+            .Select(static _ => new List<int>())
+            .ToArray();
+        foreach (var block in reachableBlocks) {
+            foreach (var successor in block.Successors) {
+                if (reachableBlockIds.Contains(successor)) {
+                    predecessorIds[successor].Add(block.Id);
+                }
+            }
+        }
+        var dominators = ComputeDominators(reachableBlocks, predecessorIds);
+
+        var incomingStacks = new Dictionary<int, List<EvaluationStackEdge>>();
+        var phis = new List<EvaluationStackPhi>();
+        var phiMarkers = new Dictionary<int, string>();
+        var blocksById = reachableBlocks.ToDictionary(static block => block.Id);
+        var emittedBlockIds = new HashSet<int>();
+        var pendingBlockIds = new Queue<int>();
+        pendingBlockIds.Enqueue(0);
 
         // Only reachable blocks are emitted: a call the emitter does not
         // recognize inside dead code must never fail an otherwise-valid
         // shader (see ShaderCilView).
-        foreach (var block in view.ReachableBlocks) {
+        while (pendingBlockIds.TryDequeue(out var blockId)) {
+            if (emittedBlockIds.Contains(blockId)) {
+                continue;
+            }
+
+            var block = blocksById[blockId];
+            incomingStacks.TryGetValue(block.Id, out var availableEdges);
+            if (block.Id != 0 && (availableEdges == null || availableEdges.Count == 0)) {
+                continue;
+            }
+            if (predecessorIds[block.Id].Any(predecessorId =>
+                !dominators[predecessorId].Contains(block.Id) &&
+                !availableEdges!.Any(edge => edge.PredecessorId == predecessorId))) {
+                continue;
+            }
+
+            emittedBlockIds.Add(block.Id);
             _body.Append("bb").Append(block.Id).AppendLine(":");
+            var phiMarker = $"  ; sia.stack.phi.{block.Id}";
+            phiMarkers.Add(block.Id, phiMarker);
+            _body.AppendLine(phiMarker);
             if (block.Id == 0) {
                 _body.Append(prologue);
             }
 
             var stack = new Stack<LlvmValue>();
+            if (block.Id != 0) {
+                if (!incomingStacks.TryGetValue(block.Id, out var edges) || edges.Count == 0) {
+                    throw CreateUnsupported(
+                        block.StartOffset,
+                        "A reachable basic block does not have an emitted predecessor.");
+                }
+
+                var depth = edges[0].Values.Count;
+                if (edges.Any(edge => edge.Values.Count != depth)) {
+                    throw CreateUnsupported(
+                        block.StartOffset,
+                        "Evaluation stack depth differs between control-flow predecessors.");
+                }
+
+                if (predecessorIds[block.Id].Count > 1) {
+                    for (var position = 0; position < depth; position++) {
+                        var first = edges[0].Values[position];
+                        var type = edges
+                            .Skip(1)
+                            .Aggregate(
+                                first.Type,
+                                (current, edge) => MergeNumericTypes(
+                                    current,
+                                    edge.Values[position].Type,
+                                    block.StartOffset));
+                        if (edges.Any(edge => edge.Values[position].IsReference != first.IsReference)) {
+                            throw CreateUnsupported(
+                                block.StartOffset,
+                                "Evaluation stack reference shape differs between control-flow predecessors.");
+                        }
+
+                        var result = new LlvmValue(
+                            NextValue("stack"),
+                            type,
+                            first.IsReference);
+                        phis.Add(new EvaluationStackPhi(
+                            block.Id,
+                            block.StartOffset,
+                            position,
+                            result,
+                            edges));
+                        stack.Push(result);
+                    }
+                }
+                else {
+                    foreach (var value in edges[0].Values) {
+                        stack.Push(value);
+                    }
+                }
+            }
+
             var terminated = false;
             for (var instructionIndex = 0; instructionIndex < block.Instructions.Count; instructionIndex++) {
                 var instruction = block.Instructions[instructionIndex];
@@ -157,6 +250,19 @@ public sealed class LlvmIrEmitter
                     stack) || terminated;
             }
 
+            var outgoingStack = stack.Reverse().ToArray();
+            foreach (var successor in block.Successors) {
+                if (!reachableBlockIds.Contains(successor)) {
+                    continue;
+                }
+                if (!incomingStacks.TryGetValue(successor, out var edges)) {
+                    edges = [];
+                    incomingStacks.Add(successor, edges);
+                }
+                edges.Add(new EvaluationStackEdge(block.Id, outgoingStack));
+                pendingBlockIds.Enqueue(successor);
+            }
+
             if (!terminated) {
                 if (block.Successors.Count == 1) {
                     EmitLine($"br label %bb{block.Successors[0]}");
@@ -171,6 +277,84 @@ public sealed class LlvmIrEmitter
                 }
             }
         }
+
+        if (emittedBlockIds.Count != reachableBlocks.Length) {
+            var missingBlock = reachableBlocks.First(block => !emittedBlockIds.Contains(block.Id));
+            throw CreateUnsupported(
+                missingBlock.StartOffset,
+                "A reachable basic block could not be scheduled after its predecessors.");
+        }
+
+        foreach (var block in reachableBlocks) {
+            var replacement = new StringBuilder();
+            foreach (var phi in phis.Where(phi => phi.BlockId == block.Id)) {
+                if (phi.IncomingEdges.Count != predecessorIds[block.Id].Count) {
+                    throw CreateUnsupported(
+                        phi.BlockOffset,
+                        "Not all evaluation-stack predecessors reached a merge block.");
+                }
+
+                var llvmType = phi.Result.IsReference ? "ptr" : GetLlvmType(phi.Result.Type);
+                replacement.Append("  ").Append(phi.Result.Expression)
+                    .Append(" = phi ").Append(llvmType).Append(' ');
+                for (var index = 0; index < phi.IncomingEdges.Count; index++) {
+                    var edge = phi.IncomingEdges[index];
+                    var value = edge.Values[phi.Position];
+                    var mergedType = MergeNumericTypes(
+                        phi.Result.Type,
+                        value.Type,
+                        phi.BlockOffset);
+                    if (mergedType != phi.Result.Type ||
+                        value.IsReference != phi.Result.IsReference) {
+                        throw CreateUnsupported(
+                            phi.BlockOffset,
+                            "Evaluation stack type differs between control-flow predecessors.");
+                    }
+                    if (index != 0) {
+                        replacement.Append(", ");
+                    }
+                    replacement.Append("[ ").Append(value.Expression)
+                        .Append(", %bb").Append(edge.PredecessorId).Append(" ]");
+                }
+                replacement.AppendLine();
+            }
+            _body.Replace(phiMarkers[block.Id] + Environment.NewLine, replacement.ToString());
+        }
+    }
+
+    private static IReadOnlyList<HashSet<int>> ComputeDominators(
+        IReadOnlyList<CilBasicBlock> reachableBlocks,
+        IReadOnlyList<List<int>> predecessorIds)
+    {
+        var reachableBlockIds = reachableBlocks
+            .Select(static block => block.Id)
+            .ToHashSet();
+        var dominators = Enumerable.Range(0, predecessorIds.Count)
+            .Select(id => id == 0 ? new HashSet<int> { 0 } : new HashSet<int>(reachableBlockIds))
+            .ToArray();
+
+        var changed = true;
+        while (changed) {
+            changed = false;
+            foreach (var block in reachableBlocks.Skip(1)) {
+                var predecessors = predecessorIds[block.Id]
+                    .Where(reachableBlockIds.Contains)
+                    .ToArray();
+                var next = predecessors.Length == 0
+                    ? []
+                    : new HashSet<int>(dominators[predecessors[0]]);
+                foreach (var predecessor in predecessors.Skip(1)) {
+                    next.IntersectWith(dominators[predecessor]);
+                }
+                next.Add(block.Id);
+                if (!dominators[block.Id].SetEquals(next)) {
+                    dominators[block.Id] = next;
+                    changed = true;
+                }
+            }
+        }
+
+        return dominators;
     }
 
     private bool EmitInstruction(
@@ -2045,6 +2229,17 @@ public sealed class LlvmIrEmitter
 
     private static string FormatFloat(float value) =>
         $"0x{BitConverter.DoubleToUInt64Bits(value):X16}";
+
+    private sealed record EvaluationStackEdge(
+        int PredecessorId,
+        IReadOnlyList<LlvmValue> Values);
+
+    private sealed record EvaluationStackPhi(
+        int BlockId,
+        int BlockOffset,
+        int Position,
+        LlvmValue Result,
+        IReadOnlyList<EvaluationStackEdge> IncomingEdges);
 
     private static InvalidDataException CreateUnsupported(int offset, string message) =>
         new($"{message} (IL_{offset:x4})");

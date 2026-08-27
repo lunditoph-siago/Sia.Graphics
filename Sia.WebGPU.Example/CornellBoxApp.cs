@@ -14,6 +14,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private const int _initialWidth = 1280;
     private const int _initialHeight = 720;
     private const int _uniformSize = 80;
+    private const WGPUTextureFormat _accumulationFormat = WGPUTextureFormat.RGBA32Float;
     private const string _rasterShaderArtifactName =
         "Sia.WebGPU.Example.CornellBoxRasterShaders.FullscreenVertex";
 
@@ -331,7 +332,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
                 nameof(CornellBoxRasterShaders.FullscreenVertex),
                 fragmentShader,
                 "path_main",
-                WGPUTextureFormat.RGBA16Float);
+                _accumulationFormat);
             _presentationPipeline = CreateRenderPipeline(
                 vertexShader,
                 nameof(CornellBoxRasterShaders.FullscreenVertex),
@@ -345,7 +346,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
                 nameof(CornellBoxRasterShaders.FullscreenVertex),
                 fragmentShader,
                 "path_main",
-                WGPUTextureFormat.RGBA16Float);
+                _accumulationFormat);
             _presentationPipeline = CreateRenderPipeline(
                 vertexShader,
                 nameof(CornellBoxRasterShaders.FullscreenVertex),
@@ -477,7 +478,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
                 Height = (uint)_framebufferHeight,
                 DepthOrArrayLayers = 1,
             },
-            Format = WGPUTextureFormat.RGBA16Float,
+            Format = _accumulationFormat,
             MipLevelCount = 1,
             SampleCount = 1,
             ViewFormatCount = 0,

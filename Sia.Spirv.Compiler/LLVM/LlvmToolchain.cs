@@ -53,7 +53,7 @@ public sealed class LlvmToolchain
         Run(
             ToolName("opt"),
             "-S",
-            "-passes=mem2reg,simplifycfg",
+            "-passes=mem2reg,structurizecfg,simplifycfg",
             inputPath,
             "-o",
             outputPath);

@@ -62,7 +62,7 @@ internal sealed unsafe partial class CornellBoxApp
 
         var accumulationDescriptor = new RenderGraphTextureDescriptor(
             "accumulation",
-            RenderGraphTextureFormat.RGBA16Float,
+            (RenderGraphTextureFormat)(int)_accumulationFormat,
             (uint)props.FramebufferWidth,
             (uint)props.FramebufferHeight,
             usage: RenderGraphTextureUsage.RenderAttachment | RenderGraphTextureUsage.TextureBinding);

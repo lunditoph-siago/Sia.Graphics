@@ -22,40 +22,36 @@ internal static class SpirvLegalityAnalyzer
                         "Managed heap allocation is not supported inside a SPIR-V kernel.",
                         method,
                         instruction.Offset);
-                }
-                else if (instruction.OpCode == OpCodes.Newobj &&
-                    !IsRecognizedValueTypeConstructor(view, block, index)) {
+                } else if (instruction.OpCode == OpCodes.Newobj &&
+                      !IsRecognizedValueTypeConstructor(view, block, index)) {
                     Add(
                         diagnostics,
                         SpirvDiagnosticIds.ManagedHeapAllocation,
                         "Managed heap allocation is not supported inside a SPIR-V kernel.",
                         method,
                         instruction.Offset);
-                }
-                else if (instruction.OpCode is var exceptionOpCode &&
-                    (exceptionOpCode == OpCodes.Throw ||
-                     exceptionOpCode == OpCodes.Rethrow ||
-                     exceptionOpCode == OpCodes.Leave ||
-                     exceptionOpCode == OpCodes.Leave_S ||
-                     exceptionOpCode == OpCodes.Endfinally ||
-                     exceptionOpCode == OpCodes.Endfilter)) {
+                } else if (instruction.OpCode is var exceptionOpCode &&
+                      (exceptionOpCode == OpCodes.Throw ||
+                       exceptionOpCode == OpCodes.Rethrow ||
+                       exceptionOpCode == OpCodes.Leave ||
+                       exceptionOpCode == OpCodes.Leave_S ||
+                       exceptionOpCode == OpCodes.Endfinally ||
+                       exceptionOpCode == OpCodes.Endfilter)) {
                     Add(
                         diagnostics,
                         SpirvDiagnosticIds.ExceptionHandling,
                         "Exception handling is not supported inside a SPIR-V kernel.",
                         method,
                         instruction.Offset);
-                }
-                else if (instruction.OpCode == OpCodes.Callvirt &&
-                    !IsProvablyNonVirtualCall(view, block, index)) {
+                } else if (instruction.OpCode == OpCodes.Callvirt &&
+                      !IsProvablyNonVirtualCall(view, block, index)) {
                     Add(
                         diagnostics,
                         SpirvDiagnosticIds.DynamicDispatch,
                         "Virtual and interface dispatch are not supported inside a SPIR-V kernel.",
                         method,
                         instruction.Offset);
-                }
-                else if (instruction.OpCode == OpCodes.Ldstr) {
+                } else if (instruction.OpCode == OpCodes.Ldstr) {
                     Add(
                         diagnostics,
                         SpirvDiagnosticIds.UnsupportedManagedValue,
@@ -78,12 +74,12 @@ internal static class SpirvLegalityAnalyzer
     }
 
     // newobj is otherwise banned (heap/unrepresentable struct allocation)
-    // except this recognized shape: a float3 constructor, lowered to a
-    // bare <3 x float> SSA value, never a heap allocation.
+    // except recognized Sia.Math vector/matrix constructors, which lower to
+    // aggregate SSA values and never allocate managed objects.
     private static bool IsRecognizedValueTypeConstructor(ShaderCilView view, CilBasicBlock block, int index)
     {
         var call = view.ResolveCall(block, index);
-        return call.Intrinsic is IntrinsicKind.Float3Construct or IntrinsicKind.Float3Broadcast;
+        return call.Intrinsic == IntrinsicKind.MathConstruct;
     }
 
     private static void Add(

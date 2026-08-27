@@ -30,7 +30,6 @@ public sealed class LlvmIrEmitter
     private bool _usesTexture2DLoad;
     private bool _usesTexture2DArrayLoad;
     private bool _usesTexture2DArraySampleLevel;
-    private bool _usesUnpackHalf;
     private bool _usesMin;
     private bool _usesMax;
     private bool _usesInverseSqrt;
@@ -40,8 +39,7 @@ public sealed class LlvmIrEmitter
     private bool _usesCos;
     private bool _usesPow;
     private bool _usesAbs;
-    private bool _usesFloat3Min;
-    private bool _usesFloat3Max;
+    private ResolvedCall? _currentCall;
     private int _nextValueId;
 
     public LlvmIrModule Emit(
@@ -82,7 +80,6 @@ public sealed class LlvmIrEmitter
         _usesTexture2DLoad = false;
         _usesTexture2DArrayLoad = false;
         _usesTexture2DArraySampleLevel = false;
-        _usesUnpackHalf = false;
         _usesMin = false;
         _usesMax = false;
         _usesInverseSqrt = false;
@@ -92,8 +89,7 @@ public sealed class LlvmIrEmitter
         _usesCos = false;
         _usesPow = false;
         _usesAbs = false;
-        _usesFloat3Min = false;
-        _usesFloat3Max = false;
+        _currentCall = null;
         _nextValueId = 0;
 
         var parameterValues = new LlvmValue[kernel.Parameters.Count];
@@ -110,6 +106,7 @@ public sealed class LlvmIrEmitter
         var module = new StringBuilder();
         module.AppendLine("target triple = \"spirv64-unknown-vulkan1.2\"");
         module.AppendLine();
+        EmitMatrixTypeDeclarations(module);
         EmitGlobalDeclarations(kernel, module);
         module.Append("define void @").Append(entryPoint).AppendLine("() #0 {");
         module.Append(_body);
@@ -226,8 +223,7 @@ public sealed class LlvmIrEmitter
                             edges));
                         stack.Push(result);
                     }
-                }
-                else {
+                } else {
                     foreach (var value in edges[0].Values) {
                         stack.Push(value);
                     }
@@ -266,11 +262,9 @@ public sealed class LlvmIrEmitter
             if (!terminated) {
                 if (block.Successors.Count == 1) {
                     EmitLine($"br label %bb{block.Successors[0]}");
-                }
-                else if (block.Successors.Count == 0) {
+                } else if (block.Successors.Count == 0) {
                     EmitLine("ret void");
-                }
-                else {
+                } else {
                     throw CreateUnsupported(
                         block.Instructions[^1].Offset,
                         "A basic block with multiple successors requires an explicit conditional branch.");
@@ -493,8 +487,7 @@ public sealed class LlvmIrEmitter
             prologue.Append("  ").Append(pushConstantValue)
                 .Append(" = load %sia.push.constants, ptr addrspace(13) @sia.push.constants, align 4")
                 .AppendLine();
-        }
-        else if (hasPushConstants) {
+        } else if (hasPushConstants) {
             parameterHandle = NextValue("parameters");
             prologue.Append("  ").Append(parameterHandle).Append(" = call ")
                 .Append(GetParameterTargetType()).Append(" @llvm.spv.resource.handlefrombinding.")
@@ -513,8 +506,7 @@ public sealed class LlvmIrEmitter
                     .Append(parameter.Position).AppendLine(")");
                 values[parameter.Position] = new LlvmValue(value, LlvmValueType.Texture2DFloat);
                 binding++;
-            }
-            else if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2DArray) {
+            } else if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2DArray) {
                 var value = NextValue(SanitizeIdentifier(parameter.Name));
                 prologue.Append("  ").Append(value).Append(" = call ")
                     .Append(GetTexture2DArrayTargetType())
@@ -525,8 +517,7 @@ public sealed class LlvmIrEmitter
                 values[parameter.Position] = new LlvmValue(
                     value, LlvmValueType.Texture2DArrayFloat);
                 binding++;
-            }
-            else if (parameter.Kind == SpirvKernelParameterKind.Sampler) {
+            } else if (parameter.Kind == SpirvKernelParameterKind.Sampler) {
                 var value = NextValue(SanitizeIdentifier(parameter.Name));
                 prologue.Append("  ").Append(value).Append(" = call ")
                     .Append(GetSamplerTargetType())
@@ -536,9 +527,8 @@ public sealed class LlvmIrEmitter
                     .Append(parameter.Position).AppendLine(")");
                 values[parameter.Position] = new LlvmValue(value, LlvmValueType.Sampler);
                 binding++;
-            }
-            else if (parameter.Kind is SpirvKernelParameterKind.ReadOnlyStorageBuffer or
-                  SpirvKernelParameterKind.StorageBuffer) {
+            } else if (parameter.Kind is SpirvKernelParameterKind.ReadOnlyStorageBuffer or
+                    SpirvKernelParameterKind.StorageBuffer) {
                 var type = GetBufferType(
                     parameter.ScalarType,
                     parameter.Kind == SpirvKernelParameterKind.ReadOnlyStorageBuffer);
@@ -553,16 +543,14 @@ public sealed class LlvmIrEmitter
                     .Append(parameter.Position).AppendLine(")");
                 values[parameter.Position] = new LlvmValue(value, type);
                 binding++;
-            }
-            else {
+            } else {
                 var type = GetScalarType(parameter.ScalarType);
                 string value;
                 if (_kernelAbi == SpirvKernelAbi.Vulkan) {
                     value = NextValue(SanitizeIdentifier(parameter.Name));
                     prologue.Append("  ").Append(value).Append(" = extractvalue %sia.push.constants ")
                         .Append(pushConstantValue).Append(", ").Append(pushConstantIndex).AppendLine();
-                }
-                else {
+                } else {
                     var identifier = SanitizeIdentifier(parameter.Name);
                     var pointer = NextValue($"{identifier}.pointer");
                     var word = NextValue($"{identifier}.word");
@@ -576,8 +564,7 @@ public sealed class LlvmIrEmitter
                         value = NextValue(identifier);
                         prologue.Append("  ").Append(value).Append(" = bitcast i32 ")
                             .Append(word).AppendLine(" to float");
-                    }
-                    else {
+                    } else {
                         value = word;
                     }
                 }
@@ -713,9 +700,6 @@ public sealed class LlvmIrEmitter
                 .Append(GetSamplerTargetType())
                 .AppendLine(", <3 x float>, float, <2 x i32>)");
         }
-        if (_usesUnpackHalf) {
-            module.AppendLine("declare <2 x float> @llvm.spv.unpackhalf2x16.v2f32(i32)");
-        }
         if (_usesMin) {
             module.AppendLine("declare float @llvm.minnum.f32(float, float)");
         }
@@ -742,12 +726,6 @@ public sealed class LlvmIrEmitter
         }
         if (_usesAbs) {
             module.AppendLine("declare float @llvm.fabs.f32(float)");
-        }
-        if (_usesFloat3Min) {
-            module.AppendLine("declare <3 x float> @llvm.minnum.v3f32(<3 x float>, <3 x float>)");
-        }
-        if (_usesFloat3Max) {
-            module.AppendLine("declare <3 x float> @llvm.maxnum.v3f32(<3 x float>, <3 x float>)");
         }
         if (_kernelAbi == SpirvKernelAbi.WebGpu &&
             kernel.Parameters.Any(static parameter =>
@@ -830,9 +808,8 @@ public sealed class LlvmIrEmitter
         int offset,
         Stack<LlvmValue> stack);
 
-    // Every supported Gpu.*/Texture2D*/StorageBuffer<T> intrinsic, keyed by
-    // IntrinsicKind (recovered via [SpirvIntrinsic]) — the only place a new
-    // intrinsic needs a case, never a declaring-type/method-name string match.
+    // Every supported shader intrinsic, including structurally recognized
+    // Sia.Math calls, is dispatched through this table.
     private static readonly FrozenDictionary<IntrinsicKind, IntrinsicHandler> _intrinsics =
         new Dictionary<IntrinsicKind, IntrinsicHandler> {
             [IntrinsicKind.GlobalInvocationId] = EmitInvocationBuiltin,
@@ -846,15 +823,7 @@ public sealed class LlvmIrEmitter
             [IntrinsicKind.GetFragmentPosition] = EmitFragmentPositionBuiltin,
             [IntrinsicKind.AsFloat] = EmitAsFloat,
             [IntrinsicKind.UnpackHalf] = EmitUnpackHalf,
-            [IntrinsicKind.Min] = EmitMinMax,
-            [IntrinsicKind.Max] = EmitMinMax,
-            [IntrinsicKind.InverseSqrt] = EmitInverseSqrt,
-            [IntrinsicKind.Saturate] = EmitSaturate,
-            [IntrinsicKind.LessThan] = EmitRelational,
-            [IntrinsicKind.LessThanOrEqual] = EmitRelational,
-            [IntrinsicKind.GreaterThan] = EmitRelational,
-            [IntrinsicKind.GreaterThanOrEqual] = EmitRelational,
-            [IntrinsicKind.Equal] = EmitRelational,
+            [IntrinsicKind.InverseSqrt] = EmitMathUnary,
             [IntrinsicKind.Select] = EmitSelect,
             [IntrinsicKind.Discard] = EmitDiscard,
             [IntrinsicKind.SetPosition] = EmitSetPosition,
@@ -864,29 +833,30 @@ public sealed class LlvmIrEmitter
             [IntrinsicKind.Texture2DLoad] = EmitTexture2DLoad,
             [IntrinsicKind.Texture2DArrayLoad] = EmitTexture2DArrayLoad,
             [IntrinsicKind.Texture2DArraySampleLevel] = EmitTexture2DArraySampleLevel,
-            [IntrinsicKind.Sqrt] = EmitSqrt,
-            [IntrinsicKind.Sin] = EmitSin,
-            [IntrinsicKind.Cos] = EmitCos,
-            [IntrinsicKind.Pow] = EmitPow,
-            [IntrinsicKind.Abs] = EmitAbs,
-            [IntrinsicKind.Float3Construct] = EmitFloat3Construct,
-            [IntrinsicKind.Float3Broadcast] = EmitFloat3Broadcast,
-            [IntrinsicKind.Float3GetX] = EmitFloat3GetComponent,
-            [IntrinsicKind.Float3GetY] = EmitFloat3GetComponent,
-            [IntrinsicKind.Float3GetZ] = EmitFloat3GetComponent,
-            [IntrinsicKind.Float3Add] = EmitFloat3Binary,
-            [IntrinsicKind.Float3Subtract] = EmitFloat3Binary,
-            [IntrinsicKind.Float3MultiplyVector] = EmitFloat3Binary,
-            [IntrinsicKind.Float3DivideVector] = EmitFloat3Binary,
-            [IntrinsicKind.Float3MultiplyScalar] = EmitFloat3ScalarBinary,
-            [IntrinsicKind.Float3DivideScalar] = EmitFloat3ScalarBinary,
-            [IntrinsicKind.Float3Negate] = EmitFloat3Negate,
-            [IntrinsicKind.Float3Dot] = EmitFloat3Dot,
-            [IntrinsicKind.Float3Cross] = EmitFloat3Cross,
-            [IntrinsicKind.Float3Normalize] = EmitFloat3Normalize,
-            [IntrinsicKind.Float3Min] = EmitFloat3MinMax,
-            [IntrinsicKind.Float3Max] = EmitFloat3MinMax,
-            [IntrinsicKind.Float3Reflect] = EmitFloat3Reflect,
+            [IntrinsicKind.Sqrt] = EmitMathUnary,
+            [IntrinsicKind.Sin] = EmitMathUnary,
+            [IntrinsicKind.Cos] = EmitMathUnary,
+            [IntrinsicKind.Pow] = EmitMathPow,
+            [IntrinsicKind.Abs] = EmitMathUnary,
+            [IntrinsicKind.MathConstruct] = EmitMathConstruct,
+            [IntrinsicKind.MathGetComponent] = EmitMathGetComponent,
+            [IntrinsicKind.MathAdd] = EmitMathArithmetic,
+            [IntrinsicKind.MathSubtract] = EmitMathArithmetic,
+            [IntrinsicKind.MathMultiply] = EmitMathArithmetic,
+            [IntrinsicKind.MathDivide] = EmitMathArithmetic,
+            [IntrinsicKind.MathNegate] = EmitMathNegate,
+            [IntrinsicKind.MathDot] = EmitMathDot,
+            [IntrinsicKind.MathCross] = EmitMathCross,
+            [IntrinsicKind.MathNormalize] = EmitMathNormalize,
+            [IntrinsicKind.MathMin] = EmitMathMinMax,
+            [IntrinsicKind.MathMax] = EmitMathMinMax,
+            [IntrinsicKind.MathClamp] = EmitMathClamp,
+            [IntrinsicKind.MathSaturate] = EmitMathSaturate,
+            [IntrinsicKind.MathReflect] = EmitMathReflect,
+            [IntrinsicKind.MathAny] = EmitMathBooleanReduction,
+            [IntrinsicKind.MathAll] = EmitMathBooleanReduction,
+            [IntrinsicKind.MathMul] = EmitMathMul,
+            [IntrinsicKind.MathTranspose] = EmitMathTranspose,
         }.ToFrozenDictionary();
 
     private void EmitCall(
@@ -911,7 +881,12 @@ public sealed class LlvmIrEmitter
             return;
         }
         if (call.Intrinsic is { } kind && _intrinsics.TryGetValue(kind, out var handler)) {
-            handler(this, kind, instance, arguments, offset, stack);
+            _currentCall = call;
+            try {
+                handler(this, kind, instance, arguments, offset, stack);
+            } finally {
+                _currentCall = null;
+            }
             return;
         }
         throw CreateUnsupported(
@@ -920,8 +895,7 @@ public sealed class LlvmIrEmitter
     }
 
     // newobj has no receiver to pop, so it can't share EmitCall's instance
-    // handling. Only float3 constructors reach here — everything else is
-    // already rejected by SpirvLegalityAnalyzer.
+    // handling. Only recognized Sia.Math value constructors reach here.
     private void EmitNewobj(
         ShaderCilView view,
         CilBasicBlock block,
@@ -935,7 +909,12 @@ public sealed class LlvmIrEmitter
             arguments[index] = Pop(stack, offset);
         }
         if (call.Intrinsic is { } kind && _intrinsics.TryGetValue(kind, out var handler)) {
-            handler(this, kind, default, arguments, offset, stack);
+            _currentCall = call;
+            try {
+                handler(this, kind, default, arguments, offset, stack);
+            } finally {
+                _currentCall = null;
+            }
             return;
         }
         throw CreateUnsupported(
@@ -1053,10 +1032,20 @@ public sealed class LlvmIrEmitter
         int offset,
         Stack<LlvmValue> stack)
     {
-        EnsureCompatible(LlvmValueType.UInt32, arguments[0].Type, offset);
+        var input = emitter.LoadValue(arguments[0]);
+        var resultType = GetType(emitter.GetCurrentCall().Signature.ReturnType);
+        var valid = resultType == LlvmValueType.Float32 &&
+            input.Type is LlvmValueType.Int32 or LlvmValueType.UInt32 ||
+            TryGetVectorLength(resultType, out var resultLength) &&
+            TryGetScalarVector(input.Type, out var inputScalar, out var inputLength) &&
+            inputScalar is LlvmValueType.Int32 or LlvmValueType.UInt32 &&
+            inputLength == resultLength;
+        if (!valid) {
+            throw CreateUnsupported(offset, "math.asfloat requires matching i32/u32 and f32 shapes.");
+        }
         var result = emitter.NextValue();
-        emitter.EmitLine($"{result} = bitcast i32 {arguments[0].Expression} to float");
-        stack.Push(new LlvmValue(result, LlvmValueType.Float32));
+        emitter.EmitLine($"{result} = bitcast {GetLlvmType(input.Type)} {input.Expression} to {GetLlvmType(resultType)}");
+        stack.Push(new LlvmValue(result, resultType));
     }
 
     private static void EmitUnpackHalf(
@@ -1067,32 +1056,25 @@ public sealed class LlvmIrEmitter
         int offset,
         Stack<LlvmValue> stack)
     {
-        EnsureCompatible(LlvmValueType.UInt32, arguments[0].Type, offset);
-        var component = GetConstantIndex(arguments[1], 1, "component", offset);
-        var unpacked = emitter.NextValue();
-        emitter.EmitLine($"{unpacked} = call <2 x float> @llvm.spv.unpackhalf2x16.v2f32(i32 {arguments[0].Expression})");
-        var result = emitter.NextValue();
-        emitter.EmitLine($"{result} = extractelement <2 x float> {unpacked}, i32 {component}");
-        emitter._usesUnpackHalf = true;
-        stack.Push(new LlvmValue(result, LlvmValueType.Float32));
-    }
-
-    private static void EmitMinMax(
-        LlvmIrEmitter emitter,
-        IntrinsicKind kind,
-        LlvmValue instance,
-        IReadOnlyList<LlvmValue> arguments,
-        int offset,
-        Stack<LlvmValue> stack)
-    {
-        EnsureCompatible(LlvmValueType.Float32, arguments[0].Type, offset);
-        EnsureCompatible(LlvmValueType.Float32, arguments[1].Type, offset);
-        var intrinsic = kind == IntrinsicKind.Min ? "minnum" : "maxnum";
-        var result = emitter.NextValue();
-        emitter.EmitLine($"{result} = call float @llvm.{intrinsic}.f32(float {arguments[0].Expression}, float {arguments[1].Expression})");
-        emitter._usesMin |= kind == IntrinsicKind.Min;
-        emitter._usesMax |= kind == IntrinsicKind.Max;
-        stack.Push(new LlvmValue(result, LlvmValueType.Float32));
+        var input = emitter.LoadValue(arguments[0]);
+        string result;
+        LlvmValueType resultType;
+        if (input.Type == LlvmValueType.UInt32) {
+            result = emitter.EmitUnpackHalfScalar(input.Expression);
+            resultType = LlvmValueType.Float32;
+        } else if (TryGetScalarVector(input.Type, out var scalarType, out var length) &&
+              scalarType == LlvmValueType.UInt32) {
+            resultType = GetVectorType(length);
+            var components = new string[length];
+            for (var index = 0; index < length; index++) {
+                components[index] = emitter.EmitUnpackHalfScalar(
+                    emitter.ExtractVectorElement(input.Expression, input.Type, index));
+            }
+            result = emitter.EmitVector(components);
+        } else {
+            throw CreateUnsupported(offset, "math.f16tof32 requires a u32 scalar or vector.");
+        }
+        stack.Push(new LlvmValue(result, resultType));
     }
 
     private static void EmitInverseSqrt(
@@ -1110,57 +1092,6 @@ public sealed class LlvmIrEmitter
         stack.Push(new LlvmValue(result, LlvmValueType.Float32));
     }
 
-    private static void EmitSaturate(
-        LlvmIrEmitter emitter,
-        IntrinsicKind kind,
-        LlvmValue instance,
-        IReadOnlyList<LlvmValue> arguments,
-        int offset,
-        Stack<LlvmValue> stack)
-    {
-        EnsureCompatible(LlvmValueType.Float32, arguments[0].Type, offset);
-        var lower = emitter.NextValue();
-        emitter.EmitLine($"{lower} = call float @llvm.maxnum.f32(float {arguments[0].Expression}, float 0.000000e+00)");
-        var result = emitter.NextValue();
-        emitter.EmitLine($"{result} = call float @llvm.minnum.f32(float {lower}, float 1.000000e+00)");
-        emitter._usesMin = true;
-        emitter._usesMax = true;
-        stack.Push(new LlvmValue(result, LlvmValueType.Float32));
-    }
-
-    private static void EmitRelational(
-        LlvmIrEmitter emitter,
-        IntrinsicKind kind,
-        LlvmValue instance,
-        IReadOnlyList<LlvmValue> arguments,
-        int offset,
-        Stack<LlvmValue> stack)
-    {
-        if (kind == IntrinsicKind.Equal && arguments[0].Type == LlvmValueType.UInt32) {
-            EnsureCompatible(LlvmValueType.UInt32, arguments[1].Type, offset);
-            var integerComparison = emitter.NextValue();
-            emitter.EmitLine($"{integerComparison} = icmp eq i32 {arguments[0].Expression}, {arguments[1].Expression}");
-            var integerResult = emitter.NextValue();
-            emitter.EmitLine($"{integerResult} = zext i1 {integerComparison} to i32");
-            stack.Push(new LlvmValue(integerResult, LlvmValueType.UInt32));
-            return;
-        }
-        EnsureCompatible(LlvmValueType.Float32, arguments[0].Type, offset);
-        EnsureCompatible(LlvmValueType.Float32, arguments[1].Type, offset);
-        var predicate = kind switch {
-            IntrinsicKind.LessThan => "olt",
-            IntrinsicKind.LessThanOrEqual => "ole",
-            IntrinsicKind.GreaterThan => "ogt",
-            IntrinsicKind.GreaterThanOrEqual => "oge",
-            _ => "oeq"
-        };
-        var comparison = emitter.NextValue();
-        emitter.EmitLine($"{comparison} = fcmp {predicate} float {arguments[0].Expression}, {arguments[1].Expression}");
-        var result = emitter.NextValue();
-        emitter.EmitLine($"{result} = zext i1 {comparison} to i32");
-        stack.Push(new LlvmValue(result, LlvmValueType.UInt32));
-    }
-
     private static void EmitSelect(
         LlvmIrEmitter emitter,
         IntrinsicKind kind,
@@ -1169,14 +1100,31 @@ public sealed class LlvmIrEmitter
         int offset,
         Stack<LlvmValue> stack)
     {
-        EnsureCompatible(LlvmValueType.Float32, arguments[0].Type, offset);
-        EnsureCompatible(LlvmValueType.Float32, arguments[1].Type, offset);
-        EnsureCompatible(LlvmValueType.UInt32, arguments[2].Type, offset);
-        var condition = emitter.NextValue();
-        emitter.EmitLine($"{condition} = icmp ne i32 {arguments[2].Expression}, 0");
+        var whenFalse = emitter.LoadValue(arguments[0]);
+        var whenTrue = emitter.LoadValue(arguments[1]);
+        if (whenFalse.Type != whenTrue.Type) {
+            throw CreateUnsupported(offset, "math.select values must have matching types.");
+        }
+        var condition = emitter.LoadValue(arguments[2]);
+        string conditionType;
+        string conditionExpression;
+        if (condition.Type is LlvmValueType.Boolean or LlvmValueType.Int32 or LlvmValueType.UInt32) {
+            var scalarCondition = emitter.ToBoolean(condition, offset);
+            conditionType = "i1";
+            conditionExpression = scalarCondition.Expression;
+        } else if (TryGetScalarVector(condition.Type, out var conditionScalar, out var conditionLength) &&
+              conditionScalar == LlvmValueType.Boolean &&
+              TryGetScalarVector(whenFalse.Type, out _, out var valueLength) &&
+              conditionLength == valueLength) {
+            conditionType = GetLlvmType(condition.Type);
+            conditionExpression = condition.Expression;
+        } else {
+            throw CreateUnsupported(offset, "math.select condition must be bool or a matching bool vector.");
+        }
         var result = emitter.NextValue();
-        emitter.EmitLine($"{result} = select i1 {condition}, float {arguments[1].Expression}, float {arguments[0].Expression}");
-        stack.Push(new LlvmValue(result, LlvmValueType.Float32));
+        emitter.EmitLine($"{result} = select {conditionType} {conditionExpression}, " +
+            $"{GetLlvmType(whenTrue.Type)} {whenTrue.Expression}, {GetLlvmType(whenFalse.Type)} {whenFalse.Expression}");
+        stack.Push(new LlvmValue(result, whenFalse.Type));
     }
 
     private static void EmitDiscard(
@@ -1414,20 +1362,7 @@ public sealed class LlvmIrEmitter
         stack.Push(new LlvmValue(result, LlvmValueType.Float32));
     }
 
-    // Broadcasts a scalar SSA value into a <3 x float>. Shared by the
-    // Sia.Math.float3(float) constructor and the vec3-op-scalar handlers.
-    private static string EmitFloat3BroadcastValue(LlvmIrEmitter emitter, string scalarExpression)
-    {
-        var first = emitter.NextValue();
-        emitter.EmitLine($"{first} = insertelement <3 x float> poison, float {scalarExpression}, i32 0");
-        var second = emitter.NextValue();
-        emitter.EmitLine($"{second} = insertelement <3 x float> {first}, float {scalarExpression}, i32 1");
-        var third = emitter.NextValue();
-        emitter.EmitLine($"{third} = insertelement <3 x float> {second}, float {scalarExpression}, i32 2");
-        return third;
-    }
-
-    private static void EmitFloat3Construct(
+    private static void EmitMathConstruct(
         LlvmIrEmitter emitter,
         IntrinsicKind kind,
         LlvmValue instance,
@@ -1435,69 +1370,172 @@ public sealed class LlvmIrEmitter
         int offset,
         Stack<LlvmValue> stack)
     {
-        var first = emitter.NextValue();
-        emitter.EmitLine($"{first} = insertelement <3 x float> poison, float {arguments[0].Expression}, i32 0");
-        var second = emitter.NextValue();
-        emitter.EmitLine($"{second} = insertelement <3 x float> {first}, float {arguments[1].Expression}, i32 1");
-        var third = emitter.NextValue();
-        emitter.EmitLine($"{third} = insertelement <3 x float> {second}, float {arguments[2].Expression}, i32 2");
-        EmitFloat3ConstructorResult(emitter, instance, third, stack);
-    }
+        var call = emitter.GetCurrentCall();
+        var type = GetType(call.Name == ".ctor"
+            ? new KernelType(call.DeclaringType)
+            : call.Signature.ReturnType);
+        var values = arguments.Select(argument => emitter.LoadValue(argument)).ToArray();
+        string result;
+        if (TryGetScalarVector(type, out _, out var length)) {
+            if (values.Length == 1) {
+                result = emitter.EmitVectorBroadcast(type, values[0].Expression);
+            } else {
+                result = emitter.EmitVector(
+                    type,
+                    values.Select(static value => value.Expression).ToArray());
+            }
+        } else if (TryGetMatrixShape(type, out var rows, out var columns)) {
+            var columnValues = new string[columns];
+            if (values.Length == 1) {
+                var column = emitter.EmitVectorBroadcast(values[0].Expression, rows);
+                Array.Fill(columnValues, column);
+            } else if (values.Length == columns &&
+                  values.All(value => value.Type == GetVectorType(rows))) {
+                for (var column = 0; column < columns; column++) {
+                    columnValues[column] = values[column].Expression;
+                }
+            } else if (values.Length == rows * columns) {
+                for (var column = 0; column < columns; column++) {
+                    var components = new string[rows];
+                    for (var row = 0; row < rows; row++) {
+                        components[row] = values[row * columns + column].Expression;
+                    }
+                    columnValues[column] = emitter.EmitVector(components);
+                }
+            } else {
+                throw CreateUnsupported(offset, $"Unsupported constructor shape for {call.DeclaringType}.");
+            }
+            result = emitter.EmitMatrix(type, columnValues);
+        } else {
+            throw CreateUnsupported(offset, $"Unsupported Sia.Math constructor type {type}.");
+        }
 
-    private static void EmitFloat3Broadcast(
-        LlvmIrEmitter emitter,
-        IntrinsicKind kind,
-        LlvmValue instance,
-        IReadOnlyList<LlvmValue> arguments,
-        int offset,
-        Stack<LlvmValue> stack)
-    {
-        var result = EmitFloat3BroadcastValue(emitter, arguments[0].Expression);
-        EmitFloat3ConstructorResult(emitter, instance, result, stack);
-    }
-
-    // EmitNewobj only fires for a float3 used as an intermediate value.
-    // `var v = new float3(...)` takes the local's address instead and calls
-    // the ctor in place via EmitCall with an IsReference instance, which
-    // must store into the receiver rather than push a value.
-    private static void EmitFloat3ConstructorResult(
-        LlvmIrEmitter emitter,
-        LlvmValue instance,
-        string value,
-        Stack<LlvmValue> stack)
-    {
         if (instance.IsReference) {
-            emitter.EmitLine($"store <3 x float> {value}, ptr {instance.Expression}, align 16");
+            emitter.EmitLine($"store {GetLlvmType(type)} {result}, ptr {instance.Expression}, align {GetAlignment(type)}");
+        } else {
+            stack.Push(new LlvmValue(result, type));
+        }
+    }
+
+    private static void EmitMathGetComponent(
+        LlvmIrEmitter emitter,
+        IntrinsicKind kind,
+        LlvmValue instance,
+        IReadOnlyList<LlvmValue> arguments,
+        int offset,
+        Stack<LlvmValue> stack)
+    {
+        var vector = emitter.LoadValue(instance);
+        if (!TryGetScalarVector(vector.Type, out var scalarType, out var length)) {
+            throw CreateUnsupported(offset, $"Component access requires a Sia.Math vector, found {vector.Type}.");
+        }
+        var component = emitter.GetCurrentCall().Name[^1] switch {
+            'x' => 0,
+            'y' => 1,
+            'z' => 2,
+            'w' => 3,
+            _ => -1
+        };
+        if (component < 0 || component >= length) {
+            throw CreateUnsupported(offset, "Vector component is outside the vector shape.");
+        }
+        stack.Push(new LlvmValue(
+            emitter.ExtractVectorElement(vector.Expression, vector.Type, component),
+            scalarType));
+    }
+
+    private static void EmitMathArithmetic(
+        LlvmIrEmitter emitter,
+        IntrinsicKind kind,
+        LlvmValue instance,
+        IReadOnlyList<LlvmValue> arguments,
+        int offset,
+        Stack<LlvmValue> stack)
+    {
+        var left = emitter.LoadValue(arguments[0]);
+        var right = emitter.LoadValue(arguments[1]);
+        var resultType = GetType(emitter.GetCurrentCall().Signature.ReturnType);
+        var scalarType = TryGetScalarVector(resultType, out var vectorScalarType, out _)
+            ? vectorScalarType
+            : LlvmValueType.Float32;
+        var operation = (kind, scalarType) switch {
+            (IntrinsicKind.MathAdd, LlvmValueType.Float32) => "fadd",
+            (IntrinsicKind.MathSubtract, LlvmValueType.Float32) => "fsub",
+            (IntrinsicKind.MathMultiply, LlvmValueType.Float32) => "fmul",
+            (IntrinsicKind.MathDivide, LlvmValueType.Float32) => "fdiv",
+            (IntrinsicKind.MathAdd, _) => "add",
+            (IntrinsicKind.MathSubtract, _) => "sub",
+            (IntrinsicKind.MathMultiply, _) => "mul",
+            (IntrinsicKind.MathDivide, LlvmValueType.UInt32) => "udiv",
+            (IntrinsicKind.MathDivide, _) => "sdiv",
+            _ => throw CreateUnsupported(offset, $"Arithmetic is not supported for {resultType}.")
+        };
+        var result = emitter.EmitElementwiseBinary(operation, left, right, resultType, offset);
+        stack.Push(new LlvmValue(result, resultType));
+    }
+
+    private static void EmitMathNegate(
+        LlvmIrEmitter emitter,
+        IntrinsicKind kind,
+        LlvmValue instance,
+        IReadOnlyList<LlvmValue> arguments,
+        int offset,
+        Stack<LlvmValue> stack)
+    {
+        var value = emitter.LoadValue(arguments[0]);
+        string result;
+        if (TryGetScalarVector(value.Type, out var scalarType, out _)) {
+            result = emitter.NextValue();
+            if (scalarType == LlvmValueType.Float32) {
+                emitter.EmitLine($"{result} = fneg {GetLlvmType(value.Type)} {value.Expression}");
+            } else if (scalarType == LlvmValueType.Int32) {
+                emitter.EmitLine($"{result} = sub {GetLlvmType(value.Type)} zeroinitializer, {value.Expression}");
+            } else {
+                throw CreateUnsupported(offset, $"Negation is not supported for {value.Type}.");
+            }
+        } else if (TryGetMatrixShape(value.Type, out var rows, out var columns)) {
+            var outputColumns = new string[columns];
+            for (var column = 0; column < columns; column++) {
+                var source = emitter.ExtractMatrixColumn(value.Expression, value.Type, column);
+                var negated = emitter.NextValue();
+                emitter.EmitLine($"{negated} = fneg <{rows} x float> {source}");
+                outputColumns[column] = negated;
+            }
+            result = emitter.EmitMatrix(value.Type, outputColumns);
+        } else {
+            throw CreateUnsupported(offset, $"Negation is not supported for {value.Type}.");
+        }
+        stack.Push(new LlvmValue(result, value.Type));
+    }
+
+    private static void EmitMathUnary(
+        LlvmIrEmitter emitter,
+        IntrinsicKind kind,
+        LlvmValue instance,
+        IReadOnlyList<LlvmValue> arguments,
+        int offset,
+        Stack<LlvmValue> stack)
+    {
+        var value = emitter.LoadValue(arguments[0]);
+        if (value.Type == LlvmValueType.Float32) {
+            stack.Push(new LlvmValue(
+                emitter.EmitScalarUnary(kind, value.Expression),
+                LlvmValueType.Float32));
             return;
         }
-        stack.Push(new LlvmValue(value, LlvmValueType.Float32x3));
-    }
-
-    private static void EmitFloat3GetComponent(
-        LlvmIrEmitter emitter,
-        IntrinsicKind kind,
-        LlvmValue instance,
-        IReadOnlyList<LlvmValue> arguments,
-        int offset,
-        Stack<LlvmValue> stack)
-    {
-        var component = kind switch {
-            IntrinsicKind.Float3GetX => 0,
-            IntrinsicKind.Float3GetY => 1,
-            _ => 2
-        };
-        var vector = instance;
-        if (vector.IsReference) {
-            var loaded = emitter.NextValue();
-            emitter.EmitLine($"{loaded} = load <3 x float>, ptr {vector.Expression}, align 16");
-            vector = new LlvmValue(loaded, LlvmValueType.Float32x3);
+        if (!TryGetVectorLength(value.Type, out var length)) {
+            throw CreateUnsupported(offset, $"math.{emitter.GetCurrentCall().Name} does not support {value.Type}.");
         }
-        var result = emitter.NextValue();
-        emitter.EmitLine($"{result} = extractelement <3 x float> {vector.Expression}, i32 {component}");
-        stack.Push(new LlvmValue(result, LlvmValueType.Float32));
+        var components = new string[length];
+        for (var index = 0; index < length; index++) {
+            components[index] = emitter.EmitScalarUnary(
+                kind,
+                emitter.ExtractVectorElement(value.Expression, length, index));
+        }
+        stack.Push(new LlvmValue(emitter.EmitVector(components), value.Type));
     }
 
-    private static void EmitFloat3Binary(
+    private static void EmitMathPow(
         LlvmIrEmitter emitter,
         IntrinsicKind kind,
         LlvmValue instance,
@@ -1505,181 +1543,588 @@ public sealed class LlvmIrEmitter
         int offset,
         Stack<LlvmValue> stack)
     {
-        var op = kind switch {
-            IntrinsicKind.Float3Add => "fadd",
-            IntrinsicKind.Float3Subtract => "fsub",
-            IntrinsicKind.Float3MultiplyVector => "fmul",
-            IntrinsicKind.Float3DivideVector => "fdiv",
-            _ => throw CreateUnsupported(offset, $"Unexpected float3 binary kind '{kind}'.")
+        var left = emitter.LoadValue(arguments[0]);
+        var right = emitter.LoadValue(arguments[1]);
+        if (left.Type == LlvmValueType.Float32) {
+            stack.Push(new LlvmValue(
+                emitter.EmitScalarPow(left.Expression, right.Expression),
+                LlvmValueType.Float32));
+            return;
+        }
+        if (!TryGetVectorLength(left.Type, out var length) || right.Type != left.Type) {
+            throw CreateUnsupported(offset, "math.pow arguments must have matching float shapes.");
+        }
+        var components = new string[length];
+        for (var index = 0; index < length; index++) {
+            components[index] = emitter.EmitScalarPow(
+                emitter.ExtractVectorElement(left.Expression, length, index),
+                emitter.ExtractVectorElement(right.Expression, length, index));
+        }
+        stack.Push(new LlvmValue(emitter.EmitVector(components), left.Type));
+    }
+
+    private static void EmitMathMinMax(
+        LlvmIrEmitter emitter,
+        IntrinsicKind kind,
+        LlvmValue instance,
+        IReadOnlyList<LlvmValue> arguments,
+        int offset,
+        Stack<LlvmValue> stack)
+    {
+        var left = emitter.LoadValue(arguments[0]);
+        var right = emitter.LoadValue(arguments[1]);
+        if (left.Type != right.Type) {
+            throw CreateUnsupported(offset, "math.min/max arguments must have matching float shapes.");
+        }
+        var minimum = kind == IntrinsicKind.MathMin;
+        if (left.Type == LlvmValueType.Float32) {
+            stack.Push(new LlvmValue(
+                emitter.EmitScalarMinMax(minimum, left.Expression, right.Expression),
+                left.Type));
+            return;
+        }
+        if (!TryGetVectorLength(left.Type, out var length)) {
+            throw CreateUnsupported(offset, $"math.min/max does not support {left.Type}.");
+        }
+        var components = new string[length];
+        for (var index = 0; index < length; index++) {
+            components[index] = emitter.EmitScalarMinMax(
+                minimum,
+                emitter.ExtractVectorElement(left.Expression, length, index),
+                emitter.ExtractVectorElement(right.Expression, length, index));
+        }
+        stack.Push(new LlvmValue(emitter.EmitVector(components), left.Type));
+    }
+
+    private static void EmitMathClamp(
+        LlvmIrEmitter emitter,
+        IntrinsicKind kind,
+        LlvmValue instance,
+        IReadOnlyList<LlvmValue> arguments,
+        int offset,
+        Stack<LlvmValue> stack)
+    {
+        var value = emitter.LoadValue(arguments[0]);
+        var minimum = emitter.LoadValue(arguments[1]);
+        var maximum = emitter.LoadValue(arguments[2]);
+        if (value.Type != minimum.Type || value.Type != maximum.Type) {
+            throw CreateUnsupported(offset, "math.clamp arguments must have matching float shapes.");
+        }
+        if (value.Type == LlvmValueType.Float32) {
+            var lower = emitter.EmitScalarMinMax(false, value.Expression, minimum.Expression);
+            stack.Push(new LlvmValue(
+                emitter.EmitScalarMinMax(true, lower, maximum.Expression),
+                value.Type));
+            return;
+        }
+        if (!TryGetVectorLength(value.Type, out var length)) {
+            throw CreateUnsupported(offset, $"math.clamp does not support {value.Type}.");
+        }
+        var components = new string[length];
+        for (var index = 0; index < length; index++) {
+            var lower = emitter.EmitScalarMinMax(
+                false,
+                emitter.ExtractVectorElement(value.Expression, length, index),
+                emitter.ExtractVectorElement(minimum.Expression, length, index));
+            components[index] = emitter.EmitScalarMinMax(
+                true,
+                lower,
+                emitter.ExtractVectorElement(maximum.Expression, length, index));
+        }
+        stack.Push(new LlvmValue(emitter.EmitVector(components), value.Type));
+    }
+
+    private static void EmitMathSaturate(
+        LlvmIrEmitter emitter,
+        IntrinsicKind kind,
+        LlvmValue instance,
+        IReadOnlyList<LlvmValue> arguments,
+        int offset,
+        Stack<LlvmValue> stack)
+    {
+        var value = emitter.LoadValue(arguments[0]);
+        if (value.Type == LlvmValueType.Float32) {
+            var lower = emitter.EmitScalarMinMax(false, value.Expression, "0.000000e+00");
+            stack.Push(new LlvmValue(
+                emitter.EmitScalarMinMax(true, lower, "1.000000e+00"),
+                value.Type));
+            return;
+        }
+        if (!TryGetVectorLength(value.Type, out var length)) {
+            throw CreateUnsupported(offset, $"math.saturate does not support {value.Type}.");
+        }
+        var components = new string[length];
+        for (var index = 0; index < length; index++) {
+            var lower = emitter.EmitScalarMinMax(
+                false,
+                emitter.ExtractVectorElement(value.Expression, length, index),
+                "0.000000e+00");
+            components[index] = emitter.EmitScalarMinMax(true, lower, "1.000000e+00");
+        }
+        stack.Push(new LlvmValue(emitter.EmitVector(components), value.Type));
+    }
+
+    private static void EmitMathDot(
+        LlvmIrEmitter emitter,
+        IntrinsicKind kind,
+        LlvmValue instance,
+        IReadOnlyList<LlvmValue> arguments,
+        int offset,
+        Stack<LlvmValue> stack)
+    {
+        var left = emitter.LoadValue(arguments[0]);
+        var right = emitter.LoadValue(arguments[1]);
+        if (left.Type != right.Type || !TryGetVectorLength(left.Type, out var length)) {
+            throw CreateUnsupported(offset, "math.dot arguments must be matching float vectors.");
+        }
+        stack.Push(new LlvmValue(
+            emitter.EmitDot(left.Expression, right.Expression, length),
+            LlvmValueType.Float32));
+    }
+
+    private static void EmitMathCross(
+        LlvmIrEmitter emitter,
+        IntrinsicKind kind,
+        LlvmValue instance,
+        IReadOnlyList<LlvmValue> arguments,
+        int offset,
+        Stack<LlvmValue> stack)
+    {
+        var left = emitter.LoadValue(arguments[0]);
+        var right = emitter.LoadValue(arguments[1]);
+        var ax = emitter.ExtractVectorElement(left.Expression, 3, 0);
+        var ay = emitter.ExtractVectorElement(left.Expression, 3, 1);
+        var az = emitter.ExtractVectorElement(left.Expression, 3, 2);
+        var bx = emitter.ExtractVectorElement(right.Expression, 3, 0);
+        var by = emitter.ExtractVectorElement(right.Expression, 3, 1);
+        var bz = emitter.ExtractVectorElement(right.Expression, 3, 2);
+        stack.Push(new LlvmValue(emitter.EmitVector([
+            emitter.EmitScalarBinary("fsub", emitter.EmitScalarBinary("fmul", ay, bz), emitter.EmitScalarBinary("fmul", az, by)),
+            emitter.EmitScalarBinary("fsub", emitter.EmitScalarBinary("fmul", az, bx), emitter.EmitScalarBinary("fmul", ax, bz)),
+            emitter.EmitScalarBinary("fsub", emitter.EmitScalarBinary("fmul", ax, by), emitter.EmitScalarBinary("fmul", ay, bx))
+        ]), LlvmValueType.Float32x3));
+    }
+
+    private static void EmitMathNormalize(
+        LlvmIrEmitter emitter,
+        IntrinsicKind kind,
+        LlvmValue instance,
+        IReadOnlyList<LlvmValue> arguments,
+        int offset,
+        Stack<LlvmValue> stack)
+    {
+        var vector = emitter.LoadValue(arguments[0]);
+        if (!TryGetVectorLength(vector.Type, out var length)) {
+            throw CreateUnsupported(offset, "math.normalize requires a float vector.");
+        }
+        var lengthSquared = emitter.EmitDot(vector.Expression, vector.Expression, length);
+        var inverseLength = emitter.EmitScalarUnary(IntrinsicKind.InverseSqrt, lengthSquared);
+        var broadcast = emitter.EmitVectorBroadcast(inverseLength, length);
+        var result = emitter.NextValue();
+        emitter.EmitLine($"{result} = fmul <{length} x float> {vector.Expression}, {broadcast}");
+        stack.Push(new LlvmValue(result, vector.Type));
+    }
+
+    private static void EmitMathReflect(
+        LlvmIrEmitter emitter,
+        IntrinsicKind kind,
+        LlvmValue instance,
+        IReadOnlyList<LlvmValue> arguments,
+        int offset,
+        Stack<LlvmValue> stack)
+    {
+        var incident = emitter.LoadValue(arguments[0]);
+        var normal = emitter.LoadValue(arguments[1]);
+        if (incident.Type != normal.Type || !TryGetVectorLength(incident.Type, out var length)) {
+            throw CreateUnsupported(offset, "math.reflect arguments must be matching float vectors.");
+        }
+        var dot = emitter.EmitDot(incident.Expression, normal.Expression, length);
+        var doubled = emitter.EmitScalarBinary("fmul", dot, "2.000000e+00");
+        var scaled = emitter.NextValue();
+        emitter.EmitLine($"{scaled} = fmul <{length} x float> {normal.Expression}, {emitter.EmitVectorBroadcast(doubled, length)}");
+        var result = emitter.NextValue();
+        emitter.EmitLine($"{result} = fsub <{length} x float> {incident.Expression}, {scaled}");
+        stack.Push(new LlvmValue(result, incident.Type));
+    }
+
+    private static void EmitMathBooleanReduction(
+        LlvmIrEmitter emitter,
+        IntrinsicKind kind,
+        LlvmValue instance,
+        IReadOnlyList<LlvmValue> arguments,
+        int offset,
+        Stack<LlvmValue> stack)
+    {
+        var vector = emitter.LoadValue(arguments[0]);
+        if (!TryGetScalarVector(vector.Type, out var scalarType, out var length) ||
+            scalarType != LlvmValueType.Boolean) {
+            throw CreateUnsupported(offset, "math.any/all requires a boolean vector.");
+        }
+        var operation = kind == IntrinsicKind.MathAny ? "or" : "and";
+        var result = emitter.ExtractVectorElement(vector.Expression, vector.Type, 0);
+        for (var index = 1; index < length; index++) {
+            var next = emitter.NextValue();
+            emitter.EmitLine($"{next} = {operation} i1 {result}, {emitter.ExtractVectorElement(vector.Expression, vector.Type, index)}");
+            result = next;
+        }
+        stack.Push(new LlvmValue(result, LlvmValueType.Boolean));
+    }
+
+    private static void EmitMathMul(
+        LlvmIrEmitter emitter,
+        IntrinsicKind kind,
+        LlvmValue instance,
+        IReadOnlyList<LlvmValue> arguments,
+        int offset,
+        Stack<LlvmValue> stack)
+    {
+        var left = emitter.LoadValue(arguments[0]);
+        var right = emitter.LoadValue(arguments[1]);
+        var resultType = GetType(emitter.GetCurrentCall().Signature.ReturnType);
+        string result;
+        if (TryGetMatrixShape(left.Type, out var leftRows, out var leftColumns) &&
+            TryGetVectorLength(right.Type, out var rightLength)) {
+            if (leftColumns != rightLength) {
+                throw CreateUnsupported(offset, "Matrix and vector shapes are incompatible for math.mul.");
+            }
+            result = emitter.EmitMatrixVectorMultiply(left, right.Expression, leftRows, leftColumns);
+        } else if (TryGetVectorLength(left.Type, out var leftLength) &&
+              TryGetMatrixShape(right.Type, out var rightRows, out var rightColumns)) {
+            if (leftLength != rightRows) {
+                throw CreateUnsupported(offset, "Vector and matrix shapes are incompatible for math.mul.");
+            }
+            var components = new string[rightColumns];
+            for (var column = 0; column < rightColumns; column++) {
+                components[column] = emitter.EmitDot(
+                    left.Expression,
+                    emitter.ExtractMatrixColumn(right.Expression, right.Type, column),
+                    rightRows);
+            }
+            result = emitter.EmitVector(components);
+        } else if (TryGetMatrixShape(left.Type, out leftRows, out leftColumns) &&
+              TryGetMatrixShape(right.Type, out rightRows, out rightColumns)) {
+            if (leftColumns != rightRows) {
+                throw CreateUnsupported(offset, "Matrix shapes are incompatible for math.mul.");
+            }
+            var columns = new string[rightColumns];
+            for (var column = 0; column < rightColumns; column++) {
+                columns[column] = emitter.EmitMatrixVectorMultiply(
+                    left,
+                    emitter.ExtractMatrixColumn(right.Expression, right.Type, column),
+                    leftRows,
+                    leftColumns);
+            }
+            result = emitter.EmitMatrix(resultType, columns);
+        } else {
+            throw CreateUnsupported(offset, "math.mul requires a matrix/vector combination.");
+        }
+        stack.Push(new LlvmValue(result, resultType));
+    }
+
+    private static void EmitMathTranspose(
+        LlvmIrEmitter emitter,
+        IntrinsicKind kind,
+        LlvmValue instance,
+        IReadOnlyList<LlvmValue> arguments,
+        int offset,
+        Stack<LlvmValue> stack)
+    {
+        var matrix = emitter.LoadValue(arguments[0]);
+        if (!TryGetMatrixShape(matrix.Type, out var rows, out var columns)) {
+            throw CreateUnsupported(offset, "math.transpose requires a float matrix.");
+        }
+        var resultType = GetMatrixType(columns, rows);
+        var outputColumns = new string[rows];
+        for (var outputColumn = 0; outputColumn < rows; outputColumn++) {
+            var components = new string[columns];
+            for (var outputRow = 0; outputRow < columns; outputRow++) {
+                var sourceColumn = emitter.ExtractMatrixColumn(
+                    matrix.Expression,
+                    matrix.Type,
+                    outputRow);
+                components[outputRow] = emitter.ExtractVectorElement(
+                    sourceColumn,
+                    rows,
+                    outputColumn);
+            }
+            outputColumns[outputColumn] = emitter.EmitVector(components);
+        }
+        stack.Push(new LlvmValue(emitter.EmitMatrix(resultType, outputColumns), resultType));
+    }
+
+    private ResolvedCall GetCurrentCall() => _currentCall ??
+        throw new InvalidOperationException("A Sia.Math intrinsic was emitted without call metadata.");
+
+    private LlvmValue LoadValue(LlvmValue value)
+    {
+        if (!value.IsReference) {
+            return value;
+        }
+        var loaded = NextValue();
+        EmitLine($"{loaded} = load {GetLlvmType(value.Type)}, ptr {value.Expression}, align {GetAlignment(value.Type)}");
+        return new LlvmValue(loaded, value.Type);
+    }
+
+    private string EmitVectorBroadcast(string scalar, int length)
+    {
+        var components = Enumerable.Repeat(scalar, length).ToArray();
+        return EmitVector(components);
+    }
+
+    private string EmitVectorBroadcast(LlvmValueType type, string scalar)
+    {
+        if (!TryGetScalarVector(type, out _, out var length)) {
+            throw new InvalidOperationException($"{type} is not a scalar vector.");
+        }
+        return EmitVector(type, Enumerable.Repeat(scalar, length).ToArray());
+    }
+
+    private string EmitVector(IReadOnlyList<string> components)
+    {
+        return EmitVector(GetVectorType(components.Count), components);
+    }
+
+    private string EmitVector(LlvmValueType type, IReadOnlyList<string> components)
+    {
+        if (!TryGetScalarVector(type, out var scalarType, out var length) ||
+            components.Count != length) {
+            throw new InvalidOperationException($"Invalid vector construction for {type}.");
+        }
+        var llvmType = GetLlvmType(type);
+        var scalarLlvmType = GetLlvmType(scalarType);
+        var value = "poison";
+        for (var index = 0; index < components.Count; index++) {
+            var next = NextValue();
+            EmitLine($"{next} = insertelement {llvmType} {value}, {scalarLlvmType} {components[index]}, i32 {index}");
+            value = next;
+        }
+        return value;
+    }
+
+    private string ExtractVectorElement(string vector, int length, int index)
+    {
+        var result = NextValue();
+        EmitLine($"{result} = extractelement <{length} x float> {vector}, i32 {index}");
+        return result;
+    }
+
+    private string ExtractVectorElement(string vector, LlvmValueType type, int index)
+    {
+        if (!TryGetScalarVector(type, out var scalarType, out var length) || index >= length) {
+            throw new InvalidOperationException($"Invalid vector component {index} for {type}.");
+        }
+        var result = NextValue();
+        EmitLine($"{result} = extractelement {GetLlvmType(type)} {vector}, i32 {index}");
+        return result;
+    }
+
+    private string EmitMatrix(LlvmValueType type, IReadOnlyList<string> columns)
+    {
+        if (!TryGetMatrixShape(type, out var rows, out var columnCount) ||
+            columns.Count != columnCount) {
+            throw new InvalidOperationException($"Invalid matrix construction for {type}.");
+        }
+        var matrixType = GetLlvmType(type);
+        var value = "poison";
+        for (var column = 0; column < columns.Count; column++) {
+            var next = NextValue();
+            EmitLine($"{next} = insertvalue {matrixType} {value}, <{rows} x float> {columns[column]}, {column}");
+            value = next;
+        }
+        return value;
+    }
+
+    private string ExtractMatrixColumn(string matrix, LlvmValueType type, int column)
+    {
+        if (!TryGetMatrixShape(type, out var rows, out _)) {
+            throw new InvalidOperationException($"{type} is not a matrix.");
+        }
+        var result = NextValue();
+        EmitLine($"{result} = extractvalue {GetLlvmType(type)} {matrix}, {column}");
+        return result;
+    }
+
+    private string EmitElementwiseBinary(
+        string operation,
+        LlvmValue left,
+        LlvmValue right,
+        LlvmValueType resultType,
+        int offset)
+    {
+        if (TryGetScalarVector(resultType, out var scalarType, out _)) {
+            var leftValue = left.Type == scalarType
+                ? EmitVectorBroadcast(resultType, left.Expression)
+                : left.Expression;
+            var rightValue = right.Type == scalarType
+                ? EmitVectorBroadcast(resultType, right.Expression)
+                : right.Expression;
+            if (left.Type != scalarType && left.Type != resultType ||
+                right.Type != scalarType && right.Type != resultType) {
+                throw CreateUnsupported(offset, "Vector arithmetic operands have incompatible shapes.");
+            }
+            var result = NextValue();
+            EmitLine($"{result} = {operation} {GetLlvmType(resultType)} {leftValue}, {rightValue}");
+            return result;
+        }
+        if (TryGetMatrixShape(resultType, out var rows, out var columns)) {
+            var resultColumns = new string[columns];
+            for (var column = 0; column < columns; column++) {
+                var leftValue = left.Type == LlvmValueType.Float32
+                    ? EmitVectorBroadcast(left.Expression, rows)
+                    : ExtractMatrixColumn(left.Expression, left.Type, column);
+                var rightValue = right.Type == LlvmValueType.Float32
+                    ? EmitVectorBroadcast(right.Expression, rows)
+                    : ExtractMatrixColumn(right.Expression, right.Type, column);
+                var result = NextValue();
+                EmitLine($"{result} = {operation} <{rows} x float> {leftValue}, {rightValue}");
+                resultColumns[column] = result;
+            }
+            return EmitMatrix(resultType, resultColumns);
+        }
+        throw CreateUnsupported(offset, $"Sia.Math arithmetic does not support {resultType}.");
+    }
+
+    private string EmitScalarUnary(IntrinsicKind kind, string operand)
+    {
+        var intrinsic = kind switch {
+            IntrinsicKind.Sqrt => "llvm.sqrt.f32",
+            IntrinsicKind.Sin => "llvm.sin.f32",
+            IntrinsicKind.Cos => "llvm.cos.f32",
+            IntrinsicKind.Abs => "llvm.fabs.f32",
+            IntrinsicKind.InverseSqrt => "llvm.spv.rsqrt.f32",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind))
         };
-        var result = emitter.NextValue();
-        emitter.EmitLine($"{result} = {op} <3 x float> {arguments[0].Expression}, {arguments[1].Expression}");
-        stack.Push(new LlvmValue(result, LlvmValueType.Float32x3));
-    }
-
-    private static void EmitFloat3ScalarBinary(
-        LlvmIrEmitter emitter,
-        IntrinsicKind kind,
-        LlvmValue instance,
-        IReadOnlyList<LlvmValue> arguments,
-        int offset,
-        Stack<LlvmValue> stack)
-    {
-        var op = kind == IntrinsicKind.Float3MultiplyScalar ? "fmul" : "fdiv";
-        var broadcast = EmitFloat3BroadcastValue(emitter, arguments[1].Expression);
-        var result = emitter.NextValue();
-        emitter.EmitLine($"{result} = {op} <3 x float> {arguments[0].Expression}, {broadcast}");
-        stack.Push(new LlvmValue(result, LlvmValueType.Float32x3));
-    }
-
-    private static void EmitFloat3Negate(
-        LlvmIrEmitter emitter,
-        IntrinsicKind kind,
-        LlvmValue instance,
-        IReadOnlyList<LlvmValue> arguments,
-        int offset,
-        Stack<LlvmValue> stack)
-    {
-        var result = emitter.NextValue();
-        emitter.EmitLine($"{result} = fneg <3 x float> {arguments[0].Expression}");
-        stack.Push(new LlvmValue(result, LlvmValueType.Float32x3));
-    }
-
-    private static void EmitFloat3Dot(
-        LlvmIrEmitter emitter,
-        IntrinsicKind kind,
-        LlvmValue instance,
-        IReadOnlyList<LlvmValue> arguments,
-        int offset,
-        Stack<LlvmValue> stack)
-    {
-        var result = EmitFloat3DotValue(emitter, arguments[0].Expression, arguments[1].Expression);
-        stack.Push(new LlvmValue(result, LlvmValueType.Float32));
-    }
-
-    // Emits the scalar dot product of two already-live <3 x float> SSA
-    // values; shared by the Dot/Normalize/Reflect handlers.
-    private static string EmitFloat3DotValue(LlvmIrEmitter emitter, string left, string right)
-    {
-        var product = emitter.NextValue();
-        emitter.EmitLine($"{product} = fmul <3 x float> {left}, {right}");
-        var x = emitter.NextValue();
-        emitter.EmitLine($"{x} = extractelement <3 x float> {product}, i32 0");
-        var y = emitter.NextValue();
-        emitter.EmitLine($"{y} = extractelement <3 x float> {product}, i32 1");
-        var z = emitter.NextValue();
-        emitter.EmitLine($"{z} = extractelement <3 x float> {product}, i32 2");
-        var xy = emitter.NextValue();
-        emitter.EmitLine($"{xy} = fadd float {x}, {y}");
-        var result = emitter.NextValue();
-        emitter.EmitLine($"{result} = fadd float {xy}, {z}");
+        _usesSqrt |= kind == IntrinsicKind.Sqrt;
+        _usesSin |= kind == IntrinsicKind.Sin;
+        _usesCos |= kind == IntrinsicKind.Cos;
+        _usesAbs |= kind == IntrinsicKind.Abs;
+        _usesInverseSqrt |= kind == IntrinsicKind.InverseSqrt;
+        var result = NextValue();
+        EmitLine($"{result} = call float @{intrinsic}(float {operand})");
         return result;
     }
 
-    private static void EmitFloat3Cross(
-        LlvmIrEmitter emitter,
-        IntrinsicKind kind,
-        LlvmValue instance,
-        IReadOnlyList<LlvmValue> arguments,
-        int offset,
-        Stack<LlvmValue> stack)
+    private string EmitUnpackHalfScalar(string value)
     {
-        var left = arguments[0].Expression;
-        var right = arguments[1].Expression;
-        var ax = ExtractLane(emitter, left, 0);
-        var ay = ExtractLane(emitter, left, 1);
-        var az = ExtractLane(emitter, left, 2);
-        var bx = ExtractLane(emitter, right, 0);
-        var by = ExtractLane(emitter, right, 1);
-        var bz = ExtractLane(emitter, right, 2);
-        var cx = FSub(emitter, FMul(emitter, ay, bz), FMul(emitter, az, by));
-        var cy = FSub(emitter, FMul(emitter, az, bx), FMul(emitter, ax, bz));
-        var cz = FSub(emitter, FMul(emitter, ax, by), FMul(emitter, ay, bx));
+        var half = EmitIntegerBinary("and", value, "65535");
+        var sign = EmitIntegerBinary("and", half, "32768");
+        var exponent = EmitIntegerBinary("and", half, "31744");
+        var mantissa = EmitIntegerBinary("and", half, "1023");
 
-        var first = emitter.NextValue();
-        emitter.EmitLine($"{first} = insertelement <3 x float> poison, float {cx}, i32 0");
-        var second = emitter.NextValue();
-        emitter.EmitLine($"{second} = insertelement <3 x float> {first}, float {cy}, i32 1");
-        var result = emitter.NextValue();
-        emitter.EmitLine($"{result} = insertelement <3 x float> {second}, float {cz}, i32 2");
-        stack.Push(new LlvmValue(result, LlvmValueType.Float32x3));
-    }
+        var mantissaFloat = NextValue();
+        EmitLine($"{mantissaFloat} = uitofp i32 {mantissa} to float");
+        var subnormal = EmitScalarBinary("fmul", mantissaFloat, "0x3E70000000000000");
+        var negativeSubnormal = NextValue();
+        EmitLine($"{negativeSubnormal} = fneg float {subnormal}");
+        var isNegative = EmitIntegerComparison("ne", sign, "0");
+        var signedSubnormal = EmitScalarSelect(isNegative, subnormal, negativeSubnormal);
 
-    private static string ExtractLane(LlvmIrEmitter emitter, string vector, int lane)
-    {
-        var result = emitter.NextValue();
-        emitter.EmitLine($"{result} = extractelement <3 x float> {vector}, i32 {lane}");
+        var signBits = EmitIntegerBinary("shl", sign, "16");
+        var exponentValue = EmitIntegerBinary("lshr", exponent, "10");
+        var biasedExponent = EmitIntegerBinary("add", exponentValue, "112");
+        var exponentBits = EmitIntegerBinary("shl", biasedExponent, "23");
+        var mantissaBits = EmitIntegerBinary("shl", mantissa, "13");
+        var normalBits = EmitIntegerBinary(
+            "or",
+            EmitIntegerBinary("or", signBits, exponentBits),
+            mantissaBits);
+        var specialBits = EmitIntegerBinary(
+            "or",
+            EmitIntegerBinary("or", signBits, "2139095040"),
+            mantissaBits);
+        var isSpecial = EmitIntegerComparison("eq", exponent, "31744");
+        var finiteOrSpecial = EmitIntegerSelect(isSpecial, normalBits, specialBits);
+        var normalOrSpecial = NextValue();
+        EmitLine($"{normalOrSpecial} = bitcast i32 {finiteOrSpecial} to float");
+
+        var isSubnormal = EmitIntegerComparison("eq", exponent, "0");
+        var result = EmitScalarSelect(isSubnormal, normalOrSpecial, signedSubnormal);
         return result;
     }
 
-    private static string FMul(LlvmIrEmitter emitter, string left, string right)
+    private string EmitIntegerBinary(string operation, string left, string right)
     {
-        var result = emitter.NextValue();
-        emitter.EmitLine($"{result} = fmul float {left}, {right}");
+        var result = NextValue();
+        EmitLine($"{result} = {operation} i32 {left}, {right}");
         return result;
     }
 
-    private static string FSub(LlvmIrEmitter emitter, string left, string right)
+    private string EmitIntegerComparison(string predicate, string left, string right)
     {
-        var result = emitter.NextValue();
-        emitter.EmitLine($"{result} = fsub float {left}, {right}");
+        var result = NextValue();
+        EmitLine($"{result} = icmp {predicate} i32 {left}, {right}");
         return result;
     }
 
-    private static void EmitFloat3Normalize(
-        LlvmIrEmitter emitter,
-        IntrinsicKind kind,
-        LlvmValue instance,
-        IReadOnlyList<LlvmValue> arguments,
-        int offset,
-        Stack<LlvmValue> stack)
+    private string EmitIntegerSelect(string condition, string whenFalse, string whenTrue)
     {
-        var vector = arguments[0].Expression;
-        var lengthSquared = EmitFloat3DotValue(emitter, vector, vector);
-        var inverseLength = emitter.NextValue();
-        emitter.EmitLine($"{inverseLength} = call float @llvm.spv.rsqrt.f32(float {lengthSquared})");
-        emitter._usesInverseSqrt = true;
-        var broadcast = EmitFloat3BroadcastValue(emitter, inverseLength);
-        var result = emitter.NextValue();
-        emitter.EmitLine($"{result} = fmul <3 x float> {vector}, {broadcast}");
-        stack.Push(new LlvmValue(result, LlvmValueType.Float32x3));
+        var result = NextValue();
+        EmitLine($"{result} = select i1 {condition}, i32 {whenTrue}, i32 {whenFalse}");
+        return result;
     }
 
-    private static void EmitFloat3MinMax(
-        LlvmIrEmitter emitter,
-        IntrinsicKind kind,
-        LlvmValue instance,
-        IReadOnlyList<LlvmValue> arguments,
-        int offset,
-        Stack<LlvmValue> stack)
+    private string EmitScalarSelect(string condition, string whenFalse, string whenTrue)
     {
-        var intrinsic = kind == IntrinsicKind.Float3Min ? "minnum" : "maxnum";
-        var result = emitter.NextValue();
-        emitter.EmitLine($"{result} = call <3 x float> @llvm.{intrinsic}.v3f32(<3 x float> {arguments[0].Expression}, <3 x float> {arguments[1].Expression})");
-        emitter._usesFloat3Min |= kind == IntrinsicKind.Float3Min;
-        emitter._usesFloat3Max |= kind == IntrinsicKind.Float3Max;
-        stack.Push(new LlvmValue(result, LlvmValueType.Float32x3));
+        var result = NextValue();
+        EmitLine($"{result} = select i1 {condition}, float {whenTrue}, float {whenFalse}");
+        return result;
     }
 
-    private static void EmitFloat3Reflect(
-        LlvmIrEmitter emitter,
-        IntrinsicKind kind,
-        LlvmValue instance,
-        IReadOnlyList<LlvmValue> arguments,
-        int offset,
-        Stack<LlvmValue> stack)
+    private string EmitScalarPow(string left, string right)
     {
-        var incident = arguments[0].Expression;
-        var normal = arguments[1].Expression;
-        var dot = EmitFloat3DotValue(emitter, incident, normal);
-        var doubledDot = emitter.NextValue();
-        emitter.EmitLine($"{doubledDot} = fmul float {dot}, 2.000000e+00");
-        var broadcast = EmitFloat3BroadcastValue(emitter, doubledDot);
-        var scaledNormal = emitter.NextValue();
-        emitter.EmitLine($"{scaledNormal} = fmul <3 x float> {broadcast}, {normal}");
-        var result = emitter.NextValue();
-        emitter.EmitLine($"{result} = fsub <3 x float> {incident}, {scaledNormal}");
-        stack.Push(new LlvmValue(result, LlvmValueType.Float32x3));
+        var result = NextValue();
+        EmitLine($"{result} = call float @llvm.pow.f32(float {left}, float {right})");
+        _usesPow = true;
+        return result;
+    }
+
+    private string EmitScalarMinMax(bool minimum, string left, string right)
+    {
+        var intrinsic = minimum ? "minnum" : "maxnum";
+        var result = NextValue();
+        EmitLine($"{result} = call float @llvm.{intrinsic}.f32(float {left}, float {right})");
+        _usesMin |= minimum;
+        _usesMax |= !minimum;
+        return result;
+    }
+
+    private string EmitScalarBinary(string operation, string left, string right)
+    {
+        var result = NextValue();
+        EmitLine($"{result} = {operation} float {left}, {right}");
+        return result;
+    }
+
+    private string EmitDot(string left, string right, int length)
+    {
+        var product = NextValue();
+        EmitLine($"{product} = fmul <{length} x float> {left}, {right}");
+        var sum = ExtractVectorElement(product, length, 0);
+        for (var index = 1; index < length; index++) {
+            sum = EmitScalarBinary("fadd", sum, ExtractVectorElement(product, length, index));
+        }
+        return sum;
+    }
+
+    private string EmitMatrixVectorMultiply(
+        LlvmValue matrix,
+        string vector,
+        int rows,
+        int columns)
+    {
+        var output = new string[rows];
+        for (var row = 0; row < rows; row++) {
+            string? sum = null;
+            for (var column = 0; column < columns; column++) {
+                var matrixColumn = ExtractMatrixColumn(matrix.Expression, matrix.Type, column);
+                var cell = ExtractVectorElement(matrixColumn, rows, row);
+                var vectorElement = ExtractVectorElement(vector, columns, column);
+                var product = EmitScalarBinary("fmul", cell, vectorElement);
+                sum = sum is null ? product : EmitScalarBinary("fadd", sum, product);
+            }
+            output[row] = sum!;
+        }
+        return EmitVector(output);
     }
 
     private LlvmValue EmitInputScalar(string global)
@@ -1736,7 +2181,8 @@ public sealed class LlvmIrEmitter
             result > maximum) {
             throw CreateUnsupported(
                 offset,
-                $"Raster {name} must be a compile-time uint constant from 0 through {maximum}.");
+                $"Raster {name} must be a compile-time uint constant from 0 through {maximum}; " +
+                $"found {value.Type} '{value.Expression}'.");
         }
         return result;
     }
@@ -1827,8 +2273,7 @@ public sealed class LlvmIrEmitter
         var result = NextValue();
         if (value.Type == LlvmValueType.Float32) {
             EmitLine($"{result} = fneg float {value.Expression}");
-        }
-        else {
+        } else {
             EmitLine($"{result} = sub {GetLlvmType(value.Type)} 0, {value.Expression}");
         }
         stack.Push(new LlvmValue(result, value.Type));
@@ -1917,7 +2362,27 @@ public sealed class LlvmIrEmitter
         "System.UInt32" => LlvmValueType.UInt32,
         "System.Single" => LlvmValueType.Float32,
         "Sia.Spirv.UInt3" => LlvmValueType.UInt3,
+        "Sia.Math.bool2" => LlvmValueType.Booleanx2,
+        "Sia.Math.bool3" => LlvmValueType.Booleanx3,
+        "Sia.Math.bool4" => LlvmValueType.Booleanx4,
+        "Sia.Math.int2" => LlvmValueType.Int32x2,
+        "Sia.Math.int3" => LlvmValueType.Int32x3,
+        "Sia.Math.int4" => LlvmValueType.Int32x4,
+        "Sia.Math.uint2" => LlvmValueType.UInt32x2,
+        "Sia.Math.uint3" => LlvmValueType.UInt32x3,
+        "Sia.Math.uint4" => LlvmValueType.UInt32x4,
+        "Sia.Math.float2" => LlvmValueType.Float32x2,
         "Sia.Math.float3" => LlvmValueType.Float32x3,
+        "Sia.Math.float4" => LlvmValueType.Float32x4,
+        "Sia.Math.float2x2" => LlvmValueType.Float32x2x2,
+        "Sia.Math.float2x3" => LlvmValueType.Float32x2x3,
+        "Sia.Math.float2x4" => LlvmValueType.Float32x2x4,
+        "Sia.Math.float3x2" => LlvmValueType.Float32x3x2,
+        "Sia.Math.float3x3" => LlvmValueType.Float32x3x3,
+        "Sia.Math.float3x4" => LlvmValueType.Float32x3x4,
+        "Sia.Math.float4x2" => LlvmValueType.Float32x4x2,
+        "Sia.Math.float4x3" => LlvmValueType.Float32x4x3,
+        "Sia.Math.float4x4" => LlvmValueType.Float32x4x4,
         "Sia.Spirv.Texture2D" => LlvmValueType.Texture2DFloat,
         "Sia.Spirv.Texture2DArray" => LlvmValueType.Texture2DArrayFloat,
         "Sia.Spirv.Sampler" => LlvmValueType.Sampler,
@@ -2022,7 +2487,10 @@ public sealed class LlvmIrEmitter
         LlvmValueType.Int32 or LlvmValueType.UInt32 => "i32",
         LlvmValueType.Float32 => "float",
         LlvmValueType.UInt3 => "<3 x i32>",
-        LlvmValueType.Float32x3 => "<3 x float>",
+        _ when TryGetScalarVector(type, out var scalarType, out var length) =>
+            $"<{length} x {GetLlvmType(scalarType)}>",
+        _ when TryGetMatrixShape(type, out var rows, out var columns) =>
+            $"%sia.matrix.float{rows}x{columns}",
         LlvmValueType.Texture2DFloat => GetTexture2DTargetType(),
         LlvmValueType.Texture2DArrayFloat => GetTexture2DArrayTargetType(),
         LlvmValueType.Sampler => GetSamplerTargetType(),
@@ -2030,8 +2498,108 @@ public sealed class LlvmIrEmitter
         _ => throw new ArgumentOutOfRangeException(nameof(type))
     };
 
-    private static int GetAlignment(LlvmValueType type) =>
-        type is LlvmValueType.UInt3 or LlvmValueType.Float32x3 ? 16 : 4;
+    private static void EmitMatrixTypeDeclarations(StringBuilder module)
+    {
+        for (var rows = 2; rows <= 4; rows++) {
+            for (var columns = 2; columns <= 4; columns++) {
+                module.Append("%sia.matrix.float").Append(rows).Append('x').Append(columns)
+                    .Append(" = type { ");
+                for (var column = 0; column < columns; column++) {
+                    if (column != 0) {
+                        module.Append(", ");
+                    }
+                    module.Append('<').Append(rows).Append(" x float>");
+                }
+                module.AppendLine(" }");
+            }
+        }
+        module.AppendLine();
+    }
+
+    private static int GetAlignment(LlvmValueType type)
+    {
+        if (TryGetScalarVector(type, out var scalarType, out var length)) {
+            if (scalarType == LlvmValueType.Boolean) {
+                return 1;
+            }
+            return length == 2 ? 8 : 16;
+        }
+        return type == LlvmValueType.UInt3 || TryGetMatrixShape(type, out _, out _) ? 16 : 4;
+    }
+
+    private static bool TryGetVectorLength(LlvmValueType type, out int length)
+    {
+        length = type switch {
+            LlvmValueType.Float32x2 => 2,
+            LlvmValueType.Float32x3 => 3,
+            LlvmValueType.Float32x4 => 4,
+            _ => 0
+        };
+        return length != 0;
+    }
+
+    private static bool TryGetScalarVector(
+        LlvmValueType type,
+        out LlvmValueType scalarType,
+        out int length)
+    {
+        (scalarType, length) = type switch {
+            LlvmValueType.Booleanx2 => (LlvmValueType.Boolean, 2),
+            LlvmValueType.Booleanx3 => (LlvmValueType.Boolean, 3),
+            LlvmValueType.Booleanx4 => (LlvmValueType.Boolean, 4),
+            LlvmValueType.Int32x2 => (LlvmValueType.Int32, 2),
+            LlvmValueType.Int32x3 => (LlvmValueType.Int32, 3),
+            LlvmValueType.Int32x4 => (LlvmValueType.Int32, 4),
+            LlvmValueType.UInt32x2 => (LlvmValueType.UInt32, 2),
+            LlvmValueType.UInt32x3 => (LlvmValueType.UInt32, 3),
+            LlvmValueType.UInt32x4 => (LlvmValueType.UInt32, 4),
+            LlvmValueType.Float32x2 => (LlvmValueType.Float32, 2),
+            LlvmValueType.Float32x3 => (LlvmValueType.Float32, 3),
+            LlvmValueType.Float32x4 => (LlvmValueType.Float32, 4),
+            _ => (LlvmValueType.Void, 0)
+        };
+        return length != 0;
+    }
+
+    private static LlvmValueType GetVectorType(int length) => length switch {
+        2 => LlvmValueType.Float32x2,
+        3 => LlvmValueType.Float32x3,
+        4 => LlvmValueType.Float32x4,
+        _ => throw new ArgumentOutOfRangeException(nameof(length))
+    };
+
+    private static bool TryGetMatrixShape(
+        LlvmValueType type,
+        out int rows,
+        out int columns)
+    {
+        (rows, columns) = type switch {
+            LlvmValueType.Float32x2x2 => (2, 2),
+            LlvmValueType.Float32x2x3 => (2, 3),
+            LlvmValueType.Float32x2x4 => (2, 4),
+            LlvmValueType.Float32x3x2 => (3, 2),
+            LlvmValueType.Float32x3x3 => (3, 3),
+            LlvmValueType.Float32x3x4 => (3, 4),
+            LlvmValueType.Float32x4x2 => (4, 2),
+            LlvmValueType.Float32x4x3 => (4, 3),
+            LlvmValueType.Float32x4x4 => (4, 4),
+            _ => (0, 0)
+        };
+        return rows != 0;
+    }
+
+    private static LlvmValueType GetMatrixType(int rows, int columns) => (rows, columns) switch {
+        (2, 2) => LlvmValueType.Float32x2x2,
+        (2, 3) => LlvmValueType.Float32x2x3,
+        (2, 4) => LlvmValueType.Float32x2x4,
+        (3, 2) => LlvmValueType.Float32x3x2,
+        (3, 3) => LlvmValueType.Float32x3x3,
+        (3, 4) => LlvmValueType.Float32x3x4,
+        (4, 2) => LlvmValueType.Float32x4x2,
+        (4, 3) => LlvmValueType.Float32x4x3,
+        (4, 4) => LlvmValueType.Float32x4x4,
+        _ => throw new ArgumentOutOfRangeException(nameof(rows))
+    };
 
     private static LlvmValueType MergeNumericTypes(
         LlvmValueType left,

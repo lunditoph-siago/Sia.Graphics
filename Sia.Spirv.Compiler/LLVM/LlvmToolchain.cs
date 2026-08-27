@@ -87,6 +87,8 @@ public sealed class LlvmToolchain
             "-o",
             outputPath,
             inputPath);
+        SpirvMatrixLowering.Rewrite(outputPath);
+        SpirvSignedConversionLowering.Rewrite(outputPath);
     }
 
     public void Validate(string inputPath, string targetEnvironment) =>
@@ -98,8 +100,7 @@ public sealed class LlvmToolchain
         try {
             Run(ToolName("spirv-opt"), "-O", inputPath, "-o", temporaryPath);
             File.Move(temporaryPath, inputPath, true);
-        }
-        finally {
+        } finally {
             File.Delete(temporaryPath);
         }
     }
@@ -112,8 +113,7 @@ public sealed class LlvmToolchain
             Run(ToolName("naga"), spirvPath, temporaryPath);
             Run(ToolName("naga"), temporaryPath);
             File.Move(temporaryPath, wgslPath, true);
-        }
-        finally {
+        } finally {
             File.Delete(temporaryPath);
         }
     }

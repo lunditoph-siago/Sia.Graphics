@@ -77,7 +77,7 @@ internal static class CornellBoxPathTracerShaders
             var right = math.normalize(math.cross(forward, new float3(0.0f, 1.0f, 0.0f)));
             var up = math.cross(right, forward);
             var aspect = resolution.x / resolution.y;
-            var scale = Gpu.Sin(fieldOfView * 0.5f) / Gpu.Cos(fieldOfView * 0.5f);
+            var scale = math.sin(fieldOfView * 0.5f) / math.cos(fieldOfView * 0.5f);
             var rayDirection = math.normalize(
                 forward + right * (screenX * aspect * scale) - up * (screenY * scale));
 
@@ -87,7 +87,7 @@ internal static class CornellBoxPathTracerShaders
             state = state * 0x27d4eb2du;
             state = state ^ (state >> 15);
             var diskRadiusSeed = (float)state * (1.0f / 4294967296.0f);
-            var diskRadius = Gpu.Sqrt(diskRadiusSeed) * aperture;
+            var diskRadius = math.sqrt(diskRadiusSeed) * aperture;
 
             state = (state ^ 61u) ^ (state >> 16);
             state = state * 9u;
@@ -96,7 +96,7 @@ internal static class CornellBoxPathTracerShaders
             state = state ^ (state >> 15);
             var diskAngle = ((float)state * (1.0f / 4294967296.0f)) * 2.0f * Pi;
 
-            var lensOffset = right * (Gpu.Cos(diskAngle) * diskRadius) + up * (Gpu.Sin(diskAngle) * diskRadius);
+            var lensOffset = right * (math.cos(diskAngle) * diskRadius) + up * (math.sin(diskAngle) * diskRadius);
             var focusPoint = cameraPosition + rayDirection * focusDistance;
             var rayOrigin = cameraPosition + lensOffset;
             rayDirection = math.normalize(focusPoint - rayOrigin);
@@ -166,7 +166,7 @@ internal static class CornellBoxPathTracerShaders
                         t > Epsilon && t < hitT) {
                         var albedo = white;
                         var emission = new float3(0.0f, 0.0f, 0.0f);
-                        if (Gpu.Abs(point.x) < 0.36f && point.z > -0.42f && point.z < 0.24f) {
+                        if (math.abs(point.x) < 0.36f && point.z > -0.42f && point.z < 0.24f) {
                             albedo = new float3(0.0f, 0.0f, 0.0f);
                             emission = new float3(18.0f, 15.0f, 10.5f);
                         }
@@ -194,8 +194,8 @@ internal static class CornellBoxPathTracerShaders
                 // intersect_box #1: center (-0.38, 0.34, 0.15), half-extent (0.38, 0.34, 0.38), angle -0.24
                 {
                     var angle = -0.24f;
-                    var cosine = Gpu.Cos(angle);
-                    var sine = Gpu.Sin(angle);
+                    var cosine = math.cos(angle);
+                    var sine = math.sin(angle);
                     var relativeOrigin = rayOrigin - new float3(-0.38f, 0.34f, 0.15f);
                     var localOrigin = new float3(
                         cosine * relativeOrigin.x + sine * relativeOrigin.z,
@@ -211,21 +211,21 @@ internal static class CornellBoxPathTracerShaders
                     var second = (halfExtent - localOrigin) * inverseDirection;
                     var nearest = math.min(first, second);
                     var farthest = math.max(first, second);
-                    var nearT = Gpu.Max(Gpu.Max(nearest.x, nearest.y), nearest.z);
-                    var farT = Gpu.Min(Gpu.Min(farthest.x, farthest.y), farthest.z);
+                    var nearT = math.max(math.max(nearest.x, nearest.y), nearest.z);
+                    var farT = math.min(math.min(farthest.x, farthest.y), farthest.z);
 
                     if (nearT > Epsilon && nearT < farT && nearT < hitT) {
                         var localNormalX = 0.0f;
                         var localNormalY = 0.0f;
                         var localNormalZ = 0.0f;
                         if (nearT == nearest.x) {
-                            localNormalX = Gpu.Select(1.0f, -1.0f, Gpu.GreaterThan(localDirection.x, 0.0f));
+                            localNormalX = math.select(1.0f, -1.0f, localDirection.x > 0.0f);
                         }
                         else if (nearT == nearest.y) {
-                            localNormalY = Gpu.Select(1.0f, -1.0f, Gpu.GreaterThan(localDirection.y, 0.0f));
+                            localNormalY = math.select(1.0f, -1.0f, localDirection.y > 0.0f);
                         }
                         else {
-                            localNormalZ = Gpu.Select(1.0f, -1.0f, Gpu.GreaterThan(localDirection.z, 0.0f));
+                            localNormalZ = math.select(1.0f, -1.0f, localDirection.z > 0.0f);
                         }
                         var localNormal = new float3(localNormalX, localNormalY, localNormalZ);
                         var normal = new float3(
@@ -245,8 +245,8 @@ internal static class CornellBoxPathTracerShaders
                 // intersect_box #2: center (0.39, 0.69, -0.29), half-extent (0.31, 0.69, 0.31), angle 0.30
                 {
                     var angle = 0.30f;
-                    var cosine = Gpu.Cos(angle);
-                    var sine = Gpu.Sin(angle);
+                    var cosine = math.cos(angle);
+                    var sine = math.sin(angle);
                     var relativeOrigin = rayOrigin - new float3(0.39f, 0.69f, -0.29f);
                     var localOrigin = new float3(
                         cosine * relativeOrigin.x + sine * relativeOrigin.z,
@@ -262,21 +262,21 @@ internal static class CornellBoxPathTracerShaders
                     var second = (halfExtent - localOrigin) * inverseDirection;
                     var nearest = math.min(first, second);
                     var farthest = math.max(first, second);
-                    var nearT = Gpu.Max(Gpu.Max(nearest.x, nearest.y), nearest.z);
-                    var farT = Gpu.Min(Gpu.Min(farthest.x, farthest.y), farthest.z);
+                    var nearT = math.max(math.max(nearest.x, nearest.y), nearest.z);
+                    var farT = math.min(math.min(farthest.x, farthest.y), farthest.z);
 
                     if (nearT > Epsilon && nearT < farT && nearT < hitT) {
                         var localNormalX = 0.0f;
                         var localNormalY = 0.0f;
                         var localNormalZ = 0.0f;
                         if (nearT == nearest.x) {
-                            localNormalX = Gpu.Select(1.0f, -1.0f, Gpu.GreaterThan(localDirection.x, 0.0f));
+                            localNormalX = math.select(1.0f, -1.0f, localDirection.x > 0.0f);
                         }
                         else if (nearT == nearest.y) {
-                            localNormalY = Gpu.Select(1.0f, -1.0f, Gpu.GreaterThan(localDirection.y, 0.0f));
+                            localNormalY = math.select(1.0f, -1.0f, localDirection.y > 0.0f);
                         }
                         else {
-                            localNormalZ = Gpu.Select(1.0f, -1.0f, Gpu.GreaterThan(localDirection.z, 0.0f));
+                            localNormalZ = math.select(1.0f, -1.0f, localDirection.z > 0.0f);
                         }
                         var localNormal = new float3(localNormalX, localNormalY, localNormalZ);
                         var normal = new float3(
@@ -302,7 +302,7 @@ internal static class CornellBoxPathTracerShaders
                     var c = math.dot(offset, offset) - radius * radius;
                     var discriminant = halfB * halfB - c;
                     if (discriminant > 0.0f) {
-                        var root = -halfB - Gpu.Sqrt(discriminant);
+                        var root = -halfB - math.sqrt(discriminant);
                         if (root > Epsilon && root < hitT) {
                             var position = rayOrigin + rayDirection * root;
                             hitT = root;
@@ -364,10 +364,10 @@ internal static class CornellBoxPathTracerShaders
                     var lightPosition = new float3(lightPositionX, 1.999f, lightPositionZ);
                     var toLight = lightPosition - hitPosition;
                     var distanceSquared = math.dot(toLight, toLight);
-                    var distance = Gpu.Sqrt(distanceSquared);
+                    var distance = math.sqrt(distanceSquared);
                     var lightDirection = toLight / distance;
-                    var surfaceCosine = Gpu.Max(0.0f, math.dot(hitNormal, lightDirection));
-                    var lightCosine = Gpu.Max(0.0f, lightDirection.y);
+                    var surfaceCosine = math.max(0.0f, math.dot(hitNormal, lightDirection));
+                    var lightCosine = math.max(0.0f, lightDirection.y);
 
                     if (surfaceCosine > 0.0f && lightCosine > 0.0f) {
                         var shadowOrigin = hitPosition + hitNormal * (Epsilon * 2.0f);
@@ -418,8 +418,8 @@ internal static class CornellBoxPathTracerShaders
                                 var angle = -0.24f;
                                 var center = new float3(-0.38f, 0.34f, 0.15f);
                                 var halfExtent = new float3(0.38f, 0.34f, 0.38f);
-                                var cosine = Gpu.Cos(angle);
-                                var sine = Gpu.Sin(angle);
+                                var cosine = math.cos(angle);
+                                var sine = math.sin(angle);
                                 var relativeOrigin = shadowOrigin - center;
                                 var localOrigin = new float3(
                                     cosine * relativeOrigin.x + sine * relativeOrigin.z,
@@ -434,8 +434,8 @@ internal static class CornellBoxPathTracerShaders
                                 var second = (halfExtent - localOrigin) * inverseDirection;
                                 var nearest = math.min(first, second);
                                 var farthest = math.max(first, second);
-                                var nearT = Gpu.Max(Gpu.Max(nearest.x, nearest.y), nearest.z);
-                                var farT = Gpu.Min(Gpu.Min(farthest.x, farthest.y), farthest.z);
+                                var nearT = math.max(math.max(nearest.x, nearest.y), nearest.z);
+                                var farT = math.min(math.min(farthest.x, farthest.y), farthest.z);
                                 if (nearT > Epsilon && nearT < farT && nearT < blockerT) {
                                     blockerT = nearT;
                                 }
@@ -446,8 +446,8 @@ internal static class CornellBoxPathTracerShaders
                                 var angle = 0.30f;
                                 var center = new float3(0.39f, 0.69f, -0.29f);
                                 var halfExtent = new float3(0.31f, 0.69f, 0.31f);
-                                var cosine = Gpu.Cos(angle);
-                                var sine = Gpu.Sin(angle);
+                                var cosine = math.cos(angle);
+                                var sine = math.sin(angle);
                                 var relativeOrigin = shadowOrigin - center;
                                 var localOrigin = new float3(
                                     cosine * relativeOrigin.x + sine * relativeOrigin.z,
@@ -462,8 +462,8 @@ internal static class CornellBoxPathTracerShaders
                                 var second = (halfExtent - localOrigin) * inverseDirection;
                                 var nearest = math.min(first, second);
                                 var farthest = math.max(first, second);
-                                var nearT = Gpu.Max(Gpu.Max(nearest.x, nearest.y), nearest.z);
-                                var farT = Gpu.Min(Gpu.Min(farthest.x, farthest.y), farthest.z);
+                                var nearT = math.max(math.max(nearest.x, nearest.y), nearest.z);
+                                var farT = math.min(math.min(farthest.x, farthest.y), farthest.z);
                                 if (nearT > Epsilon && nearT < farT && nearT < blockerT) {
                                     blockerT = nearT;
                                 }
@@ -476,7 +476,7 @@ internal static class CornellBoxPathTracerShaders
                             var sphereC = math.dot(sphereOffset, sphereOffset) - sphereRadius * sphereRadius;
                             var discriminant = halfB * halfB - sphereC;
                             if (discriminant > 0.0f) {
-                                var root = -halfB - Gpu.Sqrt(discriminant);
+                                var root = -halfB - math.sqrt(discriminant);
                                 if (root > Epsilon && root < blockerT) {
                                     blockerT = root;
                                 }
@@ -502,7 +502,7 @@ internal static class CornellBoxPathTracerShaders
                 previousWasSpecular = 0u;
 
                 if (bounce >= 3u) {
-                    var survival = Gpu.Max(0.1f, Gpu.Min(0.95f, Gpu.Max(Gpu.Max(throughput.x, throughput.y), throughput.z)));
+                    var survival = math.max(0.1f, math.min(0.95f, math.max(math.max(throughput.x, throughput.y), throughput.z)));
                     state = (state ^ 61u) ^ (state >> 16);
                     state = state * 9u;
                     state = state ^ (state >> 4);
@@ -533,13 +533,13 @@ internal static class CornellBoxPathTracerShaders
                     state = state ^ (state >> 15);
                     var hemisphereSeed1 = (float)state * (1.0f / 4294967296.0f);
 
-                    var hemisphereRadius = Gpu.Sqrt(hemisphereSeed0);
+                    var hemisphereRadius = math.sqrt(hemisphereSeed0);
                     var hemisphereAngle = 2.0f * Pi * hemisphereSeed1;
-                    var localX = hemisphereRadius * Gpu.Cos(hemisphereAngle);
-                    var localY = Gpu.Sqrt(Gpu.Max(0.0f, 1.0f - hemisphereSeed0));
-                    var localZ = hemisphereRadius * Gpu.Sin(hemisphereAngle);
+                    var localX = hemisphereRadius * math.cos(hemisphereAngle);
+                    var localY = math.sqrt(math.max(0.0f, 1.0f - hemisphereSeed0));
+                    var localZ = hemisphereRadius * math.sin(hemisphereAngle);
                     var helper = new float3(0.0f, 1.0f, 0.0f);
-                    if (Gpu.Abs(hitNormal.y) > 0.999f) {
+                    if (math.abs(hitNormal.y) > 0.999f) {
                         helper = new float3(1.0f, 0.0f, 0.0f);
                     }
                     var tangent = math.normalize(math.cross(helper, hitNormal));
@@ -561,7 +561,7 @@ internal static class CornellBoxPathTracerShaders
             sampleSumZ += radianceZ;
         }
 
-        var sampleDivisor = Gpu.Max(1.0f, sampleCount);
+        var sampleDivisor = math.max(1.0f, sampleCount);
         var averageX = sampleSumX / sampleDivisor;
         var averageY = sampleSumY / sampleDivisor;
         var averageZ = sampleSumZ / sampleDivisor;
@@ -619,15 +619,15 @@ internal static class CornellBoxPathTracerShaders
         var denominatorR = red * (2.43f * red + 0.59f) + 0.14f;
         var denominatorG = green * (2.43f * green + 0.59f) + 0.14f;
         var denominatorB = blue * (2.43f * blue + 0.59f) + 0.14f;
-        red = Gpu.Saturate(numeratorR / denominatorR);
-        green = Gpu.Saturate(numeratorG / denominatorG);
-        blue = Gpu.Saturate(numeratorB / denominatorB);
+        red = math.saturate(numeratorR / denominatorR);
+        green = math.saturate(numeratorG / denominatorG);
+        blue = math.saturate(numeratorB / denominatorB);
 
         if (gammaToggle < 0.5f) {
             var inverseGamma = 1.0f / 2.2f;
-            red = Gpu.Pow(red, inverseGamma);
-            green = Gpu.Pow(green, inverseGamma);
-            blue = Gpu.Pow(blue, inverseGamma);
+            red = math.pow(red, inverseGamma);
+            green = math.pow(green, inverseGamma);
+            blue = math.pow(blue, inverseGamma);
         }
 
         var u = Gpu.GetInput(0, 0) * 2.0f - 1.0f;

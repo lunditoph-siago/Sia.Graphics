@@ -114,8 +114,6 @@ internal sealed class CilStackAnalyzer(
         reader.GetMethodDefinition(methodHandle)
             .DecodeSignature(SignatureTypeProvider.Instance, genericContext: null);
 
-    // Newobj/Calli skip CilCallResolver: they never target an intrinsic
-    // (already rejected elsewhere) — only their raw stack shape matters.
     private MethodSignature<SignatureType> GetMethodSignature(int token)
     {
         var handle = MetadataTokens.EntityHandle(token);

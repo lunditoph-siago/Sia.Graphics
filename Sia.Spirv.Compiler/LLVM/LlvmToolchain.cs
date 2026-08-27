@@ -87,6 +87,8 @@ public sealed class LlvmToolchain
             "-o",
             outputPath,
             inputPath);
+        SpirvMatrixLowering.Rewrite(outputPath);
+        SpirvSignedConversionLowering.Rewrite(outputPath);
     }
 
     public void Validate(string inputPath, string targetEnvironment) =>

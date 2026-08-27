@@ -24,7 +24,7 @@ internal static class SpirvLegalityAnalyzer
                         instruction.Offset);
                 }
                 else if (instruction.OpCode == OpCodes.Newobj &&
-                    !IsRecognizedValueTypeConstructor(view, block, index)) {
+                      !IsRecognizedValueTypeConstructor(view, block, index)) {
                     Add(
                         diagnostics,
                         SpirvDiagnosticIds.ManagedHeapAllocation,
@@ -33,12 +33,12 @@ internal static class SpirvLegalityAnalyzer
                         instruction.Offset);
                 }
                 else if (instruction.OpCode is var exceptionOpCode &&
-                    (exceptionOpCode == OpCodes.Throw ||
-                     exceptionOpCode == OpCodes.Rethrow ||
-                     exceptionOpCode == OpCodes.Leave ||
-                     exceptionOpCode == OpCodes.Leave_S ||
-                     exceptionOpCode == OpCodes.Endfinally ||
-                     exceptionOpCode == OpCodes.Endfilter)) {
+                      (exceptionOpCode == OpCodes.Throw ||
+                       exceptionOpCode == OpCodes.Rethrow ||
+                       exceptionOpCode == OpCodes.Leave ||
+                       exceptionOpCode == OpCodes.Leave_S ||
+                       exceptionOpCode == OpCodes.Endfinally ||
+                       exceptionOpCode == OpCodes.Endfilter)) {
                     Add(
                         diagnostics,
                         SpirvDiagnosticIds.ExceptionHandling,
@@ -47,7 +47,7 @@ internal static class SpirvLegalityAnalyzer
                         instruction.Offset);
                 }
                 else if (instruction.OpCode == OpCodes.Callvirt &&
-                    !IsProvablyNonVirtualCall(view, block, index)) {
+                      !IsProvablyNonVirtualCall(view, block, index)) {
                     Add(
                         diagnostics,
                         SpirvDiagnosticIds.DynamicDispatch,
@@ -67,23 +67,16 @@ internal static class SpirvLegalityAnalyzer
         }
     }
 
-    // Roslyn emits callvirt for calls it knows aren't virtual dispatch (e.g.
-    // the receiver's null-check). Safe here because it resolves to a marker
-    // method on a `readonly ref struct` (Texture2D, StorageBuffer<T>, ...),
-    // which can never be boxed or reached through an interface.
     private static bool IsProvablyNonVirtualCall(ShaderCilView view, CilBasicBlock block, int index)
     {
         var call = view.ResolveCall(block, index);
         return call.Intrinsic is not null || call.DeclaringType == "Sia.Spirv.UInt3";
     }
 
-    // newobj is otherwise banned (heap/unrepresentable struct allocation)
-    // except this recognized shape: a float3 constructor, lowered to a
-    // bare <3 x float> SSA value, never a heap allocation.
     private static bool IsRecognizedValueTypeConstructor(ShaderCilView view, CilBasicBlock block, int index)
     {
         var call = view.ResolveCall(block, index);
-        return call.Intrinsic is IntrinsicKind.Float3Construct or IntrinsicKind.Float3Broadcast;
+        return call.Intrinsic == IntrinsicKind.MathConstruct;
     }
 
     private static void Add(

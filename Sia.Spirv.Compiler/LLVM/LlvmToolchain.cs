@@ -100,7 +100,8 @@ public sealed class LlvmToolchain
         try {
             Run(ToolName("spirv-opt"), "-O", inputPath, "-o", temporaryPath);
             File.Move(temporaryPath, inputPath, true);
-        } finally {
+        }
+        finally {
             File.Delete(temporaryPath);
         }
     }
@@ -113,7 +114,8 @@ public sealed class LlvmToolchain
             Run(ToolName("naga"), spirvPath, temporaryPath);
             Run(ToolName("naga"), temporaryPath);
             File.Move(temporaryPath, wgslPath, true);
-        } finally {
+        }
+        finally {
             File.Delete(temporaryPath);
         }
     }

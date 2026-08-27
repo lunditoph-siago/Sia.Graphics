@@ -894,7 +894,8 @@ public sealed class LlvmIrEmitter
             _currentCall = call;
             try {
                 handler(this, kind, instance, arguments, offset, stack);
-            } finally {
+            }
+            finally {
                 _currentCall = null;
             }
             return;
@@ -922,7 +923,8 @@ public sealed class LlvmIrEmitter
             _currentCall = call;
             try {
                 handler(this, kind, default, arguments, offset, stack);
-            } finally {
+            }
+            finally {
                 _currentCall = null;
             }
             return;

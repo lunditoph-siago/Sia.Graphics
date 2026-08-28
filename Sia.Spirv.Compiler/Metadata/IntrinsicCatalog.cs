@@ -14,8 +14,8 @@ namespace Sia.Spirv.Compiler.Metadata;
 /// </summary>
 public sealed class IntrinsicCatalog : IDisposable
 {
-    private const string CoreAssemblyFileName = "Sia.Spirv.Core.dll";
-    private const string SpirvIntrinsicAttributeName = "Sia.Spirv.SpirvIntrinsicAttribute";
+    private const string k_CoreAssemblyFileName = "Sia.Spirv.Core.dll";
+    private const string k_SpirvIntrinsicAttributeName = "Sia.Spirv.SpirvIntrinsicAttribute";
 
     private readonly FileStream? _stream;
     private readonly PEReader? _peReader;
@@ -38,8 +38,8 @@ public sealed class IntrinsicCatalog : IDisposable
     {
         var directory = Path.GetDirectoryName(shaderAssemblyPath);
         var corePath = string.IsNullOrEmpty(directory)
-            ? CoreAssemblyFileName
-            : Path.Combine(directory, CoreAssemblyFileName);
+            ? k_CoreAssemblyFileName
+            : Path.Combine(directory, k_CoreAssemblyFileName);
         if (!File.Exists(corePath)) {
             return new IntrinsicCatalog(null, null, null);
         }
@@ -108,7 +108,7 @@ public sealed class IntrinsicCatalog : IDisposable
     {
         foreach (var attributeHandle in method.GetCustomAttributes()) {
             var attribute = reader.GetCustomAttribute(attributeHandle);
-            if (MetadataNames.GetAttributeTypeName(reader, attribute) != SpirvIntrinsicAttributeName) {
+            if (MetadataNames.GetAttributeTypeName(reader, attribute) != k_SpirvIntrinsicAttributeName) {
                 continue;
             }
 

@@ -1,0 +1,23 @@
+[*.cs]
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+
+dotnet_naming_rule.private_internal_constants.severity = warning
+dotnet_naming_rule.private_internal_constants.symbols = private_internal_constant_symbols
+dotnet_naming_rule.private_internal_constants.style = k_pascal_case_style
+dotnet_naming_symbols.private_internal_constant_symbols.applicable_kinds = field
+dotnet_naming_symbols.private_internal_constant_symbols.applicable_accessibilities = private, internal
+dotnet_naming_symbols.private_internal_constant_symbols.required_modifiers = const
+
+dotnet_naming_rule.private_internal_static_fields.severity = warning
+dotnet_naming_rule.private_internal_static_fields.symbols = private_internal_static_field_symbols
+dotnet_naming_rule.private_internal_static_fields.style = s_pascal_case_style
+dotnet_naming_symbols.private_internal_static_field_symbols.applicable_kinds = field
+dotnet_naming_symbols.private_internal_static_field_symbols.applicable_accessibilities = private, internal
+dotnet_naming_symbols.private_internal_static_field_symbols.required_modifiers = static
+
+dotnet_naming_style.k_pascal_case_style.capitalization = pascal_case
+dotnet_naming_style.k_pascal_case_style.required_prefix = k_
+dotnet_naming_style.s_pascal_case_style.capitalization = pascal_case
+dotnet_naming_style.s_pascal_case_style.required_prefix = s_

@@ -13,9 +13,9 @@ namespace Sia.Spirv.Compiler;
 
 public sealed class SpirvFrontend
 {
-    private const string _kernelAttributeName = "Sia.Spirv.SpirvKernelAttribute";
-    private const string _vertexAttributeName = "Sia.Spirv.SpirvVertexShaderAttribute";
-    private const string _fragmentAttributeName = "Sia.Spirv.SpirvFragmentShaderAttribute";
+    private const string k_KernelAttributeName = "Sia.Spirv.SpirvKernelAttribute";
+    private const string k_VertexAttributeName = "Sia.Spirv.SpirvVertexShaderAttribute";
+    private const string k_FragmentAttributeName = "Sia.Spirv.SpirvFragmentShaderAttribute";
 
     public SpirvFrontendResult Analyze(string assemblyPath)
     {
@@ -110,7 +110,7 @@ public sealed class SpirvFrontend
             var attribute = reader.GetCustomAttribute(attributeHandle);
             var attributeName = MetadataNames.GetAttributeTypeName(reader, attribute);
             SpirvShaderStage currentStage;
-            if (attributeName == _kernelAttributeName) {
+            if (attributeName == k_KernelAttributeName) {
                 currentStage = SpirvShaderStage.Compute;
                 var value = attribute.DecodeValue(new CustomAttributeTypeProvider());
                 if (value.FixedArguments.Length != 3) {
@@ -121,11 +121,14 @@ public sealed class SpirvFrontend
                     Convert.ToUInt32(value.FixedArguments[0].Value),
                     Convert.ToUInt32(value.FixedArguments[1].Value),
                     Convert.ToUInt32(value.FixedArguments[2].Value));
-            } else if (attributeName == _vertexAttributeName) {
+            }
+            else if (attributeName == k_VertexAttributeName) {
                 currentStage = SpirvShaderStage.Vertex;
-            } else if (attributeName == _fragmentAttributeName) {
+            }
+            else if (attributeName == k_FragmentAttributeName) {
                 currentStage = SpirvShaderStage.Fragment;
-            } else {
+            }
+            else {
                 continue;
             }
 

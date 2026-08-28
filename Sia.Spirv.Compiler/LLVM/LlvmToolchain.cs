@@ -5,7 +5,7 @@ namespace Sia.Spirv.Compiler.LLVM;
 
 public sealed class LlvmToolchain
 {
-    private static readonly string _executableSuffix = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
+    private static readonly string s_ExecutableSuffix = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
 
     public LlvmToolchain(string directory)
     {
@@ -128,7 +128,8 @@ public sealed class LlvmToolchain
         try {
             Run(ToolName("spirv-opt"), "-O", inputPath, "-o", temporaryPath);
             File.Move(temporaryPath, inputPath, true);
-        } finally {
+        }
+        finally {
             File.Delete(temporaryPath);
         }
     }
@@ -141,7 +142,8 @@ public sealed class LlvmToolchain
             Run(ToolName("naga"), spirvPath, temporaryPath);
             Run(ToolName("naga"), temporaryPath);
             File.Move(temporaryPath, wgslPath, true);
-        } finally {
+        }
+        finally {
             File.Delete(temporaryPath);
         }
     }
@@ -206,5 +208,5 @@ public sealed class LlvmToolchain
     private static string FirstLine(string value) =>
         value.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
 
-    private static string ToolName(string name) => $"{name}{_executableSuffix}";
+    private static string ToolName(string name) => $"{name}{s_ExecutableSuffix}";
 }

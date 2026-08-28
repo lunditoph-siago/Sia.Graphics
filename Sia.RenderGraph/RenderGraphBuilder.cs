@@ -2,9 +2,9 @@ namespace Sia.RenderGraph;
 
 public sealed class RenderGraphBuilder
 {
-    private static int _nextGraphId;
+    private static int s_NextGraphId;
 
-    private readonly int _graphId = Interlocked.Increment(ref _nextGraphId);
+    private readonly int _graphId = Interlocked.Increment(ref s_NextGraphId);
     private readonly List<RenderGraphBufferDefinition> _buffers = [];
     private readonly List<RenderGraphTextureDefinition> _textures = [];
     private readonly List<PassDraft> _passes = [];
@@ -103,8 +103,7 @@ public sealed class RenderGraphBuilder
         ValidatePass(pass, nameof(pass));
         ValidateBuffer(buffer, nameof(buffer));
         RenderGraphValidation.Validate(usage, nameof(usage));
-        if (usage == RenderGraphBufferUsage.None)
-        {
+        if (usage == RenderGraphBufferUsage.None) {
             throw new ArgumentException(
                 "A buffer access must declare at least one usage.",
                 nameof(usage));
@@ -114,11 +113,9 @@ public sealed class RenderGraphBuilder
             _buffers[buffer.Index].Descriptor,
             range);
         var uses = _passes[pass.Index].Buffers;
-        for (var index = 0; index < uses.Count; index++)
-        {
+        for (var index = 0; index < uses.Count; index++) {
             var use = uses[index];
-            if (use.BufferIndex != buffer.Index || use.Range != normalizedRange)
-            {
+            if (use.BufferIndex != buffer.Index || use.Range != normalizedRange) {
                 continue;
             }
 
@@ -147,8 +144,7 @@ public sealed class RenderGraphBuilder
         ValidatePass(pass, nameof(pass));
         ValidateTexture(texture, nameof(texture));
         RenderGraphValidation.Validate(usage, nameof(usage));
-        if (usage == RenderGraphTextureUsage.None)
-        {
+        if (usage == RenderGraphTextureUsage.None) {
             throw new ArgumentException(
                 "A texture access must declare at least one usage.",
                 nameof(usage));
@@ -158,12 +154,10 @@ public sealed class RenderGraphBuilder
             _textures[texture.Index].Descriptor,
             subresources);
         var uses = _passes[pass.Index].Textures;
-        for (var index = 0; index < uses.Count; index++)
-        {
+        for (var index = 0; index < uses.Count; index++) {
             var use = uses[index];
             if (use.TextureIndex != texture.Index ||
-                use.Subresources != normalizedSubresources)
-            {
+                use.Subresources != normalizedSubresources) {
                 continue;
             }
 
@@ -188,8 +182,7 @@ public sealed class RenderGraphBuilder
         EnsureMutable();
         ValidatePass(pass, nameof(pass));
         ValidatePass(dependency, nameof(dependency));
-        if (pass == dependency)
-        {
+        if (pass == dependency) {
             throw new ArgumentException(
                 "A render graph pass cannot depend on itself.",
                 nameof(dependency));
@@ -236,8 +229,7 @@ public sealed class RenderGraphBuilder
     private void ValidatePass(RenderGraphPassHandle pass, string parameterName)
     {
         if (pass.GraphId != _graphId ||
-            (uint)pass.Index >= (uint)_passes.Count)
-        {
+            (uint)pass.Index >= (uint)_passes.Count) {
             throw new ArgumentException(
                 "The pass does not belong to this render graph.",
                 parameterName);
@@ -249,8 +241,7 @@ public sealed class RenderGraphBuilder
         string parameterName)
     {
         if (buffer.GraphId != _graphId ||
-            (uint)buffer.Index >= (uint)_buffers.Count)
-        {
+            (uint)buffer.Index >= (uint)_buffers.Count) {
             throw new ArgumentException(
                 "The buffer does not belong to this render graph.",
                 parameterName);
@@ -262,8 +253,7 @@ public sealed class RenderGraphBuilder
         string parameterName)
     {
         if (texture.GraphId != _graphId ||
-            (uint)texture.Index >= (uint)_textures.Count)
-        {
+            (uint)texture.Index >= (uint)_textures.Count) {
             throw new ArgumentException(
                 "The texture does not belong to this render graph.",
                 parameterName);
@@ -272,8 +262,7 @@ public sealed class RenderGraphBuilder
 
     private void EnsureMutable()
     {
-        if (_built)
-        {
+        if (_built) {
             throw new InvalidOperationException(
                 "The render graph has already been built.");
         }

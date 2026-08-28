@@ -10,13 +10,13 @@ namespace Sia.WebGPU.Example;
 
 internal sealed unsafe partial class CornellBoxApp
 {
-    private static readonly RenderGraphTextureKey _accumReadKey = new("accum-read");
-    private static readonly RenderGraphTextureKey _accumWriteKey = new("accum-write");
-    private static readonly RenderGraphTextureKey _surfaceKey = new("surface");
-    private static readonly RenderGraphBufferKey _uniformsKey = new("uniforms");
-    private static readonly RenderGraphPassKey _pathPassKey = new("path");
-    private static readonly RenderGraphPassKey _presentPassKey = new("present");
-    private static readonly RenderGraphPassKey _uiPassKey = new("ui");
+    private static readonly RenderGraphTextureKey s_AccumReadKey = new("accum-read");
+    private static readonly RenderGraphTextureKey s_AccumWriteKey = new("accum-write");
+    private static readonly RenderGraphTextureKey s_SurfaceKey = new("surface");
+    private static readonly RenderGraphBufferKey s_UniformsKey = new("uniforms");
+    private static readonly RenderGraphPassKey s_PathPassKey = new("path");
+    private static readonly RenderGraphPassKey s_PresentPassKey = new("present");
+    private static readonly RenderGraphPassKey s_UiPassKey = new("ui");
 
     private World? _renderGraphWorld;
     private WgpuRenderGraphRegistry? _renderGraph;
@@ -62,14 +62,14 @@ internal sealed unsafe partial class CornellBoxApp
 
         var accumulationDescriptor = new RenderGraphTextureDescriptor(
             "accumulation",
-            (RenderGraphTextureFormat)(int)_accumulationFormat,
+            (RenderGraphTextureFormat)(int)k_AccumulationFormat,
             (uint)props.FramebufferWidth,
             (uint)props.FramebufferHeight,
             usage: RenderGraphTextureUsage.RenderAttachment | RenderGraphTextureUsage.TextureBinding);
-        hooks.UseImportedRenderGraphTexture(registry, _accumReadKey, accumulationDescriptor);
-        hooks.UseImportedRenderGraphTextureBinding(registry, _accumReadKey, props.ReadTexture);
-        hooks.UseImportedRenderGraphTexture(registry, _accumWriteKey, accumulationDescriptor);
-        hooks.UseImportedRenderGraphTextureBinding(registry, _accumWriteKey, props.WriteTexture);
+        hooks.UseImportedRenderGraphTexture(registry, s_AccumReadKey, accumulationDescriptor);
+        hooks.UseImportedRenderGraphTextureBinding(registry, s_AccumReadKey, props.ReadTexture);
+        hooks.UseImportedRenderGraphTexture(registry, s_AccumWriteKey, accumulationDescriptor);
+        hooks.UseImportedRenderGraphTextureBinding(registry, s_AccumWriteKey, props.WriteTexture);
 
         var surfaceDescriptor = new RenderGraphTextureDescriptor(
             "surface",
@@ -77,23 +77,23 @@ internal sealed unsafe partial class CornellBoxApp
             (uint)props.FramebufferWidth,
             (uint)props.FramebufferHeight,
             usage: RenderGraphTextureUsage.RenderAttachment);
-        hooks.UseImportedRenderGraphTexture(registry, _surfaceKey, surfaceDescriptor);
-        hooks.UseImportedRenderGraphTextureBinding(registry, _surfaceKey, props.SurfaceTexture);
+        hooks.UseImportedRenderGraphTexture(registry, s_SurfaceKey, surfaceDescriptor);
+        hooks.UseImportedRenderGraphTextureBinding(registry, s_SurfaceKey, props.SurfaceTexture);
 
         hooks.UseImportedRenderGraphBuffer(
-            registry, _uniformsKey,
-            new RenderGraphBufferDescriptor("uniforms", _uniformSize, RenderGraphBufferUsage.Uniform));
-        hooks.UseImportedRenderGraphBufferBinding(registry, _uniformsKey, props.App._uniformBuffer);
+            registry, s_UniformsKey,
+            new RenderGraphBufferDescriptor("uniforms", k_UniformSize, RenderGraphBufferUsage.Uniform));
+        hooks.UseImportedRenderGraphBufferBinding(registry, s_UniformsKey, props.App._uniformBuffer);
 
-        hooks.UseRenderGraphPass(registry, _pathPassKey, "path", DeclarePathPass);
-        hooks.UseWgpuRenderGraphPassHandler(registry, _pathPassKey, props.App._pathPassHandler!);
+        hooks.UseRenderGraphPass(registry, s_PathPassKey, "path", DeclarePathPass);
+        hooks.UseWgpuRenderGraphPassHandler(registry, s_PathPassKey, props.App._pathPassHandler!);
 
-        hooks.UseRenderGraphPass(registry, _presentPassKey, "present", DeclarePresentPass);
-        hooks.UseWgpuRenderGraphPassHandler(registry, _presentPassKey, props.App._presentPassHandler!);
+        hooks.UseRenderGraphPass(registry, s_PresentPassKey, "present", DeclarePresentPass);
+        hooks.UseWgpuRenderGraphPassHandler(registry, s_PresentPassKey, props.App._presentPassHandler!);
 
         hooks.UseUiRenderPass(
             registry, props.App._uiWorld!, props.App._uiRenderer!,
-            _uiPassKey, _surfaceKey,
+            s_UiPassKey, s_SurfaceKey,
             new Size(props.FramebufferWidth, props.FramebufferHeight),
             WGPULoadOp.Load, outputCacheable: false);
 
@@ -101,36 +101,36 @@ internal sealed unsafe partial class CornellBoxApp
     }
 
     private static void DeclarePathPass(RenderGraphPassDeclarationBuilder pass) => pass
-        .Read(_uniformsKey, RenderGraphBufferUsage.Uniform)
-        .Read(_accumReadKey, RenderGraphTextureUsage.TextureBinding)
-        .Write(_accumWriteKey, RenderGraphTextureUsage.RenderAttachment);
+        .Read(s_UniformsKey, RenderGraphBufferUsage.Uniform)
+        .Read(s_AccumReadKey, RenderGraphTextureUsage.TextureBinding)
+        .Write(s_AccumWriteKey, RenderGraphTextureUsage.RenderAttachment);
 
     private static void DeclarePresentPass(RenderGraphPassDeclarationBuilder pass) => pass
-        .Read(_uniformsKey, RenderGraphBufferUsage.Uniform)
-        .Read(_accumWriteKey, RenderGraphTextureUsage.TextureBinding)
-        .Write(_surfaceKey, RenderGraphTextureUsage.RenderAttachment);
+        .Read(s_UniformsKey, RenderGraphBufferUsage.Uniform)
+        .Read(s_AccumWriteKey, RenderGraphTextureUsage.TextureBinding)
+        .Write(s_SurfaceKey, RenderGraphTextureUsage.RenderAttachment);
 
-    private static readonly WGPUColor _blackClear = new() { R = 0.0, G = 0.0, B = 0.0, A = 1.0 };
+    private static readonly WGPUColor s_BlackClear = new() { R = 0.0, G = 0.0, B = 0.0, A = 1.0 };
 
     private void ExecutePathPass(WgpuReactiveRenderGraphPassContext context)
     {
-        var source = context.GetTextureView(_accumReadKey);
+        var source = context.GetTextureView(s_AccumReadKey);
         var renderPass = context.GetOrBeginRenderPass(
             new WgpuReactiveRenderGraphColorAttachment(
-                _accumWriteKey, WGPULoadOp.Clear, ClearValue: _blackClear));
+                s_AccumWriteKey, WGPULoadOp.Clear, ClearValue: s_BlackClear));
         DrawFullscreenTriangle(renderPass, _pathPipeline, source);
     }
 
     private void ExecutePresentPass(WgpuReactiveRenderGraphPassContext context)
     {
-        var source = context.GetTextureView(_accumWriteKey);
+        var source = context.GetTextureView(s_AccumWriteKey);
         // The surface texture is acquired fresh from the swapchain every frame, and WebGPU
         // is free to recycle the native texture pointer for a different logical frame once
         // presented — caching its view by handle identity can hand back a view of an
         // already-destroyed texture. Never cache it.
         var renderPass = context.GetOrBeginRenderPass(
             new WgpuReactiveRenderGraphColorAttachment(
-                _surfaceKey, WGPULoadOp.Clear, ClearValue: _blackClear, Cacheable: false));
+                s_SurfaceKey, WGPULoadOp.Clear, ClearValue: s_BlackClear, Cacheable: false));
         DrawFullscreenTriangle(renderPass, _presentationPipeline, source);
     }
 

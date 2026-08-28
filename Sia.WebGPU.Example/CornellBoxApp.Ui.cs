@@ -12,10 +12,10 @@ namespace Sia.WebGPU.Example;
 
 internal sealed unsafe partial class CornellBoxApp
 {
-    private static readonly Color _panelColor = new(0.035f, 0.045f, 0.065f, 0.94f);
-    private static readonly Color _controlColor = new(0.12f, 0.15f, 0.21f, 0.96f);
-    private static readonly Color _accentColor = new(0.18f, 0.46f, 0.82f, 1f);
-    private static readonly Color _mutedTextColor = new(0.69f, 0.74f, 0.82f, 1f);
+    private static readonly Color s_PanelColor = new(0.035f, 0.045f, 0.065f, 0.94f);
+    private static readonly Color s_ControlColor = new(0.12f, 0.15f, 0.21f, 0.96f);
+    private static readonly Color s_AccentColor = new(0.18f, 0.46f, 0.82f, 1f);
+    private static readonly Color s_MutedTextColor = new(0.69f, 0.74f, 0.82f, 1f);
 
     private World? _uiWorld;
     private SystemStage? _uiLayoutStage;
@@ -36,7 +36,7 @@ internal sealed unsafe partial class CornellBoxApp
 
         _uiMount = _uiWorld.Mount(
             RenderUi,
-            CreateUiProps(new Size(_initialWidth, _initialHeight)));
+            CreateUiProps(new Size(k_InitialWidth, k_InitialHeight)));
         _uiLayoutStage = SystemChain.Empty
             .AddReactiveUi()
             .CreateStage(_uiWorld);
@@ -73,7 +73,7 @@ internal sealed unsafe partial class CornellBoxApp
                 RowGap = Val.Px(8f)
             },
             HList.From(
-                new BackgroundColor(_panelColor),
+                new BackgroundColor(s_PanelColor),
                 new BorderColor(new Color(0.24f, 0.31f, 0.43f, 1f)),
                 new ZIndex(1000)));
         var title = SiaReactive.Component(
@@ -85,7 +85,7 @@ internal sealed unsafe partial class CornellBoxApp
             new TextProps(
                 "status", 1,
                 $"{props.SampleCount:N0} spp · {props.FramebufferWidth} × {props.FramebufferHeight}",
-                14f, _mutedTextColor, assets, null));
+                14f, s_MutedTextColor, assets, null));
         var preview = SiaReactive.Component(
             RenderText,
             new TextProps(
@@ -136,7 +136,7 @@ internal sealed unsafe partial class CornellBoxApp
                 props.LockFocus
                     ? "[x] Dolly follows focus / 焦距跟随"
                     : "[ ] Dolly follows focus / 焦距跟随",
-                props.LockFocus ? _accentColor : _controlColor,
+                props.LockFocus ? s_AccentColor : s_ControlColor,
                 assets));
         var reset = SiaReactive.Component(
             RenderControl,
@@ -426,7 +426,7 @@ internal sealed unsafe partial class CornellBoxApp
             float max,
             float step,
             UiAssets assets) =>
-            new(app, kind, key, order, label, value, min, max, step, _controlColor, assets, true);
+            new(app, kind, key, order, label, value, min, max, step, s_ControlColor, assets, true);
 
         public static ControlProps Button(
             CornellBoxApp app,

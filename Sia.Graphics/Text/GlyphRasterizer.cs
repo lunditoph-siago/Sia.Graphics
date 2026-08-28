@@ -4,8 +4,8 @@ public readonly record struct RasterizedGlyph(byte[] Coverage, int Width, int He
 
 public static class GlyphRasterizer
 {
-    private const int CurveSegments = 8;
-    private const int VerticalSamples = 4;
+    private const int k_CurveSegments = 8;
+    private const int k_VerticalSamples = 4;
 
     public static RasterizedGlyph Rasterize(GlyphOutline outline, float unitsPerEm, float pixelSize)
     {
@@ -112,8 +112,8 @@ public static class GlyphRasterizer
     private static void AppendQuadratic(
         List<(float X, float Y)> result, GlyphPoint start, GlyphPoint control, GlyphPoint end, float scale)
     {
-        for (var s = 1; s <= CurveSegments; s++) {
-            var t = (float)s / CurveSegments;
+        for (var s = 1; s <= k_CurveSegments; s++) {
+            var t = (float)s / k_CurveSegments;
             var mt = 1f - t;
             var x = mt * mt * start.X + 2f * mt * t * control.X + t * t * end.X;
             var y = mt * mt * start.Y + 2f * mt * t * control.Y + t * t * end.Y;
@@ -126,13 +126,13 @@ public static class GlyphRasterizer
         var coverage = new byte[width * height];
         var accum = new float[width];
         var crossings = new List<(float X, int Direction)>();
-        var sampleWeight = 1f / VerticalSamples;
+        var sampleWeight = 1f / k_VerticalSamples;
 
         for (var row = 0; row < height; row++) {
             Array.Clear(accum);
 
-            for (var s = 0; s < VerticalSamples; s++) {
-                var sampleY = row + (s + 0.5f) / VerticalSamples;
+            for (var s = 0; s < k_VerticalSamples; s++) {
+                var sampleY = row + (s + 0.5f) / k_VerticalSamples;
                 crossings.Clear();
 
                 foreach (var polygon in polygons) {

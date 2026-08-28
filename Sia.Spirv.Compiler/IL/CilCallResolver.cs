@@ -42,12 +42,14 @@ public sealed class CilCallResolver(MetadataReader reader, IntrinsicCatalog intr
             declaringType = GetDeclaringTypeName(reference.Parent);
             name = reader.GetString(reference.Name);
             signature = reference.DecodeMethodSignature(new KernelTypeProvider(), genericContext: null);
-        } else if (handle.Kind == HandleKind.MethodDefinition) {
+        }
+        else if (handle.Kind == HandleKind.MethodDefinition) {
             var definition = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
             declaringType = MetadataNames.GetTypeName(reader, definition.GetDeclaringType());
             name = reader.GetString(definition.Name);
             signature = definition.DecodeSignature(new KernelTypeProvider(), genericContext: null);
-        } else {
+        }
+        else {
             throw new InvalidDataException($"Token 0x{token:x8} is not a method.");
         }
 

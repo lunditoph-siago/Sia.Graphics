@@ -13,8 +13,7 @@ internal static class Program
             return await WorkloadBootstrapper.RunAsync(
                 options, CancellationToken.None);
         }
-        catch (Exception exception)
-        {
+        catch (Exception exception) {
             Console.Error.WriteLine($"error: {exception.Message}");
             return 1;
         }

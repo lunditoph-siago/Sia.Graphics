@@ -12,11 +12,11 @@ namespace Sia.WebGPU;
 /// </summary>
 public sealed class WgpuRenderGraphExecutionScratch
 {
-    internal readonly Dictionary<RenderGraphBufferHandle, WgpuHandle<WGPUBuffer>> Buffers = [];
-    internal readonly Dictionary<RenderGraphTextureHandle, WgpuHandle<WGPUTexture>> Textures = [];
-    internal readonly HashSet<RenderGraphBufferHandle> OwnedBuffers = [];
-    internal readonly HashSet<RenderGraphTextureHandle> OwnedTextures = [];
-    internal readonly List<WgpuHandle<WGPUTextureView>> TransientViews = [];
+    internal readonly Dictionary<RenderGraphBufferHandle, WgpuHandle<WGPUBuffer>> _buffers = [];
+    internal readonly Dictionary<RenderGraphTextureHandle, WgpuHandle<WGPUTexture>> _textures = [];
+    internal readonly HashSet<RenderGraphBufferHandle> _ownedBuffers = [];
+    internal readonly HashSet<RenderGraphTextureHandle> _ownedTextures = [];
+    internal readonly List<WgpuHandle<WGPUTextureView>> _transientViews = [];
 
     private readonly List<WgpuRenderGraphPassContext> _passContexts = [];
     private int _passContextCursor;
@@ -25,11 +25,11 @@ public sealed class WgpuRenderGraphExecutionScratch
 
     public void Clear()
     {
-        Buffers.Clear();
-        Textures.Clear();
-        OwnedBuffers.Clear();
-        OwnedTextures.Clear();
-        TransientViews.Clear();
+        _buffers.Clear();
+        _textures.Clear();
+        _ownedBuffers.Clear();
+        _ownedTextures.Clear();
+        _transientViews.Clear();
         _passContextCursor = 0;
         _groupStateCursor = 0;
     }
@@ -57,12 +57,12 @@ public sealed class WgpuRenderGraphExecutionScratch
     {
         if (_passContextCursor < _passContexts.Count) {
             var context = _passContexts[_passContextCursor++];
-            context.Reset(plan, pass, commandEncoder, Buffers, Textures, viewCache, TransientViews, groupRenderPass);
+            context.Reset(plan, pass, commandEncoder, _buffers, _textures, viewCache, _transientViews, groupRenderPass);
             return context;
         }
 
         var created = new WgpuRenderGraphPassContext(
-            plan, pass, commandEncoder, Buffers, Textures, viewCache, TransientViews, groupRenderPass);
+            plan, pass, commandEncoder, _buffers, _textures, viewCache, _transientViews, groupRenderPass);
         _passContexts.Add(created);
         _passContextCursor++;
         return created;

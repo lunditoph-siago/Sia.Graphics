@@ -5,9 +5,9 @@ namespace Sia.Graphics.Rendering;
 
 public interface IRenderFeature<TContext>
 {
-    RenderFeatureKey Key { get; }
+    public RenderFeatureKey Key { get; }
 
-    void Configure(
+    public void Configure(
         ref Hooks hooks,
         WgpuRenderGraphRegistry registry,
         in TContext context);

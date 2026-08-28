@@ -6,7 +6,7 @@ namespace Sia.Spirv.Compiler.IL;
 
 internal static class CilInstructionDecoder
 {
-    private static readonly IReadOnlyDictionary<ushort, OpCode> _opCodesByValue =
+    private static readonly IReadOnlyDictionary<ushort, OpCode> s_OpCodesByValue =
         typeof(OpCodes)
             .GetFields(BindingFlags.Public | BindingFlags.Static)
             .Where(static field => field.FieldType == typeof(OpCode))
@@ -27,7 +27,7 @@ internal static class CilInstructionDecoder
                 opCodeValue = (ushort)(0xfe00 | il[offset++]);
             }
 
-            if (!_opCodesByValue.TryGetValue(opCodeValue, out var opCode)) {
+            if (!s_OpCodesByValue.TryGetValue(opCodeValue, out var opCode)) {
                 throw new InvalidDataException(
                     $"Unknown CIL opcode 0x{opCodeValue:x4} at IL_{instructionOffset:x4}.");
             }

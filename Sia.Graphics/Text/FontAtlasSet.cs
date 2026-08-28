@@ -4,8 +4,8 @@ namespace Sia.Graphics.Text;
 
 public sealed class FontAtlasSet : IAddon
 {
-    internal const int AtlasSize = 1024;
-    internal const int MaxAtlasLayers = 64;
+    internal const int k_AtlasSize = 1024;
+    internal const int k_MaxAtlasLayers = 64;
 
     private readonly Dictionary<FontAtlasKey, List<FontAtlas>> _atlases = [];
     private readonly List<FontAtlas> _allAtlases = [];
@@ -28,9 +28,9 @@ public sealed class FontAtlasSet : IAddon
                 return new GlyphAtlasInfo(atlas, location);
         }
 
-        if (_allAtlases.Count >= MaxAtlasLayers - 1)
+        if (_allAtlases.Count >= k_MaxAtlasLayers - 1)
             throw new InvalidOperationException("The UI font texture array is full.");
-        var newAtlas = new FontAtlas(AtlasSize, AtlasSize, _allAtlases.Count + 1);
+        var newAtlas = new FontAtlas(k_AtlasSize, k_AtlasSize, _allAtlases.Count + 1);
         atlases.Add(newAtlas);
         _allAtlases.Add(newAtlas);
 

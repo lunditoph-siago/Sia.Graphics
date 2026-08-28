@@ -9,7 +9,7 @@ public readonly record struct PartialSize(float? Width, float? Height)
 
 public interface ILayoutMeasure
 {
-    float? Baseline { get; }
+    public float? Baseline { get; }
 
-    Size Measure(PartialSize knownDimensions, AvailableSize availableSpace);
+    public Size Measure(PartialSize knownDimensions, AvailableSize availableSpace);
 }

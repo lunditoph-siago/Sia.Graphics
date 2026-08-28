@@ -81,11 +81,11 @@ public static class WgpuRenderGraphExecutor
         }
 
         scratch.Clear();
-        var buffers = scratch.Buffers;
-        var textures = scratch.Textures;
-        var ownedBuffers = scratch.OwnedBuffers;
-        var ownedTextures = scratch.OwnedTextures;
-        var transientViews = scratch.TransientViews;
+        var buffers = scratch._buffers;
+        var textures = scratch._textures;
+        var ownedBuffers = scratch._ownedBuffers;
+        var ownedTextures = scratch._ownedTextures;
+        var transientViews = scratch._transientViews;
         var commandEncoder = default(WgpuHandle<WGPUCommandEncoder>);
         var commandBuffer = default(WgpuHandle<WGPUCommandBuffer>);
 

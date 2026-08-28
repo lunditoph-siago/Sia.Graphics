@@ -11,11 +11,11 @@ namespace Sia.WebGPU.Example;
 
 internal sealed unsafe partial class CornellBoxApp : IDisposable
 {
-    private const int _initialWidth = 1280;
-    private const int _initialHeight = 720;
-    private const int _uniformSize = 80;
-    private const WGPUTextureFormat _accumulationFormat = WGPUTextureFormat.RGBA32Float;
-    private const string _rasterShaderArtifactName =
+    private const int k_InitialWidth = 1280;
+    private const int k_InitialHeight = 720;
+    private const int k_UniformSize = 80;
+    private const WGPUTextureFormat k_AccumulationFormat = WGPUTextureFormat.RGBA32Float;
+    private const string k_RasterShaderArtifactName =
         "Sia.WebGPU.Example.CornellBoxRasterShaders.FullscreenVertex";
 
     private readonly WgpuHandle<WGPUTexture>[] _accumulationTextures = new WgpuHandle<WGPUTexture>[2];
@@ -94,8 +94,8 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         _glfwInitialized = true;
         _window = Glfw.CreateWindow(
             new WindowDescriptor(
-                _initialWidth,
-                _initialHeight,
+                k_InitialWidth,
+                k_InitialHeight,
                 "Sia.WebGPU · Cornell Box Path Tracer",
                 Resizable: true),
             new GlfwWindowOptions(ClientApi.NoApi));
@@ -126,13 +126,13 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private WGPURequestAdapterOptions BuildAdapterOptions(
         WGPUFeatureLevel featureLevel = WGPUFeatureLevel.Core,
         WGPUPowerPreference powerPreference = WGPUPowerPreference.HighPerformance) => new() {
-        NextInChain = null,
-        FeatureLevel = featureLevel,
-        PowerPreference = powerPreference,
-        ForceFallbackAdapter = 0,
-        BackendType = WGPUBackendType.Undefined,
-        CompatibleSurface = Pointer(_surface),
-    };
+            NextInChain = null,
+            FeatureLevel = featureLevel,
+            PowerPreference = powerPreference,
+            ForceFallbackAdapter = 0,
+            BackendType = WGPUBackendType.Undefined,
+            CompatibleSurface = Pointer(_surface),
+        };
 
     private static WgpuHandle<WGPUSurface> CreateSurface(
         WgpuHandle<WGPUInstance> instance,
@@ -256,7 +256,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             NextInChain = null,
             Label = default,
             Usage = WGPUBufferUsage.Uniform | WGPUBufferUsage.CopyDst,
-            Size = _uniformSize,
+            Size = k_UniformSize,
             MappedAtCreation = 0,
         };
         _uniformBuffer = Wgpu.CreateBuffer(_device, in descriptor);
@@ -274,7 +274,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
                 NextInChain = null,
                 Type = WGPUBufferBindingType.Uniform,
                 HasDynamicOffset = 0,
-                MinBindingSize = _uniformSize,
+                MinBindingSize = k_UniformSize,
             },
             Sampler = default,
             Texture = default,
@@ -332,7 +332,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
                 nameof(CornellBoxRasterShaders.FullscreenVertex),
                 fragmentShader,
                 "path_main",
-                _accumulationFormat);
+                k_AccumulationFormat);
             _presentationPipeline = CreateRenderPipeline(
                 vertexShader,
                 nameof(CornellBoxRasterShaders.FullscreenVertex),
@@ -346,7 +346,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
                 nameof(CornellBoxRasterShaders.FullscreenVertex),
                 fragmentShader,
                 "path_main",
-                _accumulationFormat);
+                k_AccumulationFormat);
             _presentationPipeline = CreateRenderPipeline(
                 vertexShader,
                 nameof(CornellBoxRasterShaders.FullscreenVertex),
@@ -423,7 +423,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private WgpuHandle<WGPUShaderModule> CreateCSharpVertexShader()
     {
         var directory = Path.Combine(AppContext.BaseDirectory, "spirv");
-        var spirv = File.ReadAllBytes(Path.Combine(directory, _rasterShaderArtifactName + ".spv"));
+        var spirv = File.ReadAllBytes(Path.Combine(directory, k_RasterShaderArtifactName + ".spv"));
         return Wgpu.CreateSpirvShaderModule(
             _device,
             spirv,
@@ -478,7 +478,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
                 Height = (uint)_framebufferHeight,
                 DepthOrArrayLayers = 1,
             },
-            Format = _accumulationFormat,
+            Format = k_AccumulationFormat,
             MipLevelCount = 1,
             SampleCount = 1,
             ViewFormatCount = 0,
@@ -499,7 +499,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             Binding = 0,
             Buffer = Pointer(_uniformBuffer),
             Offset = 0,
-            Size = _uniformSize,
+            Size = k_UniformSize,
             Sampler = null,
             TextureView = null,
         };

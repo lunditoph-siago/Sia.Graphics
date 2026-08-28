@@ -4,19 +4,19 @@ namespace Sia.WebGPU.Generators;
 
 public sealed class WgpuGenerationOptions : IEquatable<WgpuGenerationOptions>
 {
-    private const string _buildPropertyPrefix = "build_property.";
-    private const string _defaultBrowserLibraryName = "__Internal_emscripten";
-    private const string _defaultClassName = "WgpuUnsafe";
-    private const bool _defaultGenerateUnsafeBindings = true;
-    private const string _defaultLibraryName = "wgpu_native";
-    private const string _defaultNamespace = "Sia.WebGPU";
+    private const string k_BuildPropertyPrefix = "build_property.";
+    private const string k_DefaultBrowserLibraryName = "__Internal_emscripten";
+    private const string k_DefaultClassName = "WgpuUnsafe";
+    private const bool k_DefaultGenerateUnsafeBindings = true;
+    private const string k_DefaultLibraryName = "wgpu_native";
+    private const string k_DefaultNamespace = "Sia.WebGPU";
 
     public WgpuGenerationOptions(
-        string ns = _defaultNamespace,
-        string className = _defaultClassName,
-        bool generateUnsafeBindings = _defaultGenerateUnsafeBindings,
-        string libraryName = _defaultLibraryName,
-        string browserLibraryName = _defaultBrowserLibraryName)
+        string ns = k_DefaultNamespace,
+        string className = k_DefaultClassName,
+        bool generateUnsafeBindings = k_DefaultGenerateUnsafeBindings,
+        string libraryName = k_DefaultLibraryName,
+        string browserLibraryName = k_DefaultBrowserLibraryName)
     {
         Namespace = ns;
         ClassName = className;
@@ -57,21 +57,21 @@ public sealed class WgpuGenerationOptions : IEquatable<WgpuGenerationOptions>
     internal static WgpuGenerationOptions From(AnalyzerConfigOptions options)
         => new(
             ReadString(options, "sia_webgpu_namespace", "SiaWebGpuNamespace")
-                ?? _defaultNamespace,
+                ?? k_DefaultNamespace,
             ReadString(options, "sia_webgpu_class_name", "SiaWebGpuClassName")
-                ?? _defaultClassName,
+                ?? k_DefaultClassName,
             ReadBoolean(
                 options,
                 "sia_webgpu_generate_unsafe_bindings",
                 "SiaWebGpuGenerateUnsafeBindings")
-                ?? _defaultGenerateUnsafeBindings,
+                ?? k_DefaultGenerateUnsafeBindings,
             ReadString(options, "sia_webgpu_library_name", "SiaWebGpuLibraryName")
-                ?? _defaultLibraryName,
+                ?? k_DefaultLibraryName,
             ReadString(
                 options,
                 "sia_webgpu_browser_library_name",
                 "SiaWebGpuBrowserLibraryName")
-                ?? _defaultBrowserLibraryName);
+                ?? k_DefaultBrowserLibraryName);
 
     private static string? ReadString(
         AnalyzerConfigOptions options,
@@ -82,7 +82,7 @@ public sealed class WgpuGenerationOptions : IEquatable<WgpuGenerationOptions>
             return value;
         }
 
-        return TryReadString(options, _buildPropertyPrefix + buildPropertyName, out value)
+        return TryReadString(options, k_BuildPropertyPrefix + buildPropertyName, out value)
             ? value
             : null;
     }

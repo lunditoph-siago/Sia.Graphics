@@ -33,7 +33,8 @@ public sealed class SpirvCompilerTests
                 .Order();
             Assert.Equal(expectedKernels, compiledKernels);
             Assert.All(artifacts, artifact => AssertArtifact(artifact));
-        } finally {
+        }
+        finally {
             if (System.IO.Directory.Exists(outputDirectory)) {
                 System.IO.Directory.Delete(outputDirectory, true);
             }

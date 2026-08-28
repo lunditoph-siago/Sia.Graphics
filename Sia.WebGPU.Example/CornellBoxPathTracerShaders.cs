@@ -11,10 +11,10 @@ namespace Sia.WebGPU.Example;
 // (primary + shadow rays) because it can't be factored out.
 internal static class CornellBoxPathTracerShaders
 {
-    private const float Pi = 3.14159265358979f;
-    private const float Epsilon = 0.001f;
-    private const uint Diffuse = 0u;
-    private const uint Mirror = 1u;
+    private const float k_Pi = 3.14159265358979f;
+    private const float k_Epsilon = 0.001f;
+    private const uint k_Diffuse = 0u;
+    private const uint k_Mirror = 1u;
 
     [SpirvFragmentShader]
     public static void PathFragment(
@@ -48,7 +48,7 @@ internal static class CornellBoxPathTracerShaders
         var sampleSumY = 0.0f;
         var sampleSumZ = 0.0f;
 
-        for (uint sample = 0u; sample < 8u; sample++) {
+        for (var sample = 0u; sample < 8u; sample++) {
             if (sample >= sampleTotal) {
                 break;
             }
@@ -94,7 +94,7 @@ internal static class CornellBoxPathTracerShaders
             state = state ^ (state >> 4);
             state = state * 0x27d4eb2du;
             state = state ^ (state >> 15);
-            var diskAngle = ((float)state * (1.0f / 4294967296.0f)) * 2.0f * Pi;
+            var diskAngle = ((float)state * (1.0f / 4294967296.0f)) * 2.0f * k_Pi;
 
             var lensOffset = right * (math.cos(diskAngle) * diskRadius) + up * (math.sin(diskAngle) * diskRadius);
             var focusPoint = cameraPosition + rayDirection * focusDistance;
@@ -108,7 +108,7 @@ internal static class CornellBoxPathTracerShaders
             var radianceZ = 0.0f;
             var previousWasSpecular = 1u;
 
-            for (uint bounce = 0u; bounce < 12u; bounce++) {
+            for (var bounce = 0u; bounce < 12u; bounce++) {
                 if (bounce >= bounceTotal) {
                     break;
                 }
@@ -119,7 +119,7 @@ internal static class CornellBoxPathTracerShaders
                 var hitNormal = new float3(0.0f, 0.0f, 0.0f);
                 var hitAlbedo = new float3(0.0f, 0.0f, 0.0f);
                 var hitEmission = new float3(0.0f, 0.0f, 0.0f);
-                var hitMaterial = Diffuse;
+                var hitMaterial = k_Diffuse;
 
                 {
                     var white = new float3(0.76f, 0.73f, 0.68f);
@@ -127,43 +127,43 @@ internal static class CornellBoxPathTracerShaders
                     var t = (-1.0f - rayOrigin.x) / rayDirection.x;
                     var point = rayOrigin + rayDirection * t;
                     if (point.y >= 0.0f && point.y <= 2.0f && point.z >= -1.0f && point.z <= 1.0f &&
-                        t > Epsilon && t < hitT) {
+                        t > k_Epsilon && t < hitT) {
                         hitT = t;
                         hitPosition = rayOrigin + rayDirection * t;
                         hitNormal = new float3(1.0f, 0.0f, 0.0f);
                         hitAlbedo = new float3(0.63f, 0.065f, 0.05f);
                         hitEmission = new float3(0.0f, 0.0f, 0.0f);
-                        hitMaterial = Diffuse;
+                        hitMaterial = k_Diffuse;
                     }
 
                     t = (1.0f - rayOrigin.x) / rayDirection.x;
                     point = rayOrigin + rayDirection * t;
                     if (point.y >= 0.0f && point.y <= 2.0f && point.z >= -1.0f && point.z <= 1.0f &&
-                        t > Epsilon && t < hitT) {
+                        t > k_Epsilon && t < hitT) {
                         hitT = t;
                         hitPosition = rayOrigin + rayDirection * t;
                         hitNormal = new float3(-1.0f, 0.0f, 0.0f);
                         hitAlbedo = new float3(0.12f, 0.45f, 0.15f);
                         hitEmission = new float3(0.0f, 0.0f, 0.0f);
-                        hitMaterial = Diffuse;
+                        hitMaterial = k_Diffuse;
                     }
 
                     t = (0.0f - rayOrigin.y) / rayDirection.y;
                     point = rayOrigin + rayDirection * t;
                     if (point.x >= -1.0f && point.x <= 1.0f && point.z >= -1.0f && point.z <= 1.0f &&
-                        t > Epsilon && t < hitT) {
+                        t > k_Epsilon && t < hitT) {
                         hitT = t;
                         hitPosition = rayOrigin + rayDirection * t;
                         hitNormal = new float3(0.0f, 1.0f, 0.0f);
                         hitAlbedo = white;
                         hitEmission = new float3(0.0f, 0.0f, 0.0f);
-                        hitMaterial = Diffuse;
+                        hitMaterial = k_Diffuse;
                     }
 
                     t = (2.0f - rayOrigin.y) / rayDirection.y;
                     point = rayOrigin + rayDirection * t;
                     if (point.x >= -1.0f && point.x <= 1.0f && point.z >= -1.0f && point.z <= 1.0f &&
-                        t > Epsilon && t < hitT) {
+                        t > k_Epsilon && t < hitT) {
                         var albedo = white;
                         var emission = new float3(0.0f, 0.0f, 0.0f);
                         if (math.abs(point.x) < 0.36f && point.z > -0.42f && point.z < 0.24f) {
@@ -175,19 +175,19 @@ internal static class CornellBoxPathTracerShaders
                         hitNormal = new float3(0.0f, -1.0f, 0.0f);
                         hitAlbedo = albedo;
                         hitEmission = emission;
-                        hitMaterial = Diffuse;
+                        hitMaterial = k_Diffuse;
                     }
 
                     t = (-1.0f - rayOrigin.z) / rayDirection.z;
                     point = rayOrigin + rayDirection * t;
                     if (point.x >= -1.0f && point.x <= 1.0f && point.y >= 0.0f && point.y <= 2.0f &&
-                        t > Epsilon && t < hitT) {
+                        t > k_Epsilon && t < hitT) {
                         hitT = t;
                         hitPosition = rayOrigin + rayDirection * t;
                         hitNormal = new float3(0.0f, 0.0f, 1.0f);
                         hitAlbedo = white;
                         hitEmission = new float3(0.0f, 0.0f, 0.0f);
-                        hitMaterial = Diffuse;
+                        hitMaterial = k_Diffuse;
                     }
                 }
 
@@ -214,7 +214,7 @@ internal static class CornellBoxPathTracerShaders
                     var nearT = math.max(math.max(nearest.x, nearest.y), nearest.z);
                     var farT = math.min(math.min(farthest.x, farthest.y), farthest.z);
 
-                    if (nearT > Epsilon && nearT < farT && nearT < hitT) {
+                    if (nearT > k_Epsilon && nearT < farT && nearT < hitT) {
                         var localNormalX = 0.0f;
                         var localNormalY = 0.0f;
                         var localNormalZ = 0.0f;
@@ -238,7 +238,7 @@ internal static class CornellBoxPathTracerShaders
                         hitNormal = normal;
                         hitAlbedo = new float3(0.74f, 0.70f, 0.63f);
                         hitEmission = new float3(0.0f, 0.0f, 0.0f);
-                        hitMaterial = Diffuse;
+                        hitMaterial = k_Diffuse;
                     }
                 }
 
@@ -265,7 +265,7 @@ internal static class CornellBoxPathTracerShaders
                     var nearT = math.max(math.max(nearest.x, nearest.y), nearest.z);
                     var farT = math.min(math.min(farthest.x, farthest.y), farthest.z);
 
-                    if (nearT > Epsilon && nearT < farT && nearT < hitT) {
+                    if (nearT > k_Epsilon && nearT < farT && nearT < hitT) {
                         var localNormalX = 0.0f;
                         var localNormalY = 0.0f;
                         var localNormalZ = 0.0f;
@@ -289,7 +289,7 @@ internal static class CornellBoxPathTracerShaders
                         hitNormal = normal;
                         hitAlbedo = new float3(0.70f, 0.72f, 0.69f);
                         hitEmission = new float3(0.0f, 0.0f, 0.0f);
-                        hitMaterial = Diffuse;
+                        hitMaterial = k_Diffuse;
                     }
                 }
 
@@ -303,14 +303,14 @@ internal static class CornellBoxPathTracerShaders
                     var discriminant = halfB * halfB - c;
                     if (discriminant > 0.0f) {
                         var root = -halfB - math.sqrt(discriminant);
-                        if (root > Epsilon && root < hitT) {
+                        if (root > k_Epsilon && root < hitT) {
                             var position = rayOrigin + rayDirection * root;
                             hitT = root;
                             hitPosition = position;
                             hitNormal = math.normalize(position - center);
                             hitAlbedo = new float3(0.92f, 0.76f, 0.45f);
                             hitEmission = new float3(0.0f, 0.0f, 0.0f);
-                            hitMaterial = Mirror;
+                            hitMaterial = k_Mirror;
                         }
                     }
                 }
@@ -336,219 +336,219 @@ internal static class CornellBoxPathTracerShaders
                     radianceZ += throughput.z * hitEmission.z * specularMask;
                     shouldBreak = true;
                 }
-                else if (hitMaterial == Mirror) {
+                else if (hitMaterial == k_Mirror) {
                     throughput = throughput * hitAlbedo;
-                    rayOrigin = hitPosition + hitNormal * (Epsilon * 2.0f);
+                    rayOrigin = hitPosition + hitNormal * (k_Epsilon * 2.0f);
                     rayDirection = math.reflect(rayDirection, hitNormal);
                     previousWasSpecular = 1u;
                 }
                 else {
-                // ---- sample_direct_light(hit, state) ----
-                {
-                    state = (state ^ 61u) ^ (state >> 16);
-                    state = state * 9u;
-                    state = state ^ (state >> 4);
-                    state = state * 0x27d4eb2du;
-                    state = state ^ (state >> 15);
-                    var lightSeedX = (float)state * (1.0f / 4294967296.0f);
-                    var lightPositionX = -0.36f + (0.36f - -0.36f) * lightSeedX;
+                    // ---- sample_direct_light(hit, state) ----
+                    {
+                        state = (state ^ 61u) ^ (state >> 16);
+                        state = state * 9u;
+                        state = state ^ (state >> 4);
+                        state = state * 0x27d4eb2du;
+                        state = state ^ (state >> 15);
+                        var lightSeedX = (float)state * (1.0f / 4294967296.0f);
+                        var lightPositionX = -0.36f + (0.36f - -0.36f) * lightSeedX;
 
-                    state = (state ^ 61u) ^ (state >> 16);
-                    state = state * 9u;
-                    state = state ^ (state >> 4);
-                    state = state * 0x27d4eb2du;
-                    state = state ^ (state >> 15);
-                    var lightSeedZ = (float)state * (1.0f / 4294967296.0f);
-                    var lightPositionZ = -0.42f + (0.24f - -0.42f) * lightSeedZ;
+                        state = (state ^ 61u) ^ (state >> 16);
+                        state = state * 9u;
+                        state = state ^ (state >> 4);
+                        state = state * 0x27d4eb2du;
+                        state = state ^ (state >> 15);
+                        var lightSeedZ = (float)state * (1.0f / 4294967296.0f);
+                        var lightPositionZ = -0.42f + (0.24f - -0.42f) * lightSeedZ;
 
-                    var lightPosition = new float3(lightPositionX, 1.999f, lightPositionZ);
-                    var toLight = lightPosition - hitPosition;
-                    var distanceSquared = math.dot(toLight, toLight);
-                    var distance = math.sqrt(distanceSquared);
-                    var lightDirection = toLight / distance;
-                    var surfaceCosine = math.max(0.0f, math.dot(hitNormal, lightDirection));
-                    var lightCosine = math.max(0.0f, lightDirection.y);
+                        var lightPosition = new float3(lightPositionX, 1.999f, lightPositionZ);
+                        var toLight = lightPosition - hitPosition;
+                        var distanceSquared = math.dot(toLight, toLight);
+                        var distance = math.sqrt(distanceSquared);
+                        var lightDirection = toLight / distance;
+                        var surfaceCosine = math.max(0.0f, math.dot(hitNormal, lightDirection));
+                        var lightCosine = math.max(0.0f, lightDirection.y);
 
-                    if (surfaceCosine > 0.0f && lightCosine > 0.0f) {
-                        var shadowOrigin = hitPosition + hitNormal * (Epsilon * 2.0f);
-                        var shadowDirection = lightDirection;
+                        if (surfaceCosine > 0.0f && lightCosine > 0.0f) {
+                            var shadowOrigin = hitPosition + hitNormal * (k_Epsilon * 2.0f);
+                            var shadowDirection = lightDirection;
 
-                        // ---- intersect_scene(shadow_ray) ----
-                        var blockerT = 1e30f;
-                        {
-                            // A shadow ray only needs the occlusion distance,
-                            // not albedo/normal/material — never reads `white`.
-                            var t = (-1.0f - shadowOrigin.x) / shadowDirection.x;
-                            var point = shadowOrigin + shadowDirection * t;
-                            if (point.y >= 0.0f && point.y <= 2.0f && point.z >= -1.0f && point.z <= 1.0f &&
-                                t > Epsilon && t < blockerT) {
-                                blockerT = t;
-                            }
-
-                            t = (1.0f - shadowOrigin.x) / shadowDirection.x;
-                            point = shadowOrigin + shadowDirection * t;
-                            if (point.y >= 0.0f && point.y <= 2.0f && point.z >= -1.0f && point.z <= 1.0f &&
-                                t > Epsilon && t < blockerT) {
-                                blockerT = t;
-                            }
-
-                            t = (0.0f - shadowOrigin.y) / shadowDirection.y;
-                            point = shadowOrigin + shadowDirection * t;
-                            if (point.x >= -1.0f && point.x <= 1.0f && point.z >= -1.0f && point.z <= 1.0f &&
-                                t > Epsilon && t < blockerT) {
-                                blockerT = t;
-                            }
-
-                            t = (2.0f - shadowOrigin.y) / shadowDirection.y;
-                            point = shadowOrigin + shadowDirection * t;
-                            if (point.x >= -1.0f && point.x <= 1.0f && point.z >= -1.0f && point.z <= 1.0f &&
-                                t > Epsilon && t < blockerT) {
-                                blockerT = t;
-                            }
-
-                            t = (-1.0f - shadowOrigin.z) / shadowDirection.z;
-                            point = shadowOrigin + shadowDirection * t;
-                            if (point.x >= -1.0f && point.x <= 1.0f && point.y >= 0.0f && point.y <= 2.0f &&
-                                t > Epsilon && t < blockerT) {
-                                blockerT = t;
-                            }
-
-                            // Shadow-ray box test #1 (same box as the primary-ray test above).
+                            // ---- intersect_scene(shadow_ray) ----
+                            var blockerT = 1e30f;
                             {
-                                var angle = -0.24f;
-                                var center = new float3(-0.38f, 0.34f, 0.15f);
-                                var halfExtent = new float3(0.38f, 0.34f, 0.38f);
-                                var cosine = math.cos(angle);
-                                var sine = math.sin(angle);
-                                var relativeOrigin = shadowOrigin - center;
-                                var localOrigin = new float3(
-                                    cosine * relativeOrigin.x + sine * relativeOrigin.z,
-                                    relativeOrigin.y,
-                                    -sine * relativeOrigin.x + cosine * relativeOrigin.z);
-                                var localDirection = new float3(
-                                    cosine * shadowDirection.x + sine * shadowDirection.z,
-                                    shadowDirection.y,
-                                    -sine * shadowDirection.x + cosine * shadowDirection.z);
-                                var inverseDirection = new float3(1.0f, 1.0f, 1.0f) / localDirection;
-                                var first = (-halfExtent - localOrigin) * inverseDirection;
-                                var second = (halfExtent - localOrigin) * inverseDirection;
-                                var nearest = math.min(first, second);
-                                var farthest = math.max(first, second);
-                                var nearT = math.max(math.max(nearest.x, nearest.y), nearest.z);
-                                var farT = math.min(math.min(farthest.x, farthest.y), farthest.z);
-                                if (nearT > Epsilon && nearT < farT && nearT < blockerT) {
-                                    blockerT = nearT;
+                                // A shadow ray only needs the occlusion distance,
+                                // not albedo/normal/material — never reads `white`.
+                                var t = (-1.0f - shadowOrigin.x) / shadowDirection.x;
+                                var point = shadowOrigin + shadowDirection * t;
+                                if (point.y >= 0.0f && point.y <= 2.0f && point.z >= -1.0f && point.z <= 1.0f &&
+                                    t > k_Epsilon && t < blockerT) {
+                                    blockerT = t;
+                                }
+
+                                t = (1.0f - shadowOrigin.x) / shadowDirection.x;
+                                point = shadowOrigin + shadowDirection * t;
+                                if (point.y >= 0.0f && point.y <= 2.0f && point.z >= -1.0f && point.z <= 1.0f &&
+                                    t > k_Epsilon && t < blockerT) {
+                                    blockerT = t;
+                                }
+
+                                t = (0.0f - shadowOrigin.y) / shadowDirection.y;
+                                point = shadowOrigin + shadowDirection * t;
+                                if (point.x >= -1.0f && point.x <= 1.0f && point.z >= -1.0f && point.z <= 1.0f &&
+                                    t > k_Epsilon && t < blockerT) {
+                                    blockerT = t;
+                                }
+
+                                t = (2.0f - shadowOrigin.y) / shadowDirection.y;
+                                point = shadowOrigin + shadowDirection * t;
+                                if (point.x >= -1.0f && point.x <= 1.0f && point.z >= -1.0f && point.z <= 1.0f &&
+                                    t > k_Epsilon && t < blockerT) {
+                                    blockerT = t;
+                                }
+
+                                t = (-1.0f - shadowOrigin.z) / shadowDirection.z;
+                                point = shadowOrigin + shadowDirection * t;
+                                if (point.x >= -1.0f && point.x <= 1.0f && point.y >= 0.0f && point.y <= 2.0f &&
+                                    t > k_Epsilon && t < blockerT) {
+                                    blockerT = t;
+                                }
+
+                                // Shadow-ray box test #1 (same box as the primary-ray test above).
+                                {
+                                    var angle = -0.24f;
+                                    var center = new float3(-0.38f, 0.34f, 0.15f);
+                                    var halfExtent = new float3(0.38f, 0.34f, 0.38f);
+                                    var cosine = math.cos(angle);
+                                    var sine = math.sin(angle);
+                                    var relativeOrigin = shadowOrigin - center;
+                                    var localOrigin = new float3(
+                                        cosine * relativeOrigin.x + sine * relativeOrigin.z,
+                                        relativeOrigin.y,
+                                        -sine * relativeOrigin.x + cosine * relativeOrigin.z);
+                                    var localDirection = new float3(
+                                        cosine * shadowDirection.x + sine * shadowDirection.z,
+                                        shadowDirection.y,
+                                        -sine * shadowDirection.x + cosine * shadowDirection.z);
+                                    var inverseDirection = new float3(1.0f, 1.0f, 1.0f) / localDirection;
+                                    var first = (-halfExtent - localOrigin) * inverseDirection;
+                                    var second = (halfExtent - localOrigin) * inverseDirection;
+                                    var nearest = math.min(first, second);
+                                    var farthest = math.max(first, second);
+                                    var nearT = math.max(math.max(nearest.x, nearest.y), nearest.z);
+                                    var farT = math.min(math.min(farthest.x, farthest.y), farthest.z);
+                                    if (nearT > k_Epsilon && nearT < farT && nearT < blockerT) {
+                                        blockerT = nearT;
+                                    }
+                                }
+
+                                // Shadow-ray box test #2.
+                                {
+                                    var angle = 0.30f;
+                                    var center = new float3(0.39f, 0.69f, -0.29f);
+                                    var halfExtent = new float3(0.31f, 0.69f, 0.31f);
+                                    var cosine = math.cos(angle);
+                                    var sine = math.sin(angle);
+                                    var relativeOrigin = shadowOrigin - center;
+                                    var localOrigin = new float3(
+                                        cosine * relativeOrigin.x + sine * relativeOrigin.z,
+                                        relativeOrigin.y,
+                                        -sine * relativeOrigin.x + cosine * relativeOrigin.z);
+                                    var localDirection = new float3(
+                                        cosine * shadowDirection.x + sine * shadowDirection.z,
+                                        shadowDirection.y,
+                                        -sine * shadowDirection.x + cosine * shadowDirection.z);
+                                    var inverseDirection = new float3(1.0f, 1.0f, 1.0f) / localDirection;
+                                    var first = (-halfExtent - localOrigin) * inverseDirection;
+                                    var second = (halfExtent - localOrigin) * inverseDirection;
+                                    var nearest = math.min(first, second);
+                                    var farthest = math.max(first, second);
+                                    var nearT = math.max(math.max(nearest.x, nearest.y), nearest.z);
+                                    var farT = math.min(math.min(farthest.x, farthest.y), farthest.z);
+                                    if (nearT > k_Epsilon && nearT < farT && nearT < blockerT) {
+                                        blockerT = nearT;
+                                    }
+                                }
+
+                                var sphereCenter = new float3(-0.38f, 0.88f, 0.15f);
+                                var sphereRadius = 0.22f;
+                                var sphereOffset = shadowOrigin - sphereCenter;
+                                var halfB = math.dot(sphereOffset, shadowDirection);
+                                var sphereC = math.dot(sphereOffset, sphereOffset) - sphereRadius * sphereRadius;
+                                var discriminant = halfB * halfB - sphereC;
+                                if (discriminant > 0.0f) {
+                                    var root = -halfB - math.sqrt(discriminant);
+                                    if (root > k_Epsilon && root < blockerT) {
+                                        blockerT = root;
+                                    }
                                 }
                             }
+                            // ---- end intersect_scene(shadow_ray) ----
 
-                            // Shadow-ray box test #2.
-                            {
-                                var angle = 0.30f;
-                                var center = new float3(0.39f, 0.69f, -0.29f);
-                                var halfExtent = new float3(0.31f, 0.69f, 0.31f);
-                                var cosine = math.cos(angle);
-                                var sine = math.sin(angle);
-                                var relativeOrigin = shadowOrigin - center;
-                                var localOrigin = new float3(
-                                    cosine * relativeOrigin.x + sine * relativeOrigin.z,
-                                    relativeOrigin.y,
-                                    -sine * relativeOrigin.x + cosine * relativeOrigin.z);
-                                var localDirection = new float3(
-                                    cosine * shadowDirection.x + sine * shadowDirection.z,
-                                    shadowDirection.y,
-                                    -sine * shadowDirection.x + cosine * shadowDirection.z);
-                                var inverseDirection = new float3(1.0f, 1.0f, 1.0f) / localDirection;
-                                var first = (-halfExtent - localOrigin) * inverseDirection;
-                                var second = (halfExtent - localOrigin) * inverseDirection;
-                                var nearest = math.min(first, second);
-                                var farthest = math.max(first, second);
-                                var nearT = math.max(math.max(nearest.x, nearest.y), nearest.z);
-                                var farT = math.min(math.min(farthest.x, farthest.y), farthest.z);
-                                if (nearT > Epsilon && nearT < farT && nearT < blockerT) {
-                                    blockerT = nearT;
-                                }
-                            }
-
-                            var sphereCenter = new float3(-0.38f, 0.88f, 0.15f);
-                            var sphereRadius = 0.22f;
-                            var sphereOffset = shadowOrigin - sphereCenter;
-                            var halfB = math.dot(sphereOffset, shadowDirection);
-                            var sphereC = math.dot(sphereOffset, sphereOffset) - sphereRadius * sphereRadius;
-                            var discriminant = halfB * halfB - sphereC;
-                            if (discriminant > 0.0f) {
-                                var root = -halfB - math.sqrt(discriminant);
-                                if (root > Epsilon && root < blockerT) {
-                                    blockerT = root;
-                                }
+                            if (blockerT >= distance - 0.01f) {
+                                var lightArea = 0.72f * 0.66f;
+                                var lightEmissionX = 18.0f;
+                                var lightEmissionY = 15.0f;
+                                var lightEmissionZ = 10.5f;
+                                var factor = surfaceCosine * lightCosine * lightArea / (k_Pi * distanceSquared);
+                                radianceX += throughput.x * hitAlbedo.x * lightEmissionX * factor;
+                                radianceY += throughput.y * hitAlbedo.y * lightEmissionY * factor;
+                                radianceZ += throughput.z * hitAlbedo.z * lightEmissionZ * factor;
                             }
                         }
-                        // ---- end intersect_scene(shadow_ray) ----
+                    }
+                    // ---- end sample_direct_light ----
 
-                        if (blockerT >= distance - 0.01f) {
-                            var lightArea = 0.72f * 0.66f;
-                            var lightEmissionX = 18.0f;
-                            var lightEmissionY = 15.0f;
-                            var lightEmissionZ = 10.5f;
-                            var factor = surfaceCosine * lightCosine * lightArea / (Pi * distanceSquared);
-                            radianceX += throughput.x * hitAlbedo.x * lightEmissionX * factor;
-                            radianceY += throughput.y * hitAlbedo.y * lightEmissionY * factor;
-                            radianceZ += throughput.z * hitAlbedo.z * lightEmissionZ * factor;
+                    throughput = throughput * hitAlbedo;
+                    previousWasSpecular = 0u;
+
+                    if (bounce >= 3u) {
+                        var survival = math.max(0.1f, math.min(0.95f, math.max(math.max(throughput.x, throughput.y), throughput.z)));
+                        state = (state ^ 61u) ^ (state >> 16);
+                        state = state * 9u;
+                        state = state ^ (state >> 4);
+                        state = state * 0x27d4eb2du;
+                        state = state ^ (state >> 15);
+                        var survivalSeed = (float)state * (1.0f / 4294967296.0f);
+                        if (survivalSeed > survival) {
+                            shouldBreak = true;
+                        }
+                        else {
+                            throughput = throughput / survival;
                         }
                     }
-                }
-                // ---- end sample_direct_light ----
 
-                throughput = throughput * hitAlbedo;
-                previousWasSpecular = 0u;
+                    if (!shouldBreak) {
+                        // ---- cosine_hemisphere(hit.normal, state) ----
+                        state = (state ^ 61u) ^ (state >> 16);
+                        state = state * 9u;
+                        state = state ^ (state >> 4);
+                        state = state * 0x27d4eb2du;
+                        state = state ^ (state >> 15);
+                        var hemisphereSeed0 = (float)state * (1.0f / 4294967296.0f);
 
-                if (bounce >= 3u) {
-                    var survival = math.max(0.1f, math.min(0.95f, math.max(math.max(throughput.x, throughput.y), throughput.z)));
-                    state = (state ^ 61u) ^ (state >> 16);
-                    state = state * 9u;
-                    state = state ^ (state >> 4);
-                    state = state * 0x27d4eb2du;
-                    state = state ^ (state >> 15);
-                    var survivalSeed = (float)state * (1.0f / 4294967296.0f);
-                    if (survivalSeed > survival) {
-                        shouldBreak = true;
+                        state = (state ^ 61u) ^ (state >> 16);
+                        state = state * 9u;
+                        state = state ^ (state >> 4);
+                        state = state * 0x27d4eb2du;
+                        state = state ^ (state >> 15);
+                        var hemisphereSeed1 = (float)state * (1.0f / 4294967296.0f);
+
+                        var hemisphereRadius = math.sqrt(hemisphereSeed0);
+                        var hemisphereAngle = 2.0f * k_Pi * hemisphereSeed1;
+                        var localX = hemisphereRadius * math.cos(hemisphereAngle);
+                        var localY = math.sqrt(math.max(0.0f, 1.0f - hemisphereSeed0));
+                        var localZ = hemisphereRadius * math.sin(hemisphereAngle);
+                        var helper = new float3(0.0f, 1.0f, 0.0f);
+                        if (math.abs(hitNormal.y) > 0.999f) {
+                            helper = new float3(1.0f, 0.0f, 0.0f);
+                        }
+                        var tangent = math.normalize(math.cross(helper, hitNormal));
+                        var bitangent = math.cross(hitNormal, tangent);
+                        var bounceDirection = math.normalize(tangent * localX + hitNormal * localY + bitangent * localZ);
+
+                        rayOrigin = hitPosition + hitNormal * (k_Epsilon * 2.0f);
+                        rayDirection = bounceDirection;
                     }
-                    else {
-                        throughput = throughput / survival;
-                    }
-                }
-
-                if (!shouldBreak) {
-                    // ---- cosine_hemisphere(hit.normal, state) ----
-                    state = (state ^ 61u) ^ (state >> 16);
-                    state = state * 9u;
-                    state = state ^ (state >> 4);
-                    state = state * 0x27d4eb2du;
-                    state = state ^ (state >> 15);
-                    var hemisphereSeed0 = (float)state * (1.0f / 4294967296.0f);
-
-                    state = (state ^ 61u) ^ (state >> 16);
-                    state = state * 9u;
-                    state = state ^ (state >> 4);
-                    state = state * 0x27d4eb2du;
-                    state = state ^ (state >> 15);
-                    var hemisphereSeed1 = (float)state * (1.0f / 4294967296.0f);
-
-                    var hemisphereRadius = math.sqrt(hemisphereSeed0);
-                    var hemisphereAngle = 2.0f * Pi * hemisphereSeed1;
-                    var localX = hemisphereRadius * math.cos(hemisphereAngle);
-                    var localY = math.sqrt(math.max(0.0f, 1.0f - hemisphereSeed0));
-                    var localZ = hemisphereRadius * math.sin(hemisphereAngle);
-                    var helper = new float3(0.0f, 1.0f, 0.0f);
-                    if (math.abs(hitNormal.y) > 0.999f) {
-                        helper = new float3(1.0f, 0.0f, 0.0f);
-                    }
-                    var tangent = math.normalize(math.cross(helper, hitNormal));
-                    var bitangent = math.cross(hitNormal, tangent);
-                    var bounceDirection = math.normalize(tangent * localX + hitNormal * localY + bitangent * localZ);
-
-                    rayOrigin = hitPosition + hitNormal * (Epsilon * 2.0f);
-                    rayDirection = bounceDirection;
-                }
                 } // end diffuse-surface else branch
 
                 if (shouldBreak) {

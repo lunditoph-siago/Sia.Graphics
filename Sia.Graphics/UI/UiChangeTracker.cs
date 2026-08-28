@@ -138,7 +138,7 @@ public sealed class UiChangeTracker : IAddon
 
     private interface IInvalidation
     {
-        static abstract void Apply(UiChangeTracker tracker, Entity target);
+        public static abstract void Apply(UiChangeTracker tracker, Entity target);
     }
 
     private readonly struct HierarchyInvalidation : IInvalidation

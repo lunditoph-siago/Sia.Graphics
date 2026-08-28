@@ -11,7 +11,7 @@ internal enum RenderGraphFormatAspects : byte
 
 internal static class RenderGraphValidation
 {
-    private const RenderGraphBufferUsage AllBufferUsage =
+    private const RenderGraphBufferUsage k_AllBufferUsage =
         RenderGraphBufferUsage.MapRead |
         RenderGraphBufferUsage.MapWrite |
         RenderGraphBufferUsage.CopySource |
@@ -23,7 +23,7 @@ internal static class RenderGraphValidation
         RenderGraphBufferUsage.Indirect |
         RenderGraphBufferUsage.QueryResolve;
 
-    private const RenderGraphTextureUsage AllTextureUsage =
+    private const RenderGraphTextureUsage k_AllTextureUsage =
         RenderGraphTextureUsage.CopySource |
         RenderGraphTextureUsage.CopyDestination |
         RenderGraphTextureUsage.TextureBinding |
@@ -34,8 +34,7 @@ internal static class RenderGraphValidation
     public static void Validate(RenderGraphBufferDescriptor descriptor)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(descriptor.Name);
-        if (descriptor.Size == 0)
-        {
+        if (descriptor.Size == 0) {
             throw new ArgumentOutOfRangeException(
                 nameof(descriptor),
                 "A render graph buffer must have a non-zero size.");
@@ -48,8 +47,7 @@ internal static class RenderGraphValidation
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(descriptor.Name);
         if (descriptor.Format == RenderGraphTextureFormat.Undefined ||
-            !Enum.IsDefined(descriptor.Format))
-        {
+            !Enum.IsDefined(descriptor.Format)) {
             throw new ArgumentOutOfRangeException(
                 nameof(descriptor),
                 "A render graph texture must have a defined format.");
@@ -57,14 +55,12 @@ internal static class RenderGraphValidation
         if (descriptor.Width == 0 ||
             descriptor.Height == 0 ||
             descriptor.DepthOrArrayLayers == 0 ||
-            descriptor.MipLevelCount == 0)
-        {
+            descriptor.MipLevelCount == 0) {
             throw new ArgumentOutOfRangeException(
                 nameof(descriptor),
                 "Texture dimensions and mip level count must be non-zero.");
         }
-        if (descriptor.SampleCount is not (1 or 4))
-        {
+        if (descriptor.SampleCount is not (1 or 4)) {
             throw new ArgumentOutOfRangeException(
                 nameof(descriptor),
                 "Texture sample count must be 1 or 4.");
@@ -72,15 +68,13 @@ internal static class RenderGraphValidation
         if (descriptor.Dimension == RenderGraphTextureDimension.D1 &&
             (descriptor.Height != 1 ||
              descriptor.DepthOrArrayLayers != 1 ||
-             descriptor.SampleCount != 1))
-        {
+             descriptor.SampleCount != 1)) {
             throw new ArgumentException(
                 "A 1D texture must have height, layer count, and sample count equal to 1.",
                 nameof(descriptor));
         }
         if (descriptor.Dimension == RenderGraphTextureDimension.D3 &&
-            descriptor.SampleCount != 1)
-        {
+            descriptor.SampleCount != 1) {
             throw new ArgumentException(
                 "A 3D texture cannot be multisampled.",
                 nameof(descriptor));
@@ -88,16 +82,14 @@ internal static class RenderGraphValidation
         if (descriptor.SampleCount > 1 &&
             (descriptor.Dimension != RenderGraphTextureDimension.D2 ||
              descriptor.DepthOrArrayLayers != 1 ||
-             descriptor.MipLevelCount != 1))
-        {
+             descriptor.MipLevelCount != 1)) {
             throw new ArgumentException(
                 "A multisampled texture must be a single-layer 2D texture with one mip level.",
                 nameof(descriptor));
         }
 
         var maximumMipLevelCount = GetMaximumMipLevelCount(descriptor);
-        if (descriptor.MipLevelCount > maximumMipLevelCount)
-        {
+        if (descriptor.MipLevelCount > maximumMipLevelCount) {
             throw new ArgumentOutOfRangeException(
                 nameof(descriptor),
                 $"Texture mip level count exceeds the maximum {maximumMipLevelCount}.");
@@ -108,8 +100,7 @@ internal static class RenderGraphValidation
 
     public static void Validate(RenderGraphBufferUsage usage, string parameterName)
     {
-        if ((usage & ~AllBufferUsage) != 0)
-        {
+        if ((usage & ~k_AllBufferUsage) != 0) {
             throw new ArgumentOutOfRangeException(
                 parameterName,
                 "Buffer usage contains unknown flags.");
@@ -118,8 +109,7 @@ internal static class RenderGraphValidation
 
     public static void Validate(RenderGraphTextureUsage usage, string parameterName)
     {
-        if ((usage & ~AllTextureUsage) != 0)
-        {
+        if ((usage & ~k_AllTextureUsage) != 0) {
             throw new ArgumentOutOfRangeException(
                 parameterName,
                 "Texture usage contains unknown flags.");
@@ -130,8 +120,7 @@ internal static class RenderGraphValidation
         RenderGraphBufferDescriptor descriptor,
         RenderGraphBufferRange range)
     {
-        if (range.Offset >= descriptor.Size)
-        {
+        if (range.Offset >= descriptor.Size) {
             throw new ArgumentOutOfRangeException(
                 nameof(range),
                 "Buffer range starts outside the buffer.");
@@ -140,8 +129,7 @@ internal static class RenderGraphValidation
         var size = range.Size == 0
             ? descriptor.Size - range.Offset
             : range.Size;
-        if (size > descriptor.Size - range.Offset)
-        {
+        if (size > descriptor.Size - range.Offset) {
             throw new ArgumentOutOfRangeException(
                 nameof(range),
                 "Buffer range extends beyond the buffer.");
@@ -155,8 +143,7 @@ internal static class RenderGraphValidation
         RenderGraphTextureSubresourceRange subresources)
     {
         if (subresources.BaseMipLevel >= descriptor.MipLevelCount ||
-            subresources.BaseArrayLayer >= descriptor.DepthOrArrayLayers)
-        {
+            subresources.BaseArrayLayer >= descriptor.DepthOrArrayLayers) {
             throw new ArgumentOutOfRangeException(
                 nameof(subresources),
                 "Texture subresource range starts outside the texture.");
@@ -169,16 +156,14 @@ internal static class RenderGraphValidation
             ? descriptor.DepthOrArrayLayers - subresources.BaseArrayLayer
             : subresources.ArrayLayerCount;
         if (mipLevelCount > descriptor.MipLevelCount - subresources.BaseMipLevel ||
-            arrayLayerCount > descriptor.DepthOrArrayLayers - subresources.BaseArrayLayer)
-        {
+            arrayLayerCount > descriptor.DepthOrArrayLayers - subresources.BaseArrayLayer) {
             throw new ArgumentOutOfRangeException(
                 nameof(subresources),
                 "Texture subresource range extends beyond the texture.");
         }
         if (descriptor.Dimension == RenderGraphTextureDimension.D3 &&
             (subresources.BaseArrayLayer != 0 ||
-             arrayLayerCount != descriptor.DepthOrArrayLayers))
-        {
+             arrayLayerCount != descriptor.DepthOrArrayLayers)) {
             throw new ArgumentException(
                 "3D texture accesses may select mip levels but not individual depth slices.",
                 nameof(subresources));
@@ -188,8 +173,7 @@ internal static class RenderGraphValidation
         var requestedAspects = GetRequestedAspects(
             availableAspects,
             subresources.Aspect);
-        if (requestedAspects == RenderGraphFormatAspects.None)
-        {
+        if (requestedAspects == RenderGraphFormatAspects.None) {
             throw new ArgumentException(
                 "The selected aspect is not present in the texture format.",
                 nameof(subresources));
@@ -265,8 +249,7 @@ internal static class RenderGraphValidation
         };
 
         var count = 0u;
-        do
-        {
+        do {
             count++;
             largestDimension >>= 1;
         }

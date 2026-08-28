@@ -8,8 +8,8 @@ namespace Sia.Spirv.Bootstrap;
 
 internal static class WorkloadBootstrapper
 {
-    private const string ManifestId = "sia.spirv.workload";
-    private const string TargetsResourceName =
+    private const string k_ManifestId = "sia.spirv.workload";
+    private const string k_TargetsResourceName =
         "Sia.Spirv.Bootstrap.WorkloadManifest.targets";
 
     public static async Task<int> RunAsync(
@@ -23,7 +23,7 @@ internal static class WorkloadBootstrapper
             sdk.RootDirectory,
             "sdk-manifests",
             sdk.FeatureBand,
-            ManifestId,
+            k_ManifestId,
             PackageInfo.Version);
         Directory.CreateDirectory(manifestDirectory);
         WriteAtomically(
@@ -39,8 +39,7 @@ internal static class WorkloadBootstrapper
             return 0;
         }
 
-        var startInfo = new ProcessStartInfo(sdk.DotNetPath)
-        {
+        var startInfo = new ProcessStartInfo(sdk.DotNetPath) {
             UseShellExecute = false
         };
         foreach (var argument in new[]
@@ -62,15 +61,12 @@ internal static class WorkloadBootstrapper
 
     internal static string CreateManifestJson(string version)
     {
-        var manifest = new Dictionary<string, object?>
-        {
+        var manifest = new Dictionary<string, object?> {
             ["version"] = version,
             ["description"] =
                 "Sia C# to SPIR-V compiler powered by the LLVM 23 SPIR-V backend.",
-            ["workloads"] = new Dictionary<string, object?>
-            {
-                ["spirv-tools"] = new Dictionary<string, object?>
-                {
+            ["workloads"] = new Dictionary<string, object?> {
+                ["spirv-tools"] = new Dictionary<string, object?> {
                     ["description"] =
                         "Sia C# to SPIR-V compiler and LLVM/Khronos validation toolchain",
                     ["packs"] = new[]
@@ -85,19 +81,15 @@ internal static class WorkloadBootstrapper
                     }
                 }
             },
-            ["packs"] = new Dictionary<string, object?>
-            {
-                ["Sia.Spirv.Sdk"] = new Dictionary<string, object?>
-                {
+            ["packs"] = new Dictionary<string, object?> {
+                ["Sia.Spirv.Sdk"] = new Dictionary<string, object?> {
                     ["kind"] = "sdk",
                     ["version"] = version
                 },
-                ["Sia.Spirv.Toolchain"] = new Dictionary<string, object?>
-                {
+                ["Sia.Spirv.Toolchain"] = new Dictionary<string, object?> {
                     ["kind"] = "sdk",
                     ["version"] = version,
-                    ["alias-to"] = new Dictionary<string, string>
-                    {
+                    ["alias-to"] = new Dictionary<string, string> {
                         ["win-x64"] = "Sia.Spirv.Toolchain.win-x64",
                         ["linux-x64"] = "Sia.Spirv.Toolchain.linux-x64"
                     }
@@ -124,9 +116,9 @@ internal static class WorkloadBootstrapper
     private static string ReadTargets()
     {
         using var stream = typeof(WorkloadBootstrapper).Assembly
-            .GetManifestResourceStream(TargetsResourceName)
+            .GetManifestResourceStream(k_TargetsResourceName)
             ?? throw new InvalidOperationException(
-                $"Embedded resource '{TargetsResourceName}' was not found.");
+                $"Embedded resource '{k_TargetsResourceName}' was not found.");
         using var reader = new StreamReader(stream, Encoding.UTF8);
         return reader.ReadToEnd();
     }

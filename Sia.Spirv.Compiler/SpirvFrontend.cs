@@ -121,14 +121,11 @@ public sealed class SpirvFrontend
                     Convert.ToUInt32(value.FixedArguments[0].Value),
                     Convert.ToUInt32(value.FixedArguments[1].Value),
                     Convert.ToUInt32(value.FixedArguments[2].Value));
-            }
-            else if (attributeName == _vertexAttributeName) {
+            } else if (attributeName == _vertexAttributeName) {
                 currentStage = SpirvShaderStage.Vertex;
-            }
-            else if (attributeName == _fragmentAttributeName) {
+            } else if (attributeName == _fragmentAttributeName) {
                 currentStage = SpirvShaderStage.Fragment;
-            }
-            else {
+            } else {
                 continue;
             }
 
@@ -198,43 +195,152 @@ public sealed class SpirvFrontend
         var parameters = new SpirvKernelParameter[signature.ParameterTypes.Length];
         for (var position = 0; position < signature.ParameterTypes.Length; position++) {
             var type = signature.ParameterTypes[position];
-            var (kind, scalarType) = DecodeParameterType(type);
+            var (kind, scalarType, structLayout) = DecodeParameterType(reader, type);
             parameters[position] = new SpirvKernelParameter(
                 position < names.Length ? names[position] : $"arg{position}",
                 position,
                 kind,
-                scalarType);
+                scalarType,
+                structLayout);
         }
         return parameters;
     }
 
-    private static (SpirvKernelParameterKind Kind, SpirvScalarType ScalarType)
-        DecodeParameterType(KernelType type)
+    private static (
+        SpirvKernelParameterKind Kind,
+        SpirvScalarType ScalarType,
+        SpirvStructLayout? StructLayout)
+        DecodeParameterType(MetadataReader reader, KernelType type)
     {
         if (type.Name == "Sia.Spirv.Texture2D") {
-            return (SpirvKernelParameterKind.SampledTexture2D, SpirvScalarType.Float32);
+            return (SpirvKernelParameterKind.SampledTexture2D, SpirvScalarType.Float32, null);
         }
         if (type.Name == "Sia.Spirv.Texture2DArray") {
-            return (SpirvKernelParameterKind.SampledTexture2DArray, SpirvScalarType.Float32);
+            return (SpirvKernelParameterKind.SampledTexture2DArray, SpirvScalarType.Float32, null);
         }
         if (type.Name == "Sia.Spirv.Sampler") {
-            return (SpirvKernelParameterKind.Sampler, SpirvScalarType.Float32);
+            return (SpirvKernelParameterKind.Sampler, SpirvScalarType.Float32, null);
         }
         if (type.Name == "Sia.Spirv.ReadOnlyStorageBuffer`1" && type.ElementType != null) {
-            return (
-                SpirvKernelParameterKind.ReadOnlyStorageBuffer,
-                DecodeScalarType(type.ElementType));
+            var (elementType, layout) = DecodeBufferElementType(reader, type.ElementType);
+            return (SpirvKernelParameterKind.ReadOnlyStorageBuffer, elementType, layout);
         }
         if (type.Name == "Sia.Spirv.StorageBuffer`1" && type.ElementType != null) {
-            return (SpirvKernelParameterKind.StorageBuffer, DecodeScalarType(type.ElementType));
+            var (elementType, layout) = DecodeBufferElementType(reader, type.ElementType);
+            return (SpirvKernelParameterKind.StorageBuffer, elementType, layout);
         }
-        return (SpirvKernelParameterKind.PushConstant, DecodeScalarType(type));
+        if (type.Name == "Sia.Spirv.WorkgroupMemory`1" && type.ElementType != null) {
+            return (
+                SpirvKernelParameterKind.WorkgroupMemory,
+                DecodeScalarType(type.ElementType),
+                null);
+        }
+        return (SpirvKernelParameterKind.PushConstant, DecodePushConstantType(type), null);
     }
 
-    private static SpirvScalarType DecodeScalarType(KernelType type) => type.Name switch {
+    private static (SpirvScalarType Type, SpirvStructLayout? Layout)
+        DecodeBufferElementType(MetadataReader reader, KernelType type)
+    {
+        if (TryDecodeScalarType(type, out var scalarType)) {
+            return (scalarType, null);
+        }
+        return (SpirvScalarType.Struct, DecodeStructLayout(reader, type.Name));
+    }
+
+    private static SpirvStructLayout DecodeStructLayout(MetadataReader reader, string typeName)
+    {
+        var typeHandle = reader.TypeDefinitions.FirstOrDefault(handle =>
+            MetadataNames.GetTypeName(reader, handle) == typeName);
+        if (typeHandle.IsNil) {
+            throw new InvalidDataException(
+                $"Storage-buffer struct '{typeName}' must be declared in the shader assembly.");
+        }
+        var definition = reader.GetTypeDefinition(typeHandle);
+        if ((definition.Attributes & TypeAttributes.LayoutMask) != TypeAttributes.SequentialLayout) {
+            throw new InvalidDataException(
+                $"Storage-buffer struct '{typeName}' must use sequential layout.");
+        }
+
+        var fields = new List<SpirvStructField>();
+        var offset = 0;
+        var structAlignment = 1;
+        foreach (var fieldHandle in definition.GetFields()) {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if ((field.Attributes & FieldAttributes.Static) != 0) {
+                continue;
+            }
+            var fieldType = field.DecodeSignature(new KernelTypeProvider(), genericContext: null);
+            if (!TryDecodeScalarType(fieldType, out var scalarType)) {
+                throw new InvalidDataException(
+                    $"Storage-buffer struct field '{typeName}.{reader.GetString(field.Name)}' " +
+                    $"has unsupported type '{fieldType.Name}'.");
+            }
+            var alignment = GetTypeAlignment(scalarType);
+            var size = GetTypeSize(scalarType);
+            offset = AlignUp(offset, alignment);
+            fields.Add(new SpirvStructField(
+                reader.GetString(field.Name), scalarType, offset, alignment, size));
+            offset += size;
+            structAlignment = Math.Max(structAlignment, alignment);
+        }
+        if (fields.Count == 0) {
+            throw new InvalidDataException($"Storage-buffer struct '{typeName}' has no instance fields.");
+        }
+        var sizeAligned = AlignUp(offset, structAlignment);
+        return new SpirvStructLayout(
+            typeName,
+            structAlignment,
+            sizeAligned,
+            sizeAligned,
+            fields);
+    }
+
+    private static SpirvScalarType DecodePushConstantType(KernelType type) => type.Name switch {
         "System.Int32" => SpirvScalarType.Int32,
         "System.UInt32" => SpirvScalarType.UInt32,
         "System.Single" => SpirvScalarType.Float32,
-        _ => throw new InvalidDataException($"Kernel parameter type '{type.Name}' is not supported.")
+        _ => throw new InvalidDataException(
+            $"Push-constant type '{type.Name}' is not supported; use a storage buffer for vector data.")
     };
+
+    private static SpirvScalarType DecodeScalarType(KernelType type) =>
+        TryDecodeScalarType(type, out var scalarType)
+            ? scalarType
+            : throw new InvalidDataException($"Kernel parameter type '{type.Name}' is not supported.");
+
+    private static bool TryDecodeScalarType(KernelType type, out SpirvScalarType scalarType)
+    {
+        scalarType = type.Name switch {
+            "System.Int32" => SpirvScalarType.Int32,
+            "System.UInt32" => SpirvScalarType.UInt32,
+            "System.Single" => SpirvScalarType.Float32,
+            "Sia.Math.int2" => SpirvScalarType.Int32x2,
+            "Sia.Math.int3" => SpirvScalarType.Int32x3,
+            "Sia.Math.int4" => SpirvScalarType.Int32x4,
+            "Sia.Math.uint2" => SpirvScalarType.UInt32x2,
+            "Sia.Math.uint3" => SpirvScalarType.UInt32x3,
+            "Sia.Math.uint4" => SpirvScalarType.UInt32x4,
+            "Sia.Math.float2" => SpirvScalarType.Float32x2,
+            "Sia.Math.float3" => SpirvScalarType.Float32x3,
+            "Sia.Math.float4" => SpirvScalarType.Float32x4,
+            _ => SpirvScalarType.Struct
+        };
+        return scalarType != SpirvScalarType.Struct;
+    }
+
+    private static int GetTypeAlignment(SpirvScalarType type) => type switch {
+        SpirvScalarType.Int32 or SpirvScalarType.UInt32 or SpirvScalarType.Float32 => 4,
+        SpirvScalarType.Int32x2 or SpirvScalarType.UInt32x2 or SpirvScalarType.Float32x2 => 8,
+        _ => 16
+    };
+
+    private static int GetTypeSize(SpirvScalarType type) => type switch {
+        SpirvScalarType.Int32 or SpirvScalarType.UInt32 or SpirvScalarType.Float32 => 4,
+        SpirvScalarType.Int32x2 or SpirvScalarType.UInt32x2 or SpirvScalarType.Float32x2 => 8,
+        SpirvScalarType.Int32x3 or SpirvScalarType.UInt32x3 or SpirvScalarType.Float32x3 => 12,
+        _ => 16
+    };
+
+    private static int AlignUp(int value, int alignment) =>
+        checked((value + alignment - 1) / alignment * alignment);
 }

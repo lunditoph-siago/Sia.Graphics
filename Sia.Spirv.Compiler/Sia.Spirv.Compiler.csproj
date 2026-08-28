@@ -8,6 +8,5 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Sia.Spirv.Core\Sia.Spirv.Core.csproj" />
-    <ProjectReference Include="..\Sia.Spirv.Compiler.IR\Sia.Spirv.Compiler.IR.csproj" />
   </ItemGroup>
 </Project>

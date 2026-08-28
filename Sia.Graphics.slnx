@@ -2,7 +2,7 @@
   <Project Path="Sia.Graphics/Sia.Graphics.csproj" />
   <Project Path="Sia.RenderGraph/Sia.RenderGraph.csproj" />
   <Project Path="Sia.Spirv.Bootstrap/Sia.Spirv.Bootstrap.csproj" />
-  <Project Path="Sia.Spirv.Compiler.IR/Sia.Spirv.Compiler.IR.csproj" />
+  <Project Path="Sia.Spirv.Compiler.Tests/Sia.Spirv.Compiler.Tests.csproj" />
   <Project Path="Sia.Spirv.Compiler/Sia.Spirv.Compiler.csproj" />
   <Project Path="Sia.Spirv.Core/Sia.Spirv.Core.csproj" />
   <Project Path="Sia.Spirv.Runtime/Sia.Spirv.Runtime.csproj" />

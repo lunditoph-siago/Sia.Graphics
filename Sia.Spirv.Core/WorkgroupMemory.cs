@@ -1,21 +1,25 @@
 namespace Sia.Spirv;
 
-public readonly ref struct StorageBuffer<T>
+/// <summary>
+/// Declares one workgroup-shared element per local invocation. The memory does
+/// not consume a descriptor binding and is zero-initialized by the shader.
+/// </summary>
+public readonly ref struct WorkgroupMemory<T>
     where T : unmanaged
 {
     public ref T this[uint index] {
         [SpirvIntrinsic(IntrinsicKind.BufferIndex)]
         get => throw new PlatformNotSupportedException(
-            "Storage buffers can only be accessed from a compiled SPIR-V kernel.");
+            "Workgroup memory can only be accessed from a compiled SPIR-V kernel.");
     }
 
     [SpirvIntrinsic(IntrinsicKind.AtomicAdd)]
     public T AtomicAdd(uint index, T value) =>
         throw new PlatformNotSupportedException(
-            "Storage-buffer atomics can only be used from a compiled SPIR-V kernel.");
+            "Workgroup atomics can only be used from a compiled SPIR-V kernel.");
 
     [SpirvIntrinsic(IntrinsicKind.AtomicExchange)]
     public T AtomicExchange(uint index, T value) =>
         throw new PlatformNotSupportedException(
-            "Storage-buffer atomics can only be used from a compiled SPIR-V kernel.");
+            "Workgroup atomics can only be used from a compiled SPIR-V kernel.");
 }

@@ -106,8 +106,7 @@ public sealed class SpirvCompiler
             catch (Exception exception) when (exception is InvalidDataException or IOException) {
                 throw new SpirvCompilationException(
                     $"Failed to compile '{kernel.QualifiedName}':{Environment.NewLine}{exception.Message}");
-            }
-            finally {
+            } finally {
                 File.Delete(rawLlvmPath);
             }
 
@@ -151,6 +150,9 @@ public sealed class SpirvCompiler
         var binding = 0;
         var offset = 0;
         foreach (var parameter in kernel.Parameters) {
+            if (parameter.Kind == SpirvKernelParameterKind.WorkgroupMemory) {
+                continue;
+            }
             if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2D) {
                 resources.Add(new SpirvManifestResource(
                     parameter.Name,
@@ -158,39 +160,54 @@ public sealed class SpirvCompiler
                     "read-only",
                     "float32",
                     0,
-                    binding++));
-            }
-            else if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2DArray) {
+                    binding++,
+                    0,
+                    0,
+                    0));
+            } else if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2DArray) {
                 resources.Add(new SpirvManifestResource(
                     parameter.Name,
                     "sampled-texture-2d-array",
                     "read-only",
                     "float32",
                     0,
-                    binding++));
-            }
-            else if (parameter.Kind == SpirvKernelParameterKind.Sampler) {
+                    binding++,
+                    0,
+                    0,
+                    0));
+            } else if (parameter.Kind == SpirvKernelParameterKind.Sampler) {
                 resources.Add(new SpirvManifestResource(
                     parameter.Name,
                     "sampler",
                     "read-only",
                     "float32",
                     0,
-                    binding++));
-            }
-            else if (parameter.Kind is SpirvKernelParameterKind.ReadOnlyStorageBuffer or
-                  SpirvKernelParameterKind.StorageBuffer) {
+                    binding++,
+                    0,
+                    0,
+                    0));
+            } else if (parameter.Kind is SpirvKernelParameterKind.ReadOnlyStorageBuffer or
+                    SpirvKernelParameterKind.StorageBuffer) {
+                var layout = parameter.StructLayout;
                 resources.Add(new SpirvManifestResource(
                     parameter.Name,
                     "storage-buffer",
                     parameter.Kind == SpirvKernelParameterKind.ReadOnlyStorageBuffer
                         ? "read-only"
                         : "read-write",
-                    GetScalarName(parameter.ScalarType),
+                    layout?.Name ?? GetScalarName(parameter.ScalarType),
                     0,
-                    binding++));
-            }
-            else {
+                    binding++,
+                    layout?.Alignment ?? GetTypeAlignment(parameter.ScalarType),
+                    layout?.Size ?? GetTypeSize(parameter.ScalarType),
+                    layout?.ArrayStride ?? GetArrayStride(parameter.ScalarType),
+                    layout?.Fields.Select(static field => new SpirvManifestStructField(
+                        field.Name,
+                        GetScalarName(field.Type),
+                        field.Offset,
+                        field.Alignment,
+                        field.Size)).ToArray()));
+            } else {
                 pushConstants.Add(new SpirvManifestPushConstant(
                     parameter.Name,
                     GetScalarName(parameter.ScalarType),
@@ -206,10 +223,13 @@ public sealed class SpirvCompiler
                 "read-only",
                 "uint32",
                 0,
-                binding));
+                binding,
+                4,
+                4,
+                4));
         }
         return new SpirvArtifactManifest(
-            2,
+            3,
             kernel.Name,
             kernel.QualifiedName,
             kernel.MetadataToken,
@@ -297,8 +317,36 @@ public sealed class SpirvCompiler
         SpirvScalarType.Int32 => "int32",
         SpirvScalarType.UInt32 => "uint32",
         SpirvScalarType.Float32 => "float32",
+        SpirvScalarType.Int32x2 => "int32x2",
+        SpirvScalarType.Int32x3 => "int32x3",
+        SpirvScalarType.Int32x4 => "int32x4",
+        SpirvScalarType.UInt32x2 => "uint32x2",
+        SpirvScalarType.UInt32x3 => "uint32x3",
+        SpirvScalarType.UInt32x4 => "uint32x4",
+        SpirvScalarType.Float32x2 => "float32x2",
+        SpirvScalarType.Float32x3 => "float32x3",
+        SpirvScalarType.Float32x4 => "float32x4",
         _ => throw new ArgumentOutOfRangeException(nameof(type))
     };
+
+    private static int GetTypeAlignment(SpirvScalarType type) => type switch {
+        SpirvScalarType.Int32 or SpirvScalarType.UInt32 or SpirvScalarType.Float32 => 4,
+        SpirvScalarType.Int32x2 or SpirvScalarType.UInt32x2 or SpirvScalarType.Float32x2 => 8,
+        _ => 16
+    };
+
+    private static int GetTypeSize(SpirvScalarType type) => type switch {
+        SpirvScalarType.Int32 or SpirvScalarType.UInt32 or SpirvScalarType.Float32 => 4,
+        SpirvScalarType.Int32x2 or SpirvScalarType.UInt32x2 or SpirvScalarType.Float32x2 => 8,
+        SpirvScalarType.Int32x3 or SpirvScalarType.UInt32x3 or SpirvScalarType.Float32x3 => 12,
+        _ => 16
+    };
+
+    private static int GetArrayStride(SpirvScalarType type) =>
+        AlignUp(GetTypeSize(type), GetTypeAlignment(type));
+
+    private static int AlignUp(int value, int alignment) =>
+        checked((value + alignment - 1) / alignment * alignment);
 
     private static string SanitizeFileName(string value)
     {

@@ -20,6 +20,32 @@ Enable C# kernel compilation in the project:
 </PropertyGroup>
 ```
 
+Compute kernels may use scalar or `Sia.Math` vector storage buffers, sequential
+unmanaged structs, workgroup memory, barriers, and integer atomics:
+
+```csharp
+[SpirvKernel(64)]
+static void Accumulate(
+    StorageBuffer<uint> totals,
+    WorkgroupMemory<uint> shared)
+{
+    var local = Gpu.LocalInvocationId.X;
+    shared[local] = 1u;
+    Gpu.Barrier();
+    totals.AtomicAdd(0u, shared.AtomicAdd(0u, 1u));
+}
+```
+
+`WorkgroupMemory<T>` contains one element per local invocation and does not
+consume a descriptor binding. Atomics currently support `int` and `uint`
+`AtomicAdd`/`AtomicExchange`. Storage-buffer structs must use sequential layout,
+contain only supported scalar/vector fields, and are described in the artifact
+manifest with explicit field offsets, alignment, size, and array stride.
+
+Sampled 2D and 2D-array textures support mip-level `Load` and `SampleLevel`
+operations. Texture operations return one selected component so shaders can
+avoid materializing unused channels.
+
 ## Reactive render graphs
 
 ```csharp

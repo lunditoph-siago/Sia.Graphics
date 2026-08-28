@@ -21,15 +21,20 @@ public sealed class LlvmIrEmitter
     private readonly HashSet<uint> _stageOutputs = [];
     private readonly HashSet<uint> _flatStageInputs = [];
     private readonly HashSet<uint> _flatStageOutputs = [];
+    private readonly HashSet<int> _inlineCallStack = [];
     private SpirvKernelAbi _kernelAbi;
     private SpirvShaderStage _shaderStage;
+    private SpirvWorkgroupSize _currentWorkgroupSize;
+    private SpirvStructLayout? _structLayout;
     private bool _readsVertexIndex;
     private bool _readsInstanceIndex;
     private bool _readsFragmentPosition;
     private bool _writesPosition;
     private bool _usesTexture2DLoad;
+    private bool _usesTexture2DSampleLevel;
     private bool _usesTexture2DArrayLoad;
     private bool _usesTexture2DArraySampleLevel;
+    private bool _usesBarrier;
     private bool _usesMin;
     private bool _usesMax;
     private bool _usesInverseSqrt;
@@ -40,6 +45,8 @@ public sealed class LlvmIrEmitter
     private bool _usesPow;
     private bool _usesAbs;
     private ResolvedCall? _currentCall;
+    private MetadataReader _reader = null!;
+    private PEReader _peReader = null!;
     private int _nextValueId;
 
     public LlvmIrModule Emit(
@@ -52,7 +59,9 @@ public sealed class LlvmIrEmitter
 
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream, PEStreamOptions.PrefetchEntireImage);
+        _peReader = peReader;
         var reader = peReader.GetMetadataReader();
+        _reader = reader;
         var methodHandle = (MethodDefinitionHandle)MetadataTokens.EntityHandle(kernel.MetadataToken);
         var method = reader.GetMethodDefinition(methodHandle);
         var methodBody = peReader.GetMethodBody(method.RelativeVirtualAddress);
@@ -71,15 +80,29 @@ public sealed class LlvmIrEmitter
         _stageOutputs.Clear();
         _flatStageInputs.Clear();
         _flatStageOutputs.Clear();
+        _inlineCallStack.Clear();
         _kernelAbi = kernelAbi;
         _shaderStage = kernel.Stage;
+        _currentWorkgroupSize = kernel.WorkgroupSize;
+        var structLayouts = kernel.Parameters
+            .Select(static parameter => parameter.StructLayout)
+            .Where(static layout => layout != null)
+            .DistinctBy(static layout => layout!.Name)
+            .ToArray();
+        if (structLayouts.Length > 1) {
+            throw new InvalidDataException(
+                "A kernel currently supports one distinct storage-buffer struct type.");
+        }
+        _structLayout = structLayouts.SingleOrDefault();
         _readsVertexIndex = false;
         _readsInstanceIndex = false;
         _readsFragmentPosition = false;
         _writesPosition = false;
         _usesTexture2DLoad = false;
+        _usesTexture2DSampleLevel = false;
         _usesTexture2DArrayLoad = false;
         _usesTexture2DArraySampleLevel = false;
+        _usesBarrier = false;
         _usesMin = false;
         _usesMax = false;
         _usesInverseSqrt = false;
@@ -104,9 +127,10 @@ public sealed class LlvmIrEmitter
         }
 
         var module = new StringBuilder();
-        module.AppendLine("target triple = \"spirv64-unknown-vulkan1.2\"");
+        module.AppendLine("target triple = \"spirv1.5-vulkan1.2-compute\"");
         module.AppendLine();
         EmitMatrixTypeDeclarations(module);
+        EmitStructTypeDeclaration(module);
         EmitGlobalDeclarations(kernel, module);
         module.Append("define void @").Append(entryPoint).AppendLine("() #0 {");
         module.Append(_body);
@@ -223,8 +247,7 @@ public sealed class LlvmIrEmitter
                             edges));
                         stack.Push(result);
                     }
-                }
-                else {
+                } else {
                     foreach (var value in edges[0].Values) {
                         stack.Push(value);
                     }
@@ -263,11 +286,9 @@ public sealed class LlvmIrEmitter
             if (!terminated) {
                 if (block.Successors.Count == 1) {
                     EmitLine($"br label %bb{block.Successors[0]}");
-                }
-                else if (block.Successors.Count == 0) {
+                } else if (block.Successors.Count == 0) {
                     EmitLine("ret void");
-                }
-                else {
+                } else {
                     throw CreateUnsupported(
                         block.Instructions[^1].Offset,
                         "A basic block with multiple successors requires an explicit conditional branch.");
@@ -440,7 +461,15 @@ public sealed class LlvmIrEmitter
             EmitLoadIndirect(opCode, offset, stack);
             return false;
         }
+        if (opCode == OpCodes.Ldobj) {
+            EmitLoadObject((int)operand!, offset, stack);
+            return false;
+        }
         if (IsStoreIndirect(opCode)) {
+            EmitStoreIndirect(offset, stack);
+            return false;
+        }
+        if (opCode == OpCodes.Stobj) {
             EmitStoreIndirect(offset, stack);
             return false;
         }
@@ -490,8 +519,7 @@ public sealed class LlvmIrEmitter
             prologue.Append("  ").Append(pushConstantValue)
                 .Append(" = load %sia.push.constants, ptr addrspace(13) @sia.push.constants, align 4")
                 .AppendLine();
-        }
-        else if (hasPushConstants) {
+        } else if (hasPushConstants) {
             parameterHandle = NextValue("parameters");
             prologue.Append("  ").Append(parameterHandle).Append(" = call ")
                 .Append(GetParameterTargetType()).Append(" @llvm.spv.resource.handlefrombinding.")
@@ -510,8 +538,7 @@ public sealed class LlvmIrEmitter
                     .Append(parameter.Position).AppendLine(")");
                 values[parameter.Position] = new LlvmValue(value, LlvmValueType.Texture2DFloat);
                 binding++;
-            }
-            else if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2DArray) {
+            } else if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2DArray) {
                 var value = NextValue(SanitizeIdentifier(parameter.Name));
                 prologue.Append("  ").Append(value).Append(" = call ")
                     .Append(GetTexture2DArrayTargetType())
@@ -522,8 +549,7 @@ public sealed class LlvmIrEmitter
                 values[parameter.Position] = new LlvmValue(
                     value, LlvmValueType.Texture2DArrayFloat);
                 binding++;
-            }
-            else if (parameter.Kind == SpirvKernelParameterKind.Sampler) {
+            } else if (parameter.Kind == SpirvKernelParameterKind.Sampler) {
                 var value = NextValue(SanitizeIdentifier(parameter.Name));
                 prologue.Append("  ").Append(value).Append(" = call ")
                     .Append(GetSamplerTargetType())
@@ -533,9 +559,8 @@ public sealed class LlvmIrEmitter
                     .Append(parameter.Position).AppendLine(")");
                 values[parameter.Position] = new LlvmValue(value, LlvmValueType.Sampler);
                 binding++;
-            }
-            else if (parameter.Kind is SpirvKernelParameterKind.ReadOnlyStorageBuffer or
-                    SpirvKernelParameterKind.StorageBuffer) {
+            } else if (parameter.Kind is SpirvKernelParameterKind.ReadOnlyStorageBuffer or
+                      SpirvKernelParameterKind.StorageBuffer) {
                 var type = GetBufferType(
                     parameter.ScalarType,
                     parameter.Kind == SpirvKernelParameterKind.ReadOnlyStorageBuffer);
@@ -550,16 +575,19 @@ public sealed class LlvmIrEmitter
                     .Append(parameter.Position).AppendLine(")");
                 values[parameter.Position] = new LlvmValue(value, type);
                 binding++;
-            }
-            else {
+            } else if (parameter.Kind == SpirvKernelParameterKind.WorkgroupMemory) {
+                var type = GetWorkgroupType(parameter.ScalarType);
+                values[parameter.Position] = new LlvmValue(
+                    $"@sia.workgroup.{parameter.Position}",
+                    type);
+            } else {
                 var type = GetScalarType(parameter.ScalarType);
                 string value;
                 if (_kernelAbi == SpirvKernelAbi.Vulkan) {
                     value = NextValue(SanitizeIdentifier(parameter.Name));
                     prologue.Append("  ").Append(value).Append(" = extractvalue %sia.push.constants ")
                         .Append(pushConstantValue).Append(", ").Append(pushConstantIndex).AppendLine();
-                }
-                else {
+                } else {
                     var identifier = SanitizeIdentifier(parameter.Name);
                     var pointer = NextValue($"{identifier}.pointer");
                     var word = NextValue($"{identifier}.word");
@@ -573,8 +601,7 @@ public sealed class LlvmIrEmitter
                         value = NextValue(identifier);
                         prologue.Append("  ").Append(value).Append(" = bitcast i32 ")
                             .Append(word).AppendLine(" to float");
-                    }
-                    else {
+                    } else {
                         value = word;
                     }
                 }
@@ -608,6 +635,22 @@ public sealed class LlvmIrEmitter
         }
 
         EmitStageGlobalDeclarations(module);
+
+        foreach (var parameter in kernel.Parameters.Where(static parameter =>
+            parameter.Kind == SpirvKernelParameterKind.WorkgroupMemory)) {
+            var type = GetWorkgroupType(parameter.ScalarType);
+            var elementType = GetWorkgroupElementType(type);
+            var length = checked((int)(
+                kernel.WorkgroupSize.X * kernel.WorkgroupSize.Y * kernel.WorkgroupSize.Z));
+            module.Append("@sia.workgroup.").Append(parameter.Position)
+                .Append(" = internal addrspace(3) global [").Append(length).Append(" x ")
+                .Append(GetLlvmType(elementType)).Append("] zeroinitializer, align ")
+                .Append(GetAlignment(elementType)).AppendLine();
+        }
+        if (kernel.Parameters.Any(static parameter =>
+            parameter.Kind == SpirvKernelParameterKind.WorkgroupMemory)) {
+            module.AppendLine();
+        }
 
         foreach (var parameter in kernel.Parameters.Where(
             static parameter => parameter.IsResource)) {
@@ -697,6 +740,13 @@ public sealed class LlvmIrEmitter
                 .Append(GetTexture2DTargetType())
                 .AppendLine(", <2 x i32>, i32, <2 x i32>)");
         }
+        if (_usesTexture2DSampleLevel) {
+            module.Append("declare <4 x float> @llvm.spv.resource.samplelevel.")
+                .Append(GetTexture2DSampleLevelMangling()).Append('(')
+                .Append(GetTexture2DTargetType()).Append(", ")
+                .Append(GetSamplerTargetType())
+                .AppendLine(", <2 x float>, float, <2 x i32>)");
+        }
         if (_usesTexture2DArrayLoad) {
             module.Append("declare <4 x float> @llvm.spv.resource.load.level.")
                 .Append(GetTexture2DArrayLoadMangling()).Append('(')
@@ -709,6 +759,10 @@ public sealed class LlvmIrEmitter
                 .Append(GetTexture2DArrayTargetType()).Append(", ")
                 .Append(GetSamplerTargetType())
                 .AppendLine(", <3 x float>, float, <2 x i32>)");
+        }
+        if (_usesBarrier) {
+            module.AppendLine(
+                "declare void @llvm.spv.group.memory.barrier.with.group.sync()");
         }
         if (_usesMin) {
             module.AppendLine("declare float @llvm.minnum.f32(float, float)");
@@ -840,7 +894,10 @@ public sealed class LlvmIrEmitter
             [IntrinsicKind.SetOutput] = EmitRasterOutput,
             [IntrinsicKind.SetFlatOutput] = EmitRasterOutput,
             [IntrinsicKind.BufferIndex] = EmitBufferIndex,
+            [IntrinsicKind.AtomicAdd] = EmitAtomic,
+            [IntrinsicKind.AtomicExchange] = EmitAtomic,
             [IntrinsicKind.Texture2DLoad] = EmitTexture2DLoad,
+            [IntrinsicKind.Texture2DSampleLevel] = EmitTexture2DSampleLevel,
             [IntrinsicKind.Texture2DArrayLoad] = EmitTexture2DArrayLoad,
             [IntrinsicKind.Texture2DArraySampleLevel] = EmitTexture2DArraySampleLevel,
             [IntrinsicKind.Sqrt] = EmitMathUnary,
@@ -894,15 +951,101 @@ public sealed class LlvmIrEmitter
             _currentCall = call;
             try {
                 handler(this, kind, instance, arguments, offset, stack);
-            }
-            finally {
+            } finally {
                 _currentCall = null;
             }
+            return;
+        }
+        if (!call.IsInstance && TryEmitInlineCall(view, call, arguments, offset, stack)) {
             return;
         }
         throw CreateUnsupported(
             offset,
             $"Call to '{call.DeclaringType}.{call.Name}' is not a supported GPU intrinsic.");
+    }
+
+    private bool TryEmitInlineCall(
+        ShaderCilView callerView,
+        ResolvedCall call,
+        IReadOnlyList<LlvmValue> arguments,
+        int callOffset,
+        Stack<LlvmValue> callerStack)
+    {
+        var handle = MetadataTokens.EntityHandle(call.MetadataToken);
+        if (handle.Kind != HandleKind.MethodDefinition) {
+            return false;
+        }
+        if (!_inlineCallStack.Add(call.MetadataToken)) {
+            throw CreateUnsupported(
+                callOffset,
+                $"Recursive helper call '{call.DeclaringType}.{call.Name}' is not supported.");
+        }
+
+        try {
+            var methodHandle = (MethodDefinitionHandle)handle;
+            var method = _reader.GetMethodDefinition(methodHandle);
+            if (method.RelativeVirtualAddress == 0) {
+                return false;
+            }
+            var body = _peReader.GetMethodBody(method.RelativeVirtualAddress);
+            var localTypes = DecodeLocalTypes(_reader, body.LocalSignature);
+            if (localTypes.Count != 0) {
+                throw CreateUnsupported(
+                    callOffset,
+                    $"Inline helper '{call.DeclaringType}.{call.Name}' cannot declare locals yet.");
+            }
+
+            var il = body.GetILBytes() ?? throw CreateUnsupported(
+                callOffset,
+                $"Inline helper '{call.DeclaringType}.{call.Name}' has no CIL body.");
+            var instructions = CilInstructionDecoder.Decode(il);
+            var graph = CilControlFlowGraph.Create(instructions, il.Length);
+            if (graph.Blocks.Count != 1) {
+                throw CreateUnsupported(
+                    callOffset,
+                    $"Inline helper '{call.DeclaringType}.{call.Name}' must be straight-line CIL.");
+            }
+            var helperView = new ShaderCilView(graph, callerView.Resolver);
+            new CilStackAnalyzer(_reader, methodHandle).Validate(helperView);
+            var helperStack = new Stack<LlvmValue>();
+            var block = graph.Blocks[0];
+            for (var index = 0; index < block.Instructions.Count; index++) {
+                var instruction = block.Instructions[index];
+                if (instruction.OpCode == OpCodes.Ret) {
+                    if (call.ReturnsVoid) {
+                        if (helperStack.Count != 0) {
+                            throw CreateUnsupported(
+                                callOffset,
+                                "Void inline helper left values on the evaluation stack.");
+                        }
+                    } else {
+                        callerStack.Push(Pop(helperStack, instruction.Offset));
+                    }
+                    return true;
+                }
+                var terminated = EmitInstruction(
+                    helperView,
+                    block,
+                    index,
+                    instruction.OpCode,
+                    instruction.Operand,
+                    instruction.Offset,
+                    localTypes,
+                    arguments,
+                    new Dictionary<int, int>(),
+                    helperStack);
+                if (terminated) {
+                    throw CreateUnsupported(
+                        callOffset,
+                        $"Inline helper '{call.DeclaringType}.{call.Name}' contains control flow.");
+                }
+            }
+            throw CreateUnsupported(
+                callOffset,
+                $"Inline helper '{call.DeclaringType}.{call.Name}' does not return.");
+        } finally {
+            _inlineCallStack.Remove(call.MetadataToken);
+        }
     }
 
     // newobj has no receiver to pop, so it can't share EmitCall's instance
@@ -923,8 +1066,7 @@ public sealed class LlvmIrEmitter
             _currentCall = call;
             try {
                 handler(this, kind, default, arguments, offset, stack);
-            }
-            finally {
+            } finally {
                 _currentCall = null;
             }
             return;
@@ -973,9 +1115,9 @@ public sealed class LlvmIrEmitter
         Stack<LlvmValue> stack)
     {
         emitter.EnsureShaderStage(SpirvShaderStage.Compute, kind.ToString(), offset);
-        throw CreateUnsupported(
-            offset,
-            "Gpu.Barrier is reserved but not implemented in the first LLVM backend slice.");
+        emitter.EmitLine(
+            "call void @llvm.spv.group.memory.barrier.with.group.sync()");
+        emitter._usesBarrier = true;
     }
 
     private static void EmitVertexIndexBuiltin(
@@ -1074,9 +1216,8 @@ public sealed class LlvmIrEmitter
         if (input.Type == LlvmValueType.UInt32) {
             result = emitter.EmitUnpackHalfScalar(input.Expression);
             resultType = LlvmValueType.Float32;
-        }
-        else if (TryGetScalarVector(input.Type, out var scalarType, out var length) &&
-              scalarType == LlvmValueType.UInt32) {
+        } else if (TryGetScalarVector(input.Type, out var scalarType, out var length) &&
+                scalarType == LlvmValueType.UInt32) {
             resultType = GetVectorType(length);
             var components = new string[length];
             for (var index = 0; index < length; index++) {
@@ -1084,8 +1225,7 @@ public sealed class LlvmIrEmitter
                     emitter.ExtractVectorElement(input.Expression, input.Type, index));
             }
             result = emitter.EmitVector(components);
-        }
-        else {
+        } else {
             throw CreateUnsupported(offset, "math.f16tof32 requires a u32 scalar or vector.");
         }
         stack.Push(new LlvmValue(result, resultType));
@@ -1126,15 +1266,13 @@ public sealed class LlvmIrEmitter
             var scalarCondition = emitter.ToBoolean(condition, offset);
             conditionType = "i1";
             conditionExpression = scalarCondition.Expression;
-        }
-        else if (TryGetScalarVector(condition.Type, out var conditionScalar, out var conditionLength) &&
-              conditionScalar == LlvmValueType.Boolean &&
-              TryGetScalarVector(whenFalse.Type, out _, out var valueLength) &&
-              conditionLength == valueLength) {
+        } else if (TryGetScalarVector(condition.Type, out var conditionScalar, out var conditionLength) &&
+                conditionScalar == LlvmValueType.Boolean &&
+                TryGetScalarVector(whenFalse.Type, out _, out var valueLength) &&
+                conditionLength == valueLength) {
             conditionType = GetLlvmType(condition.Type);
             conditionExpression = condition.Expression;
-        }
-        else {
+        } else {
             throw CreateUnsupported(offset, "math.select condition must be bool or a matching bool vector.");
         }
         var result = emitter.NextValue();
@@ -1203,15 +1341,67 @@ public sealed class LlvmIrEmitter
         int offset,
         Stack<LlvmValue> stack)
     {
-        if (!IsBuffer(instance.Type)) {
-            throw CreateUnsupported(offset, "StorageBuffer<T>.this[] requires a storage-buffer receiver.");
+        if (!IsBuffer(instance.Type) && !IsWorkgroupMemory(instance.Type)) {
+            throw CreateUnsupported(offset, "Indexed memory access requires a storage-buffer or workgroup-memory receiver.");
         }
         var index = arguments[0];
-        var pointer = emitter.NextValue();
-        var targetType = GetBufferTargetType(instance.Type);
-        var mangling = GetBufferMangling(instance.Type);
-        emitter.EmitLine($"{pointer} = call ptr addrspace(11) @llvm.spv.resource.getpointer.p11.{mangling}({targetType} {instance.Expression}, i32 {index.Expression})");
-        stack.Push(new LlvmValue(pointer, GetBufferElementType(instance.Type), true));
+        var pointer = emitter.EmitIndexedPointer(instance, index, offset);
+        stack.Push(pointer);
+    }
+
+    private static void EmitAtomic(
+        LlvmIrEmitter emitter,
+        IntrinsicKind kind,
+        LlvmValue instance,
+        IReadOnlyList<LlvmValue> arguments,
+        int offset,
+        Stack<LlvmValue> stack)
+    {
+        if (!IsBuffer(instance.Type) && !IsWorkgroupMemory(instance.Type)) {
+            throw CreateUnsupported(offset, "Atomic access requires a storage-buffer or workgroup-memory receiver.");
+        }
+        var pointer = emitter.EmitIndexedPointer(instance, arguments[0], offset);
+        if (pointer.Type is not (LlvmValueType.Int32 or LlvmValueType.UInt32)) {
+            throw CreateUnsupported(offset, "Atomic operations require int or uint elements.");
+        }
+        var addressType = GetPointerType(pointer.AddressSpace);
+        var synchronizationScope = pointer.AddressSpace == 3 ? "workgroup" : "device";
+        EnsureCompatible(pointer.Type, arguments[1].Type, offset);
+        var result = emitter.NextValue();
+        var operation = kind == IntrinsicKind.AtomicAdd ? "add" : "xchg";
+        emitter.EmitLine($"{result} = atomicrmw {operation} {addressType} {pointer.Expression}, i32 {arguments[1].Expression} syncscope(\"{synchronizationScope}\") monotonic");
+        stack.Push(new LlvmValue(result, pointer.Type));
+    }
+
+    private LlvmValue EmitIndexedPointer(LlvmValue instance, LlvmValue index, int offset)
+    {
+        EnsureInteger(index, "index", offset);
+        var pointer = NextValue();
+        if (IsBuffer(instance.Type)) {
+            if (GetBufferElementType(instance.Type) == LlvmValueType.Struct) {
+                var layout = _structLayout ?? throw new InvalidOperationException(
+                    "Struct buffer used without a decoded layout.");
+                var scaledIndex = NextValue();
+                EmitLine($"{scaledIndex} = mul i32 {index.Expression}, {layout.ArrayStride / 4}");
+                return new LlvmValue(
+                    string.Empty,
+                    LlvmValueType.Struct,
+                    true,
+                    11,
+                    instance.Expression,
+                    scaledIndex,
+                    instance.Type);
+            }
+            var targetType = GetBufferTargetType(instance.Type);
+            var mangling = GetBufferMangling(instance.Type);
+            EmitLine($"{pointer} = call ptr addrspace(11) @llvm.spv.resource.getpointer.p11.{mangling}({targetType} {instance.Expression}, i32 {index.Expression})");
+            return new LlvmValue(pointer, GetBufferElementType(instance.Type), true, 11);
+        }
+
+        var elementType = GetWorkgroupElementType(instance.Type);
+        var length = checked((int)(_currentWorkgroupSize.X * _currentWorkgroupSize.Y * _currentWorkgroupSize.Z));
+        EmitLine($"{pointer} = getelementptr inbounds [{length} x {GetLlvmType(elementType)}], ptr addrspace(3) {instance.Expression}, i32 0, i32 {index.Expression}");
+        return new LlvmValue(pointer, elementType, true, 3);
     }
 
     private static void EmitTexture2DLoad(
@@ -1225,19 +1415,48 @@ public sealed class LlvmIrEmitter
         if (instance.Type != LlvmValueType.Texture2DFloat) {
             throw CreateUnsupported(offset, "Texture2D.Load requires a texture receiver.");
         }
-        emitter.EnsureShaderStage(SpirvShaderStage.Fragment, kind.ToString(), offset);
         EnsureInteger(arguments[0], "x", offset);
         EnsureInteger(arguments[1], "y", offset);
-        var component = GetConstantIndex(arguments[2], 3, "component", offset);
+        var component = GetConstantIndex(arguments[^1], 3, "component", offset);
+        var level = arguments.Count == 4 ? arguments[2] : new LlvmValue("0", LlvmValueType.Int32);
+        EnsureInteger(level, "level", offset);
         var first = emitter.NextValue();
         emitter.EmitLine($"{first} = insertelement <2 x i32> poison, i32 {arguments[0].Expression}, i32 0");
         var coordinates = emitter.NextValue();
         emitter.EmitLine($"{coordinates} = insertelement <2 x i32> {first}, i32 {arguments[1].Expression}, i32 1");
         var texel = emitter.NextValue();
-        emitter.EmitLine($"{texel} = call <4 x float> @llvm.spv.resource.load.level.{GetTexture2DLoadMangling()}({GetTexture2DTargetType()} {instance.Expression}, <2 x i32> {coordinates}, i32 0, <2 x i32> zeroinitializer)");
+        emitter.EmitLine($"{texel} = call <4 x float> @llvm.spv.resource.load.level.{GetTexture2DLoadMangling()}({GetTexture2DTargetType()} {instance.Expression}, <2 x i32> {coordinates}, i32 {level.Expression}, <2 x i32> zeroinitializer)");
         var result = emitter.NextValue();
         emitter.EmitLine($"{result} = extractelement <4 x float> {texel}, i32 {component}");
         emitter._usesTexture2DLoad = true;
+        stack.Push(new LlvmValue(result, LlvmValueType.Float32));
+    }
+
+    private static void EmitTexture2DSampleLevel(
+        LlvmIrEmitter emitter,
+        IntrinsicKind kind,
+        LlvmValue instance,
+        IReadOnlyList<LlvmValue> arguments,
+        int offset,
+        Stack<LlvmValue> stack)
+    {
+        if (instance.Type != LlvmValueType.Texture2DFloat ||
+            arguments[0].Type != LlvmValueType.Sampler) {
+            throw CreateUnsupported(offset, "Texture2D.SampleLevel requires texture and sampler receivers.");
+        }
+        EnsureCompatible(LlvmValueType.Float32, arguments[1].Type, offset);
+        EnsureCompatible(LlvmValueType.Float32, arguments[2].Type, offset);
+        EnsureCompatible(LlvmValueType.Float32, arguments[3].Type, offset);
+        var component = GetConstantIndex(arguments[4], 3, "component", offset);
+        var first = emitter.NextValue();
+        emitter.EmitLine($"{first} = insertelement <2 x float> poison, float {arguments[1].Expression}, i32 0");
+        var coordinates = emitter.NextValue();
+        emitter.EmitLine($"{coordinates} = insertelement <2 x float> {first}, float {arguments[2].Expression}, i32 1");
+        var texel = emitter.NextValue();
+        emitter.EmitLine($"{texel} = call <4 x float> @llvm.spv.resource.samplelevel.{GetTexture2DSampleLevelMangling()}({GetTexture2DTargetType()} {instance.Expression}, {GetSamplerTargetType()} {arguments[0].Expression}, <2 x float> {coordinates}, float {arguments[3].Expression}, <2 x i32> zeroinitializer)");
+        var result = emitter.NextValue();
+        emitter.EmitLine($"{result} = extractelement <4 x float> {texel}, i32 {component}");
+        emitter._usesTexture2DSampleLevel = true;
         stack.Push(new LlvmValue(result, LlvmValueType.Float32));
     }
 
@@ -1252,11 +1471,12 @@ public sealed class LlvmIrEmitter
         if (instance.Type != LlvmValueType.Texture2DArrayFloat) {
             throw CreateUnsupported(offset, "Texture2DArray.Load requires a texture-array receiver.");
         }
-        emitter.EnsureShaderStage(SpirvShaderStage.Fragment, kind.ToString(), offset);
         EnsureInteger(arguments[0], "x", offset);
         EnsureInteger(arguments[1], "y", offset);
         EnsureInteger(arguments[2], "layer", offset);
-        var component = GetConstantIndex(arguments[3], 3, "component", offset);
+        var component = GetConstantIndex(arguments[^1], 3, "component", offset);
+        var level = arguments.Count == 5 ? arguments[3] : new LlvmValue("0", LlvmValueType.Int32);
+        EnsureInteger(level, "level", offset);
         var first = emitter.NextValue();
         emitter.EmitLine($"{first} = insertelement <3 x i32> poison, i32 {arguments[0].Expression}, i32 0");
         var second = emitter.NextValue();
@@ -1264,7 +1484,7 @@ public sealed class LlvmIrEmitter
         var coordinates = emitter.NextValue();
         emitter.EmitLine($"{coordinates} = insertelement <3 x i32> {second}, i32 {arguments[2].Expression}, i32 2");
         var texel = emitter.NextValue();
-        emitter.EmitLine($"{texel} = call <4 x float> @llvm.spv.resource.load.level.{GetTexture2DArrayLoadMangling()}({GetTexture2DArrayTargetType()} {instance.Expression}, <3 x i32> {coordinates}, i32 0, <2 x i32> zeroinitializer)");
+        emitter.EmitLine($"{texel} = call <4 x float> @llvm.spv.resource.load.level.{GetTexture2DArrayLoadMangling()}({GetTexture2DArrayTargetType()} {instance.Expression}, <3 x i32> {coordinates}, i32 {level.Expression}, <2 x i32> zeroinitializer)");
         var result = emitter.NextValue();
         emitter.EmitLine($"{result} = extractelement <4 x float> {texel}, i32 {component}");
         emitter._usesTexture2DArrayLoad = true;
@@ -1282,12 +1502,15 @@ public sealed class LlvmIrEmitter
         if (instance.Type != LlvmValueType.Texture2DArrayFloat) {
             throw CreateUnsupported(offset, "Texture2DArray.SampleLevel requires a texture-array receiver.");
         }
-        emitter.EnsureShaderStage(SpirvShaderStage.Fragment, kind.ToString(), offset);
         EnsureCompatible(LlvmValueType.Sampler, arguments[0].Type, offset);
         EnsureCompatible(LlvmValueType.Float32, arguments[1].Type, offset);
         EnsureCompatible(LlvmValueType.Float32, arguments[2].Type, offset);
         EnsureCompatible(LlvmValueType.Float32, arguments[3].Type, offset);
-        var component = GetConstantIndex(arguments[4], 3, "component", offset);
+        var component = GetConstantIndex(arguments[^1], 3, "component", offset);
+        var level = arguments.Count == 6
+            ? arguments[4]
+            : new LlvmValue("0.000000e+00", LlvmValueType.Float32);
+        EnsureCompatible(LlvmValueType.Float32, level.Type, offset);
         var first = emitter.NextValue();
         emitter.EmitLine($"{first} = insertelement <3 x float> poison, float {arguments[1].Expression}, i32 0");
         var second = emitter.NextValue();
@@ -1295,7 +1518,7 @@ public sealed class LlvmIrEmitter
         var coordinates = emitter.NextValue();
         emitter.EmitLine($"{coordinates} = insertelement <3 x float> {second}, float {arguments[3].Expression}, i32 2");
         var texel = emitter.NextValue();
-        emitter.EmitLine($"{texel} = call <4 x float> @llvm.spv.resource.samplelevel.{GetTexture2DArraySampleLevelMangling()}({GetTexture2DArrayTargetType()} {instance.Expression}, {GetSamplerTargetType()} {arguments[0].Expression}, <3 x float> {coordinates}, float 0.000000e+00, <2 x i32> zeroinitializer)");
+        emitter.EmitLine($"{texel} = call <4 x float> @llvm.spv.resource.samplelevel.{GetTexture2DArraySampleLevelMangling()}({GetTexture2DArrayTargetType()} {instance.Expression}, {GetSamplerTargetType()} {arguments[0].Expression}, <3 x float> {coordinates}, float {level.Expression}, <2 x i32> zeroinitializer)");
         var result = emitter.NextValue();
         emitter.EmitLine($"{result} = extractelement <4 x float> {texel}, i32 {component}");
         emitter._usesTexture2DArraySampleLevel = true;
@@ -1395,26 +1618,22 @@ public sealed class LlvmIrEmitter
         if (TryGetScalarVector(type, out _, out var length)) {
             if (values.Length == 1) {
                 result = emitter.EmitVectorBroadcast(type, values[0].Expression);
-            }
-            else {
+            } else {
                 result = emitter.EmitVector(
                     type,
                     values.Select(static value => value.Expression).ToArray());
             }
-        }
-        else if (TryGetMatrixShape(type, out var rows, out var columns)) {
+        } else if (TryGetMatrixShape(type, out var rows, out var columns)) {
             var columnValues = new string[columns];
             if (values.Length == 1) {
                 var column = emitter.EmitVectorBroadcast(values[0].Expression, rows);
                 Array.Fill(columnValues, column);
-            }
-            else if (values.Length == columns &&
-                  values.All(value => value.Type == GetVectorType(rows))) {
+            } else if (values.Length == columns &&
+                    values.All(value => value.Type == GetVectorType(rows))) {
                 for (var column = 0; column < columns; column++) {
                     columnValues[column] = values[column].Expression;
                 }
-            }
-            else if (values.Length == rows * columns) {
+            } else if (values.Length == rows * columns) {
                 for (var column = 0; column < columns; column++) {
                     var components = new string[rows];
                     for (var row = 0; row < rows; row++) {
@@ -1422,20 +1641,17 @@ public sealed class LlvmIrEmitter
                     }
                     columnValues[column] = emitter.EmitVector(components);
                 }
-            }
-            else {
+            } else {
                 throw CreateUnsupported(offset, $"Unsupported constructor shape for {call.DeclaringType}.");
             }
             result = emitter.EmitMatrix(type, columnValues);
-        }
-        else {
+        } else {
             throw CreateUnsupported(offset, $"Unsupported Sia.Math constructor type {type}.");
         }
 
         if (instance.IsReference) {
             emitter.EmitLine($"store {GetLlvmType(type)} {result}, ptr {instance.Expression}, align {GetAlignment(type)}");
-        }
-        else {
+        } else {
             stack.Push(new LlvmValue(result, type));
         }
     }
@@ -1511,15 +1727,12 @@ public sealed class LlvmIrEmitter
             result = emitter.NextValue();
             if (scalarType == LlvmValueType.Float32) {
                 emitter.EmitLine($"{result} = fneg {GetLlvmType(value.Type)} {value.Expression}");
-            }
-            else if (scalarType == LlvmValueType.Int32) {
+            } else if (scalarType == LlvmValueType.Int32) {
                 emitter.EmitLine($"{result} = sub {GetLlvmType(value.Type)} zeroinitializer, {value.Expression}");
-            }
-            else {
+            } else {
                 throw CreateUnsupported(offset, $"Negation is not supported for {value.Type}.");
             }
-        }
-        else if (TryGetMatrixShape(value.Type, out var rows, out var columns)) {
+        } else if (TryGetMatrixShape(value.Type, out var rows, out var columns)) {
             var outputColumns = new string[columns];
             for (var column = 0; column < columns; column++) {
                 var source = emitter.ExtractMatrixColumn(value.Expression, value.Type, column);
@@ -1528,8 +1741,7 @@ public sealed class LlvmIrEmitter
                 outputColumns[column] = negated;
             }
             result = emitter.EmitMatrix(value.Type, outputColumns);
-        }
-        else {
+        } else {
             throw CreateUnsupported(offset, $"Negation is not supported for {value.Type}.");
         }
         stack.Push(new LlvmValue(result, value.Type));
@@ -1815,9 +2027,8 @@ public sealed class LlvmIrEmitter
                 throw CreateUnsupported(offset, "Matrix and vector shapes are incompatible for math.mul.");
             }
             result = emitter.EmitMatrixVectorMultiply(left, right.Expression, leftRows, leftColumns);
-        }
-        else if (TryGetVectorLength(left.Type, out var leftLength) &&
-              TryGetMatrixShape(right.Type, out var rightRows, out var rightColumns)) {
+        } else if (TryGetVectorLength(left.Type, out var leftLength) &&
+                TryGetMatrixShape(right.Type, out var rightRows, out var rightColumns)) {
             if (leftLength != rightRows) {
                 throw CreateUnsupported(offset, "Vector and matrix shapes are incompatible for math.mul.");
             }
@@ -1829,9 +2040,8 @@ public sealed class LlvmIrEmitter
                     rightRows);
             }
             result = emitter.EmitVector(components);
-        }
-        else if (TryGetMatrixShape(left.Type, out leftRows, out leftColumns) &&
-              TryGetMatrixShape(right.Type, out rightRows, out rightColumns)) {
+        } else if (TryGetMatrixShape(left.Type, out leftRows, out leftColumns) &&
+                TryGetMatrixShape(right.Type, out rightRows, out rightColumns)) {
             if (leftColumns != rightRows) {
                 throw CreateUnsupported(offset, "Matrix shapes are incompatible for math.mul.");
             }
@@ -1844,8 +2054,7 @@ public sealed class LlvmIrEmitter
                     leftColumns);
             }
             result = emitter.EmitMatrix(resultType, columns);
-        }
-        else {
+        } else {
             throw CreateUnsupported(offset, "math.mul requires a matrix/vector combination.");
         }
         stack.Push(new LlvmValue(result, resultType));
@@ -1891,7 +2100,7 @@ public sealed class LlvmIrEmitter
             return value;
         }
         var loaded = NextValue();
-        EmitLine($"{loaded} = load {GetLlvmType(value.Type)}, ptr {value.Expression}, align {GetAlignment(value.Type)}");
+        EmitLine($"{loaded} = load {GetLlvmType(value.Type)}, {GetPointerType(value.AddressSpace)} {value.Expression}, align {GetAlignment(value.Type)}");
         return new LlvmValue(loaded, value.Type);
     }
 
@@ -2268,8 +2477,43 @@ public sealed class LlvmIrEmitter
         }
         var type = opCode == OpCodes.Ldind_R4 ? LlvmValueType.Float32 : pointer.Type;
         var value = NextValue();
-        EmitLine($"{value} = load {GetLlvmType(type)}, ptr addrspace(11) {pointer.Expression}, align {GetAlignment(type)}");
+        EmitLine($"{value} = load {GetLlvmType(type)}, {GetPointerType(pointer.AddressSpace)} {pointer.Expression}, align {GetAlignment(type)}");
         stack.Push(new LlvmValue(value, type));
+    }
+
+    private void EmitLoadObject(int token, int offset, Stack<LlvmValue> stack)
+    {
+        var decodedType = DecodeType(token);
+        var type = decodedType.Name == _structLayout?.Name
+            ? LlvmValueType.Struct
+            : GetType(decodedType);
+        var pointer = Pop(stack, offset);
+        if (!pointer.IsReference) {
+            throw CreateUnsupported(offset, "Object load requires a managed reference produced by StorageBuffer<T>.");
+        }
+        EnsureCompatible(pointer.Type, type, offset);
+        if (type == LlvmValueType.Struct) {
+            stack.Push(EmitLoadStruct(pointer));
+            return;
+        }
+        var value = NextValue();
+        EmitLine($"{value} = load {GetLlvmType(type)}, {GetPointerType(pointer.AddressSpace)} {pointer.Expression}, align {GetAlignment(type)}");
+        stack.Push(new LlvmValue(value, type));
+    }
+
+    private KernelType DecodeType(int token)
+    {
+        var handle = MetadataTokens.EntityHandle(token);
+        return handle.Kind switch {
+            HandleKind.TypeDefinition => new KernelType(
+                MetadataNames.GetTypeName(_reader, (TypeDefinitionHandle)handle)),
+            HandleKind.TypeReference => new KernelType(
+                MetadataNames.GetTypeName(_reader, (TypeReferenceHandle)handle)),
+            HandleKind.TypeSpecification => _reader.GetTypeSpecification(
+                    (TypeSpecificationHandle)handle)
+                .DecodeSignature(new KernelTypeProvider(), genericContext: null),
+            _ => throw new InvalidDataException($"Token 0x{token:x8} is not a type.")
+        };
     }
 
     private void EmitStoreIndirect(int offset, Stack<LlvmValue> stack)
@@ -2280,7 +2524,100 @@ public sealed class LlvmIrEmitter
             throw CreateUnsupported(offset, "Indirect store requires a managed reference produced by StorageBuffer<T>.");
         }
         EnsureCompatible(pointer.Type, value.Type, offset);
-        EmitLine($"store {GetLlvmType(pointer.Type)} {value.Expression}, ptr addrspace(11) {pointer.Expression}, align {GetAlignment(pointer.Type)}");
+        if (pointer.Type == LlvmValueType.Struct) {
+            EmitStoreStruct(pointer, value);
+            return;
+        }
+        EmitLine($"store {GetLlvmType(pointer.Type)} {value.Expression}, {GetPointerType(pointer.AddressSpace)} {pointer.Expression}, align {GetAlignment(pointer.Type)}");
+    }
+
+    private LlvmValue EmitLoadStruct(LlvmValue pointer)
+    {
+        var layout = _structLayout ?? throw new InvalidOperationException(
+            "Struct load used without a decoded layout.");
+        var aggregate = "poison";
+        for (var fieldIndex = 0; fieldIndex < layout.Fields.Count; fieldIndex++) {
+            var field = layout.Fields[fieldIndex];
+            var fieldType = GetScalarType(field.Type);
+            var componentCount = TryGetScalarVector(fieldType, out var scalarType, out var length)
+                ? length
+                : 1;
+            if (componentCount == 1) {
+                scalarType = fieldType;
+            }
+            var components = new string[componentCount];
+            for (var component = 0; component < componentCount; component++) {
+                var wordPointer = EmitStructWordPointer(
+                    pointer,
+                    field.Offset / 4 + component);
+                var word = NextValue();
+                EmitLine($"{word} = load i32, ptr addrspace(11) {wordPointer}, align 4");
+                if (scalarType == LlvmValueType.Float32) {
+                    var converted = NextValue();
+                    EmitLine($"{converted} = bitcast i32 {word} to float");
+                    components[component] = converted;
+                } else {
+                    components[component] = word;
+                }
+            }
+            var fieldValue = componentCount == 1
+                ? components[0]
+                : EmitVector(fieldType, components);
+            var next = NextValue();
+            EmitLine($"{next} = insertvalue %sia.struct {aggregate}, {GetLlvmType(fieldType)} {fieldValue}, {fieldIndex}");
+            aggregate = next;
+        }
+        return new LlvmValue(aggregate, LlvmValueType.Struct);
+    }
+
+    private void EmitStoreStruct(LlvmValue pointer, LlvmValue value)
+    {
+        var layout = _structLayout ?? throw new InvalidOperationException(
+            "Struct store used without a decoded layout.");
+        for (var fieldIndex = 0; fieldIndex < layout.Fields.Count; fieldIndex++) {
+            var field = layout.Fields[fieldIndex];
+            var fieldType = GetScalarType(field.Type);
+            var fieldValue = NextValue();
+            EmitLine($"{fieldValue} = extractvalue %sia.struct {value.Expression}, {fieldIndex}");
+            var componentCount = TryGetScalarVector(fieldType, out var scalarType, out var length)
+                ? length
+                : 1;
+            if (componentCount == 1) {
+                scalarType = fieldType;
+            }
+            for (var component = 0; component < componentCount; component++) {
+                var componentValue = componentCount == 1
+                    ? fieldValue
+                    : ExtractVectorElement(fieldValue, fieldType, component);
+                if (scalarType == LlvmValueType.Float32) {
+                    var converted = NextValue();
+                    EmitLine($"{converted} = bitcast float {componentValue} to i32");
+                    componentValue = converted;
+                }
+                var wordPointer = EmitStructWordPointer(
+                    pointer,
+                    field.Offset / 4 + component);
+                EmitLine($"store i32 {componentValue}, ptr addrspace(11) {wordPointer}, align 4");
+            }
+        }
+    }
+
+    private string EmitStructWordPointer(LlvmValue reference, int wordOffset)
+    {
+        if (reference.ResourceExpression == null ||
+            reference.ElementIndexExpression == null ||
+            !IsBuffer(reference.ResourceType)) {
+            throw new InvalidOperationException("Struct reference has no storage-buffer origin.");
+        }
+        var index = reference.ElementIndexExpression;
+        if (wordOffset != 0) {
+            var offsetIndex = NextValue();
+            EmitLine($"{offsetIndex} = add i32 {index}, {wordOffset}");
+            index = offsetIndex;
+        }
+        var pointer = NextValue();
+        EmitLine($"{pointer} = call ptr addrspace(11) @llvm.spv.resource.getpointer.p11.{GetBufferMangling(reference.ResourceType)}({GetBufferTargetType(reference.ResourceType)} {reference.ResourceExpression}, i32 {index})");
+        return pointer;
     }
 
     private void EmitBinary(OpCode opCode, int offset, Stack<LlvmValue> stack)
@@ -2303,8 +2640,7 @@ public sealed class LlvmIrEmitter
         var result = NextValue();
         if (value.Type == LlvmValueType.Float32) {
             EmitLine($"{result} = fneg float {value.Expression}");
-        }
-        else {
+        } else {
             EmitLine($"{result} = sub {GetLlvmType(value.Type)} 0, {value.Expression}");
         }
         stack.Push(new LlvmValue(result, value.Type));
@@ -2424,6 +2760,15 @@ public sealed class LlvmIrEmitter
         SpirvScalarType.Int32 => LlvmValueType.Int32,
         SpirvScalarType.UInt32 => LlvmValueType.UInt32,
         SpirvScalarType.Float32 => LlvmValueType.Float32,
+        SpirvScalarType.Int32x2 => LlvmValueType.Int32x2,
+        SpirvScalarType.Int32x3 => LlvmValueType.Int32x3,
+        SpirvScalarType.Int32x4 => LlvmValueType.Int32x4,
+        SpirvScalarType.UInt32x2 => LlvmValueType.UInt32x2,
+        SpirvScalarType.UInt32x3 => LlvmValueType.UInt32x3,
+        SpirvScalarType.UInt32x4 => LlvmValueType.UInt32x4,
+        SpirvScalarType.Float32x2 => LlvmValueType.Float32x2,
+        SpirvScalarType.Float32x3 => LlvmValueType.Float32x3,
+        SpirvScalarType.Float32x4 => LlvmValueType.Float32x4,
         _ => throw new ArgumentOutOfRangeException(nameof(type))
     };
 
@@ -2432,27 +2777,98 @@ public sealed class LlvmIrEmitter
             (SpirvScalarType.Int32, true) => LlvmValueType.ReadOnlyBufferInt32,
             (SpirvScalarType.UInt32, true) => LlvmValueType.ReadOnlyBufferUInt32,
             (SpirvScalarType.Float32, true) => LlvmValueType.ReadOnlyBufferFloat32,
+            (SpirvScalarType.Int32x2, true) => LlvmValueType.ReadOnlyBufferInt32x2,
+            (SpirvScalarType.Int32x3, true) => LlvmValueType.ReadOnlyBufferInt32x3,
+            (SpirvScalarType.Int32x4, true) => LlvmValueType.ReadOnlyBufferInt32x4,
+            (SpirvScalarType.UInt32x2, true) => LlvmValueType.ReadOnlyBufferUInt32x2,
+            (SpirvScalarType.UInt32x3, true) => LlvmValueType.ReadOnlyBufferUInt32x3,
+            (SpirvScalarType.UInt32x4, true) => LlvmValueType.ReadOnlyBufferUInt32x4,
+            (SpirvScalarType.Float32x2, true) => LlvmValueType.ReadOnlyBufferFloat32x2,
+            (SpirvScalarType.Float32x3, true) => LlvmValueType.ReadOnlyBufferFloat32x3,
+            (SpirvScalarType.Float32x4, true) => LlvmValueType.ReadOnlyBufferFloat32x4,
+            (SpirvScalarType.Struct, true) => LlvmValueType.ReadOnlyBufferStruct,
             (SpirvScalarType.Int32, false) => LlvmValueType.BufferInt32,
             (SpirvScalarType.UInt32, false) => LlvmValueType.BufferUInt32,
             (SpirvScalarType.Float32, false) => LlvmValueType.BufferFloat32,
+            (SpirvScalarType.Int32x2, false) => LlvmValueType.BufferInt32x2,
+            (SpirvScalarType.Int32x3, false) => LlvmValueType.BufferInt32x3,
+            (SpirvScalarType.Int32x4, false) => LlvmValueType.BufferInt32x4,
+            (SpirvScalarType.UInt32x2, false) => LlvmValueType.BufferUInt32x2,
+            (SpirvScalarType.UInt32x3, false) => LlvmValueType.BufferUInt32x3,
+            (SpirvScalarType.UInt32x4, false) => LlvmValueType.BufferUInt32x4,
+            (SpirvScalarType.Float32x2, false) => LlvmValueType.BufferFloat32x2,
+            (SpirvScalarType.Float32x3, false) => LlvmValueType.BufferFloat32x3,
+            (SpirvScalarType.Float32x4, false) => LlvmValueType.BufferFloat32x4,
+            (SpirvScalarType.Struct, false) => LlvmValueType.BufferStruct,
             _ => throw new ArgumentOutOfRangeException(nameof(type))
         };
+
+    private static LlvmValueType GetWorkgroupType(SpirvScalarType type) => type switch {
+        SpirvScalarType.Int32 => LlvmValueType.WorkgroupInt32,
+        SpirvScalarType.UInt32 => LlvmValueType.WorkgroupUInt32,
+        SpirvScalarType.Float32 => LlvmValueType.WorkgroupFloat32,
+        _ => throw new InvalidDataException(
+            $"Workgroup-memory element type '{type}' is not supported; use int, uint, or float.")
+    };
+
+    private static LlvmValueType GetWorkgroupElementType(LlvmValueType type) => type switch {
+        LlvmValueType.WorkgroupInt32 => LlvmValueType.Int32,
+        LlvmValueType.WorkgroupUInt32 => LlvmValueType.UInt32,
+        LlvmValueType.WorkgroupFloat32 => LlvmValueType.Float32,
+        _ => throw new ArgumentOutOfRangeException(nameof(type))
+    };
 
     private static LlvmValueType GetBufferElementType(LlvmValueType type) => type switch {
         LlvmValueType.ReadOnlyBufferInt32 => LlvmValueType.Int32,
         LlvmValueType.ReadOnlyBufferUInt32 => LlvmValueType.UInt32,
         LlvmValueType.ReadOnlyBufferFloat32 => LlvmValueType.Float32,
+        LlvmValueType.ReadOnlyBufferInt32x2 => LlvmValueType.Int32x2,
+        LlvmValueType.ReadOnlyBufferInt32x3 => LlvmValueType.Int32x3,
+        LlvmValueType.ReadOnlyBufferInt32x4 => LlvmValueType.Int32x4,
+        LlvmValueType.ReadOnlyBufferUInt32x2 => LlvmValueType.UInt32x2,
+        LlvmValueType.ReadOnlyBufferUInt32x3 => LlvmValueType.UInt32x3,
+        LlvmValueType.ReadOnlyBufferUInt32x4 => LlvmValueType.UInt32x4,
+        LlvmValueType.ReadOnlyBufferFloat32x2 => LlvmValueType.Float32x2,
+        LlvmValueType.ReadOnlyBufferFloat32x3 => LlvmValueType.Float32x3,
+        LlvmValueType.ReadOnlyBufferFloat32x4 => LlvmValueType.Float32x4,
+        LlvmValueType.ReadOnlyBufferStruct => LlvmValueType.Struct,
         LlvmValueType.BufferInt32 => LlvmValueType.Int32,
         LlvmValueType.BufferUInt32 => LlvmValueType.UInt32,
         LlvmValueType.BufferFloat32 => LlvmValueType.Float32,
+        LlvmValueType.BufferInt32x2 => LlvmValueType.Int32x2,
+        LlvmValueType.BufferInt32x3 => LlvmValueType.Int32x3,
+        LlvmValueType.BufferInt32x4 => LlvmValueType.Int32x4,
+        LlvmValueType.BufferUInt32x2 => LlvmValueType.UInt32x2,
+        LlvmValueType.BufferUInt32x3 => LlvmValueType.UInt32x3,
+        LlvmValueType.BufferUInt32x4 => LlvmValueType.UInt32x4,
+        LlvmValueType.BufferFloat32x2 => LlvmValueType.Float32x2,
+        LlvmValueType.BufferFloat32x3 => LlvmValueType.Float32x3,
+        LlvmValueType.BufferFloat32x4 => LlvmValueType.Float32x4,
+        LlvmValueType.BufferStruct => LlvmValueType.Struct,
         _ => throw new ArgumentOutOfRangeException(nameof(type))
     };
 
     private static string GetBufferTargetType(LlvmValueType type) =>
-        $"target(\"spirv.VulkanBuffer\", [0 x {GetLlvmType(GetBufferElementType(type))}], 12, {(IsReadOnlyBuffer(type) ? 0 : 1)})";
+        $"target(\"spirv.VulkanBuffer\", [0 x {GetBufferStorageType(type)}], 12, {(IsReadOnlyBuffer(type) ? 0 : 1)})";
 
     private static string GetBufferMangling(LlvmValueType type) =>
-        $"tspirv.VulkanBuffer_a0{(GetBufferElementType(type) == LlvmValueType.Float32 ? "f32" : "i32")}_12_{(IsReadOnlyBuffer(type) ? 0 : 1)}t";
+        $"tspirv.VulkanBuffer_a0{GetTypeMangling(GetBufferStorageElementType(type))}_12_{(IsReadOnlyBuffer(type) ? 0 : 1)}t";
+
+    private static LlvmValueType GetBufferStorageElementType(LlvmValueType type) =>
+        GetBufferElementType(type) == LlvmValueType.Struct
+            ? LlvmValueType.UInt32
+            : GetBufferElementType(type);
+
+    private static string GetBufferStorageType(LlvmValueType type) =>
+        GetLlvmType(GetBufferStorageElementType(type));
+
+    private static string GetTypeMangling(LlvmValueType type)
+    {
+        if (TryGetScalarVector(type, out var scalarType, out var length)) {
+            return $"v{length}{GetTypeMangling(scalarType)}";
+        }
+        return type == LlvmValueType.Float32 ? "f32" : "i32";
+    }
 
     private static string GetParameterTargetType() =>
         "target(\"spirv.VulkanBuffer\", [0 x i32], 12, 0)";
@@ -2468,6 +2884,9 @@ public sealed class LlvmIrEmitter
 
     private static string GetTexture2DLoadMangling() =>
         "v4f32.tspirv.Image_f32_1_2_0_0_1_0t.v2i32.i32.v2i32";
+
+    private static string GetTexture2DSampleLevelMangling() =>
+        "v4f32.tspirv.Image_f32_1_2_0_0_1_0t.tspirv.Samplert.v2f32.f32.v2i32";
 
     private static string GetTexture2DArrayTargetType() =>
         "target(\"spirv.Image\", float, 1, 2, 1, 0, 1, 0)";
@@ -2505,12 +2924,36 @@ public sealed class LlvmIrEmitter
         LlvmValueType.ReadOnlyBufferFloat32 or
         LlvmValueType.BufferInt32 or
         LlvmValueType.BufferUInt32 or
-        LlvmValueType.BufferFloat32;
+        LlvmValueType.BufferFloat32 or
+        LlvmValueType.ReadOnlyBufferInt32x2 or LlvmValueType.ReadOnlyBufferInt32x3 or
+        LlvmValueType.ReadOnlyBufferInt32x4 or LlvmValueType.ReadOnlyBufferUInt32x2 or
+        LlvmValueType.ReadOnlyBufferUInt32x3 or LlvmValueType.ReadOnlyBufferUInt32x4 or
+        LlvmValueType.ReadOnlyBufferFloat32x2 or LlvmValueType.ReadOnlyBufferFloat32x3 or
+        LlvmValueType.ReadOnlyBufferFloat32x4 or LlvmValueType.BufferInt32x2 or
+        LlvmValueType.BufferInt32x3 or LlvmValueType.BufferInt32x4 or
+        LlvmValueType.BufferUInt32x2 or LlvmValueType.BufferUInt32x3 or
+        LlvmValueType.BufferUInt32x4 or LlvmValueType.BufferFloat32x2 or
+        LlvmValueType.BufferFloat32x3 or LlvmValueType.BufferFloat32x4 or
+        LlvmValueType.ReadOnlyBufferStruct or LlvmValueType.BufferStruct;
 
     private static bool IsReadOnlyBuffer(LlvmValueType type) => type is
         LlvmValueType.ReadOnlyBufferInt32 or
         LlvmValueType.ReadOnlyBufferUInt32 or
-        LlvmValueType.ReadOnlyBufferFloat32;
+        LlvmValueType.ReadOnlyBufferFloat32 or
+        LlvmValueType.ReadOnlyBufferInt32x2 or LlvmValueType.ReadOnlyBufferInt32x3 or
+        LlvmValueType.ReadOnlyBufferInt32x4 or LlvmValueType.ReadOnlyBufferUInt32x2 or
+        LlvmValueType.ReadOnlyBufferUInt32x3 or LlvmValueType.ReadOnlyBufferUInt32x4 or
+        LlvmValueType.ReadOnlyBufferFloat32x2 or LlvmValueType.ReadOnlyBufferFloat32x3 or
+        LlvmValueType.ReadOnlyBufferFloat32x4 or
+        LlvmValueType.ReadOnlyBufferStruct;
+
+    private static bool IsWorkgroupMemory(LlvmValueType type) => type is
+        LlvmValueType.WorkgroupInt32 or
+        LlvmValueType.WorkgroupUInt32 or
+        LlvmValueType.WorkgroupFloat32;
+
+    private static string GetPointerType(int addressSpace) =>
+        addressSpace == 0 ? "ptr" : $"ptr addrspace({addressSpace})";
 
     private static string GetLlvmType(LlvmValueType type) => type switch {
         LlvmValueType.Void => "void",
@@ -2525,7 +2968,10 @@ public sealed class LlvmIrEmitter
         LlvmValueType.Texture2DFloat => GetTexture2DTargetType(),
         LlvmValueType.Texture2DArrayFloat => GetTexture2DArrayTargetType(),
         LlvmValueType.Sampler => GetSamplerTargetType(),
+        LlvmValueType.Struct => "%sia.struct",
         _ when IsBuffer(type) => GetBufferTargetType(type),
+        _ when IsWorkgroupMemory(type) =>
+            throw new InvalidOperationException("Workgroup-memory handles are not first-class LLVM values."),
         _ => throw new ArgumentOutOfRangeException(nameof(type))
     };
 
@@ -2547,6 +2993,18 @@ public sealed class LlvmIrEmitter
         module.AppendLine();
     }
 
+    private void EmitStructTypeDeclaration(StringBuilder module)
+    {
+        if (_structLayout == null) {
+            return;
+        }
+        module.Append("%sia.struct = type { ")
+            .Append(string.Join(", ", _structLayout.Fields.Select(field =>
+                GetLlvmType(GetScalarType(field.Type)))))
+            .AppendLine(" }");
+        module.AppendLine();
+    }
+
     private static int GetAlignment(LlvmValueType type)
     {
         if (TryGetScalarVector(type, out var scalarType, out var length)) {
@@ -2555,7 +3013,8 @@ public sealed class LlvmIrEmitter
             }
             return length == 2 ? 8 : 16;
         }
-        return type == LlvmValueType.UInt3 || TryGetMatrixShape(type, out _, out _) ? 16 : 4;
+        return type is LlvmValueType.UInt3 or LlvmValueType.Struct ||
+            TryGetMatrixShape(type, out _, out _) ? 16 : 4;
     }
 
     private static bool TryGetVectorLength(LlvmValueType type, out int length)

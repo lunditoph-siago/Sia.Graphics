@@ -18,7 +18,8 @@ internal sealed class KernelTypeProvider : ISignatureTypeProvider<KernelType, ob
         KernelType genericType,
         ImmutableArray<KernelType> typeArguments) =>
         genericType.Name is "Sia.Spirv.ReadOnlyStorageBuffer`1" or
-            "Sia.Spirv.StorageBuffer`1" && typeArguments.Length == 1
+            "Sia.Spirv.StorageBuffer`1" or
+            "Sia.Spirv.WorkgroupMemory`1" && typeArguments.Length == 1
             ? new(genericType.Name, typeArguments[0])
             : new(genericType.Name);
 

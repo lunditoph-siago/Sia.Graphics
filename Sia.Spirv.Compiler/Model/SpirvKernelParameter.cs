@@ -4,7 +4,10 @@ public sealed record SpirvKernelParameter(
     string Name,
     int Position,
     SpirvKernelParameterKind Kind,
-    SpirvScalarType ScalarType)
+    SpirvScalarType ScalarType,
+    SpirvStructLayout? StructLayout = null)
 {
-    public bool IsResource => Kind != SpirvKernelParameterKind.PushConstant;
+    public bool IsResource => Kind is not (
+        SpirvKernelParameterKind.PushConstant or
+        SpirvKernelParameterKind.WorkgroupMemory);
 }

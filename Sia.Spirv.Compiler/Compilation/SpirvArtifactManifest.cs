@@ -23,7 +23,18 @@ internal sealed record SpirvManifestResource(
     string Access,
     string ElementType,
     int DescriptorSet,
-    int Binding);
+    int Binding,
+    int Alignment,
+    int Size,
+    int ArrayStride,
+    IReadOnlyList<SpirvManifestStructField>? Fields = null);
+
+internal sealed record SpirvManifestStructField(
+    string Name,
+    string Type,
+    int Offset,
+    int Alignment,
+    int Size);
 
 internal sealed record SpirvManifestPushConstant(
     string Name,

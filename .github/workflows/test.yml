@@ -23,10 +23,20 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 11.x
+          dotnet-version: |
+            10.x
+            11.x
+
+      - name: Install SPIR-V workload
+        run: |
+          dotnet tool install --global Sia.Spirv.Bootstrap
+          dotnet spirv install
 
       - name: Restore
         run: dotnet restore Sia.Graphics.slnx
 
       - name: Run tests
         run: dotnet test Sia.Graphics.slnx --configuration Release --blame-hang --blame-hang-timeout 5m
+
+      - name: Run Naga tests
+        run: cargo test --manifest-path Sia.Spirv.Naga/Cargo.toml --locked --release

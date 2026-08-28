@@ -72,24 +72,38 @@ public sealed class LlvmToolchain
                 "LLVM optimization level must be between zero and three.");
         }
         var triple = targetEnvironment switch {
-            "vulkan1.2" => "spirv64-unknown-vulkan1.2",
-            "vulkan1.3" => "spirv64-unknown-vulkan1.3",
+            "vulkan1.2" => "spirv1.5-vulkan1.2-compute",
+            "vulkan1.3" => "spirv1.6-vulkan1.3-compute",
             _ => throw new ArgumentException(
                 $"Target environment '{targetEnvironment}' is not supported.",
                 nameof(targetEnvironment))
         };
+        // LLVM 23's SPIR-V legalize-bitcast pass crashes at -O1 and above
+        // when native LLVM atomics use Vulkan logical pointers. The IR has
+        // already passed our explicit optimization pipeline, so keep codegen
+        // at O0 for atomic modules until the backend fix reaches the workload.
+        var effectiveOptimizationLevel = ContainsNativeAtomics(inputPath)
+            ? 0
+            : optimizationLevel;
         Run(
             ToolName("llc"),
             "--filetype=obj",
             $"--mtriple={triple}",
             "-O",
-            optimizationLevel.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            effectiveOptimizationLevel.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
             "-o",
             outputPath,
             inputPath);
         SpirvMatrixLowering.Rewrite(outputPath);
         SpirvSignedConversionLowering.Rewrite(outputPath);
+        SpirvWorkgroupInitializerLowering.Rewrite(outputPath);
     }
+
+    private static bool ContainsNativeAtomics(string path) =>
+        File.ReadLines(path).Any(static line =>
+            line.Contains("atomicrmw ", StringComparison.Ordinal) ||
+            line.Contains("cmpxchg ", StringComparison.Ordinal));
 
     public void Validate(string inputPath, string targetEnvironment) =>
         Run(ToolName("spirv-val"), "--target-env", targetEnvironment, inputPath);
@@ -100,8 +114,7 @@ public sealed class LlvmToolchain
         try {
             Run(ToolName("spirv-opt"), "-O", inputPath, "-o", temporaryPath);
             File.Move(temporaryPath, inputPath, true);
-        }
-        finally {
+        } finally {
             File.Delete(temporaryPath);
         }
     }
@@ -114,8 +127,7 @@ public sealed class LlvmToolchain
             Run(ToolName("naga"), spirvPath, temporaryPath);
             Run(ToolName("naga"), temporaryPath);
             File.Move(temporaryPath, wgslPath, true);
-        }
-        finally {
+        } finally {
             File.Delete(temporaryPath);
         }
     }

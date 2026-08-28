@@ -7,5 +7,6 @@ public enum SpirvKernelParameterKind
     Sampler,
     ReadOnlyStorageBuffer,
     StorageBuffer,
+    WorkgroupMemory,
     PushConstant
 }

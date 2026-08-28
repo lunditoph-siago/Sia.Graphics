@@ -10,6 +10,7 @@ namespace Sia.Spirv.Compiler.IL;
 /// legality checks, and LLVM IR generation.
 /// </summary>
 public sealed record ResolvedCall(
+    int MetadataToken,
     string DeclaringType,
     string Name,
     MethodSignature<KernelType> Signature,

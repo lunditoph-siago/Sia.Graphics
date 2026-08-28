@@ -25,8 +25,11 @@ public sealed class ShaderCilView
 
     public bool IsReachable(CilBasicBlock block) => _reachableBlockIds.Contains(block.Id);
 
-    public ResolvedCall ResolveCall(CilBasicBlock block, int instructionIndex) =>
-        Resolver.Resolve((int)block.Instructions[instructionIndex].Operand!);
+    public ResolvedCall ResolveCall(CilBasicBlock block, int instructionIndex)
+    {
+        var instruction = block.Instructions[instructionIndex];
+        return Resolver.Resolve(instruction.Operand.GetInt32(instruction.Offset));
+    }
 
     private static HashSet<int> ComputeReachableBlockIds(CilControlFlowGraph graph)
     {

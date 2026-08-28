@@ -386,7 +386,7 @@ public sealed class LlvmIrEmitter
         CilBasicBlock block,
         int instructionIndex,
         OpCode opCode,
-        object? operand,
+        CilOperand operand,
         int offset,
         IReadOnlyList<LlvmValueType> localTypes,
         IReadOnlyList<LlvmValue> parameters,
@@ -396,38 +396,40 @@ public sealed class LlvmIrEmitter
         if (opCode == OpCodes.Nop) {
             return false;
         }
-        if (TryGetArgumentIndex(opCode, operand, out var argumentIndex)) {
+        if (TryGetArgumentIndex(opCode, operand, offset, out var argumentIndex)) {
             stack.Push(parameters[argumentIndex]);
             return false;
         }
-        if (TryGetArgumentAddressIndex(opCode, operand, out argumentIndex)) {
+        if (TryGetArgumentAddressIndex(opCode, operand, offset, out argumentIndex)) {
             stack.Push(parameters[argumentIndex]);
             return false;
         }
-        if (TryGetLocalIndex(opCode, operand, true, out var localIndex)) {
+        if (TryGetLocalIndex(opCode, operand, offset, true, out var localIndex)) {
             var type = localTypes[localIndex];
             var value = NextValue();
             EmitLine($"{value} = load {GetLlvmType(type)}, ptr %local.{localIndex}, align {GetAlignment(type)}");
             stack.Push(new LlvmValue(value, type));
             return false;
         }
-        if (TryGetLocalIndex(opCode, operand, false, out localIndex)) {
+        if (TryGetLocalIndex(opCode, operand, offset, false, out localIndex)) {
             var value = Pop(stack, offset);
             var type = localTypes[localIndex];
             EnsureCompatible(type, value.Type, offset);
             EmitLine($"store {GetLlvmType(type)} {value.Expression}, ptr %local.{localIndex}, align {GetAlignment(type)}");
             return false;
         }
-        if (TryGetLocalAddressIndex(opCode, operand, out localIndex)) {
+        if (TryGetLocalAddressIndex(opCode, operand, offset, out localIndex)) {
             stack.Push(new LlvmValue($"%local.{localIndex}", localTypes[localIndex], true));
             return false;
         }
-        if (TryGetInt32Constant(opCode, operand, out var constant)) {
+        if (TryGetInt32Constant(opCode, operand, offset, out var constant)) {
             stack.Push(new LlvmValue(constant.ToString(System.Globalization.CultureInfo.InvariantCulture), LlvmValueType.Int32));
             return false;
         }
         if (opCode == OpCodes.Ldc_R4) {
-            stack.Push(new LlvmValue(FormatFloat((float)operand!), LlvmValueType.Float32));
+            stack.Push(new LlvmValue(
+                FormatFloat(operand.GetSingle(offset)),
+                LlvmValueType.Float32));
             return false;
         }
         if (opCode == OpCodes.Dup) {
@@ -472,7 +474,7 @@ public sealed class LlvmIrEmitter
             return false;
         }
         if (opCode == OpCodes.Ldobj) {
-            EmitLoadObject((int)operand!, offset, stack);
+            EmitLoadObject(operand.GetInt32(offset), offset, stack);
             return false;
         }
         if (IsStoreIndirect(opCode)) {
@@ -484,13 +486,13 @@ public sealed class LlvmIrEmitter
             return false;
         }
         if (opCode == OpCodes.Br || opCode == OpCodes.Br_S) {
-            EmitLine($"br label %bb{blockIdsByOffset[(int)operand!]}");
+            EmitLine($"br label %bb{blockIdsByOffset[operand.GetInt32(offset)]}");
             return true;
         }
         if (opCode == OpCodes.Brtrue || opCode == OpCodes.Brtrue_S ||
             opCode == OpCodes.Brfalse || opCode == OpCodes.Brfalse_S) {
             var condition = ToBoolean(Pop(stack, offset), offset);
-            var target = blockIdsByOffset[(int)operand!];
+            var target = blockIdsByOffset[operand.GetInt32(offset)];
             var fallthrough = GetFallthroughBlock(offset, blockIdsByOffset);
             if (opCode == OpCodes.Brfalse || opCode == OpCodes.Brfalse_S) {
                 (target, fallthrough) = (fallthrough, target);
@@ -500,13 +502,13 @@ public sealed class LlvmIrEmitter
         }
         if (IsRelationalBranch(opCode)) {
             var condition = EmitBranchComparison(opCode, offset, stack);
-            var target = blockIdsByOffset[(int)operand!];
+            var target = blockIdsByOffset[operand.GetInt32(offset)];
             var fallthrough = GetFallthroughBlock(offset, blockIdsByOffset);
             EmitLine($"br i1 {condition.Expression}, label %bb{target}, label %bb{fallthrough}");
             return true;
         }
         if (opCode == OpCodes.Switch) {
-            EmitSwitch((int[])operand!, offset, blockIdsByOffset, stack);
+            EmitSwitch(operand.GetSwitchTargets(offset), offset, blockIdsByOffset, stack);
             return true;
         }
         if (opCode == OpCodes.Ret) {
@@ -3256,45 +3258,72 @@ public sealed class LlvmIrEmitter
         throw CreateUnsupported(offset, $"Texture coordinate '{name}' must be a 32-bit integer.");
     }
 
-    private static bool TryGetArgumentIndex(OpCode opCode, object? operand, out int index)
+    private static bool TryGetArgumentIndex(
+        OpCode opCode,
+        CilOperand operand,
+        int offset,
+        out int index)
     {
         index = opCode == OpCodes.Ldarg_0 ? 0 :
             opCode == OpCodes.Ldarg_1 ? 1 :
             opCode == OpCodes.Ldarg_2 ? 2 :
             opCode == OpCodes.Ldarg_3 ? 3 :
-            opCode == OpCodes.Ldarg || opCode == OpCodes.Ldarg_S ? Convert.ToInt32(operand) : -1;
+            opCode == OpCodes.Ldarg || opCode == OpCodes.Ldarg_S
+                ? operand.GetInt32(offset)
+                : -1;
         return index >= 0;
     }
 
-    private static bool TryGetArgumentAddressIndex(OpCode opCode, object? operand, out int index)
+    private static bool TryGetArgumentAddressIndex(
+        OpCode opCode,
+        CilOperand operand,
+        int offset,
+        out int index)
     {
-        index = opCode == OpCodes.Ldarga || opCode == OpCodes.Ldarga_S ? Convert.ToInt32(operand) : -1;
+        index = opCode == OpCodes.Ldarga || opCode == OpCodes.Ldarga_S
+            ? operand.GetInt32(offset)
+            : -1;
         return index >= 0;
     }
 
     private static bool TryGetLocalIndex(
         OpCode opCode,
-        object? operand,
+        CilOperand operand,
+        int offset,
         bool load,
         out int index)
     {
         index = load
             ? opCode == OpCodes.Ldloc_0 ? 0 : opCode == OpCodes.Ldloc_1 ? 1 :
                 opCode == OpCodes.Ldloc_2 ? 2 : opCode == OpCodes.Ldloc_3 ? 3 :
-                opCode == OpCodes.Ldloc || opCode == OpCodes.Ldloc_S ? Convert.ToInt32(operand) : -1
+                opCode == OpCodes.Ldloc || opCode == OpCodes.Ldloc_S
+                    ? operand.GetInt32(offset)
+                    : -1
             : opCode == OpCodes.Stloc_0 ? 0 : opCode == OpCodes.Stloc_1 ? 1 :
                 opCode == OpCodes.Stloc_2 ? 2 : opCode == OpCodes.Stloc_3 ? 3 :
-                opCode == OpCodes.Stloc || opCode == OpCodes.Stloc_S ? Convert.ToInt32(operand) : -1;
+                opCode == OpCodes.Stloc || opCode == OpCodes.Stloc_S
+                    ? operand.GetInt32(offset)
+                    : -1;
         return index >= 0;
     }
 
-    private static bool TryGetLocalAddressIndex(OpCode opCode, object? operand, out int index)
+    private static bool TryGetLocalAddressIndex(
+        OpCode opCode,
+        CilOperand operand,
+        int offset,
+        out int index)
     {
-        index = opCode == OpCodes.Ldloca || opCode == OpCodes.Ldloca_S ? Convert.ToInt32(operand) : -1;
+        index = opCode == OpCodes.Ldloca || opCode == OpCodes.Ldloca_S
+            ? operand.GetInt32(offset)
+            : -1;
         return index >= 0;
     }
 
-    private static bool TryGetInt32Constant(OpCode opCode, object? operand, out int value)
+    private static bool TryGetInt32Constant(
+        OpCode opCode,
+        CilOperand operand,
+        int offset,
+        out int value)
     {
         if (opCode == OpCodes.Ldc_I4_M1) value = -1;
         else if (opCode == OpCodes.Ldc_I4_0) value = 0;
@@ -3307,7 +3336,7 @@ public sealed class LlvmIrEmitter
         else if (opCode == OpCodes.Ldc_I4_7) value = 7;
         else if (opCode == OpCodes.Ldc_I4_8) value = 8;
         else if (opCode == OpCodes.Ldc_I4 || opCode == OpCodes.Ldc_I4_S) {
-            value = Convert.ToInt32(operand);
+            value = operand.GetInt32(offset);
         }
         else {
             value = default;

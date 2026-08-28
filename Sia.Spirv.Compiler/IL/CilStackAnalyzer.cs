@@ -79,11 +79,13 @@ internal sealed class CilStackAnalyzer(
             return call.ParameterCount + (call.IsInstance ? 1 : 0);
         }
         if (instruction.OpCode == OpCodes.Calli) {
-            var signature = GetStandaloneMethodSignature((int)instruction.Operand!);
+            var signature = GetStandaloneMethodSignature(
+                instruction.Operand.GetInt32(instruction.Offset));
             return signature.ParameterTypes.Length + (signature.Header.IsInstance ? 1 : 0) + 1;
         }
         if (instruction.OpCode == OpCodes.Newobj) {
-            return GetMethodSignature((int)instruction.Operand!).ParameterTypes.Length;
+            return GetMethodSignature(
+                instruction.Operand.GetInt32(instruction.Offset)).ParameterTypes.Length;
         }
 
         throw new InvalidDataException(
@@ -100,7 +102,8 @@ internal sealed class CilStackAnalyzer(
             return view.ResolveCall(block, instructionIndex).ReturnsVoid ? 0 : 1;
         }
         if (instruction.OpCode == OpCodes.Calli) {
-            return GetStandaloneMethodSignature((int)instruction.Operand!).ReturnType.IsVoid ? 0 : 1;
+            return GetStandaloneMethodSignature(
+                instruction.Operand.GetInt32(instruction.Offset)).ReturnType.IsVoid ? 0 : 1;
         }
         if (instruction.OpCode == OpCodes.Newobj) {
             return 1;

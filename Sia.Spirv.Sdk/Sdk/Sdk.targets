@@ -5,7 +5,7 @@
     <SpirvKernelAbi Condition="'$(SpirvKernelAbi)' == ''">webgpu</SpirvKernelAbi>
     <SpirvEmitWgsl Condition="'$(SpirvEmitWgsl)' == ''">true</SpirvEmitWgsl>
     <SpirvOptimizationLevel Condition="'$(SpirvOptimizationLevel)' == ''">2</SpirvOptimizationLevel>
-    <SpirvCompilerToolPath Condition="'$(SpirvCompilerToolPath)' == ''">$(MSBuildThisFileDirectory)..\tools\net10.0\Sia.Spirv.Tool.dll</SpirvCompilerToolPath>
+    <SpirvCompilerToolPath Condition="'$(SpirvCompilerToolPath)' == ''">$(MSBuildThisFileDirectory)..\tools\net11.0\Sia.Spirv.Tool.dll</SpirvCompilerToolPath>
     <SpirvBrowserPolyfillDirectory Condition="'$(SpirvBrowserPolyfillDirectory)' == ''">$(MSBuildThisFileDirectory)..\tools\browser</SpirvBrowserPolyfillDirectory>
     <SpirvDotNetHost Condition="'$(DotNetHostPath)' != ''">$(DotNetHostPath)</SpirvDotNetHost>
     <SpirvDotNetHost Condition="'$(SpirvDotNetHost)' == ''">dotnet</SpirvDotNetHost>

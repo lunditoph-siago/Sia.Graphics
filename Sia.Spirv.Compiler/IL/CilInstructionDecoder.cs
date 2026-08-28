@@ -43,7 +43,7 @@ internal static class CilInstructionDecoder
         return instructions;
     }
 
-    private static object? ReadOperand(
+    private static CilOperand ReadOperand(
         ReadOnlySpan<byte> il,
         ref int offset,
         int instructionOffset,
@@ -51,7 +51,7 @@ internal static class CilInstructionDecoder
     {
         switch (opCode.OperandType) {
             case OperandType.InlineNone:
-                return null;
+                return CilNoOperand.Instance;
             case OperandType.ShortInlineBrTarget:
                 EnsureAvailable(il, offset, 1, instructionOffset);
                 return offset + 1 + unchecked((sbyte)il[offset++]);
@@ -63,7 +63,7 @@ internal static class CilInstructionDecoder
                 }
             case OperandType.ShortInlineI:
                 EnsureAvailable(il, offset, 1, instructionOffset);
-                return unchecked((sbyte)il[offset++]);
+                return (int)unchecked((sbyte)il[offset++]);
             case OperandType.InlineI:
                 return ReadInt32(il, ref offset, instructionOffset);
             case OperandType.InlineI8: {
@@ -84,12 +84,12 @@ internal static class CilInstructionDecoder
                 }
             case OperandType.ShortInlineVar:
                 EnsureAvailable(il, offset, 1, instructionOffset);
-                return il[offset++];
+                return (int)il[offset++];
             case OperandType.InlineVar: {
                     EnsureAvailable(il, offset, 2, instructionOffset);
                     var index = BinaryPrimitives.ReadUInt16LittleEndian(il[offset..]);
                     offset += 2;
-                    return index;
+                    return (int)index;
                 }
             case OperandType.InlineField:
             case OperandType.InlineMethod:

@@ -17,10 +17,6 @@ public static class SpirvArtifactLoader
             File.ReadAllText(manifestPath),
             s_JsonOptions) ?? throw new InvalidDataException(
                 $"'{manifestPath}' does not contain a SPIR-V artifact manifest.");
-        if (manifest.SchemaVersion is not 1 and not 2 and not 3) {
-            throw new InvalidDataException(
-                $"SPIR-V artifact schema {manifest.SchemaVersion} is not supported.");
-        }
 
         const string suffix = ".spv.json";
         if (!manifestPath.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) {

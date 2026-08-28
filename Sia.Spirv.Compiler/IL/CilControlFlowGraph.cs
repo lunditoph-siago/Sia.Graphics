@@ -61,13 +61,17 @@ public sealed record CilControlFlowGraph(IReadOnlyList<CilBasicBlock> Blocks)
         return new CilControlFlowGraph(blocks);
     }
 
-    private static IEnumerable<int> GetBranchTargets(CilInstruction instruction) =>
-        instruction.Operand switch {
-            int target when instruction.OpCode.OperandType is
-                OperandType.InlineBrTarget or OperandType.ShortInlineBrTarget => [target],
-            int[] targets when instruction.OpCode.OperandType == OperandType.InlineSwitch => targets,
-            _ => []
-        };
+    private static IEnumerable<int> GetBranchTargets(CilInstruction instruction)
+    {
+        if (instruction.OpCode.OperandType is
+            OperandType.InlineBrTarget or OperandType.ShortInlineBrTarget) {
+            return [instruction.Operand.GetInt32(instruction.Offset)];
+        }
+        if (instruction.OpCode.OperandType == OperandType.InlineSwitch) {
+            return instruction.Operand.GetSwitchTargets(instruction.Offset);
+        }
+        return [];
+    }
 
     private static bool HasFallthrough(CilInstruction instruction) =>
         instruction.OpCode.FlowControl is not (

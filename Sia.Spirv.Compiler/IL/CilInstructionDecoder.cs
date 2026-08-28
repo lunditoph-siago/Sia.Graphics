@@ -51,7 +51,7 @@ internal static class CilInstructionDecoder
     {
         switch (opCode.OperandType) {
             case OperandType.InlineNone:
-                return CilNoOperand.Instance;
+                return CilOperand.None;
             case OperandType.ShortInlineBrTarget:
                 EnsureAvailable(il, offset, 1, instructionOffset);
                 return offset + 1 + unchecked((sbyte)il[offset++]);

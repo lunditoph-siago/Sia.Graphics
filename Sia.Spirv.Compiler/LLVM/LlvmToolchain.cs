@@ -48,12 +48,21 @@ public sealed class LlvmToolchain
             "The Sia SPIR-V LLVM toolchain was not found. Set SIA_SPIRV_TOOLCHAIN or pass ToolchainDirectory.");
     }
 
-    public void Optimize(string inputPath, string outputPath)
+    public void Optimize(string inputPath, string outputPath, int optimizationLevel)
     {
+        ValidateOptimizationLevel(optimizationLevel);
+        // Keep the mandatory control-flow legalization at O0. LLVM 23's
+        // SPIR-V backend is not stable after instcombine for the vector-bool
+        // bitcasts emitted by the supported shader profile, so use the
+        // individually validated scalar and CFG passes here.
+        var passes = optimizationLevel == 0 || ContainsNativeAtomics(inputPath)
+            ? "mem2reg,structurizecfg,simplifycfg"
+            : "mem2reg,simplifycfg,early-cse,sccp,adce," +
+              "structurizecfg,simplifycfg";
         Run(
             ToolName("opt"),
             "-S",
-            "-passes=mem2reg,structurizecfg,simplifycfg",
+            $"-passes={passes}",
             inputPath,
             "-o",
             outputPath);
@@ -65,12 +74,7 @@ public sealed class LlvmToolchain
         int optimizationLevel,
         string targetEnvironment)
     {
-        if (optimizationLevel is < 0 or > 3) {
-            throw new ArgumentOutOfRangeException(
-                nameof(optimizationLevel),
-                optimizationLevel,
-                "LLVM optimization level must be between zero and three.");
-        }
+        ValidateOptimizationLevel(optimizationLevel);
         var triple = targetEnvironment switch {
             "vulkan1.2" => "spirv1.5-vulkan1.2-compute",
             "vulkan1.3" => "spirv1.6-vulkan1.3-compute",
@@ -104,6 +108,16 @@ public sealed class LlvmToolchain
         File.ReadLines(path).Any(static line =>
             line.Contains("atomicrmw ", StringComparison.Ordinal) ||
             line.Contains("cmpxchg ", StringComparison.Ordinal));
+
+    private static void ValidateOptimizationLevel(int optimizationLevel)
+    {
+        if (optimizationLevel is < 0 or > 3) {
+            throw new ArgumentOutOfRangeException(
+                nameof(optimizationLevel),
+                optimizationLevel,
+                "LLVM optimization level must be between zero and three.");
+        }
+    }
 
     public void Validate(string inputPath, string targetEnvironment) =>
         Run(ToolName("spirv-val"), "--target-env", targetEnvironment, inputPath);

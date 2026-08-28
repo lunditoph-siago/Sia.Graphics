@@ -119,7 +119,10 @@ public sealed class LlvmIrEmitter
         var entryPoint = SanitizeIdentifier(kernel.Name);
         var prologue = new StringBuilder();
         EmitParameterGlobals(kernel, prologue, parameterValues);
-        EmitLocalAllocations(localTypes, prologue);
+        EmitLocalAllocations(
+            localTypes,
+            methodBody.LocalVariablesInitialized,
+            prologue);
         EmitBlocks(view, localTypes, parameterValues, prologue);
         if (kernel.Stage == SpirvShaderStage.Vertex && !_writesPosition) {
             throw new InvalidDataException(
@@ -432,6 +435,10 @@ public sealed class LlvmIrEmitter
             Pop(stack, offset);
             return false;
         }
+        if (opCode == OpCodes.Not) {
+            EmitNot(offset, stack);
+            return false;
+        }
         if (IsBinaryArithmetic(opCode)) {
             EmitBinary(opCode, offset, stack);
             return false;
@@ -493,6 +500,10 @@ public sealed class LlvmIrEmitter
             var target = blockIdsByOffset[(int)operand!];
             var fallthrough = GetFallthroughBlock(offset, blockIdsByOffset);
             EmitLine($"br i1 {condition.Expression}, label %bb{target}, label %bb{fallthrough}");
+            return true;
+        }
+        if (opCode == OpCodes.Switch) {
+            EmitSwitch((int[])operand!, offset, blockIdsByOffset, stack);
             return true;
         }
         if (opCode == OpCodes.Ret) {
@@ -611,12 +622,20 @@ public sealed class LlvmIrEmitter
         }
     }
 
-    private void EmitLocalAllocations(IReadOnlyList<LlvmValueType> localTypes, StringBuilder prologue)
+    private void EmitLocalAllocations(
+        IReadOnlyList<LlvmValueType> localTypes,
+        bool initializeLocals,
+        StringBuilder prologue)
     {
         for (var index = 0; index < localTypes.Count; index++) {
             var type = localTypes[index];
             prologue.Append("  %local.").Append(index).Append(" = alloca ")
                 .Append(GetLlvmType(type)).Append(", align ").Append(GetAlignment(type)).AppendLine();
+            if (initializeLocals) {
+                prologue.Append("  store ").Append(GetLlvmType(type))
+                    .Append(" zeroinitializer, ptr %local.").Append(index)
+                    .Append(", align ").Append(GetAlignment(type)).AppendLine();
+            }
         }
     }
 
@@ -705,7 +724,9 @@ public sealed class LlvmIrEmitter
             module.AppendLine("declare i32 @llvm.spv.thread.id.in.group.i32(i32)");
             module.AppendLine("declare i32 @llvm.spv.group.id.i32(i32)");
         }
-        foreach (var type in _bufferTypes.OrderBy(static type => type)) {
+        foreach (var type in _bufferTypes
+            .OrderBy(static type => type)
+            .DistinctBy(GetBufferMangling)) {
             var targetType = GetBufferTargetType(type);
             var mangling = GetBufferMangling(type);
             module.Append("declare ").Append(targetType)
@@ -2624,11 +2645,58 @@ public sealed class LlvmIrEmitter
     {
         var right = Pop(stack, offset);
         var left = Pop(stack, offset);
+        if (IsShift(opCode)) {
+            EmitShift(opCode, left, right, offset, stack);
+            return;
+        }
         var type = MergeNumericTypes(left.Type, right.Type, offset);
         var instruction = GetBinaryInstruction(opCode, type, offset);
         var result = NextValue();
         EmitLine($"{result} = {instruction} {GetLlvmType(type)} {left.Expression}, {right.Expression}");
         stack.Push(new LlvmValue(result, type));
+    }
+
+    private void EmitShift(
+        OpCode opCode,
+        LlvmValue value,
+        LlvmValue count,
+        int offset,
+        Stack<LlvmValue> stack)
+    {
+        EnsureIntegerOperand(value, "Shift value", offset);
+        EnsureIntegerOperand(count, "Shift count", offset);
+
+        string maskedCount;
+        if (int.TryParse(
+            count.Expression,
+            System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var constantCount)) {
+            maskedCount = (constantCount & 31).ToString(
+                System.Globalization.CultureInfo.InvariantCulture);
+        } else {
+            maskedCount = NextValue("shift.count");
+            EmitLine($"{maskedCount} = and i32 {count.Expression}, 31");
+        }
+
+        var result = NextValue();
+        EmitLine(
+            $"{result} = {GetBinaryInstruction(opCode, value.Type, offset)} i32 " +
+            $"{value.Expression}, {maskedCount}");
+        stack.Push(new LlvmValue(result, value.Type));
+    }
+
+    private void EmitNot(int offset, Stack<LlvmValue> stack)
+    {
+        var value = Pop(stack, offset);
+        var constant = value.Type switch {
+            LlvmValueType.Boolean => "true",
+            LlvmValueType.Int32 or LlvmValueType.UInt32 => "-1",
+            _ => throw CreateUnsupported(offset, $"Cannot complement a value of type {value.Type}.")
+        };
+        var result = NextValue();
+        EmitLine($"{result} = xor {GetLlvmType(value.Type)} {value.Expression}, {constant}");
+        stack.Push(new LlvmValue(result, value.Type));
     }
 
     private void EmitNegate(int offset, Stack<LlvmValue> stack)
@@ -2708,6 +2776,22 @@ public sealed class LlvmIrEmitter
         var result = NextValue();
         EmitLine($"{result} = icmp ne i32 {value.Expression}, 0");
         return new LlvmValue(result, LlvmValueType.Boolean);
+    }
+
+    private void EmitSwitch(
+        IReadOnlyList<int> targets,
+        int offset,
+        IReadOnlyDictionary<int, int> blockIdsByOffset,
+        Stack<LlvmValue> stack)
+    {
+        var selector = Pop(stack, offset);
+        EnsureIntegerOperand(selector, "Switch selector", offset);
+        var fallthrough = GetFallthroughBlock(offset, blockIdsByOffset);
+        EmitLine($"switch i32 {selector.Expression}, label %bb{fallthrough} [");
+        for (var index = 0; index < targets.Count; index++) {
+            EmitLine($"  i32 {index}, label %bb{blockIdsByOffset[targets[index]]}");
+        }
+        EmitLine("]");
     }
 
     private static IReadOnlyList<LlvmValueType> DecodeLocalTypes(
@@ -3176,14 +3260,23 @@ public sealed class LlvmIrEmitter
 
     private static bool TryGetInt32Constant(OpCode opCode, object? operand, out int value)
     {
-        value = opCode == OpCodes.Ldc_I4_M1 ? -1 :
-            opCode == OpCodes.Ldc_I4_0 ? 0 : opCode == OpCodes.Ldc_I4_1 ? 1 :
-            opCode == OpCodes.Ldc_I4_2 ? 2 : opCode == OpCodes.Ldc_I4_3 ? 3 :
-            opCode == OpCodes.Ldc_I4_4 ? 4 : opCode == OpCodes.Ldc_I4_5 ? 5 :
-            opCode == OpCodes.Ldc_I4_6 ? 6 : opCode == OpCodes.Ldc_I4_7 ? 7 :
-            opCode == OpCodes.Ldc_I4_8 ? 8 :
-            opCode == OpCodes.Ldc_I4 || opCode == OpCodes.Ldc_I4_S ? Convert.ToInt32(operand) : int.MinValue;
-        return value != int.MinValue;
+        if (opCode == OpCodes.Ldc_I4_M1) value = -1;
+        else if (opCode == OpCodes.Ldc_I4_0) value = 0;
+        else if (opCode == OpCodes.Ldc_I4_1) value = 1;
+        else if (opCode == OpCodes.Ldc_I4_2) value = 2;
+        else if (opCode == OpCodes.Ldc_I4_3) value = 3;
+        else if (opCode == OpCodes.Ldc_I4_4) value = 4;
+        else if (opCode == OpCodes.Ldc_I4_5) value = 5;
+        else if (opCode == OpCodes.Ldc_I4_6) value = 6;
+        else if (opCode == OpCodes.Ldc_I4_7) value = 7;
+        else if (opCode == OpCodes.Ldc_I4_8) value = 8;
+        else if (opCode == OpCodes.Ldc_I4 || opCode == OpCodes.Ldc_I4_S) {
+            value = Convert.ToInt32(operand);
+        } else {
+            value = default;
+            return false;
+        }
+        return true;
     }
 
     private static bool IsBinaryArithmetic(OpCode opCode) => opCode == OpCodes.Add ||
@@ -3192,22 +3285,32 @@ public sealed class LlvmIrEmitter
         opCode == OpCodes.And || opCode == OpCodes.Or || opCode == OpCodes.Xor ||
         opCode == OpCodes.Shl || opCode == OpCodes.Shr || opCode == OpCodes.Shr_Un;
 
+    private static bool IsShift(OpCode opCode) => opCode == OpCodes.Shl ||
+        opCode == OpCodes.Shr || opCode == OpCodes.Shr_Un;
+
     private static string GetBinaryInstruction(OpCode opCode, LlvmValueType type, int offset)
     {
         var floating = type == LlvmValueType.Float32;
-        if (opCode == OpCodes.Add) return floating ? "fadd" : "add";
-        if (opCode == OpCodes.Sub) return floating ? "fsub" : "sub";
-        if (opCode == OpCodes.Mul) return floating ? "fmul" : "mul";
-        if (opCode == OpCodes.Div) return floating ? "fdiv" : "sdiv";
-        if (opCode == OpCodes.Div_Un) return "udiv";
-        if (opCode == OpCodes.Rem) return floating ? "frem" : "srem";
-        if (opCode == OpCodes.Rem_Un) return "urem";
-        if (opCode == OpCodes.And) return "and";
-        if (opCode == OpCodes.Or) return "or";
-        if (opCode == OpCodes.Xor) return "xor";
-        if (opCode == OpCodes.Shl) return "shl";
-        if (opCode == OpCodes.Shr) return "ashr";
-        if (opCode == OpCodes.Shr_Un) return "lshr";
+        var integer = type is LlvmValueType.Int32 or LlvmValueType.UInt32;
+        var bitwise = integer || type == LlvmValueType.Boolean;
+        if (opCode == OpCodes.Add && floating) return "fadd";
+        if (opCode == OpCodes.Add && integer) return "add";
+        if (opCode == OpCodes.Sub && floating) return "fsub";
+        if (opCode == OpCodes.Sub && integer) return "sub";
+        if (opCode == OpCodes.Mul && floating) return "fmul";
+        if (opCode == OpCodes.Mul && integer) return "mul";
+        if (opCode == OpCodes.Div && floating) return "fdiv";
+        if (opCode == OpCodes.Div && integer) return "sdiv";
+        if (opCode == OpCodes.Div_Un && integer) return "udiv";
+        if (opCode == OpCodes.Rem && floating) return "frem";
+        if (opCode == OpCodes.Rem && integer) return "srem";
+        if (opCode == OpCodes.Rem_Un && integer) return "urem";
+        if (opCode == OpCodes.And && bitwise) return "and";
+        if (opCode == OpCodes.Or && bitwise) return "or";
+        if (opCode == OpCodes.Xor && bitwise) return "xor";
+        if (opCode == OpCodes.Shl && integer) return "shl";
+        if (opCode == OpCodes.Shr && integer) return "ashr";
+        if (opCode == OpCodes.Shr_Un && integer) return "lshr";
         throw CreateUnsupported(offset, $"Binary opcode '{opCode.Name}' is not supported.");
     }
 
@@ -3243,10 +3346,24 @@ public sealed class LlvmIrEmitter
         var floating = type == LlvmValueType.Float32;
         if (opCode == OpCodes.Beq || opCode == OpCodes.Beq_S) return floating ? "oeq" : "eq";
         if (opCode == OpCodes.Bne_Un || opCode == OpCodes.Bne_Un_S) return floating ? "une" : "ne";
-        if (opCode.Name!.StartsWith("blt", StringComparison.Ordinal)) return floating ? "olt" : unsigned ? "ult" : "slt";
-        if (opCode.Name.StartsWith("ble", StringComparison.Ordinal)) return floating ? "ole" : unsigned ? "ule" : "sle";
-        if (opCode.Name.StartsWith("bgt", StringComparison.Ordinal)) return floating ? "ogt" : unsigned ? "ugt" : "sgt";
-        return floating ? "oge" : unsigned ? "uge" : "sge";
+        if (opCode.Name!.StartsWith("blt", StringComparison.Ordinal)) {
+            return floating ? unsigned ? "ult" : "olt" : unsigned ? "ult" : "slt";
+        }
+        if (opCode.Name.StartsWith("ble", StringComparison.Ordinal)) {
+            return floating ? unsigned ? "ule" : "ole" : unsigned ? "ule" : "sle";
+        }
+        if (opCode.Name.StartsWith("bgt", StringComparison.Ordinal)) {
+            return floating ? unsigned ? "ugt" : "ogt" : unsigned ? "ugt" : "sgt";
+        }
+        return floating ? unsigned ? "uge" : "oge" : unsigned ? "uge" : "sge";
+    }
+
+    private static void EnsureIntegerOperand(LlvmValue value, string name, int offset)
+    {
+        if (value.Type is LlvmValueType.Int32 or LlvmValueType.UInt32) {
+            return;
+        }
+        throw CreateUnsupported(offset, $"{name} must be a 32-bit integer, but found {value.Type}.");
     }
 
     private static int GetFallthroughBlock(int offset, IReadOnlyDictionary<int, int> blockIdsByOffset)

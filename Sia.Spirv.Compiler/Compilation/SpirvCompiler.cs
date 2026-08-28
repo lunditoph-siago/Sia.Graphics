@@ -88,7 +88,7 @@ public sealed class SpirvCompiler
             var module = new LlvmIrEmitter().Emit(assemblyPath, kernel, options.KernelAbi);
             File.WriteAllText(rawLlvmPath, module.Text, new UTF8Encoding(false));
             try {
-                toolchain.Optimize(rawLlvmPath, llvmPath);
+                toolchain.Optimize(rawLlvmPath, llvmPath, options.OptimizationLevel);
                 toolchain.Compile(
                     llvmPath,
                     spirvPath,

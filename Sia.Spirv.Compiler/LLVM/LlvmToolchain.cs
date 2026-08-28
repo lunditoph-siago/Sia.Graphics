@@ -5,6 +5,7 @@ namespace Sia.Spirv.Compiler.LLVM;
 
 public sealed class LlvmToolchain
 {
+    private const int k_SpirvBackendOptimizationLevel = 0;
     private static readonly string s_ExecutableSuffix = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
 
     public LlvmToolchain(string directory)
@@ -78,15 +79,17 @@ public sealed class LlvmToolchain
                 $"Target environment '{targetEnvironment}' is not supported.",
                 nameof(targetEnvironment))
         };
-        var effectiveOptimizationLevel = ContainsNativeAtomics(inputPath)
-            ? 0
-            : optimizationLevel;
+        // The SPIR-V backend inserts structured merge instructions before its
+        // late code-motion passes. Enabling llc optimization can then move a
+        // speculatable instruction between OpSelectionMerge and its branch,
+        // producing an invalid module. LLVM IR is optimized before this step,
+        // and WebGPU modules receive spirv-opt after validation.
         Run(
             ToolName("llc"),
             "--filetype=obj",
             $"--mtriple={triple}",
             "-O",
-            effectiveOptimizationLevel.ToString(
+            k_SpirvBackendOptimizationLevel.ToString(
                 System.Globalization.CultureInfo.InvariantCulture),
             "-o",
             outputPath,

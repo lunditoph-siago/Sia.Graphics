@@ -51,10 +51,6 @@ public sealed class LlvmToolchain
     public void Optimize(string inputPath, string outputPath, int optimizationLevel)
     {
         ValidateOptimizationLevel(optimizationLevel);
-        // Keep the mandatory control-flow legalization at O0. LLVM 23's
-        // SPIR-V backend is not stable after instcombine for the vector-bool
-        // bitcasts emitted by the supported shader profile, so use the
-        // individually validated scalar and CFG passes here.
         var passes = optimizationLevel == 0 || ContainsNativeAtomics(inputPath)
             ? "mem2reg,structurizecfg,simplifycfg"
             : "mem2reg,simplifycfg,early-cse,sccp,adce," +
@@ -82,10 +78,6 @@ public sealed class LlvmToolchain
                 $"Target environment '{targetEnvironment}' is not supported.",
                 nameof(targetEnvironment))
         };
-        // LLVM 23's SPIR-V legalize-bitcast pass crashes at -O1 and above
-        // when native LLVM atomics use Vulkan logical pointers. The IR has
-        // already passed our explicit optimization pipeline, so keep codegen
-        // at O0 for atomic modules until the backend fix reaches the workload.
         var effectiveOptimizationLevel = ContainsNativeAtomics(inputPath)
             ? 0
             : optimizationLevel;

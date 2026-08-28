@@ -6,9 +6,6 @@ using Sia;
 
 namespace Sia.WebGPU;
 
-/// <summary>
-/// Bridges native asynchronous requests into Sia components and main-thread events.
-/// </summary>
 public sealed unsafe class WgpuRequests : IAddon
 {
     private sealed class PendingRequest(
@@ -218,8 +215,6 @@ public sealed unsafe class WgpuRequests : IAddon
 
     private void Complete(in Completion completion)
     {
-        // Enqueue first, then re-check: if OnUninitialize turned _accepting
-        // off and drained concurrently, this drain catches the stragglers.
         _completions.Enqueue(completion);
         if (!_accepting) {
             while (_completions.TryDequeue(out var pending)) {

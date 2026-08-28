@@ -1,9 +1,5 @@
 namespace Sia.Spirv;
 
-/// <summary>
-/// Identifies a GPU operation a marker method stands in for, recovered
-/// from <see cref="SpirvIntrinsicAttribute"/> rather than matched by name.
-/// </summary>
 public enum IntrinsicKind
 {
     GlobalInvocationId,
@@ -36,8 +32,6 @@ public enum IntrinsicKind
     Pow,
     Abs,
 
-    // Never attributed with [SpirvIntrinsic]: Sia.Math is an independent
-    // SIMD library and is recognized structurally by MathBinding.
     MathConstruct,
     MathGetComponent,
     MathAdd,

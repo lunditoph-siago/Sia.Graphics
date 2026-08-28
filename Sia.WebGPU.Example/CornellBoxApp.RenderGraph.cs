@@ -124,10 +124,6 @@ internal sealed unsafe partial class CornellBoxApp
     private void ExecutePresentPass(WgpuReactiveRenderGraphPassContext context)
     {
         var source = context.GetTextureView(s_AccumWriteKey);
-        // The surface texture is acquired fresh from the swapchain every frame, and WebGPU
-        // is free to recycle the native texture pointer for a different logical frame once
-        // presented — caching its view by handle identity can hand back a view of an
-        // already-destroyed texture. Never cache it.
         var renderPass = context.GetOrBeginRenderPass(
             new WgpuReactiveRenderGraphColorAttachment(
                 s_SurfaceKey, WGPULoadOp.Clear, ClearValue: s_BlackClear, Cacheable: false));
@@ -145,11 +141,6 @@ internal sealed unsafe partial class CornellBoxApp
         Wgpu.Draw(renderPass, 3);
     }
 
-    /// <summary>
-    /// Reuses the sampling bind group for a given source view across frames instead of
-    /// creating/releasing one per draw; ping-pong accumulation views only ever alternate
-    /// between two identities once <see cref="WgpuRenderGraphViewCache"/> has warmed up.
-    /// </summary>
     private WgpuHandle<WGPUBindGroup> GetOrCreateSamplingBindGroup(
         WgpuHandle<WGPUTextureView> source)
     {
@@ -163,10 +154,6 @@ internal sealed unsafe partial class CornellBoxApp
         return bindGroup;
     }
 
-    /// <summary>
-    /// Releases sampling bind groups whose source view was not requested this frame (e.g.
-    /// because the accumulation textures were recreated on resize). Call once per frame.
-    /// </summary>
     private void EndSamplingBindGroupFrame()
     {
         if (_samplingBindGroupsUsedThisFrame.Count < _samplingBindGroups.Count) {

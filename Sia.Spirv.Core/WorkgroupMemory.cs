@@ -1,9 +1,5 @@
 namespace Sia.Spirv;
 
-/// <summary>
-/// Declares one workgroup-shared element per local invocation. The memory does
-/// not consume a descriptor binding and is zero-initialized by the shader.
-/// </summary>
 public readonly ref struct WorkgroupMemory<T>
     where T : unmanaged
 {

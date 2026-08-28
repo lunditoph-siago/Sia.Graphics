@@ -2,14 +2,6 @@ using Sia.RenderGraph;
 
 namespace Sia.WebGPU;
 
-/// <summary>
-/// Reusable working buffers for <see cref="WgpuRenderGraphExecutor.Execute"/>. A render graph
-/// executes every frame, and each execution needs the same handful of resolution tables
-/// (resource handle -> native handle, ownership sets, transient view list); allocating fresh
-/// collections for those every frame is pure GC churn for data whose peak size stabilizes after
-/// the first few frames. Owned by <see cref="Sia.Graphics.Reactive.WgpuRenderGraphRegistry"/>
-/// and cleared, not reallocated, between executions.
-/// </summary>
 public sealed class WgpuRenderGraphExecutionScratch
 {
     internal readonly Dictionary<RenderGraphBufferHandle, WgpuHandle<WGPUBuffer>> _buffers = [];

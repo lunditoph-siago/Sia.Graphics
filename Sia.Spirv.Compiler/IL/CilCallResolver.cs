@@ -4,13 +4,6 @@ using Sia.Spirv.Compiler.Metadata;
 
 namespace Sia.Spirv.Compiler.IL;
 
-/// <summary>
-/// Resolves a raw CIL <c>call</c>/<c>callvirt</c> token into a
-/// <see cref="ResolvedCall"/> (declaring type, name, signature, and
-/// <see cref="IntrinsicKind"/> if recognized). Single shared resolver for
-/// what the stack analyzer and LLVM emitter used to duplicate; results are
-/// cached per token.
-/// </summary>
 public sealed class CilCallResolver(MetadataReader reader, IntrinsicCatalog intrinsics)
 {
     private readonly Dictionary<int, ResolvedCall> _cache = [];
@@ -58,9 +51,6 @@ public sealed class CilCallResolver(MetadataReader reader, IntrinsicCatalog intr
         return new ResolvedCall(token, declaringType, name, signature, intrinsic);
     }
 
-    // MetadataNames.GetTypeName doesn't cover TypeSpecificationHandle, which
-    // is what every buffer intrinsic's receiver (ReadOnlyStorageBuffer<uint>,
-    // StorageBuffer<T>, ...) resolves to as a closed generic instantiation.
     private string GetDeclaringTypeName(EntityHandle handle) => handle.Kind switch {
         HandleKind.TypeSpecification => reader.GetTypeSpecification((TypeSpecificationHandle)handle)
             .DecodeSignature(new KernelTypeProvider(), genericContext: null).Name,

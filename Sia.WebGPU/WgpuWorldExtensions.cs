@@ -4,7 +4,6 @@ namespace Sia.WebGPU;
 
 public static class WgpuWorldExtensions
 {
-    /// <summary>Publishes one native reference as a world-owned resource entity.</summary>
     public static Entity OwnWgpu<T>(
         this World world,
         WgpuHandle<T> handle)
@@ -12,10 +11,6 @@ public static class WgpuWorldExtensions
         OwnWgpu(world, handle, static (ref WgpuHandle<T> owned) =>
             Wgpu.Release(ref owned));
 
-    /// <summary>
-    /// Publishes one native reference with an explicit release function. This is
-    /// useful for extension handles and deterministic tests.
-    /// </summary>
     public static Entity OwnWgpu<T>(
         this World world,
         WgpuHandle<T> handle,
@@ -48,7 +43,6 @@ public static class WgpuWorldExtensions
         where T : unmanaged =>
         entity.Get<WgpuResource<T>>().Handle;
 
-    /// <summary>Attaches another owned capability to an existing resource entity.</summary>
     public static void AttachWgpu<T>(
         this World world,
         Entity entity,
@@ -91,7 +85,6 @@ public static class WgpuWorldExtensions
         }
     }
 
-    /// <summary>Removes and releases one owned resource component.</summary>
     public static bool ReleaseWgpu<T>(this Entity entity)
         where T : unmanaged
     {
@@ -103,7 +96,6 @@ public static class WgpuWorldExtensions
         return true;
     }
 
-    /// <summary>Creates an owned instance resource entity.</summary>
     public static Entity CreateWgpuInstance(this World world) =>
         world.OwnWgpu(Wgpu.CreateInstance());
 

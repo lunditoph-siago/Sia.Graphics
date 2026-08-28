@@ -67,9 +67,6 @@ public sealed class LlvmIrEmitter
         var methodBody = peReader.GetMethodBody(method.RelativeVirtualAddress);
         var localTypes = DecodeLocalTypes(reader, methodBody.LocalSignature);
 
-        // Fresh view per call: SpirvFrontend's own ShaderCilView is bound to
-        // a MetadataReader disposed by the time Emit() runs later. Cheap to
-        // recompute; reusing a disposed PEReader's memory is not safe.
         using var intrinsics = IntrinsicCatalog.Open(assemblyPath);
         var resolver = new CilCallResolver(reader, intrinsics);
         var view = new ShaderCilView(kernel.ControlFlowGraph, resolver);
@@ -178,9 +175,6 @@ public sealed class LlvmIrEmitter
         var pendingBlockIds = new Queue<int>();
         pendingBlockIds.Enqueue(0);
 
-        // Only reachable blocks are emitted: a call the emitter does not
-        // recognize inside dead code must never fail an otherwise-valid
-        // shader (see ShaderCilView).
         while (pendingBlockIds.TryDequeue(out var blockId)) {
             if (emittedBlockIds.Contains(blockId)) {
                 continue;
@@ -906,8 +900,6 @@ public sealed class LlvmIrEmitter
         int offset,
         Stack<LlvmValue> stack);
 
-    // Every supported shader intrinsic, including structurally recognized
-    // Sia.Math calls, is dispatched through this table.
     private static readonly FrozenDictionary<IntrinsicKind, IntrinsicHandler> s_Intrinsics =
         new Dictionary<IntrinsicKind, IntrinsicHandler> {
             [IntrinsicKind.GlobalInvocationId] = EmitInvocationBuiltin,
@@ -974,8 +966,6 @@ public sealed class LlvmIrEmitter
         }
         var instance = call.IsInstance ? Pop(stack, offset) : default;
 
-        // UInt3.get_X/Y/Z are ordinary record-struct getters with no
-        // [SpirvIntrinsic] to recover — matched on identity, not IntrinsicKind.
         if (call.DeclaringType == "Sia.Spirv.UInt3" &&
             call.Name is "get_X" or "get_Y" or "get_Z") {
             EmitVectorComponent(instance, call.Name, offset, stack);
@@ -1085,8 +1075,6 @@ public sealed class LlvmIrEmitter
         }
     }
 
-    // newobj has no receiver to pop, so it can't share EmitCall's instance
-    // handling. Only recognized Sia.Math value constructors reach here.
     private void EmitNewobj(
         ShaderCilView view,
         CilBasicBlock block,
@@ -3241,9 +3229,6 @@ public sealed class LlvmIrEmitter
             actual is LlvmValueType.Int32 or LlvmValueType.UInt32) {
             return;
         }
-        // CIL has no bool-constant opcode — true/false are ldc.i4.1/0,
-        // tagged Int32. The store's LLVM type comes from `expected`, so
-        // accepting Int32/UInt32 here never emits a mismatched type.
         if (expected == LlvmValueType.Boolean && actual is LlvmValueType.Int32 or LlvmValueType.UInt32) {
             return;
         }

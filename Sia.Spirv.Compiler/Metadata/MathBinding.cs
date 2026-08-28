@@ -3,13 +3,6 @@ using Sia.Spirv;
 
 namespace Sia.Spirv.Compiler.Metadata;
 
-/// <summary>
-/// Recognizes supported <c>Sia.Math</c> vector, matrix, and math calls as GPU
-/// intrinsics by declaring-type/method/parameter shape, never by
-/// attribute — <c>Sia.Math</c> is an independent SIMD library and must
-/// not carry SPIR-V-specific metadata. An unrecognized shape falls
-/// through to "not a supported GPU intrinsic" like any other call.
-/// </summary>
 internal static class MathBinding
 {
     private const string k_MathTypeName = "Sia.Math.math";

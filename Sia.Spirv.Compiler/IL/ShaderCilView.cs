@@ -1,10 +1,5 @@
 namespace Sia.Spirv.Compiler.IL;
 
-/// <summary>
-/// Wraps a <see cref="CilControlFlowGraph"/> with derived analysis — which
-/// blocks are reachable from the entry block, and (lazily) what a call
-/// site resolves to — without mutating the graph itself.
-/// </summary>
 public sealed class ShaderCilView
 {
     private readonly HashSet<int> _reachableBlockIds;

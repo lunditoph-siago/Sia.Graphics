@@ -2,7 +2,6 @@ namespace Sia.WebGPU;
 
 public static unsafe partial class Wgpu
 {
-    /// <summary>Moves a canonical handle and clears its source.</summary>
     public static WgpuHandle<T> Move<T>(ref WgpuHandle<T> source)
         where T : unmanaged
     {
@@ -11,7 +10,6 @@ public static unsafe partial class Wgpu
         return result;
     }
 
-    /// <summary>Releases one WebGPU reference and clears the canonical handle.</summary>
     public static void Release<T>(ref WgpuHandle<T> handle)
         where T : unmanaged
     {

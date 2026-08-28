@@ -548,185 +548,23 @@ jobs:
             --source (Resolve-Path artifacts/packages).Path
           if ($LASTEXITCODE -ne 0) { throw 'Workload install failed.' }
 
-      - name: Build modular WebGPU workload suite
+      - name: Test installed WebGPU workload
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $smokeDirectory = Join-Path $env:RUNNER_TEMP 'sia-spirv-workload-suite'
-          [IO.Directory]::CreateDirectory($smokeDirectory) | Out-Null
-          $project = Join-Path $smokeDirectory 'WorkloadSuite.csproj'
-          @'
-          <Project Sdk="Microsoft.NET.Sdk">
-            <PropertyGroup>
-              <TargetFramework>net11.0</TargetFramework>
-              <EnableSpirvCompilation>true</EnableSpirvCompilation>
-              <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
-              <SpirvKernelAbi>webgpu</SpirvKernelAbi>
-              <SpirvEmitWgsl>true</SpirvEmitWgsl>
-              <SpirvOptimizationLevel>3</SpirvOptimizationLevel>
-            </PropertyGroup>
-          </Project>
-          '@ | Set-Content -LiteralPath $project -Encoding utf8NoBOM
-          @'
-          namespace Smoke.Modules;
-
-          internal static class ShaderConstants
-          {
-              public const float Minimum = -1.0f;
-              public const float Maximum = 1.0f;
-              public const float SmoothFactor = 3.0f;
-              public const float SmoothScale = 2.0f;
-          }
-          '@ | Set-Content `
-            -LiteralPath (Join-Path $smokeDirectory 'ShaderConstants.cs') `
-            -Encoding utf8NoBOM
-          @'
-          using Sia.Spirv;
-
-          namespace Smoke.Modules;
-
-          internal static class SimulationKernels
-          {
-              [SpirvKernel(64)]
-              public static void Integrate(
-                  StorageBuffer<float> positions,
-                  StorageBuffer<float> velocities,
-                  float deltaTime,
-                  float damping,
-                  uint count)
-              {
-                  var index = Gpu.GlobalInvocationId.X;
-                  if (index >= count) {
-                      return;
-                  }
-
-                  var velocity = velocities[index] * damping;
-                  var position = positions[index] + velocity * deltaTime;
-                  if (position > ShaderConstants.Maximum) {
-                      position = ShaderConstants.Maximum;
-                      velocity = 0.0f - velocity;
-                  }
-                  else if (position < ShaderConstants.Minimum) {
-                      position = ShaderConstants.Minimum;
-                      velocity = 0.0f - velocity;
-                  }
-
-                  positions[index] = position;
-                  velocities[index] = velocity;
-              }
-          }
-          '@ | Set-Content `
-            -LiteralPath (Join-Path $smokeDirectory 'SimulationKernels.cs') `
-            -Encoding utf8NoBOM
-          @'
-          using Sia.Spirv;
-
-          namespace Smoke.Modules;
-
-          internal static class PostProcessKernels
-          {
-              [SpirvKernel(128)]
-              public static void ToneMap(
-                  StorageBuffer<float> input,
-                  StorageBuffer<float> output,
-                  float exposure,
-                  uint count)
-              {
-                  var index = Gpu.GlobalInvocationId.X;
-                  if (index >= count) {
-                      return;
-                  }
-
-                  var value = input[index] * exposure;
-                  if (value < 0.0f) {
-                      value = 0.0f;
-                  }
-                  if (value > 1.0f) {
-                      value = 1.0f;
-                  }
-                  output[index] = value * value *
-                      (ShaderConstants.SmoothFactor - ShaderConstants.SmoothScale * value);
-              }
-
-              [SpirvKernel(8, 4)]
-              public static void Classify2D(
-                  StorageBuffer<float> values,
-                  StorageBuffer<uint> classes,
-                  float threshold,
-                  uint width,
-                  uint height)
-              {
-                  var invocation = Gpu.GlobalInvocationId;
-                  var x = invocation.X;
-                  var y = invocation.Y;
-                  if (x >= width || y >= height) {
-                      return;
-                  }
-
-                  var index = y * width + x;
-                  var category = 0u;
-                  if (values[index] >= threshold) {
-                      category = 1u;
-                  }
-                  classes[index] = category;
-              }
-          }
-          '@ | Set-Content `
-            -LiteralPath (Join-Path $smokeDirectory 'PostProcessKernels.cs') `
-            -Encoding utf8NoBOM
-          @'
-          using Sia.Spirv;
-
-          namespace Smoke.Modules;
-
-          internal static class RasterShaders
-          {
-              [SpirvVertexShader]
-              public static void FullscreenVertex()
-              {
-                  var vertexIndex = Gpu.VertexIndex;
-                  var x = -1.0f;
-                  var y = -1.0f;
-                  if (vertexIndex == 1u) {
-                      x = 3.0f;
-                  }
-                  else if (vertexIndex == 2u) {
-                      y = 3.0f;
-                  }
-
-                  Gpu.SetPosition(x, y, 0.0f, 1.0f);
-                  Gpu.SetOutput(0, x * 0.5f + 0.5f, y * 0.5f + 0.5f, 0.0f, 1.0f);
-              }
-
-              [SpirvFragmentShader]
-              public static void SolidFragment()
-              {
-                  var u = Gpu.GetInput(0, 0);
-                  var v = Gpu.GetInput(0, 1);
-                  var x = Gpu.GetFragmentPosition(0);
-                  Gpu.SetOutput(0, u, v, x, 1.0f);
-              }
-          }
-          '@ | Set-Content `
-            -LiteralPath (Join-Path $smokeDirectory 'RasterShaders.cs') `
-            -Encoding utf8NoBOM
+          $project = 'Sia.Spirv.Workload.Tests/Sia.Spirv.Workload.Tests.csproj'
           dotnet restore $project
-          dotnet build $project --configuration Release --no-restore `
+          if ($LASTEXITCODE -ne 0) { throw 'Workload test restore failed.' }
+          dotnet test $project --configuration Release --no-restore `
             -p:UseSharedCompilation=false -m:1 -nr:false
-          if ($LASTEXITCODE -ne 0) { throw 'Workload suite build failed.' }
-          $output = Join-Path $smokeDirectory 'bin/Release/net11.0/spirv'
+          if ($LASTEXITCODE -ne 0) { throw 'Installed workload tests failed.' }
+
+      - name: Verify packaged native and browser tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = Join-Path $PWD 'Sia.Spirv.Workload.Tests/bin/Release/net11.0/spirv'
           $modules = @(Get-ChildItem -LiteralPath $output -Filter '*.spv')
-          if ($modules.Count -ne 5) {
-            throw "Expected five SPIR-V modules, found $($modules.Count)."
-          }
-          $wgslModules = @(Get-ChildItem -LiteralPath $output -Filter '*.wgsl')
-          if ($wgslModules.Count -ne 5) {
-            throw "Expected five WGSL modules, found $($wgslModules.Count)."
-          }
-          $manifests = @(Get-ChildItem -LiteralPath $output -Filter '*.spv.json')
-          if ($manifests.Count -ne 5) {
-            throw "Expected five manifests, found $($manifests.Count)."
-          }
           $suffix = if ($IsWindows) { '.exe' } else { '' }
           $validator = Join-Path $env:DOTNET_ROOT (
             'packs/Sia.Spirv.Toolchain.${{ matrix.rid }}/' +
@@ -737,10 +575,6 @@ jobs:
             '${{ needs.prepare.outputs.version }}/tools/${{ matrix.rid }}/naga' +
             $suffix)
           foreach ($module in $modules) {
-            $bytes = [IO.File]::ReadAllBytes($module.FullName)
-            if (($bytes[0..3] -join ',') -ne '3,2,35,7') {
-              throw "'$($module.Name)' is not a SPIR-V binary."
-            }
             & $validator --target-env vulkan1.2 $module.FullName
             if ($LASTEXITCODE -ne 0) {
               throw "Packaged spirv-val failed for '$($module.Name)'."
@@ -750,64 +584,6 @@ jobs:
             if ($LASTEXITCODE -ne 0) {
               throw "Packaged naga failed for '$([IO.Path]::GetFileName($wgsl))'."
             }
-            $wgslText = Get-Content -LiteralPath $wgsl -Raw
-            $expectedStage = if ($module.BaseName -match 'FullscreenVertex') {
-              '@vertex'
-            } elseif ($module.BaseName -match 'SolidFragment') {
-              '@fragment'
-            } else {
-              '@compute'
-            }
-            if ($wgslText -notmatch $expectedStage -or
-                $wgslText -match 'var<push_constant>' -or
-                ($expectedStage -eq '@compute' -and
-                  $wgslText -notmatch '@group\(0\)')) {
-              throw "'$([IO.Path]::GetFileName($wgsl))' is not WebGPU-compatible WGSL."
-            }
-          }
-          $expectedWorkgroups = @{
-            Integrate = '64,1,1'
-            ToneMap = '128,1,1'
-            Classify2D = '8,4,1'
-            FullscreenVertex = '1,1,1'
-            SolidFragment = '1,1,1'
-          }
-          $expectedStages = @{
-            Integrate = 'compute'
-            ToneMap = 'compute'
-            Classify2D = 'compute'
-            FullscreenVertex = 'vertex'
-            SolidFragment = 'fragment'
-          }
-          foreach ($manifest in $manifests) {
-            $metadata = Get-Content -LiteralPath $manifest.FullName -Raw |
-              ConvertFrom-Json
-            $workgroup = @(
-              $metadata.workgroupSize.x,
-              $metadata.workgroupSize.y,
-              $metadata.workgroupSize.z) -join ','
-            if ($metadata.schemaVersion -ne 2 -or
-                $metadata.kernelAbi -ne 'webgpu' -or
-                $metadata.shaderStage -ne $expectedStages[$metadata.entryPoint] -or
-                $workgroup -ne $expectedWorkgroups[$metadata.entryPoint]) {
-              throw "'$($manifest.Name)' has invalid WebGPU metadata."
-            }
-            if ($metadata.shaderStage -eq 'compute') {
-              $parameterResource = $metadata.resources |
-                Where-Object name -eq 'sia.parameters'
-              if ($null -eq $parameterResource -or
-                  $parameterResource.binding -ne 2 -or
-                  $metadata.pushConstants.Count -lt 2) {
-                throw "'$($manifest.Name)' does not expose the WebGPU parameter buffer."
-              }
-            } elseif (@($metadata.resources).Count -ne 0 -or
-                      @($metadata.pushConstants).Count -ne 0) {
-              throw "'$($manifest.Name)' exposes unexpected raster resources."
-            }
-            $bindings = @($metadata.resources | ForEach-Object binding)
-            if (@($bindings | Sort-Object -Unique).Count -ne $bindings.Count) {
-              throw "'$($manifest.Name)' contains duplicate resource bindings."
-            }
           }
           $sdkBrowser = Join-Path $env:DOTNET_ROOT (
             'packs/Sia.Spirv.Sdk/${{ needs.prepare.outputs.version }}/tools/browser')
@@ -816,7 +592,7 @@ jobs:
           if (!(Test-Path -LiteralPath $wasm) -or !(Test-Path -LiteralPath $loader)) {
             throw 'The packaged Naga browser ABI is incomplete.'
           }
-          $nodeSmoke = Join-Path $smokeDirectory 'verify-naga-abi.mjs'
+          $nodeSmoke = Join-Path $env:RUNNER_TEMP 'verify-naga-abi.mjs'
           @'
           import { readFile } from 'node:fs/promises';
           import { pathToFileURL } from 'node:url';

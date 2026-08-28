@@ -1,5 +1,4 @@
 {
-  "schemaVersion": 1,
   "hostRid": "win-x64",
   "llvm": {
     "repository": "https://github.com/dotnet/llvm-project.git",

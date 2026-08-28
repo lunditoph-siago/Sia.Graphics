@@ -234,7 +234,6 @@ public sealed class SpirvCompiler
                 4));
         }
         return new SpirvArtifactManifest(
-            3,
             kernel.Name,
             kernel.QualifiedName,
             kernel.MetadataToken,

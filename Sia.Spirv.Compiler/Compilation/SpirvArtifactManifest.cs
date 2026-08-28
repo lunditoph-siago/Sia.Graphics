@@ -1,7 +1,6 @@
 namespace Sia.Spirv.Compiler.Compilation;
 
 internal sealed record SpirvArtifactManifest(
-    int SchemaVersion,
     string EntryPoint,
     string SourceMethod,
     int MetadataToken,

@@ -10,8 +10,4 @@
   <ItemGroup>
     <ProjectReference Include="..\Sia.Spirv.Core\Sia.Spirv.Core.csproj" />
   </ItemGroup>
-
-  <ItemGroup>
-    <InternalsVisibleTo Include="Sia.Spirv.Compiler.Tests" />
-  </ItemGroup>
 </Project>

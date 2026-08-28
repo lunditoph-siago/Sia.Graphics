@@ -4,12 +4,12 @@ namespace Sia.Spirv.Compiler.LLVM;
 
 internal static class SpirvSignedConversionLowering
 {
-    private const uint SpirvMagic = 0x07230203;
-    private const ushort OpTypeInt = 21;
-    private const ushort OpTypeVector = 23;
-    private const ushort OpFunction = 54;
-    private const ushort OpConvertSToF = 111;
-    private const ushort OpBitcast = 124;
+    private const uint k_SpirvMagic = 0x07230203;
+    private const ushort k_OpTypeInt = 21;
+    private const ushort k_OpTypeVector = 23;
+    private const ushort k_OpFunction = 54;
+    private const ushort k_OpConvertSToF = 111;
+    private const ushort k_OpBitcast = 124;
 
     public static void Rewrite(string path)
     {
@@ -19,12 +19,12 @@ internal static class SpirvSignedConversionLowering
         var vectorTypes = new Dictionary<uint, VectorType>();
         foreach (var instruction in instructions) {
             switch (instruction.Opcode) {
-                case OpTypeInt:
+                case k_OpTypeInt:
                     integerTypes[instruction.Words[1]] = new IntegerType(
                         instruction.Words[2],
                         instruction.Words[3] != 0);
                     break;
-                case OpTypeVector:
+                case k_OpTypeVector:
                     vectorTypes[instruction.Words[1]] = new VectorType(
                         instruction.Words[2],
                         instruction.Words[3]);
@@ -38,12 +38,12 @@ internal static class SpirvSignedConversionLowering
         var replacements = new Dictionary<int, ConversionReplacement>();
         for (var index = 0; index < instructions.Length; index++) {
             var instruction = instructions[index];
-            if (instruction.Opcode != OpConvertSToF) {
+            if (instruction.Opcode != k_OpConvertSToF) {
                 continue;
             }
             var operand = instruction.Words[3];
             if (!valueTypes.TryGetValue(operand, out var operandType)) {
-                throw new InvalidDataException("Unable to determine the operand type of OpConvertSToF.");
+                throw new InvalidDataException("Unable to determine the operand type of k_OpConvertSToF.");
             }
             var signedType = GetSignedType(
                 operandType,
@@ -66,7 +66,7 @@ internal static class SpirvSignedConversionLowering
         var insertedTypes = false;
         for (var index = 0; index < instructions.Length; index++) {
             var instruction = instructions[index];
-            if (!insertedTypes && instruction.Opcode == OpFunction) {
+            if (!insertedTypes && instruction.Opcode == k_OpFunction) {
                 foreach (var type in addedTypes) {
                     output.AddRange(type);
                 }
@@ -77,7 +77,7 @@ internal static class SpirvSignedConversionLowering
                 continue;
             }
 
-            output.Add(MakeInstructionHeader(4, OpBitcast));
+            output.Add(MakeInstructionHeader(4, k_OpBitcast));
             output.Add(replacement.SignedType);
             output.Add(replacement.ResultId);
             output.Add(instruction.Words[3]);
@@ -120,7 +120,7 @@ internal static class SpirvSignedConversionLowering
         }
         if (!vectorTypes.TryGetValue(typeId, out var vector) ||
             !integerTypes.TryGetValue(vector.ComponentType, out integer)) {
-            throw new InvalidDataException("OpConvertSToF has a non-integer operand type.");
+            throw new InvalidDataException("k_OpConvertSToF has a non-integer operand type.");
         }
         if (integer.Signed) {
             return typeId;
@@ -135,7 +135,7 @@ internal static class SpirvSignedConversionLowering
         var result = nextId++;
         vectorTypes[result] = new VectorType(signedComponent, vector.Length);
         addedTypes.Add([
-            MakeInstructionHeader(4, OpTypeVector),
+            MakeInstructionHeader(4, k_OpTypeVector),
             result,
             signedComponent,
             vector.Length
@@ -157,7 +157,7 @@ internal static class SpirvSignedConversionLowering
         var result = nextId++;
         integerTypes[result] = new IntegerType(width, true);
         addedTypes.Add([
-            MakeInstructionHeader(4, OpTypeInt),
+            MakeInstructionHeader(4, k_OpTypeInt),
             result,
             width,
             1
@@ -175,7 +175,7 @@ internal static class SpirvSignedConversionLowering
         for (var index = 0; index < words.Length; index++) {
             words[index] = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(index * sizeof(uint)));
         }
-        if (words[0] != SpirvMagic) {
+        if (words[0] != k_SpirvMagic) {
             throw new InvalidDataException("The SPIR-V module has an invalid magic number.");
         }
         return words;

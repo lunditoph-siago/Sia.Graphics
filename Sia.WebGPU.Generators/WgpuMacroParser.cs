@@ -4,37 +4,37 @@ namespace Sia.WebGPU.Generators;
 
 internal static class WgpuMacroParser
 {
-    private const string _expressionGroup = "expression";
-    private const string _fieldNameGroup = "fieldName";
-    private const string _macroNameGroup = "macroName";
-    private const string _structNameGroup = "structName";
-    private const string _valueGroup = "value";
+    private const string k_ExpressionGroup = "expression";
+    private const string k_FieldNameGroup = "fieldName";
+    private const string k_MacroNameGroup = "macroName";
+    private const string k_StructNameGroup = "structName";
+    private const string k_ValueGroup = "value";
 
-    private static readonly Regex _constantRegex = new(
+    private static readonly Regex s_ConstantRegex = new(
         @"^#define\s+(?<macroName>WGPU_[A-Z0-9_]+)\s+\((?<expression>[^\r\n]+)\)\s*$",
         RegexOptions.Multiline | RegexOptions.CultureInvariant);
-    private static readonly Regex _uintConstantRegex = new(
+    private static readonly Regex s_UIntConstantRegex = new(
         @"^UINT32_C\((?<value>\d+)\)$",
         RegexOptions.CultureInvariant);
-    private static readonly Regex _initializerStartRegex = new(
+    private static readonly Regex s_InitializerStartRegex = new(
         @"^\s*#define\s+(?<macroName>WGPU_[A-Z0-9_]+_INIT)\s+" +
         @"_wgpu_MAKE_INIT_STRUCT\((?<structName>WGPU[A-Za-z0-9_]+),\s*\{\s*\\\s*$",
         RegexOptions.CultureInvariant);
-    private static readonly Regex _nestedInitializerStartRegex = new(
+    private static readonly Regex s_NestedInitializerStartRegex = new(
         @"^/\*\.(?<fieldName>\w+)=\*/" +
         @"_wgpu_MAKE_INIT_STRUCT\((?<structName>WGPU[A-Za-z0-9_]+),\s*\{\s*\\\s*$",
         RegexOptions.CultureInvariant);
-    private static readonly Regex _initializerFieldRegex = new(
+    private static readonly Regex s_InitializerFieldRegex = new(
         @"^/\*\.(?<fieldName>\w+)=\*/(?<expression>.+?)\s+_wgpu_COMMA\s*\\\s*$",
         RegexOptions.CultureInvariant);
 
     public static WgpuConstant[] ParseConstants(string source) =>
-        _constantRegex
+        s_ConstantRegex
             .Matches(source)
             .Cast<Match>()
             .Select(static match => TryCreateConstant(
-                match.Groups[_macroNameGroup].Value,
-                match.Groups[_expressionGroup].Value))
+                match.Groups[k_MacroNameGroup].Value,
+                match.Groups[k_ExpressionGroup].Value))
             .Where(static constant => constant is not null)
             .Select(static constant => constant!)
             .OrderBy(static constant => constant.Name, StringComparer.Ordinal)
@@ -49,14 +49,14 @@ internal static class WgpuMacroParser
         var initializers = new List<WgpuStructInitializer>();
 
         for (var index = 0; index < lines.Length;) {
-            var match = _initializerStartRegex.Match(lines[index]);
+            var match = s_InitializerStartRegex.Match(lines[index]);
             if (!match.Success) {
                 index++;
                 continue;
             }
 
-            var macroName = match.Groups[_macroNameGroup].Value;
-            var structName = match.Groups[_structNameGroup].Value;
+            var macroName = match.Groups[k_MacroNameGroup].Value;
+            var structName = match.Groups[k_StructNameGroup].Value;
             index++;
             var fields = ParseInitializerFields(lines, ref index);
             initializers.Add(new WgpuStructInitializer(macroName, structName, fields));
@@ -79,10 +79,10 @@ internal static class WgpuMacroParser
                 return fields.ToArray();
             }
 
-            var nestedMatch = _nestedInitializerStartRegex.Match(line);
+            var nestedMatch = s_NestedInitializerStartRegex.Match(line);
             if (nestedMatch.Success) {
-                var fieldName = nestedMatch.Groups[_fieldNameGroup].Value;
-                var structName = nestedMatch.Groups[_structNameGroup].Value;
+                var fieldName = nestedMatch.Groups[k_FieldNameGroup].Value;
+                var structName = nestedMatch.Groups[k_StructNameGroup].Value;
                 index++;
                 var nestedFields = ParseInitializerFields(lines, ref index);
                 fields.Add(new WgpuInitializerField(
@@ -91,12 +91,12 @@ internal static class WgpuMacroParser
                 continue;
             }
 
-            var fieldMatch = _initializerFieldRegex.Match(line);
+            var fieldMatch = s_InitializerFieldRegex.Match(line);
             if (fieldMatch.Success) {
                 fields.Add(new WgpuInitializerField(
-                    fieldMatch.Groups[_fieldNameGroup].Value,
+                    fieldMatch.Groups[k_FieldNameGroup].Value,
                     new WgpuScalarInitializerValue(
-                        fieldMatch.Groups[_expressionGroup].Value.Trim())));
+                        fieldMatch.Groups[k_ExpressionGroup].Value.Trim())));
                 index++;
                 continue;
             }
@@ -112,12 +112,12 @@ internal static class WgpuMacroParser
     {
         var expression = rawExpression.Trim();
 
-        var uintConstant = _uintConstantRegex.Match(expression);
+        var uintConstant = s_UIntConstantRegex.Match(expression);
         if (uintConstant.Success) {
             return CreateConstant(
                 nativeName,
                 "uint",
-                uintConstant.Groups[_valueGroup].Value + "u",
+                uintConstant.Groups[k_ValueGroup].Value + "u",
                 isCompileTimeConstant: true);
         }
 

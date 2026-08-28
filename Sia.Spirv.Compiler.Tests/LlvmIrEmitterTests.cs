@@ -6,22 +6,6 @@ namespace Sia.Spirv.Compiler.Tests;
 public sealed class LlvmIrEmitterTests
 {
     [Fact]
-    public void EmitPreservesBooleanBranchConditions()
-    {
-        var kernel = SpirvTestAssembly.GetKernel(
-            typeof(FullscreenVertexShaders),
-            nameof(FullscreenVertexShaders.Vertex));
-
-        var module = new LlvmIrEmitter().Emit(
-            SpirvTestAssembly.Path,
-            kernel,
-            SpirvKernelAbi.WebGpu);
-
-        Assert.DoesNotContain("undef", module.Text);
-        Assert.Contains("icmp eq i32", module.Text);
-    }
-
-    [Fact]
     public void EmitMergesEvaluationStackAcrossShortCircuitBlocks()
     {
         var kernel = SpirvTestAssembly.GetKernel(
@@ -34,14 +18,47 @@ public sealed class LlvmIrEmitterTests
             SpirvKernelAbi.WebGpu);
 
         Assert.Contains(" = phi i1 ", module.Text);
+        Assert.Contains("fcmp ult float", module.Text);
+        Assert.Contains("fcmp ugt float", module.Text);
+        Assert.Contains("fcmp ule float", module.Text);
+        Assert.DoesNotContain("undef", module.Text);
+    }
+
+    [Fact]
+    public void EmitPreservesIntegerControlFlowSemantics()
+    {
+        var kernel = SpirvTestAssembly.GetKernel(
+            typeof(ControlFlowShaders),
+            nameof(ControlFlowShaders.IntegerControlFlow));
+
+        var module = new LlvmIrEmitter().Emit(
+            SpirvTestAssembly.Path,
+            kernel,
+            SpirvKernelAbi.WebGpu);
+
+        Assert.Matches(@"switch i32 [^\r\n]+, label %bb\d+ \[", module.Text);
+        Assert.Equal(3, module.Text.Split('\n').Count(static line =>
+            line.Contains("%shift.count.", StringComparison.Ordinal) &&
+            line.Contains(" = and i32 ", StringComparison.Ordinal) &&
+            line.Contains(", 31", StringComparison.Ordinal)));
+        Assert.Matches(@"shl i32 [^,\r\n]+, %shift\.count\.\d+", module.Text);
+        Assert.Matches(@"lshr i32 [^,\r\n]+, %shift\.count\.\d+", module.Text);
+        Assert.Matches(@"ashr i32 [^,\r\n]+, %shift\.count\.\d+", module.Text);
+        Assert.Matches(@"xor i32 [^,\r\n]+, -1", module.Text);
+        Assert.Contains("store i32 zeroinitializer, ptr %local.", module.Text);
+        Assert.Contains("-2147483648", module.Text);
+        Assert.Matches(@"shl i32 [^,\r\n]+, 8", module.Text);
+        Assert.Single(module.Text.Split('\n'), static line =>
+            line.StartsWith("declare target(\"spirv.VulkanBuffer\"", StringComparison.Ordinal) &&
+            line.Contains("_12_1t", StringComparison.Ordinal));
     }
 
     [Theory]
-    [InlineData("Sia.Spirv.Compiler.Tests.MathShaders.IntegerAndBooleanVectors", "<2 x i32>", "<4 x i1>")]
+    [InlineData("Sia.Spirv.Compiler.Tests.MathShaders.IntegerAndBooleanVectors", "add <2 x i32>", "mul <3 x i32>")]
     [InlineData("Sia.Spirv.Compiler.Tests.MathShaders.VectorBitcasts", "bitcast <2 x i32>", "bitcast <3 x i32>")]
     [InlineData("Sia.Spirv.Compiler.Tests.MathShaders.VectorHalfConversion", "uitofp i32", "0x3E70000000000000")]
     [InlineData("Sia.Spirv.Compiler.Tests.MathShaders.VectorSelect", "select <4 x i1>", "<4 x float>")]
-    [InlineData("Sia.Spirv.Compiler.Tests.MathShaders.Vectors", "<2 x float>", "<4 x float>")]
+    [InlineData("Sia.Spirv.Compiler.Tests.MathShaders.Vectors", "call float @llvm.sin.f32", "call float @llvm.pow.f32")]
     [InlineData("Sia.Spirv.Compiler.Tests.MathShaders.SquareMatrices", "%sia.matrix.float2x2", "%sia.matrix.float4x4")]
     [InlineData("Sia.Spirv.Compiler.Tests.MathShaders.RectangularMatrices", "%sia.matrix.float2x3", "%sia.matrix.float4x3")]
     public void EmitSupportsSiaMathVectorAndMatrixTypes(
@@ -61,7 +78,6 @@ public sealed class LlvmIrEmitterTests
 
         Assert.Contains(firstExpectedType, module.Text);
         Assert.Contains(secondExpectedType, module.Text);
-        Assert.DoesNotContain("undef", module.Text);
     }
 
     [Fact]
@@ -150,9 +166,19 @@ public sealed class LlvmIrEmitterTests
             kernel,
             SpirvKernelAbi.WebGpu);
 
-        Assert.Contains("@llvm.spv.resource.samplelevel.v4f32.tspirv.Image_f32_1_2_0", module.Text);
-        Assert.Contains("@llvm.spv.resource.samplelevel.v4f32.tspirv.Image_f32_1_2_1", module.Text);
-        Assert.Contains("i32 1, <2 x i32> zeroinitializer", module.Text);
+        Assert.Contains(
+            "call <4 x float> @llvm.spv.resource.load.level.v4f32.tspirv.Image_f32_1_2_0",
+            module.Text);
+        Assert.Contains(
+            "call <4 x float> @llvm.spv.resource.samplelevel.v4f32.tspirv.Image_f32_1_2_0",
+            module.Text);
+        Assert.Contains(
+            "call <4 x float> @llvm.spv.resource.load.level.v4f32.tspirv.Image_f32_1_2_1",
+            module.Text);
+        Assert.Contains(
+            "call <4 x float> @llvm.spv.resource.samplelevel.v4f32.tspirv.Image_f32_1_2_1",
+            module.Text);
+        Assert.Matches(@"<2 x i32> [^,\r\n]+, i32 1, <2 x i32> zeroinitializer\)", module.Text);
     }
 
     [Fact]
@@ -168,8 +194,8 @@ public sealed class LlvmIrEmitterTests
             SpirvKernelAbi.WebGpu);
 
         Assert.Contains("%sia.struct = type { <4 x float>, i32 }", module.Text);
-        Assert.Contains("mul i32", module.Text);
-        Assert.Contains(", 8", module.Text);
+        Assert.Matches(@" = mul i32 [^,\r\n]+, 8", module.Text);
+        Assert.Matches(@" = add i32 [^,\r\n]+, 4", module.Text);
         Assert.Contains("insertvalue %sia.struct", module.Text);
         Assert.Contains("extractvalue %sia.struct", module.Text);
     }

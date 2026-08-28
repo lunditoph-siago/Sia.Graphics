@@ -4,18 +4,10 @@ using Sia.Spirv;
 
 namespace Sia.Spirv.Compiler.Metadata;
 
-/// <summary>
-/// Recovers the <see cref="IntrinsicKind"/> a marker method in
-/// <c>Sia.Spirv.Core.dll</c> declares via <c>[SpirvIntrinsic(...)]</c>. A
-/// call site only resolves to a <see cref="MemberReferenceHandle"/>
-/// (type/name/signature, never the attribute directly), so this opens a
-/// second <see cref="MetadataReader"/> for that assembly and matches
-/// structurally, once per distinct method.
-/// </summary>
 public sealed class IntrinsicCatalog : IDisposable
 {
-    private const string CoreAssemblyFileName = "Sia.Spirv.Core.dll";
-    private const string SpirvIntrinsicAttributeName = "Sia.Spirv.SpirvIntrinsicAttribute";
+    private const string k_CoreAssemblyFileName = "Sia.Spirv.Core.dll";
+    private const string k_SpirvIntrinsicAttributeName = "Sia.Spirv.SpirvIntrinsicAttribute";
 
     private readonly FileStream? _stream;
     private readonly PEReader? _peReader;
@@ -29,17 +21,12 @@ public sealed class IntrinsicCatalog : IDisposable
         _reader = reader;
     }
 
-    /// <summary>
-    /// Opens <c>Sia.Spirv.Core.dll</c> next to <paramref name="shaderAssemblyPath"/>.
-    /// Missing (e.g. isolated tests) is not an error — lookups just resolve
-    /// to no intrinsic.
-    /// </summary>
     public static IntrinsicCatalog Open(string shaderAssemblyPath)
     {
         var directory = Path.GetDirectoryName(shaderAssemblyPath);
         var corePath = string.IsNullOrEmpty(directory)
-            ? CoreAssemblyFileName
-            : Path.Combine(directory, CoreAssemblyFileName);
+            ? k_CoreAssemblyFileName
+            : Path.Combine(directory, k_CoreAssemblyFileName);
         if (!File.Exists(corePath)) {
             return new IntrinsicCatalog(null, null, null);
         }
@@ -108,7 +95,7 @@ public sealed class IntrinsicCatalog : IDisposable
     {
         foreach (var attributeHandle in method.GetCustomAttributes()) {
             var attribute = reader.GetCustomAttribute(attributeHandle);
-            if (MetadataNames.GetAttributeTypeName(reader, attribute) != SpirvIntrinsicAttributeName) {
+            if (MetadataNames.GetAttributeTypeName(reader, attribute) != k_SpirvIntrinsicAttributeName) {
                 continue;
             }
 

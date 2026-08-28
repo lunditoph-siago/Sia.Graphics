@@ -2,7 +2,7 @@ namespace Sia.Graphics.Text;
 
 public sealed partial class Font
 {
-    private const int MaxCompositeDepth = 8;
+    private const int k_MaxCompositeDepth = 8;
 
     public GlyphOutline GetGlyphOutline(ushort glyphId)
     {
@@ -63,7 +63,7 @@ public sealed partial class Font
         ReadOnlySpan<byte> glyf, uint start, uint end, GlyphOutline outline,
         float offsetX, float offsetY, int depth)
     {
-        if (depth > MaxCompositeDepth)
+        if (depth > k_MaxCompositeDepth)
             return;
         if (start > int.MaxValue || end > (uint)glyf.Length || end - start < 10)
             return;

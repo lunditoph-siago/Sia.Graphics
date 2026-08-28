@@ -35,8 +35,8 @@ try {
     throw "The managed SDK package unexpectedly contains a native host toolchain."
   }
   foreach ($tool in $requiredSdkTools) {
-    if ($null -eq $sdkPackage.GetEntry("tools/net10.0/$tool")) {
-      throw "The managed SDK package does not contain 'tools/net10.0/$tool'."
+    if ($null -eq $sdkPackage.GetEntry("tools/net11.0/$tool")) {
+      throw "The managed SDK package does not contain 'tools/net11.0/$tool'."
     }
   }
   foreach ($tool in $requiredBrowserTools) {

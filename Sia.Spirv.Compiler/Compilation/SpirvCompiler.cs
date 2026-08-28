@@ -10,7 +10,7 @@ namespace Sia.Spirv.Compiler.Compilation;
 
 public sealed class SpirvCompiler
 {
-    private static readonly JsonSerializerOptions _jsonOptions = new() {
+    private static readonly JsonSerializerOptions s_JsonOptions = new() {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true
     };
@@ -88,7 +88,7 @@ public sealed class SpirvCompiler
             var module = new LlvmIrEmitter().Emit(assemblyPath, kernel, options.KernelAbi);
             File.WriteAllText(rawLlvmPath, module.Text, new UTF8Encoding(false));
             try {
-                toolchain.Optimize(rawLlvmPath, llvmPath);
+                toolchain.Optimize(rawLlvmPath, llvmPath, options.OptimizationLevel);
                 toolchain.Compile(
                     llvmPath,
                     spirvPath,
@@ -106,7 +106,8 @@ public sealed class SpirvCompiler
             catch (Exception exception) when (exception is InvalidDataException or IOException) {
                 throw new SpirvCompilationException(
                     $"Failed to compile '{kernel.QualifiedName}':{Environment.NewLine}{exception.Message}");
-            } finally {
+            }
+            finally {
                 File.Delete(rawLlvmPath);
             }
 
@@ -123,7 +124,7 @@ public sealed class SpirvCompiler
                 sourceHash);
             File.WriteAllText(
                 manifestPath,
-                JsonSerializer.Serialize(manifest, _jsonOptions) + Environment.NewLine,
+                JsonSerializer.Serialize(manifest, s_JsonOptions) + Environment.NewLine,
                 new UTF8Encoding(false));
             artifacts.Add(new SpirvArtifact(
                 kernel,
@@ -164,7 +165,8 @@ public sealed class SpirvCompiler
                     0,
                     0,
                     0));
-            } else if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2DArray) {
+            }
+            else if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2DArray) {
                 resources.Add(new SpirvManifestResource(
                     parameter.Name,
                     "sampled-texture-2d-array",
@@ -175,7 +177,8 @@ public sealed class SpirvCompiler
                     0,
                     0,
                     0));
-            } else if (parameter.Kind == SpirvKernelParameterKind.Sampler) {
+            }
+            else if (parameter.Kind == SpirvKernelParameterKind.Sampler) {
                 resources.Add(new SpirvManifestResource(
                     parameter.Name,
                     "sampler",
@@ -186,7 +189,8 @@ public sealed class SpirvCompiler
                     0,
                     0,
                     0));
-            } else if (parameter.Kind is SpirvKernelParameterKind.ReadOnlyStorageBuffer or
+            }
+            else if (parameter.Kind is SpirvKernelParameterKind.ReadOnlyStorageBuffer or
                     SpirvKernelParameterKind.StorageBuffer) {
                 var layout = parameter.StructLayout;
                 resources.Add(new SpirvManifestResource(
@@ -207,7 +211,8 @@ public sealed class SpirvCompiler
                         field.Offset,
                         field.Alignment,
                         field.Size)).ToArray()));
-            } else {
+            }
+            else {
                 pushConstants.Add(new SpirvManifestPushConstant(
                     parameter.Name,
                     GetScalarName(parameter.ScalarType),

@@ -3,20 +3,13 @@ using Sia.Spirv;
 
 namespace Sia.Spirv.Compiler.Metadata;
 
-/// <summary>
-/// Recognizes supported <c>Sia.Math</c> vector, matrix, and math calls as GPU
-/// intrinsics by declaring-type/method/parameter shape, never by
-/// attribute — <c>Sia.Math</c> is an independent SIMD library and must
-/// not carry SPIR-V-specific metadata. An unrecognized shape falls
-/// through to "not a supported GPU intrinsic" like any other call.
-/// </summary>
 internal static class MathBinding
 {
-    private const string MathTypeName = "Sia.Math.math";
-    private const string FloatTypeName = "System.Single";
-    private const string IntTypeName = "System.Int32";
-    private const string UIntTypeName = "System.UInt32";
-    private const string BoolTypeName = "System.Boolean";
+    private const string k_MathTypeName = "Sia.Math.math";
+    private const string k_FloatTypeName = "System.Single";
+    private const string k_IntTypeName = "System.Int32";
+    private const string k_UIntTypeName = "System.UInt32";
+    private const string k_BoolTypeName = "System.Boolean";
 
     public static IntrinsicKind? Resolve(
         string declaringType,
@@ -27,7 +20,7 @@ internal static class MathBinding
             TryGetMatrixShape(declaringType, out _, out _)) {
             return ResolveValueMember(declaringType, name, signature);
         }
-        if (declaringType == MathTypeName) {
+        if (declaringType == k_MathTypeName) {
             return ResolveMathFunction(name, signature);
         }
         return null;
@@ -115,19 +108,19 @@ internal static class MathBinding
         }
         var columnType = $"Sia.Math.float{rows}";
         return IsParams(parameters, Enumerable.Repeat(columnType, columns).ToArray()) ||
-            IsParams(parameters, Enumerable.Repeat(FloatTypeName, rows * columns).ToArray()) ||
-            IsParams(parameters, FloatTypeName);
+            IsParams(parameters, Enumerable.Repeat(k_FloatTypeName, rows * columns).ToArray()) ||
+            IsParams(parameters, k_FloatTypeName);
     }
 
     private static bool IsArithmeticShape(string typeName, IReadOnlyList<KernelType> parameters)
     {
         if (TryGetMatrixShape(typeName, out _, out _)) {
             return IsParams(parameters, typeName, typeName) ||
-                IsParams(parameters, typeName, FloatTypeName) ||
-                IsParams(parameters, FloatTypeName, typeName);
+                IsParams(parameters, typeName, k_FloatTypeName) ||
+                IsParams(parameters, k_FloatTypeName, typeName);
         }
         return TryGetVectorShape(typeName, out var scalarType, out _) &&
-            scalarType != BoolTypeName &&
+            scalarType != k_BoolTypeName &&
             (IsParams(parameters, typeName, typeName) ||
              IsParams(parameters, typeName, scalarType) ||
              IsParams(parameters, scalarType, typeName));
@@ -136,7 +129,7 @@ internal static class MathBinding
     private static bool IsSignedArithmeticType(string typeName) =>
         TryGetMatrixShape(typeName, out _, out _) ||
         TryGetVectorShape(typeName, out var scalarType, out _) &&
-        scalarType is FloatTypeName or IntTypeName;
+        scalarType is k_FloatTypeName or k_IntTypeName;
 
     private static bool IsSameFloatShape(IReadOnlyList<KernelType> parameters, int count)
     {
@@ -144,7 +137,7 @@ internal static class MathBinding
             return false;
         }
         var name = parameters[0].Name;
-        if (name != FloatTypeName && !TryGetFloatVectorLength(name, out _)) {
+        if (name != k_FloatTypeName && !TryGetFloatVectorLength(name, out _)) {
             return false;
         }
         return parameters.All(parameter => parameter.Name == name);
@@ -158,20 +151,20 @@ internal static class MathBinding
     private static bool IsBooleanVector(IReadOnlyList<KernelType> parameters) =>
         parameters.Count == 1 &&
         TryGetVectorShape(parameters[0].Name, out var scalarType, out _) &&
-        scalarType == BoolTypeName;
+        scalarType == k_BoolTypeName;
 
     private static bool IsAsFloat(IReadOnlyList<KernelType> parameters, string returnType)
     {
         if (parameters.Count != 1) {
             return false;
         }
-        if (returnType == FloatTypeName) {
-            return parameters[0].Name is IntTypeName or UIntTypeName;
+        if (returnType == k_FloatTypeName) {
+            return parameters[0].Name is k_IntTypeName or k_UIntTypeName;
         }
         return TryGetVectorShape(returnType, out var resultScalar, out var resultLength) &&
-            resultScalar == FloatTypeName &&
+            resultScalar == k_FloatTypeName &&
             TryGetVectorShape(parameters[0].Name, out var inputScalar, out var inputLength) &&
-            inputScalar is IntTypeName or UIntTypeName && inputLength == resultLength;
+            inputScalar is k_IntTypeName or k_UIntTypeName && inputLength == resultLength;
     }
 
     private static bool IsF16ToF32(IReadOnlyList<KernelType> parameters, string returnType)
@@ -179,13 +172,13 @@ internal static class MathBinding
         if (parameters.Count != 1) {
             return false;
         }
-        if (returnType == FloatTypeName) {
-            return parameters[0].Name == UIntTypeName;
+        if (returnType == k_FloatTypeName) {
+            return parameters[0].Name == k_UIntTypeName;
         }
         return TryGetVectorShape(returnType, out var resultScalar, out var resultLength) &&
-            resultScalar == FloatTypeName &&
+            resultScalar == k_FloatTypeName &&
             TryGetVectorShape(parameters[0].Name, out var inputScalar, out var inputLength) &&
-            inputScalar == UIntTypeName && inputLength == resultLength;
+            inputScalar == k_UIntTypeName && inputLength == resultLength;
     }
 
     private static bool IsSelect(IReadOnlyList<KernelType> parameters, string returnType)
@@ -194,15 +187,15 @@ internal static class MathBinding
             parameters[1].Name != returnType) {
             return false;
         }
-        if (returnType is BoolTypeName or IntTypeName or UIntTypeName or FloatTypeName) {
-            return parameters[2].Name == BoolTypeName;
+        if (returnType is k_BoolTypeName or k_IntTypeName or k_UIntTypeName or k_FloatTypeName) {
+            return parameters[2].Name == k_BoolTypeName;
         }
         if (!TryGetVectorShape(returnType, out _, out var length)) {
             return false;
         }
-        return parameters[2].Name == BoolTypeName ||
+        return parameters[2].Name == k_BoolTypeName ||
             TryGetVectorShape(parameters[2].Name, out var conditionScalar, out var conditionLength) &&
-            conditionScalar == BoolTypeName && conditionLength == length;
+            conditionScalar == k_BoolTypeName && conditionLength == length;
     }
 
     private static bool IsSupportedMul(IReadOnlyList<KernelType> parameters, string returnType)
@@ -220,7 +213,7 @@ internal static class MathBinding
     private static bool TryGetFloatVectorLength(string typeName, out int length)
     {
         var result = TryGetVectorShape(typeName, out var scalarType, out length);
-        return result && scalarType == FloatTypeName;
+        return result && scalarType == k_FloatTypeName;
     }
 
     private static bool TryGetVectorShape(
@@ -228,20 +221,20 @@ internal static class MathBinding
         out string scalarType,
         out int length)
     {
-        scalarType = typeName.StartsWith("Sia.Math.bool", StringComparison.Ordinal) ? BoolTypeName :
-            typeName.StartsWith("Sia.Math.int", StringComparison.Ordinal) ? IntTypeName :
-            typeName.StartsWith("Sia.Math.uint", StringComparison.Ordinal) ? UIntTypeName :
-            typeName.StartsWith("Sia.Math.float", StringComparison.Ordinal) ? FloatTypeName : string.Empty;
+        scalarType = typeName.StartsWith("Sia.Math.bool", StringComparison.Ordinal) ? k_BoolTypeName :
+            typeName.StartsWith("Sia.Math.int", StringComparison.Ordinal) ? k_IntTypeName :
+            typeName.StartsWith("Sia.Math.uint", StringComparison.Ordinal) ? k_UIntTypeName :
+            typeName.StartsWith("Sia.Math.float", StringComparison.Ordinal) ? k_FloatTypeName : string.Empty;
         length = typeName.Length > "Sia.Math.".Length ? typeName[^1] - '0' : 0;
         return scalarType.Length != 0 && length is >= 2 and <= 4 &&
             typeName == $"Sia.Math.{GetVectorPrefix(scalarType)}{length}";
     }
 
     private static string GetVectorPrefix(string scalarType) => scalarType switch {
-        BoolTypeName => "bool",
-        IntTypeName => "int",
-        UIntTypeName => "uint",
-        FloatTypeName => "float",
+        k_BoolTypeName => "bool",
+        k_IntTypeName => "int",
+        k_UIntTypeName => "uint",
+        k_FloatTypeName => "float",
         _ => throw new ArgumentOutOfRangeException(nameof(scalarType))
     };
 

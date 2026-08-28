@@ -9,7 +9,7 @@ internal sealed record DotNetSdk(
     string Version,
     string FeatureBand)
 {
-    private static readonly Regex FeatureBandPattern = new(
+    private static readonly Regex s_FeatureBandPattern = new(
         @"^\d+\.\d+\.\d+(?:-[^.]+\.\d+)?",
         RegexOptions.CultureInvariant);
 
@@ -31,7 +31,7 @@ internal sealed record DotNetSdk(
 
     internal static string GetFeatureBand(string sdkVersion)
     {
-        var match = FeatureBandPattern.Match(sdkVersion);
+        var match = s_FeatureBandPattern.Match(sdkVersion);
         if (!match.Success) {
             throw new InvalidOperationException(
                 $"Could not derive an SDK feature band from '{sdkVersion}'.");
@@ -59,8 +59,7 @@ internal sealed record DotNetSdk(
         IReadOnlyList<string> arguments,
         CancellationToken cancellationToken)
     {
-        var startInfo = new ProcessStartInfo(fileName)
-        {
+        var startInfo = new ProcessStartInfo(fileName) {
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true

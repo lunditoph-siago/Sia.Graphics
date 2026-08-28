@@ -4,9 +4,9 @@ namespace Sia.Spirv.Compiler.LLVM;
 
 internal static class SpirvWorkgroupInitializerLowering
 {
-    private const uint SpirvMagic = 0x07230203;
-    private const ushort OpVariable = 59;
-    private const uint WorkgroupStorageClass = 4;
+    private const uint k_SpirvMagic = 0x07230203;
+    private const ushort k_OpVariable = 59;
+    private const uint k_WorkgroupStorageClass = 4;
 
     public static void Rewrite(string path)
     {
@@ -19,7 +19,7 @@ internal static class SpirvWorkgroupInitializerLowering
             words[index] = BinaryPrimitives.ReadUInt32LittleEndian(
                 bytes.AsSpan(index * sizeof(uint)));
         }
-        if (words[0] != SpirvMagic) {
+        if (words[0] != k_SpirvMagic) {
             throw new InvalidDataException("The SPIR-V module has an invalid magic number.");
         }
 
@@ -34,14 +34,15 @@ internal static class SpirvWorkgroupInitializerLowering
             if (wordCount <= 0 || offset + wordCount > words.Length) {
                 throw new InvalidDataException($"Invalid SPIR-V instruction at word {offset}.");
             }
-            if (opcode == OpVariable && wordCount == 5 &&
-                words[offset + 3] == WorkgroupStorageClass) {
-                output.Add(4u << 16 | OpVariable);
+            if (opcode == k_OpVariable && wordCount == 5 &&
+                words[offset + 3] == k_WorkgroupStorageClass) {
+                output.Add(4u << 16 | k_OpVariable);
                 output.Add(words[offset + 1]);
                 output.Add(words[offset + 2]);
                 output.Add(words[offset + 3]);
                 changed = true;
-            } else {
+            }
+            else {
                 output.AddRange(words.AsSpan(offset, wordCount).ToArray());
             }
             offset += wordCount;

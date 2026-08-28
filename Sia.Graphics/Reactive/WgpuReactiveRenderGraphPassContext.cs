@@ -69,7 +69,7 @@ public sealed class WgpuReactiveRenderGraphPassContext
         ReadOnlySpan<WgpuReactiveRenderGraphColorAttachment> colorAttachments,
         WgpuReactiveRenderGraphDepthStencilAttachment? depthStencilAttachment)
     {
-        Span<WgpuRenderGraphColorAttachment> lowered =
+        var lowered =
             colorAttachments.Length <= 8
                 ? stackalloc WgpuRenderGraphColorAttachment[colorAttachments.Length]
                 : new WgpuRenderGraphColorAttachment[colorAttachments.Length];

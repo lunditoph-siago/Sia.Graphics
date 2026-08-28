@@ -2,7 +2,6 @@ using Sia;
 
 namespace Sia.WebGPU;
 
-/// <summary>Processes callbacks for every instance resource in the world.</summary>
 public sealed class WgpuProcessEventsSystem()
     : SystemBase(Matchers.Of<WgpuResource<WGPUInstance>>())
 {

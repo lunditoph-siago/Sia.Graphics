@@ -4,11 +4,6 @@ using Sia.Spirv.Compiler.Metadata;
 
 namespace Sia.Spirv.Compiler.IL;
 
-/// <summary>
-/// The identity of a <c>call</c>/<c>callvirt</c> target, resolved once by
-/// <see cref="CilCallResolver"/> and shared across stack analysis,
-/// legality checks, and LLVM IR generation.
-/// </summary>
 public sealed record ResolvedCall(
     int MetadataToken,
     string DeclaringType,

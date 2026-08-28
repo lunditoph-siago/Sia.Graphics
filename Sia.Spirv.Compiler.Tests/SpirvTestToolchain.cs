@@ -4,7 +4,7 @@ namespace Sia.Spirv.Compiler.Tests;
 
 internal static class SpirvTestToolchain
 {
-    private static readonly string _executableSuffix =
+    private static readonly string s_ExecutableSuffix =
         OperatingSystem.IsWindows() ? ".exe" : string.Empty;
 
     public static string? Directory { get; } = FindDirectory();
@@ -54,7 +54,7 @@ internal static class SpirvTestToolchain
 
     private static bool IsComplete(string directory) =>
         new[] { "llc", "opt", "spirv-opt", "spirv-val", "naga" }
-            .All(tool => File.Exists(Path.Combine(directory, tool + _executableSuffix)));
+            .All(tool => File.Exists(Path.Combine(directory, tool + s_ExecutableSuffix)));
 }
 
 public sealed class SpirvToolchainFactAttribute : FactAttribute

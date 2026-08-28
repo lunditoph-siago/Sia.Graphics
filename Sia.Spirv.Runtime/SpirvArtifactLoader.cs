@@ -5,7 +5,7 @@ namespace Sia.Spirv.Runtime;
 
 public static class SpirvArtifactLoader
 {
-    private static readonly JsonSerializerOptions _jsonOptions = new() {
+    private static readonly JsonSerializerOptions s_JsonOptions = new() {
         PropertyNameCaseInsensitive = true
     };
 
@@ -15,7 +15,7 @@ public static class SpirvArtifactLoader
         manifestPath = Path.GetFullPath(manifestPath);
         var manifest = JsonSerializer.Deserialize<SpirvArtifactManifest>(
             File.ReadAllText(manifestPath),
-            _jsonOptions) ?? throw new InvalidDataException(
+            s_JsonOptions) ?? throw new InvalidDataException(
                 $"'{manifestPath}' does not contain a SPIR-V artifact manifest.");
         if (manifest.SchemaVersion is not 1 and not 2 and not 3) {
             throw new InvalidDataException(

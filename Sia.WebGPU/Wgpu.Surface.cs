@@ -49,7 +49,6 @@ public static unsafe partial class Wgpu
     }
 }
 
-/// <summary>A value snapshot returned by one surface acquisition.</summary>
 public readonly record struct WgpuSurfaceTexture(
     WGPUSurfaceGetCurrentTextureStatus Status,
     WgpuHandle<WGPUTexture> Texture)

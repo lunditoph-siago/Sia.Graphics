@@ -5,9 +5,9 @@ namespace Sia.Graphics.UI;
 
 internal static class UiExtraction
 {
-    private const int BackgroundSubOrder = 0;
-    private const int BorderSubOrder = 1;
-    private const int FirstGlyphSubOrder = 2;
+    private const int k_BackgroundSubOrder = 0;
+    private const int k_BorderSubOrder = 1;
+    private const int k_FirstGlyphSubOrder = 2;
 
     internal static void Extract(
         IEntityQuery backgrounds,
@@ -59,10 +59,10 @@ internal static class UiExtraction
             computed.BorderRadius,
             BorderEdges.Zero,
             computed.StackIndex) with {
-                ClipRect = computed.ClipRect,
-                Transform = entity.Get<UiGlobalTransform>(),
-                SubOrder = BackgroundSubOrder
-            });
+            ClipRect = computed.ClipRect,
+            Transform = entity.Get<UiGlobalTransform>(),
+            SubOrder = k_BackgroundSubOrder
+        });
     }
 
     private static void AppendBorder(Entity entity, List<ExtractedUiNode> result)
@@ -79,10 +79,10 @@ internal static class UiExtraction
             computed.BorderRadius,
             border,
             computed.StackIndex) with {
-                ClipRect = computed.ClipRect,
-                Transform = entity.Get<UiGlobalTransform>(),
-                SubOrder = BorderSubOrder
-            });
+            ClipRect = computed.ClipRect,
+            Transform = entity.Get<UiGlobalTransform>(),
+            SubOrder = k_BorderSubOrder
+        });
     }
 
     private static void AppendGlyphs(Entity entity, List<ExtractedUiNode> result)
@@ -107,7 +107,7 @@ internal static class UiExtraction
             result.Add(new ExtractedUiNode(
                 entity, glyphTopLeft, size, style.Color, ResolvedBorderRadius.Zero, BorderEdges.Zero,
                 computed.StackIndex, atlas, uvMin,
-                computed.ClipRect, transform, FirstGlyphSubOrder + glyphIndex));
+                computed.ClipRect, transform, k_FirstGlyphSubOrder + glyphIndex));
             glyphIndex++;
         }
     }

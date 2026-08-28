@@ -8,8 +8,8 @@ namespace Sia.Graphics.UI;
 
 public sealed class UiRenderer(UiPipeline pipeline)
 {
-    private const int MergeGapPrimitives = 16;
-    private static readonly ulong _primitiveStride = (ulong)Marshal.SizeOf<UiPrimitive>();
+    private const int k_MergeGapPrimitives = 16;
+    private static readonly ulong s_PrimitiveStride = (ulong)Marshal.SizeOf<UiPrimitive>();
     private readonly List<int> _dirtySlots = [];
     private Entity _primitiveBuffer;
     private Entity _paintOrderBuffer;
@@ -55,7 +55,7 @@ public sealed class UiRenderer(UiPipeline pipeline)
             cache.ConsumeChanges(_dirtySlots, out var paintOrderDirty);
             var primitivesResized = EnsurePrimitiveBufferCapacity(
                 world,
-                (ulong)primitives.Length * _primitiveStride);
+                (ulong)primitives.Length * s_PrimitiveStride);
             var paintOrderResized = EnsurePaintOrderBufferCapacity(
                 world,
                 (ulong)paintOrder.Length * sizeof(uint));
@@ -65,15 +65,15 @@ public sealed class UiRenderer(UiPipeline pipeline)
                 primitives,
                 _dirtySlots,
                 primitivesResized,
-                _primitiveStride,
-                MergeGapPrimitives);
+                s_PrimitiveStride,
+                k_MergeGapPrimitives);
             if ((paintOrderResized || paintOrderDirty) && !paintOrder.IsEmpty) {
                 Wgpu.WriteBuffer(queue, _paintOrderBuffer.GetWgpu<WGPUBuffer>(), 0, paintOrder);
             }
             _uploadedVersion = cache.PreparedVersion;
         }
         else if (!_primitiveBuffer.IsValid || !_paintOrderBuffer.IsValid) {
-            EnsurePrimitiveBufferCapacity(world, _primitiveStride);
+            EnsurePrimitiveBufferCapacity(world, s_PrimitiveStride);
             EnsurePaintOrderBufferCapacity(world, sizeof(uint));
         }
 
@@ -88,7 +88,7 @@ public sealed class UiRenderer(UiPipeline pipeline)
             ref _primitiveBuffer,
             ref _primitiveBufferCapacity,
             requiredBytes,
-            _primitiveStride);
+            s_PrimitiveStride);
 
     private bool EnsurePaintOrderBufferCapacity(World world, ulong requiredBytes) =>
         EnsureBufferCapacity(

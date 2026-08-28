@@ -1,11 +1,5 @@
 namespace Sia.WebGPU;
 
-/// <summary>A copyable, strongly typed native capability suitable for ECS storage.</summary>
-/// <remarks>
-/// Copying a handle does not create another WebGPU reference. Transfer canonical
-/// ownership with <see cref="Wgpu.Move{T}(ref WgpuHandle{T})"/> and release it
-/// explicitly, or place it in a Sia world with <c>OwnWgpu</c>.
-/// </remarks>
 public readonly unsafe record struct WgpuHandle<T>(nint Handle)
     where T : unmanaged
 {

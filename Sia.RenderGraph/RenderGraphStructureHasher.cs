@@ -8,8 +8,7 @@ internal static class RenderGraphStructureHasher
         var hash = new StableHash64();
         hash.Add(1u);
         hash.Add((uint)definition.BufferCount);
-        foreach (var buffer in definition.Buffers)
-        {
+        foreach (var buffer in definition.Buffers) {
             hash.Add(buffer.Descriptor.Size);
             hash.Add((ulong)buffer.Descriptor.Usage);
             hash.Add(buffer.IsImported);
@@ -18,8 +17,7 @@ internal static class RenderGraphStructureHasher
         }
 
         hash.Add((uint)definition.TextureCount);
-        foreach (var texture in definition.Textures)
-        {
+        foreach (var texture in definition.Textures) {
             hash.Add((uint)texture.Descriptor.Format);
             hash.Add(texture.Descriptor.Width);
             hash.Add(texture.Descriptor.Height);
@@ -34,11 +32,9 @@ internal static class RenderGraphStructureHasher
         }
 
         hash.Add((uint)definition.PassCount);
-        foreach (var pass in definition.Passes)
-        {
+        foreach (var pass in definition.Passes) {
             hash.Add((uint)pass.Buffers.Length);
-            foreach (var buffer in pass.Buffers)
-            {
+            foreach (var buffer in pass.Buffers) {
                 hash.Add((uint)buffer.BufferIndex);
                 hash.Add((uint)buffer.Access);
                 hash.Add((ulong)buffer.Usage);
@@ -47,8 +43,7 @@ internal static class RenderGraphStructureHasher
             }
 
             hash.Add((uint)pass.Textures.Length);
-            foreach (var texture in pass.Textures)
-            {
+            foreach (var texture in pass.Textures) {
                 hash.Add((uint)texture.TextureIndex);
                 hash.Add((uint)texture.Access);
                 hash.Add((ulong)texture.Usage);
@@ -60,8 +55,7 @@ internal static class RenderGraphStructureHasher
             }
 
             hash.Add((uint)pass.Dependencies.Length);
-            foreach (var dependency in pass.Dependencies)
-            {
+            foreach (var dependency in pass.Dependencies) {
                 hash.Add((uint)dependency);
             }
         }
@@ -71,12 +65,12 @@ internal static class RenderGraphStructureHasher
 
     private struct StableHash64
     {
-        private const ulong OffsetBasis = 14695981039346656037;
-        private const ulong Prime = 1099511628211;
+        private const ulong k_OffsetBasis = 14695981039346656037;
+        private const ulong k_Prime = 1099511628211;
 
         private ulong _value;
 
-        public readonly ulong Value => _value == 0 ? OffsetBasis : _value;
+        public readonly ulong Value => _value == 0 ? k_OffsetBasis : _value;
 
         public void Add(bool value) => Add(value ? 1u : 0u);
 
@@ -84,15 +78,13 @@ internal static class RenderGraphStructureHasher
 
         public void Add(ulong value)
         {
-            if (_value == 0)
-            {
-                _value = OffsetBasis;
+            if (_value == 0) {
+                _value = k_OffsetBasis;
             }
 
-            for (var index = 0; index < sizeof(ulong); index++)
-            {
+            for (var index = 0; index < sizeof(ulong); index++) {
                 _value ^= (byte)(value >> (index * 8));
-                _value *= Prime;
+                _value *= k_Prime;
             }
         }
     }

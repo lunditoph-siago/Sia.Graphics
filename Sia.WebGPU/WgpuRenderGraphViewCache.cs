@@ -1,12 +1,5 @@
 namespace Sia.WebGPU;
 
-/// <summary>
-/// Caches <see cref="WGPUTextureView"/> objects created for render graph passes across
-/// executions, keyed by the owning texture and the requested view range. Entries that were
-/// not requested during a call to <see cref="EndFrame"/>'s preceding execution are released,
-/// so a texture that stops being bound (e.g. after a resize) is cleaned up automatically
-/// without the executor having to track its identity explicitly.
-/// </summary>
 public sealed class WgpuRenderGraphViewCache : IDisposable
 {
     private readonly record struct Key(
@@ -56,10 +49,6 @@ public sealed class WgpuRenderGraphViewCache : IDisposable
         return view;
     }
 
-    /// <summary>
-    /// Releases every cached view that was not requested since the previous call to
-    /// <see cref="EndFrame"/>. Call once after each render graph execution.
-    /// </summary>
     public void EndFrame()
     {
         if (_usedThisFrame.Count < _views.Count) {

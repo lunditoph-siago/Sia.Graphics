@@ -12,7 +12,8 @@ internal static class FullscreenVertexShaders
         var y = -1.0f;
         if (vertexIndex == 1u) {
             x = 3.0f;
-        } else if (vertexIndex == 2u) {
+        }
+        else if (vertexIndex == 2u) {
             y = 3.0f;
         }
 

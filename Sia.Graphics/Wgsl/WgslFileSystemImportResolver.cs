@@ -23,7 +23,6 @@ internal sealed class WgslFileSystemImportResolver
         string? source;
 
         if (importPath.StartsWith('"') && importPath.EndsWith('"')) {
-            // Quoted file path — resolve relative to the importer's actual file location
             var relativePath = importPath[1..^1];
             var baseDir = GetImporterDirectory(importerName);
 
@@ -37,7 +36,6 @@ internal sealed class WgslFileSystemImportResolver
             }
         }
         else {
-            // Module path like "dumb::pbr_types" — find file with matching #define_import_path
             _moduleRegistry ??= BuildModuleRegistry();
 
             if (_moduleRegistry.TryGetValue(importPath, out var modulePath)) {

@@ -2,7 +2,7 @@ namespace Sia.WebGPU.Generators;
 
 internal static class WgpuNameTransforms
 {
-    private const string _constantPrefix = "WGPU_";
+    private const string k_ConstantPrefix = "WGPU_";
 
     public static string NormalizeEnumName(string name) =>
         name.EndsWith("Flags", StringComparison.Ordinal)
@@ -33,12 +33,12 @@ internal static class WgpuNameTransforms
 
     public static string NormalizeConstantName(string name)
     {
-        if (!name.StartsWith(_constantPrefix, StringComparison.Ordinal)) {
+        if (!name.StartsWith(k_ConstantPrefix, StringComparison.Ordinal)) {
             throw new ArgumentException($"'{name}' is not a WebGPU constant name.", nameof(name));
         }
 
         var tokens = name
-            .Substring(_constantPrefix.Length)
+            .Substring(k_ConstantPrefix.Length)
             .Split(['_'], StringSplitOptions.RemoveEmptyEntries);
 
         if (tokens.Length == 0) {

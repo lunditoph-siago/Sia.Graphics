@@ -12,18 +12,18 @@ namespace Sia.WebGPU.Generators;
 [Generator]
 public sealed class WgpuSourceGenerator : IIncrementalGenerator
 {
-    private const string _embeddedHeaderResourceName = "Sia.WebGPU.Generators.webgpu.h";
-    private const int _fileLockRetryCount = 600;
-    private const int _fileLockRetryDelayMilliseconds = 50;
-    private const int _rtldNow = 2;
+    private const string k_EmbeddedHeaderResourceName = "Sia.WebGPU.Generators.webgpu.h";
+    private const int k_FileLockRetryCount = 600;
+    private const int k_FileLockRetryDelayMilliseconds = 50;
+    private const int k_RtldNow = 2;
 
-    private static readonly object _nativeDependencyLock = new();
-    private static int _nativeDependenciesLoaded;
-    private static int _resolverRegistered;
-    private static IntPtr _libClangHandle;
-    private static IntPtr _libClangSharpHandle;
+    private static readonly object s_NativeDependencyLock = new();
+    private static int s_NativeDependenciesLoaded;
+    private static int s_ResolverRegistered;
+    private static IntPtr s_LibClangHandle;
+    private static IntPtr s_LibClangSharpHandle;
 
-    private static readonly DiagnosticDescriptor _missingHeader = new(
+    private static readonly DiagnosticDescriptor s_MissingHeader = new(
         id: "SIAWGPU001",
         title: "Embedded WebGPU header missing",
         messageFormat: "The embedded webgpu.h resource was not found in the generator assembly",
@@ -31,7 +31,7 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    private static readonly DiagnosticDescriptor _generationFailed = new(
+    private static readonly DiagnosticDescriptor s_GenerationFailed = new(
         id: "SIAWGPU003",
         title: "WebGPU binding generation failed",
         messageFormat: "{0}",
@@ -41,7 +41,7 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        if (Interlocked.Exchange(ref _resolverRegistered, 1) == 0) {
+        if (Interlocked.Exchange(ref s_ResolverRegistered, 1) == 0) {
             AppDomain.CurrentDomain.AssemblyResolve += ResolveClangSharpInterop;
         }
 
@@ -50,7 +50,7 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
         context.RegisterSourceOutput(optionsProvider, static (context, options) => {
             var headerSource = TryGetEmbeddedHeader();
             if (string.IsNullOrWhiteSpace(headerSource)) {
-                context.ReportDiagnostic(Diagnostic.Create(_missingHeader, Location.None));
+                context.ReportDiagnostic(Diagnostic.Create(s_MissingHeader, Location.None));
                 return;
             }
 
@@ -66,7 +66,7 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
                 AddGeneratedSources(context, header, options);
             }
             catch (Exception ex) {
-                context.ReportDiagnostic(Diagnostic.Create(_generationFailed, Location.None, ex.ToString()));
+                context.ReportDiagnostic(Diagnostic.Create(s_GenerationFailed, Location.None, ex.ToString()));
             }
         });
     }
@@ -122,8 +122,8 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
         Assembly _,
         DllImportSearchPath? __) =>
         libraryName switch {
-            "libclang" => _libClangHandle,
-            "libClangSharp" => _libClangSharpHandle,
+            "libclang" => s_LibClangHandle,
+            "libClangSharp" => s_LibClangSharpHandle,
             _ => IntPtr.Zero
         };
 
@@ -191,7 +191,7 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
     private static string? TryGetEmbeddedHeader()
     {
         using var stream = typeof(WgpuSourceGenerator).Assembly
-            .GetManifestResourceStream(_embeddedHeaderResourceName);
+            .GetManifestResourceStream(k_EmbeddedHeaderResourceName);
         if (stream is null) {
             return null;
         }
@@ -248,12 +248,12 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
         NativePlatform platform,
         string directory)
     {
-        if (_nativeDependenciesLoaded != 0) {
+        if (s_NativeDependenciesLoaded != 0) {
             return;
         }
 
-        lock (_nativeDependencyLock) {
-            if (_nativeDependenciesLoaded != 0) {
+        lock (s_NativeDependencyLock) {
+            if (s_NativeDependenciesLoaded != 0) {
                 return;
             }
 
@@ -266,12 +266,12 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
                 }
             }
 
-            _libClangHandle = LoadNativeDependency(
+            s_LibClangHandle = LoadNativeDependency(
                 Path.Combine(directory, "libclang" + platform.Extension));
-            _libClangSharpHandle = LoadNativeDependency(
+            s_LibClangSharpHandle = LoadNativeDependency(
                 Path.Combine(directory, "libClangSharp" + platform.Extension));
 
-            _nativeDependenciesLoaded = 1;
+            s_NativeDependenciesLoaded = 1;
         }
     }
 
@@ -325,7 +325,7 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
 
     private static FileStream AcquireExclusiveFileLock(string path)
     {
-        for (var attempt = 0; attempt < _fileLockRetryCount; attempt++) {
+        for (var attempt = 0; attempt < k_FileLockRetryCount; attempt++) {
             try {
                 return new FileStream(
                     path,
@@ -333,8 +333,8 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
                     FileAccess.ReadWrite,
                     FileShare.None);
             }
-            catch (IOException) when (attempt < _fileLockRetryCount - 1) {
-                Thread.Sleep(_fileLockRetryDelayMilliseconds);
+            catch (IOException) when (attempt < k_FileLockRetryCount - 1) {
+                Thread.Sleep(k_FileLockRetryDelayMilliseconds);
             }
         }
 
@@ -345,8 +345,8 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
     {
         var handle =
             RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? Windows.LoadLibrary(path) :
-            RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? MacOS.Dlopen(path, _rtldNow) :
-            RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? Linux.Load(path, _rtldNow) :
+            RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? MacOS.Dlopen(path, k_RtldNow) :
+            RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? Linux.Load(path, k_RtldNow) :
             throw new PlatformNotSupportedException(RuntimeInformation.OSDescription);
 
         if (handle == IntPtr.Zero) {

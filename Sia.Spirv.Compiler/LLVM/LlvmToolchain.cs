@@ -5,7 +5,7 @@ namespace Sia.Spirv.Compiler.LLVM;
 
 public sealed class LlvmToolchain
 {
-    private static readonly string _executableSuffix = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
+    private static readonly string s_ExecutableSuffix = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
 
     public LlvmToolchain(string directory)
     {
@@ -48,12 +48,17 @@ public sealed class LlvmToolchain
             "The Sia SPIR-V LLVM toolchain was not found. Set SIA_SPIRV_TOOLCHAIN or pass ToolchainDirectory.");
     }
 
-    public void Optimize(string inputPath, string outputPath)
+    public void Optimize(string inputPath, string outputPath, int optimizationLevel)
     {
+        ValidateOptimizationLevel(optimizationLevel);
+        var passes = optimizationLevel == 0 || ContainsNativeAtomics(inputPath)
+            ? "mem2reg,structurizecfg,simplifycfg"
+            : "mem2reg,simplifycfg,early-cse,sccp,adce," +
+              "structurizecfg,simplifycfg";
         Run(
             ToolName("opt"),
             "-S",
-            "-passes=mem2reg,structurizecfg,simplifycfg",
+            $"-passes={passes}",
             inputPath,
             "-o",
             outputPath);
@@ -65,12 +70,7 @@ public sealed class LlvmToolchain
         int optimizationLevel,
         string targetEnvironment)
     {
-        if (optimizationLevel is < 0 or > 3) {
-            throw new ArgumentOutOfRangeException(
-                nameof(optimizationLevel),
-                optimizationLevel,
-                "LLVM optimization level must be between zero and three.");
-        }
+        ValidateOptimizationLevel(optimizationLevel);
         var triple = targetEnvironment switch {
             "vulkan1.2" => "spirv1.5-vulkan1.2-compute",
             "vulkan1.3" => "spirv1.6-vulkan1.3-compute",
@@ -78,10 +78,6 @@ public sealed class LlvmToolchain
                 $"Target environment '{targetEnvironment}' is not supported.",
                 nameof(targetEnvironment))
         };
-        // LLVM 23's SPIR-V legalize-bitcast pass crashes at -O1 and above
-        // when native LLVM atomics use Vulkan logical pointers. The IR has
-        // already passed our explicit optimization pipeline, so keep codegen
-        // at O0 for atomic modules until the backend fix reaches the workload.
         var effectiveOptimizationLevel = ContainsNativeAtomics(inputPath)
             ? 0
             : optimizationLevel;
@@ -105,6 +101,16 @@ public sealed class LlvmToolchain
             line.Contains("atomicrmw ", StringComparison.Ordinal) ||
             line.Contains("cmpxchg ", StringComparison.Ordinal));
 
+    private static void ValidateOptimizationLevel(int optimizationLevel)
+    {
+        if (optimizationLevel is < 0 or > 3) {
+            throw new ArgumentOutOfRangeException(
+                nameof(optimizationLevel),
+                optimizationLevel,
+                "LLVM optimization level must be between zero and three.");
+        }
+    }
+
     public void Validate(string inputPath, string targetEnvironment) =>
         Run(ToolName("spirv-val"), "--target-env", targetEnvironment, inputPath);
 
@@ -114,7 +120,8 @@ public sealed class LlvmToolchain
         try {
             Run(ToolName("spirv-opt"), "-O", inputPath, "-o", temporaryPath);
             File.Move(temporaryPath, inputPath, true);
-        } finally {
+        }
+        finally {
             File.Delete(temporaryPath);
         }
     }
@@ -127,7 +134,8 @@ public sealed class LlvmToolchain
             Run(ToolName("naga"), spirvPath, temporaryPath);
             Run(ToolName("naga"), temporaryPath);
             File.Move(temporaryPath, wgslPath, true);
-        } finally {
+        }
+        finally {
             File.Delete(temporaryPath);
         }
     }
@@ -192,5 +200,5 @@ public sealed class LlvmToolchain
     private static string FirstLine(string value) =>
         value.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
 
-    private static string ToolName(string name) => $"{name}{_executableSuffix}";
+    private static string ToolName(string name) => $"{name}{s_ExecutableSuffix}";
 }

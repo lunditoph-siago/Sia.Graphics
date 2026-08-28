@@ -2,7 +2,6 @@ using Sia;
 
 namespace Sia.WebGPU;
 
-/// <summary>Publishes native request completions on the Sia thread.</summary>
 public sealed class WgpuRequestSystem : SystemBase
 {
     private WgpuRequests? _requests;

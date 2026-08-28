@@ -209,7 +209,7 @@ public sealed class WgpuRenderGraphPassContext
                 nameof(colorAttachments));
         }
 
-        Span<WGPURenderPassColorAttachment> lowered =
+        var lowered =
             colorAttachments.Length <= 8
                 ? stackalloc WGPURenderPassColorAttachment[colorAttachments.Length]
                 : new WGPURenderPassColorAttachment[colorAttachments.Length];

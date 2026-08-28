@@ -20,8 +20,7 @@ public sealed class CompiledRenderGraph
         PassGroups = Array.AsReadOnly(passGroups);
         StructureHash = structureHash;
         _passesByDeclaration = new CompiledRenderGraphPass[passes.Length];
-        foreach (var pass in passes)
-        {
+        foreach (var pass in passes) {
             _passesByDeclaration[pass.DeclarationIndex] = pass;
         }
     }
@@ -39,8 +38,7 @@ public sealed class CompiledRenderGraph
     public CompiledRenderGraphPass GetPass(RenderGraphPassHandle pass)
     {
         if (pass.GraphId != _graphId ||
-            (uint)pass.Index >= (uint)_passesByDeclaration.Length)
-        {
+            (uint)pass.Index >= (uint)_passesByDeclaration.Length) {
             throw new ArgumentException(
                 "The pass does not belong to this compiled render graph.",
                 nameof(pass));
@@ -94,8 +92,7 @@ public sealed class CompiledRenderGraph
     private void ValidateBuffer(RenderGraphBufferHandle buffer)
     {
         if (buffer.GraphId != _graphId ||
-            (uint)buffer.Index >= (uint)Buffers.Count)
-        {
+            (uint)buffer.Index >= (uint)Buffers.Count) {
             throw new ArgumentException(
                 "The buffer does not belong to this compiled render graph.",
                 nameof(buffer));
@@ -105,8 +102,7 @@ public sealed class CompiledRenderGraph
     private void ValidateTexture(RenderGraphTextureHandle texture)
     {
         if (texture.GraphId != _graphId ||
-            (uint)texture.Index >= (uint)Textures.Count)
-        {
+            (uint)texture.Index >= (uint)Textures.Count) {
             throw new ArgumentException(
                 "The texture does not belong to this compiled render graph.",
                 nameof(texture));

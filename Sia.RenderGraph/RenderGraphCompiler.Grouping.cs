@@ -2,15 +2,6 @@ namespace Sia.RenderGraph;
 
 public static partial class RenderGraphCompiler
 {
-    /// <summary>
-    /// Groups adjacent (in execution order) passes that write the exact same render-attachment
-    /// texture set and share no other resource hazard into a single <see cref="RenderGraphPassGroup"/>.
-    /// A backend may run every pass in a group inside one physical render pass instead of one
-    /// per pass. This is purely additive metadata over an already-fixed execution order — it
-    /// never reorders passes, and every pass belongs to exactly one group (a pass that can't
-    /// merge with its neighbor simply gets a group of its own, identical to today's one-pass-
-    /// per-physical-pass behavior).
-    /// </summary>
     private static RenderGraphPassGroup[] BuildPassGroups(
         CompiledRenderGraphPass[] passes,
         CompiledRenderGraphTexture[] textures)
@@ -38,12 +29,6 @@ public static partial class RenderGraphCompiler
         return [.. groups];
     }
 
-    /// <summary>
-    /// Whether <paramref name="passes"/>[<paramref name="nextIndex"/>] can join the open group
-    /// that started at <paramref name="groupStart"/>, tested against its immediate predecessor
-    /// (index <paramref name="nextIndex"/> - 1) — the only pass a physical render pass boundary
-    /// would actually need to separate them from.
-    /// </summary>
     private static bool CanMerge(
         CompiledRenderGraphPass[] passes,
         int groupStart,

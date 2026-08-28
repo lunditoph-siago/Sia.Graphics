@@ -60,14 +60,14 @@ public static class WgslConditionalCompiler
     }
 
     // Collapse multiple consecutive spaces into one
-    private static readonly Regex s_multiSpace = new(@"\s+", RegexOptions.CultureInvariant);
+    private static readonly Regex s_MultiSpace = new(@"\s+", RegexOptions.CultureInvariant);
 
     private static string NormalizeSpaces(string line)
     {
         var trimmed = line.TrimStart();
         if (trimmed.Length == 0) return trimmed;
         var leading = line[..^trimmed.Length];
-        return leading + s_multiSpace.Replace(trimmed, " ");
+        return leading + s_MultiSpace.Replace(trimmed, " ");
     }
 
     private static void ProcessDirectiveLine(

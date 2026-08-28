@@ -2,7 +2,7 @@ namespace Sia.Graphics.UI;
 
 public static class UiOrthographicProjection
 {
-    internal const ulong UniformByteSize = 16 * sizeof(float);
+    internal const ulong k_UniformByteSize = 16 * sizeof(float);
 
     public static float[] Build(Size viewport)
     {

@@ -8,8 +8,7 @@ internal static class CommandLine
             return null;
         }
 
-        var installWorkload = args[0] switch
-        {
+        var installWorkload = args[0] switch {
             "install" => true,
             "bootstrap" => false,
             _ => throw new ArgumentException($"Unknown command '{args[0]}'.")
@@ -17,8 +16,7 @@ internal static class CommandLine
         var dotnetPath = "dotnet";
         var sources = new List<string>();
         for (var index = 1; index < args.Length; index++) {
-            switch (args[index])
-            {
+            switch (args[index]) {
                 case "--dotnet":
                     dotnetPath = ReadValue(args, ref index, "--dotnet");
                     break;

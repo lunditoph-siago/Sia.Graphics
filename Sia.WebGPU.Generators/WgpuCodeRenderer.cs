@@ -4,10 +4,10 @@ namespace Sia.WebGPU.Generators;
 
 internal sealed class WgpuCodeRenderer
 {
-    private const string _enumZeroInitializerPrefix = "_wgpu_ENUM_ZERO_INIT(";
-    private const int _initializerFieldIndentation = 8;
-    private const int _indentationSize = 4;
-    private const string _structZeroInitializer = "_wgpu_STRUCT_ZERO_INIT";
+    private const string k_EnumZeroInitializerPrefix = "_wgpu_ENUM_ZERO_INIT(";
+    private const int k_InitializerFieldIndentation = 8;
+    private const int k_IndentationSize = 4;
+    private const string k_StructZeroInitializer = "_wgpu_STRUCT_ZERO_INIT";
 
     private readonly WgpuGenerationOptions _options;
     private readonly WgpuTypeTranslator _types;
@@ -161,7 +161,7 @@ internal sealed class WgpuCodeRenderer
         $$"""
             public static {{initializer.StructName}} Default => new()
             {
-        {{RenderInitializerFields(initializer.Fields, _initializerFieldIndentation)}}
+        {{RenderInitializerFields(initializer.Fields, k_InitializerFieldIndentation)}}
             };
         """;
 
@@ -189,7 +189,7 @@ internal sealed class WgpuCodeRenderer
         return $$"""
         new {{initializer.StructName}}
         {{indent}}{
-        {{RenderInitializerFields(initializer.Fields, indentation + _indentationSize)}}
+        {{RenderInitializerFields(initializer.Fields, indentation + k_IndentationSize)}}
         {{indent}}}
         """;
     }
@@ -204,15 +204,15 @@ internal sealed class WgpuCodeRenderer
             return $"{structName}.Default";
         }
 
-        if (expression.StartsWith(_enumZeroInitializerPrefix, StringComparison.Ordinal) &&
+        if (expression.StartsWith(k_EnumZeroInitializerPrefix, StringComparison.Ordinal) &&
             expression.EndsWith(")", StringComparison.Ordinal)) {
             var enumName = expression.Substring(
-                _enumZeroInitializerPrefix.Length,
-                expression.Length - _enumZeroInitializerPrefix.Length - 1);
+                k_EnumZeroInitializerPrefix.Length,
+                expression.Length - k_EnumZeroInitializerPrefix.Length - 1);
             return $"({enumName})0";
         }
 
-        if (expression == _structZeroInitializer) {
+        if (expression == k_StructZeroInitializer) {
             return "default";
         }
 

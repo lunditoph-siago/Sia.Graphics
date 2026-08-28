@@ -2,10 +2,6 @@ using Sia;
 
 namespace Sia.WebGPU;
 
-/// <summary>
-/// Owns native resources attached to Sia entities and releases them when their
-/// component, entity, or world lifetime ends.
-/// </summary>
 public sealed class WgpuResources : IAddon
 {
     private interface IOwnedResource
@@ -145,10 +141,6 @@ public sealed class WgpuResources : IAddon
         in WorldEvents.Remove<WgpuResource<T>> @event)
         where T : unmanaged
     {
-        // Entity destruction announces each component before removing any of
-        // them. Keep registration order intact and release them together when
-        // WorldEvents.Remove follows. A standalone component removal announces
-        // the event after its structural move, so the component is absent.
         if (!target.IsValid || !target.Contains<WgpuResource<T>>()) {
             Release(target.Id, typeof(WgpuResource<T>));
         }

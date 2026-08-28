@@ -5,15 +5,15 @@ namespace Sia.Spirv.Compiler.LLVM;
 
 internal static class SpirvMatrixLowering
 {
-    private const uint SpirvMagic = 0x07230203;
-    private const ushort OpName = 5;
-    private const ushort OpCapability = 17;
-    private const ushort OpTypeFloat = 22;
-    private const ushort OpTypeVector = 23;
-    private const ushort OpTypeMatrix = 24;
-    private const ushort OpTypeStruct = 30;
-    private const uint MatrixCapability = 0;
-    private const string MatrixTypePrefix = "sia.matrix.float";
+    private const uint k_SpirvMagic = 0x07230203;
+    private const ushort k_OpName = 5;
+    private const ushort k_OpCapability = 17;
+    private const ushort k_OpTypeFloat = 22;
+    private const ushort k_OpTypeVector = 23;
+    private const ushort k_OpTypeMatrix = 24;
+    private const ushort k_OpTypeStruct = 30;
+    private const uint k_MatrixCapability = 0;
+    private const string k_MatrixTypePrefix = "sia.matrix.float";
 
     public static void Rewrite(string path)
     {
@@ -26,7 +26,7 @@ internal static class SpirvMatrixLowering
         for (var index = 0; index < words.Length; index++) {
             words[index] = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(index * sizeof(uint)));
         }
-        if (words[0] != SpirvMagic) {
+        if (words[0] != k_SpirvMagic) {
             throw new InvalidDataException("The SPIR-V module has an invalid magic number.");
         }
 
@@ -35,13 +35,13 @@ internal static class SpirvMatrixLowering
         var floatWidths = new Dictionary<uint, uint>();
         foreach (var instruction in EnumerateInstructions(words)) {
             switch (instruction.Opcode) {
-                case OpName:
+                case k_OpName:
                     names[instruction.Words[1]] = DecodeString(instruction.Words[2..]);
                     break;
-                case OpTypeFloat:
+                case k_OpTypeFloat:
                     floatWidths[instruction.Words[1]] = instruction.Words[2];
                     break;
-                case OpTypeVector:
+                case k_OpTypeVector:
                     vectors[instruction.Words[1]] = (instruction.Words[2], instruction.Words[3]);
                     break;
             }
@@ -49,7 +49,7 @@ internal static class SpirvMatrixLowering
 
         var matrixTypes = new Dictionary<uint, MatrixShape>();
         foreach (var instruction in EnumerateInstructions(words)) {
-            if (instruction.Opcode != OpTypeStruct ||
+            if (instruction.Opcode != k_OpTypeStruct ||
                 !names.TryGetValue(instruction.Words[1], out var name) ||
                 !TryParseMatrixShape(name, out var shape)) {
                 continue;
@@ -75,20 +75,20 @@ internal static class SpirvMatrixLowering
         var insertedCapability = false;
         var hasMatrixCapability = false;
         foreach (var instruction in EnumerateInstructions(words)) {
-            if (instruction.Opcode == OpCapability && instruction.Words[1] == MatrixCapability) {
+            if (instruction.Opcode == k_OpCapability && instruction.Words[1] == k_MatrixCapability) {
                 hasMatrixCapability = true;
             }
-            if (!insertedCapability && instruction.Opcode != OpCapability) {
+            if (!insertedCapability && instruction.Opcode != k_OpCapability) {
                 if (!hasMatrixCapability) {
-                    output.Add(MakeInstructionHeader(2, OpCapability));
-                    output.Add(MatrixCapability);
+                    output.Add(MakeInstructionHeader(2, k_OpCapability));
+                    output.Add(k_MatrixCapability);
                 }
                 insertedCapability = true;
             }
 
-            if (instruction.Opcode == OpTypeStruct &&
+            if (instruction.Opcode == k_OpTypeStruct &&
                 matrixTypes.TryGetValue(instruction.Words[1], out var shape)) {
-                output.Add(MakeInstructionHeader(4, OpTypeMatrix));
+                output.Add(MakeInstructionHeader(4, k_OpTypeMatrix));
                 output.Add(instruction.Words[1]);
                 output.Add(shape.ColumnType);
                 output.Add(shape.Columns);
@@ -136,10 +136,10 @@ internal static class SpirvMatrixLowering
     private static bool TryParseMatrixShape(string name, out MatrixShape shape)
     {
         shape = default;
-        if (!name.StartsWith(MatrixTypePrefix, StringComparison.Ordinal)) {
+        if (!name.StartsWith(k_MatrixTypePrefix, StringComparison.Ordinal)) {
             return false;
         }
-        var suffix = name.AsSpan(MatrixTypePrefix.Length);
+        var suffix = name.AsSpan(k_MatrixTypePrefix.Length);
         if (suffix.Length != 3 || suffix[1] != 'x' ||
             suffix[0] is < '2' or > '4' || suffix[2] is < '2' or > '4') {
             return false;

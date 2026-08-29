@@ -26,8 +26,14 @@ public static unsafe partial class Wgpu
             WgpuHandle<WGPUTexture>.FromOptionalPointer(native.Texture));
     }
 
-    public static WGPUStatus PresentSurface(WgpuHandle<WGPUSurface> surface) =>
-        WgpuUnsafe.wgpuSurfacePresent(GetPointer(surface));
+    public static WGPUStatus PresentSurface(WgpuHandle<WGPUSurface> surface)
+    {
+#if BROWSER
+        return SiaWebGpuSurfacePresent(GetPointer(surface));
+#else
+        return WgpuUnsafe.wgpuSurfacePresent(GetPointer(surface));
+#endif
+    }
 
     public static void PresentSurfaceOrThrow(WgpuHandle<WGPUSurface> surface)
     {

@@ -36,7 +36,9 @@ internal sealed partial class CornellBoxApp
         _previousAnimationFrameTime = currentTime;
 
         HandleInput(deltaTime);
-        UpdateUi();
+        if (_uiEnabled) {
+            UpdateUi();
+        }
         if (ResizeIfNeeded()) {
             RenderFrame();
             Wgpu.ProcessEvents(_instance);
@@ -71,12 +73,15 @@ internal sealed partial class CornellBoxApp
 
         _device = await Wgpu.RequestDeviceAsync(_adapter);
         _queue = Wgpu.GetQueue(_device);
+        _uiEnabled = Wgpu.Backend != WgpuBackendKind.BrowserGles;
         _browserVertexSpirv = Convert.FromBase64String(
             await LoadBinaryBase64($"spirv/{k_RasterShaderArtifactName}.spv"));
 
         CreateUniformBuffer();
         CreatePipelines();
-        InitializeUi();
+        if (_uiEnabled) {
+            InitializeUi();
+        }
         InitializeRenderGraph();
         ResizeIfNeeded(force: true);
     }

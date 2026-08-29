@@ -51,14 +51,15 @@ public static unsafe partial class Wgpu
             throw new ArgumentException("The shader is not a valid SPIR-V binary module.", nameof(spirv));
         }
 #if BROWSER
-        return CreateWgslShaderModule(device, TranslateSpirvToWgsl(spirv.ToArray()), label);
-#else
+        if (Backend == WgpuBackendKind.BrowserWebGpu) {
+            return CreateWgslShaderModule(device, TranslateSpirvToWgsl(spirv.ToArray()), label);
+        }
+#endif
         if (!BitConverter.IsLittleEndian) {
             throw new PlatformNotSupportedException(
                 "SPIR-V bytecode loading requires a little-endian host.");
         }
         return CreateSpirvShaderModule(device, MemoryMarshal.Cast<byte, uint>(spirv), label);
-#endif
     }
 
     public static WgpuHandle<WGPUShaderModule> CreateSpirvShaderModule(
@@ -70,11 +71,13 @@ public static unsafe partial class Wgpu
             throw new ArgumentException("The shader is not a valid SPIR-V binary module.", nameof(spirv));
         }
 #if BROWSER
-        return CreateWgslShaderModule(
-            device,
-            TranslateSpirvToWgsl(MemoryMarshal.AsBytes(spirv).ToArray()),
-            label);
-#else
+        if (Backend == WgpuBackendKind.BrowserWebGpu) {
+            return CreateWgslShaderModule(
+                device,
+                TranslateSpirvToWgsl(MemoryMarshal.AsBytes(spirv).ToArray()),
+                label);
+        }
+#endif
         using var labelString = WgpuOwnedString.Create(label);
         fixed (uint* code = spirv) {
             var source = new WGPUShaderSourceSPIRV {
@@ -91,7 +94,6 @@ public static unsafe partial class Wgpu
             };
             return CreateShaderModule(device, in descriptor);
         }
-#endif
     }
 
     public static WgpuHandle<WGPUBindGroupLayout> CreateBindGroupLayout(

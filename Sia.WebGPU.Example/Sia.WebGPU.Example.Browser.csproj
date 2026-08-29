@@ -13,7 +13,6 @@
     <WasmEnableSIMD>true</WasmEnableSIMD>
     <WasmBuildNative>true</WasmBuildNative>
     <WasmAllowUndefinedSymbols>true</WasmAllowUndefinedSymbols>
-    <EmccFlags>--use-port=emdawnwebgpu</EmccFlags>
     <EmccExtraLDFlags>-sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH</EmccExtraLDFlags>
     <EnableSpirvCompilation>true</EnableSpirvCompilation>
     <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
@@ -64,5 +63,7 @@
       <Reference Remove="Sia.Spirv.Core" />
     </ItemGroup>
   </Target>
+
+  <Import Project="..\Sia.WebGPU.Native\build\net461\Sia.WebGPU.Native.targets" />
 
 </Project>

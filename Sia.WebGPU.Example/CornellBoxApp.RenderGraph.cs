@@ -91,11 +91,13 @@ internal sealed unsafe partial class CornellBoxApp
         hooks.UseRenderGraphPass(registry, s_PresentPassKey, "present", DeclarePresentPass);
         hooks.UseWgpuRenderGraphPassHandler(registry, s_PresentPassKey, props.App._presentPassHandler!);
 
-        hooks.UseUiRenderPass(
-            registry, props.App._uiWorld!, props.App._uiRenderer!,
-            s_UiPassKey, s_SurfaceKey,
-            new Size(props.FramebufferWidth, props.FramebufferHeight),
-            WGPULoadOp.Load, outputCacheable: false);
+        if (props.App._uiEnabled) {
+            hooks.UseUiRenderPass(
+                registry, props.App._uiWorld!, props.App._uiRenderer!,
+                s_UiPassKey, s_SurfaceKey,
+                new Size(props.FramebufferWidth, props.FramebufferHeight),
+                WGPULoadOp.Load, outputCacheable: false);
+        }
 
         return SiaReactive.None;
     }

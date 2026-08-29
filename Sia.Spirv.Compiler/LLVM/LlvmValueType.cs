@@ -59,6 +59,8 @@ internal enum LlvmValueType
     WorkgroupInt32,
     WorkgroupUInt32,
     WorkgroupFloat32,
+    StageInput,
+    StageOutput,
     Struct,
     ReadOnlyBufferStruct,
     BufferStruct

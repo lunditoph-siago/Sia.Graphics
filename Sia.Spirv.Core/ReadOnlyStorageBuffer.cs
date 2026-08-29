@@ -1,11 +1,23 @@
 namespace Sia.Spirv;
 
-public readonly ref struct ReadOnlyStorageBuffer<T>
+public readonly struct ReadOnlyStorageBuffer<T>
     where T : unmanaged
 {
+    private readonly ReadOnlyMemory<T> _memory;
+
+    public ReadOnlyStorageBuffer(ReadOnlyMemory<T> memory)
+    {
+        _memory = memory;
+    }
+
+    public ReadOnlyStorageBuffer(T[] array)
+    {
+        ArgumentNullException.ThrowIfNull(array);
+        _memory = array;
+    }
+
     public ref readonly T this[uint index] {
         [SpirvIntrinsic(IntrinsicKind.BufferIndex)]
-        get => throw new PlatformNotSupportedException(
-            "Read-only storage buffers can only be accessed from a compiled SPIR-V kernel.");
+        get => ref _memory.Span[unchecked((int)index)];
     }
 }

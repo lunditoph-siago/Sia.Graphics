@@ -16,6 +16,12 @@ public sealed class SpirvFrontend
     private const string k_KernelAttributeName = "Sia.Spirv.SpirvKernelAttribute";
     private const string k_VertexAttributeName = "Sia.Spirv.SpirvVertexShaderAttribute";
     private const string k_FragmentAttributeName = "Sia.Spirv.SpirvFragmentShaderAttribute";
+    private const string k_LocationAttributeName = "Sia.Spirv.LocationAttribute";
+    private const string k_PositionAttributeName = "Sia.Spirv.PositionAttribute";
+    private const string k_VertexIndexAttributeName = "Sia.Spirv.VertexIndexAttribute";
+    private const string k_InstanceIndexAttributeName = "Sia.Spirv.InstanceIndexAttribute";
+    private const string k_FragmentPositionAttributeName = "Sia.Spirv.FragmentPositionAttribute";
+    private const string k_FlatAttributeName = "Sia.Spirv.FlatAttribute";
 
     public SpirvFrontendResult Analyze(string assemblyPath)
     {
@@ -75,14 +81,21 @@ public sealed class SpirvFrontend
                             qualifiedName));
                     }
 
-                    SpirvLegalityAnalyzer.Analyze(qualifiedName, view, diagnostics);
+                    var parameters = DecodeParameters(reader, method, stage);
+                    var returnLayout = DecodeReturnLayout(reader, method, stage);
+                    SpirvLegalityAnalyzer.Analyze(
+                        qualifiedName,
+                        view,
+                        diagnostics,
+                        returnLayout?.Name);
                     kernels.Add(new SpirvKernel(
                         declaringType,
                         methodName,
                         MetadataTokens.GetToken(methodHandle),
                         stage,
                         workgroupSize,
-                        DecodeParameters(reader, method),
+                        parameters,
+                        returnLayout,
                         graph));
                 }
                 catch (InvalidDataException exception) {
@@ -153,11 +166,14 @@ public sealed class SpirvFrontend
     {
         var valid = true;
         var signature = method.DecodeSignature(SignatureTypeProvider.Instance, genericContext: null);
-        if ((method.Attributes & MethodAttributes.Static) == 0 || !signature.ReturnType.IsVoid) {
+        if ((method.Attributes & MethodAttributes.Static) == 0 ||
+            stage == SpirvShaderStage.Compute && !signature.ReturnType.IsVoid) {
             diagnostics.Add(new SpirvDiagnostic(
                 SpirvDiagnosticIds.InvalidKernelSignature,
                 SpirvDiagnosticSeverity.Error,
-                "A SPIR-V shader must be a static method returning void.",
+                stage == SpirvShaderStage.Compute
+                    ? "A compute shader must be a static method returning void."
+                    : "A raster shader must be a static method.",
                 qualifiedName));
             valid = false;
         }
@@ -186,7 +202,8 @@ public sealed class SpirvFrontend
 
     private static IReadOnlyList<SpirvKernelParameter> DecodeParameters(
         MetadataReader reader,
-        MethodDefinition method)
+        MethodDefinition method,
+        SpirvShaderStage stage)
     {
         var signature = method.DecodeSignature(new KernelTypeProvider(), genericContext: null);
         var names = method.GetParameters()
@@ -198,13 +215,19 @@ public sealed class SpirvFrontend
         var parameters = new SpirvKernelParameter[signature.ParameterTypes.Length];
         for (var position = 0; position < signature.ParameterTypes.Length; position++) {
             var type = signature.ParameterTypes[position];
-            var (kind, scalarType, structLayout) = DecodeParameterType(reader, type);
+            var (kind, scalarType, structLayout, stageIoLayout) =
+                DecodeParameterType(reader, type, stage);
             parameters[position] = new SpirvKernelParameter(
                 position < names.Length ? names[position] : $"arg{position}",
                 position,
                 kind,
                 scalarType,
-                structLayout);
+                structLayout,
+                stageIoLayout);
+        }
+        if (parameters.Count(static parameter =>
+            parameter.Kind == SpirvKernelParameterKind.StageInput) > 1) {
+            throw new InvalidDataException("A raster shader can declare only one stage-input parameter.");
         }
         return parameters;
     }
@@ -212,33 +235,216 @@ public sealed class SpirvFrontend
     private static (
         SpirvKernelParameterKind Kind,
         SpirvScalarType ScalarType,
-        SpirvStructLayout? StructLayout)
-        DecodeParameterType(MetadataReader reader, KernelType type)
+        SpirvStructLayout? StructLayout,
+        SpirvStageIoLayout? StageIoLayout)
+        DecodeParameterType(MetadataReader reader, KernelType type, SpirvShaderStage stage)
     {
+        if (TryDecodeStageIoLayout(reader, type.Name, stage, true, out var stageIoLayout)) {
+            return (
+                SpirvKernelParameterKind.StageInput,
+                SpirvScalarType.Struct,
+                null,
+                stageIoLayout);
+        }
         if (type.Name == "Sia.Spirv.Texture2D") {
-            return (SpirvKernelParameterKind.SampledTexture2D, SpirvScalarType.Float32, null);
+            return (SpirvKernelParameterKind.SampledTexture2D, SpirvScalarType.Float32, null, null);
         }
         if (type.Name == "Sia.Spirv.Texture2DArray") {
-            return (SpirvKernelParameterKind.SampledTexture2DArray, SpirvScalarType.Float32, null);
+            return (SpirvKernelParameterKind.SampledTexture2DArray, SpirvScalarType.Float32, null, null);
         }
         if (type.Name == "Sia.Spirv.Sampler") {
-            return (SpirvKernelParameterKind.Sampler, SpirvScalarType.Float32, null);
+            return (SpirvKernelParameterKind.Sampler, SpirvScalarType.Float32, null, null);
         }
         if (type.Name == "Sia.Spirv.ReadOnlyStorageBuffer`1" && type.ElementType != null) {
             var (elementType, layout) = DecodeBufferElementType(reader, type.ElementType);
-            return (SpirvKernelParameterKind.ReadOnlyStorageBuffer, elementType, layout);
+            return (SpirvKernelParameterKind.ReadOnlyStorageBuffer, elementType, layout, null);
         }
         if (type.Name == "Sia.Spirv.StorageBuffer`1" && type.ElementType != null) {
             var (elementType, layout) = DecodeBufferElementType(reader, type.ElementType);
-            return (SpirvKernelParameterKind.StorageBuffer, elementType, layout);
+            return (SpirvKernelParameterKind.StorageBuffer, elementType, layout, null);
         }
         if (type.Name == "Sia.Spirv.WorkgroupMemory`1" && type.ElementType != null) {
             return (
                 SpirvKernelParameterKind.WorkgroupMemory,
                 DecodeScalarType(type.ElementType),
+                null,
                 null);
         }
-        return (SpirvKernelParameterKind.PushConstant, DecodePushConstantType(type), null);
+        return (SpirvKernelParameterKind.PushConstant, DecodePushConstantType(type), null, null);
+    }
+
+    private static SpirvStageIoLayout? DecodeReturnLayout(
+        MetadataReader reader,
+        MethodDefinition method,
+        SpirvShaderStage stage)
+    {
+        var returnType = method.DecodeSignature(new KernelTypeProvider(), genericContext: null).ReturnType;
+        if (returnType.Name == "System.Void") {
+            return null;
+        }
+        if (stage == SpirvShaderStage.Compute) {
+            throw new InvalidDataException("Compute shaders cannot return stage outputs.");
+        }
+        if (!TryDecodeStageIoLayout(reader, returnType.Name, stage, false, out var layout)) {
+            throw new InvalidDataException(
+                $"Raster-shader return type '{returnType.Name}' does not declare stage-output semantics.");
+        }
+        return layout;
+    }
+
+    private static bool TryDecodeStageIoLayout(
+        MetadataReader reader,
+        string typeName,
+        SpirvShaderStage stage,
+        bool input,
+        out SpirvStageIoLayout? layout)
+    {
+        layout = null;
+        var typeHandle = reader.TypeDefinitions.FirstOrDefault(handle =>
+            MetadataNames.GetTypeName(reader, handle) == typeName);
+        if (typeHandle.IsNil) {
+            return false;
+        }
+
+        var definition = reader.GetTypeDefinition(typeHandle);
+        var fields = new List<SpirvStageIoField>();
+        var unannotatedFields = new List<string>();
+        var hasSemantic = false;
+        foreach (var fieldHandle in definition.GetFields()) {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if ((field.Attributes & FieldAttributes.Static) != 0) {
+                continue;
+            }
+
+            SpirvStageIoKind? kind = null;
+            uint? location = null;
+            var flat = false;
+            foreach (var attributeHandle in field.GetCustomAttributes()) {
+                var attribute = reader.GetCustomAttribute(attributeHandle);
+                var attributeName = MetadataNames.GetAttributeTypeName(reader, attribute);
+                var currentKind = attributeName switch {
+                    k_LocationAttributeName => SpirvStageIoKind.Location,
+                    k_PositionAttributeName => SpirvStageIoKind.Position,
+                    k_VertexIndexAttributeName => SpirvStageIoKind.VertexIndex,
+                    k_InstanceIndexAttributeName => SpirvStageIoKind.InstanceIndex,
+                    k_FragmentPositionAttributeName => SpirvStageIoKind.FragmentPosition,
+                    _ => (SpirvStageIoKind?)null
+                };
+                if (currentKind != null) {
+                    if (kind != null) {
+                        throw new InvalidDataException(
+                            $"Stage-I/O field '{typeName}.{reader.GetString(field.Name)}' has multiple semantics.");
+                    }
+                    kind = currentKind;
+                    hasSemantic = true;
+                    if (currentKind == SpirvStageIoKind.Location) {
+                        var value = attribute.DecodeValue(new CustomAttributeTypeProvider());
+                        location = Convert.ToUInt32(value.FixedArguments[0].Value);
+                    }
+                }
+                else if (attributeName == k_FlatAttributeName) {
+                    flat = true;
+                }
+            }
+
+            if (kind == null) {
+                if (flat) {
+                    throw new InvalidDataException(
+                        $"Stage-I/O field '{typeName}.{reader.GetString(field.Name)}' uses Flat without Location.");
+                }
+                unannotatedFields.Add(reader.GetString(field.Name));
+                continue;
+            }
+
+            var fieldType = field.DecodeSignature(new KernelTypeProvider(), genericContext: null);
+            if (!TryDecodeScalarType(fieldType, out var scalarType)) {
+                throw new InvalidDataException(
+                    $"Stage-I/O field '{typeName}.{reader.GetString(field.Name)}' has unsupported type '{fieldType.Name}'.");
+            }
+            ValidateStageIoField(typeName, reader.GetString(field.Name), stage, input,
+                kind.Value, scalarType, flat);
+            fields.Add(new SpirvStageIoField(
+                reader.GetString(field.Name),
+                MetadataTokens.GetToken(fieldHandle),
+                kind.Value,
+                scalarType,
+                location,
+                flat));
+        }
+
+        if (!hasSemantic) {
+            return false;
+        }
+        if (unannotatedFields.Count != 0) {
+            throw new InvalidDataException(
+                $"Every instance field in stage-I/O struct '{typeName}' must declare a semantic; " +
+                $"missing: {string.Join(", ", unannotatedFields)}.");
+        }
+        if (fields.Count == 0) {
+            throw new InvalidDataException($"Stage-I/O struct '{typeName}' has no semantic fields.");
+        }
+        var duplicateLocation = fields
+            .Where(static field => field.Kind == SpirvStageIoKind.Location)
+            .GroupBy(static field => field.Location)
+            .FirstOrDefault(static group => group.Count() > 1);
+        if (duplicateLocation != null) {
+            throw new InvalidDataException(
+                $"Stage-I/O struct '{typeName}' declares location {duplicateLocation.Key} more than once.");
+        }
+        var duplicateBuiltin = fields
+            .Where(static field => field.Kind != SpirvStageIoKind.Location)
+            .GroupBy(static field => field.Kind)
+            .FirstOrDefault(static group => group.Count() > 1);
+        if (duplicateBuiltin != null) {
+            throw new InvalidDataException(
+                $"Stage-I/O struct '{typeName}' declares {duplicateBuiltin.Key} more than once.");
+        }
+        if (!input && stage == SpirvShaderStage.Vertex &&
+            fields.All(static field => field.Kind != SpirvStageIoKind.Position)) {
+            throw new InvalidDataException(
+                $"Vertex output '{typeName}' must declare one Position field.");
+        }
+        layout = new SpirvStageIoLayout(typeName, fields);
+        return true;
+    }
+
+    private static void ValidateStageIoField(
+        string typeName,
+        string fieldName,
+        SpirvShaderStage stage,
+        bool input,
+        SpirvStageIoKind kind,
+        SpirvScalarType type,
+        bool flat)
+    {
+        var validSemantic = (stage, input, kind) switch {
+            (SpirvShaderStage.Vertex, true, SpirvStageIoKind.Location or
+                SpirvStageIoKind.VertexIndex or SpirvStageIoKind.InstanceIndex) => true,
+            (SpirvShaderStage.Vertex, false, SpirvStageIoKind.Location or
+                SpirvStageIoKind.Position) => true,
+            (SpirvShaderStage.Fragment, true, SpirvStageIoKind.Location or
+                SpirvStageIoKind.FragmentPosition) => true,
+            (SpirvShaderStage.Fragment, false, SpirvStageIoKind.Location) => true,
+            _ => false
+        };
+        if (!validSemantic) {
+            throw new InvalidDataException(
+                $"Stage-I/O semantic {kind} is invalid on '{typeName}.{fieldName}'.");
+        }
+        var expectedType = kind is SpirvStageIoKind.VertexIndex or SpirvStageIoKind.InstanceIndex
+            ? SpirvScalarType.UInt32
+            : SpirvScalarType.Float32x4;
+        if (type != expectedType) {
+            throw new InvalidDataException(
+                $"Stage-I/O field '{typeName}.{fieldName}' must have type '{expectedType}'.");
+        }
+        if (flat && (kind != SpirvStageIoKind.Location ||
+            stage == SpirvShaderStage.Vertex && input ||
+            stage == SpirvShaderStage.Fragment && !input)) {
+            throw new InvalidDataException(
+                $"Flat is valid only on vertex-output and fragment-input Location fields, " +
+                $"not '{typeName}.{fieldName}'.");
+        }
     }
 
     private static (SpirvScalarType Type, SpirvStructLayout? Layout)

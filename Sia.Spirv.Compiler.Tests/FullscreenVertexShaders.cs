@@ -1,3 +1,4 @@
+using Sia.Math;
 using Sia.Spirv;
 
 namespace Sia.Spirv.Compiler.Tests;
@@ -5,19 +6,19 @@ namespace Sia.Spirv.Compiler.Tests;
 internal static class FullscreenVertexShaders
 {
     [SpirvVertexShader]
-    public static void Vertex()
+    public static FullscreenVertexOutput Vertex(FullscreenVertexInput input)
     {
-        var vertexIndex = Gpu.VertexIndex;
         var x = -1.0f;
         var y = -1.0f;
-        if (vertexIndex == 1u) {
+        if (input.VertexIndex == 1u) {
             x = 3.0f;
         }
-        else if (vertexIndex == 2u) {
+        else if (input.VertexIndex == 2u) {
             y = 3.0f;
         }
 
-        Gpu.SetPosition(x, y, 0.0f, 1.0f);
-        Gpu.SetOutput(0, x * 0.5f + 0.5f, y * 0.5f + 0.5f, 0.0f, 1.0f);
+        return new FullscreenVertexOutput(
+            new float4(x * 0.5f + 0.5f, y * 0.5f + 0.5f, 0.0f, 1.0f),
+            new float4(x, y, 0.0f, 1.0f));
     }
 }

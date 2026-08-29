@@ -26,6 +26,8 @@ public sealed class LlvmIrEmitter
     private SpirvShaderStage _shaderStage;
     private SpirvWorkgroupSize _currentWorkgroupSize;
     private SpirvStructLayout? _structLayout;
+    private SpirvStageIoLayout? _stageInputLayout;
+    private SpirvStageIoLayout? _stageOutputLayout;
     private bool _readsVertexIndex;
     private bool _readsInstanceIndex;
     private bool _readsFragmentPosition;
@@ -65,8 +67,6 @@ public sealed class LlvmIrEmitter
         var methodHandle = (MethodDefinitionHandle)MetadataTokens.EntityHandle(kernel.MetadataToken);
         var method = reader.GetMethodDefinition(methodHandle);
         var methodBody = peReader.GetMethodBody(method.RelativeVirtualAddress);
-        var localTypes = DecodeLocalTypes(reader, methodBody.LocalSignature);
-
         using var intrinsics = IntrinsicCatalog.Open(assemblyPath);
         var resolver = new CilCallResolver(reader, intrinsics);
         var view = new ShaderCilView(kernel.ControlFlowGraph, resolver);
@@ -91,6 +91,11 @@ public sealed class LlvmIrEmitter
                 "A kernel currently supports one distinct storage-buffer struct type.");
         }
         _structLayout = structLayouts.SingleOrDefault();
+        _stageInputLayout = kernel.Parameters
+            .SingleOrDefault(static parameter =>
+                parameter.Kind == SpirvKernelParameterKind.StageInput)
+            ?.StageIoLayout;
+        _stageOutputLayout = kernel.ReturnLayout;
         _readsVertexIndex = false;
         _readsInstanceIndex = false;
         _readsFragmentPosition = false;
@@ -111,7 +116,9 @@ public sealed class LlvmIrEmitter
         _usesAbs = false;
         _currentCall = null;
         _nextValueId = 0;
+        RegisterStageIo();
 
+        var localTypes = DecodeLocalTypes(reader, methodBody.LocalSignature);
         var parameterValues = new LlvmValue[kernel.Parameters.Count];
         var entryPoint = SanitizeIdentifier(kernel.Name);
         var prologue = new StringBuilder();
@@ -133,6 +140,7 @@ public sealed class LlvmIrEmitter
         module.AppendLine();
         EmitMatrixTypeDeclarations(module);
         EmitStructTypeDeclaration(module);
+        EmitStageIoTypeDeclarations(module);
         EmitGlobalDeclarations(kernel, module);
         module.Append("define void @").Append(entryPoint).AppendLine("() #0 {");
         module.Append(_body);
@@ -465,6 +473,10 @@ public sealed class LlvmIrEmitter
             EmitNewobj(view, block, instructionIndex, offset, stack);
             return false;
         }
+        if (opCode == OpCodes.Ldfld || opCode == OpCodes.Ldflda) {
+            EmitLoadField(operand.GetInt32(offset), offset, stack);
+            return false;
+        }
         if (IsLoadIndirect(opCode)) {
             EmitLoadIndirect(opCode, offset, stack);
             return false;
@@ -508,6 +520,9 @@ public sealed class LlvmIrEmitter
             return true;
         }
         if (opCode == OpCodes.Ret) {
+            if (_stageOutputLayout != null) {
+                EmitStageOutputs(Pop(stack, offset), offset);
+            }
             EmitLine("ret void");
             return true;
         }
@@ -542,7 +557,13 @@ public sealed class LlvmIrEmitter
         }
 
         foreach (var parameter in kernel.Parameters) {
-            if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2D) {
+            if (parameter.Kind == SpirvKernelParameterKind.StageInput) {
+                values[parameter.Position] = EmitStageInput(
+                    parameter.StageIoLayout ?? throw new InvalidDataException(
+                        $"Stage-input parameter '{parameter.Name}' has no layout."),
+                    prologue);
+            }
+            else if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2D) {
                 var value = NextValue(SanitizeIdentifier(parameter.Name));
                 prologue.Append("  ").Append(value).Append(" = call ")
                     .Append(GetTexture2DTargetType()).Append(" @llvm.spv.resource.handlefrombinding.")
@@ -647,6 +668,78 @@ public sealed class LlvmIrEmitter
             }
         }
     }
+
+    private LlvmValue EmitStageInput(
+        SpirvStageIoLayout layout,
+        StringBuilder prologue)
+    {
+        var aggregate = "zeroinitializer";
+        for (var index = 0; index < layout.Fields.Count; index++) {
+            var field = layout.Fields[index];
+            var type = GetScalarType(field.Type);
+            var loaded = NextValue(SanitizeIdentifier(field.Name));
+            prologue.Append("  ").Append(loaded).Append(" = load ")
+                .Append(GetLlvmType(type)).Append(", ptr addrspace(7) ")
+                .Append(GetStageInputGlobal(field)).Append(", align ")
+                .Append(GetAlignment(type)).AppendLine();
+            var inserted = NextValue("stage.input");
+            prologue.Append("  ").Append(inserted).Append(" = insertvalue %sia.stage.input ")
+                .Append(aggregate).Append(", ").Append(GetLlvmType(type)).Append(' ')
+                .Append(loaded).Append(", ").Append(index).AppendLine();
+            aggregate = inserted;
+        }
+        return new LlvmValue(aggregate, LlvmValueType.StageInput);
+    }
+
+    private void RegisterStageIo()
+    {
+        if (_stageInputLayout != null) {
+            foreach (var field in _stageInputLayout.Fields) {
+                RegisterStageIoField(field, true);
+            }
+        }
+        if (_stageOutputLayout != null) {
+            foreach (var field in _stageOutputLayout.Fields) {
+                RegisterStageIoField(field, false);
+            }
+        }
+    }
+
+    private void RegisterStageIoField(SpirvStageIoField field, bool input)
+    {
+        switch (field.Kind) {
+            case SpirvStageIoKind.Location:
+                var locations = input ? _stageInputs : _stageOutputs;
+                var flatLocations = input ? _flatStageInputs : _flatStageOutputs;
+                locations.Add(field.Location!.Value);
+                if (field.Flat) {
+                    flatLocations.Add(field.Location.Value);
+                }
+                break;
+            case SpirvStageIoKind.Position:
+                _writesPosition = true;
+                break;
+            case SpirvStageIoKind.VertexIndex:
+                _readsVertexIndex = true;
+                break;
+            case SpirvStageIoKind.InstanceIndex:
+                _readsInstanceIndex = true;
+                break;
+            case SpirvStageIoKind.FragmentPosition:
+                _readsFragmentPosition = true;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(field));
+        }
+    }
+
+    private static string GetStageInputGlobal(SpirvStageIoField field) => field.Kind switch {
+        SpirvStageIoKind.Location => $"@sia.input.location.{field.Location}",
+        SpirvStageIoKind.VertexIndex => "@__spirv_BuiltInVertexIndex",
+        SpirvStageIoKind.InstanceIndex => "@__spirv_BuiltInInstanceIndex",
+        SpirvStageIoKind.FragmentPosition => "@__spirv_BuiltInFragCoord",
+        _ => throw new InvalidDataException($"{field.Kind} is not a stage-input semantic.")
+    };
 
     private void EmitGlobalDeclarations(SpirvKernel kernel, StringBuilder module)
     {
@@ -1096,6 +1189,27 @@ public sealed class LlvmIrEmitter
         for (var index = arguments.Length - 1; index >= 0; index--) {
             arguments[index] = Pop(stack, offset);
         }
+        if (_stageOutputLayout != null &&
+            call.DeclaringType == _stageOutputLayout.Name) {
+            if (arguments.Length != _stageOutputLayout.Fields.Count) {
+                throw CreateUnsupported(
+                    offset,
+                    $"Stage-output constructor '{call.DeclaringType}' must have one parameter per semantic field.");
+            }
+            var fieldArguments = DecodeStageOutputConstructor(call, offset);
+            var aggregate = "zeroinitializer";
+            for (var index = 0; index < fieldArguments.Length; index++) {
+                var argument = LoadValue(arguments[fieldArguments[index]]);
+                var type = GetScalarType(_stageOutputLayout.Fields[index].Type);
+                EnsureCompatible(type, argument.Type, offset);
+                var inserted = NextValue("stage.output");
+                EmitLine($"{inserted} = insertvalue %sia.stage.output {aggregate}, " +
+                    $"{GetLlvmType(type)} {argument.Expression}, {index}");
+                aggregate = inserted;
+            }
+            stack.Push(new LlvmValue(aggregate, LlvmValueType.StageOutput));
+            return;
+        }
         if (call.Intrinsic is { } kind && s_Intrinsics.TryGetValue(kind, out var handler)) {
             _currentCall = call;
             try {
@@ -1110,6 +1224,150 @@ public sealed class LlvmIrEmitter
             offset,
             $"Constructing '{call.DeclaringType}' is not supported inside a SPIR-V kernel.");
     }
+
+    private int[] DecodeStageOutputConstructor(ResolvedCall call, int offset)
+    {
+        var handle = MetadataTokens.EntityHandle(call.MetadataToken);
+        if (handle.Kind != HandleKind.MethodDefinition) {
+            throw CreateUnsupported(
+                offset,
+                "A stage-output constructor must be declared in the shader assembly.");
+        }
+        var method = _reader.GetMethodDefinition((MethodDefinitionHandle)handle);
+        if (method.RelativeVirtualAddress == 0) {
+            throw CreateUnsupported(offset, "A stage-output constructor must have a CIL body.");
+        }
+        var body = _peReader.GetMethodBody(method.RelativeVirtualAddress);
+        var il = body.GetILBytes() ?? throw CreateUnsupported(
+            offset, "A stage-output constructor must have a CIL body.");
+        var instructions = CilInstructionDecoder.Decode(il)
+            .Where(static instruction => instruction.OpCode != OpCodes.Nop)
+            .ToArray();
+        var fieldArguments = Enumerable.Repeat(-1, _stageOutputLayout!.Fields.Count).ToArray();
+        var instructionIndex = 0;
+        while (instructionIndex < instructions.Length &&
+               instructions[instructionIndex].OpCode != OpCodes.Ret) {
+            if (instructionIndex + 2 >= instructions.Length ||
+                !TryGetArgumentIndex(
+                    instructions[instructionIndex].OpCode,
+                    instructions[instructionIndex].Operand,
+                    instructions[instructionIndex].Offset,
+                    out var instanceIndex) ||
+                instanceIndex != 0 ||
+                !TryGetArgumentIndex(
+                    instructions[instructionIndex + 1].OpCode,
+                    instructions[instructionIndex + 1].Operand,
+                    instructions[instructionIndex + 1].Offset,
+                    out var argumentIndex) ||
+                argumentIndex == 0 ||
+                instructions[instructionIndex + 2].OpCode != OpCodes.Stfld) {
+                throw CreateUnsupported(
+                    offset,
+                    "A stage-output constructor may only assign its parameters directly to semantic fields.");
+            }
+            var fieldIndex = FindStageIoField(
+                _stageOutputLayout,
+                instructions[instructionIndex + 2].Operand.GetInt32(
+                    instructions[instructionIndex + 2].Offset));
+            if (fieldArguments[fieldIndex] != -1) {
+                throw CreateUnsupported(
+                    offset,
+                    $"Stage-output field '{_stageOutputLayout.Fields[fieldIndex].Name}' is assigned more than once.");
+            }
+            fieldArguments[fieldIndex] = argumentIndex - 1;
+            instructionIndex += 3;
+        }
+        if (instructionIndex != instructions.Length - 1 ||
+            fieldArguments.Any(static index => index < 0)) {
+            throw CreateUnsupported(
+                offset,
+                "A stage-output constructor must assign every semantic field exactly once.");
+        }
+        if (fieldArguments.Any(index => index >= call.ParameterCount)) {
+            throw CreateUnsupported(offset, "A stage-output constructor has an invalid parameter mapping.");
+        }
+        return fieldArguments;
+    }
+
+    private void EmitLoadField(int token, int offset, Stack<LlvmValue> stack)
+    {
+        var instance = LoadValue(Pop(stack, offset));
+        var layout = instance.Type switch {
+            LlvmValueType.StageInput => _stageInputLayout,
+            LlvmValueType.StageOutput => _stageOutputLayout,
+            _ => null
+        } ?? throw CreateUnsupported(
+            offset,
+            $"Loading a field from {instance.Type} is not supported inside a SPIR-V kernel.");
+        var fieldIndex = FindStageIoField(layout, token);
+        var field = layout.Fields[fieldIndex];
+        var fieldType = GetScalarType(field.Type);
+        var result = NextValue(SanitizeIdentifier(field.Name));
+        EmitLine($"{result} = extractvalue {GetLlvmType(instance.Type)} " +
+            $"{instance.Expression}, {fieldIndex}");
+        stack.Push(new LlvmValue(result, fieldType));
+    }
+
+    private int FindStageIoField(SpirvStageIoLayout layout, int token)
+    {
+        for (var index = 0; index < layout.Fields.Count; index++) {
+            if (layout.Fields[index].MetadataToken == token) {
+                return index;
+            }
+        }
+
+        var handle = MetadataTokens.EntityHandle(token);
+        if (handle.Kind == HandleKind.MemberReference) {
+            var member = _reader.GetMemberReference((MemberReferenceHandle)handle);
+            var name = _reader.GetString(member.Name);
+            var declaringType = MetadataNames.GetTypeName(_reader, member.Parent);
+            if (declaringType == layout.Name) {
+                for (var index = 0; index < layout.Fields.Count; index++) {
+                    if (layout.Fields[index].Name == name) {
+                        return index;
+                    }
+                }
+            }
+        }
+        throw new InvalidDataException(
+            $"Field token 0x{token:x8} does not belong to stage-I/O struct '{layout.Name}'.");
+    }
+
+    private void EmitStageOutputs(LlvmValue value, int offset)
+    {
+        value = LoadValue(value);
+        EnsureCompatible(LlvmValueType.StageOutput, value.Type, offset);
+        for (var index = 0; index < _stageOutputLayout!.Fields.Count; index++) {
+            var field = _stageOutputLayout.Fields[index];
+            var type = GetScalarType(field.Type);
+            var extracted = NextValue(SanitizeIdentifier(field.Name));
+            EmitLine($"{extracted} = extractvalue %sia.stage.output {value.Expression}, {index}");
+            var expression = extracted;
+            if (field.Kind == SpirvStageIoKind.Position &&
+                _kernelAbi == SpirvKernelAbi.WebGpu) {
+                expression = EmitWebGpuPosition(expression);
+            }
+            EmitLine($"store {GetLlvmType(type)} {expression}, ptr addrspace(8) " +
+                $"{GetStageOutputGlobal(field)}, align {GetAlignment(type)}");
+        }
+    }
+
+    private string EmitWebGpuPosition(string position)
+    {
+        var y = NextValue("position.y");
+        EmitLine($"{y} = extractelement <4 x float> {position}, i32 1");
+        var invertedY = NextValue("position.inverted.y");
+        EmitLine($"{invertedY} = fneg float {y}");
+        var result = NextValue("position.webgpu");
+        EmitLine($"{result} = insertelement <4 x float> {position}, float {invertedY}, i32 1");
+        return result;
+    }
+
+    private static string GetStageOutputGlobal(SpirvStageIoField field) => field.Kind switch {
+        SpirvStageIoKind.Location => $"@sia.output.location.{field.Location}",
+        SpirvStageIoKind.Position => "@__spirv_BuiltInPosition",
+        _ => throw new InvalidDataException($"{field.Kind} is not a stage-output semantic.")
+    };
 
     private void EmitVectorComponent(
         LlvmValue instance,
@@ -1222,7 +1480,7 @@ public sealed class LlvmIrEmitter
         Stack<LlvmValue> stack)
     {
         var input = emitter.LoadValue(arguments[0]);
-        var resultType = GetType(emitter.GetCurrentCall().Signature.ReturnType);
+        var resultType = emitter.GetType(emitter.GetCurrentCall().Signature.ReturnType);
         var valid = resultType == LlvmValueType.Float32 &&
             input.Type is LlvmValueType.Int32 or LlvmValueType.UInt32 ||
             TryGetVectorLength(resultType, out var resultLength) &&
@@ -1649,7 +1907,7 @@ public sealed class LlvmIrEmitter
         Stack<LlvmValue> stack)
     {
         var call = emitter.GetCurrentCall();
-        var type = GetType(call.Name == ".ctor"
+        var type = emitter.GetType(call.Name == ".ctor"
             ? new KernelType(call.DeclaringType)
             : call.Signature.ReturnType);
         var values = arguments.Select(argument => emitter.LoadValue(argument)).ToArray();
@@ -1739,7 +1997,7 @@ public sealed class LlvmIrEmitter
     {
         var left = emitter.LoadValue(arguments[0]);
         var right = emitter.LoadValue(arguments[1]);
-        var resultType = GetType(emitter.GetCurrentCall().Signature.ReturnType);
+        var resultType = emitter.GetType(emitter.GetCurrentCall().Signature.ReturnType);
         var scalarType = TryGetScalarVector(resultType, out var vectorScalarType, out _)
             ? vectorScalarType
             : LlvmValueType.Float32;
@@ -2069,7 +2327,7 @@ public sealed class LlvmIrEmitter
     {
         var left = emitter.LoadValue(arguments[0]);
         var right = emitter.LoadValue(arguments[1]);
-        var resultType = GetType(emitter.GetCurrentCall().Signature.ReturnType);
+        var resultType = emitter.GetType(emitter.GetCurrentCall().Signature.ReturnType);
         string result;
         if (TryGetMatrixShape(left.Type, out var leftRows, out var leftColumns) &&
             TryGetVectorLength(right.Type, out var rightLength)) {
@@ -2829,7 +3087,7 @@ public sealed class LlvmIrEmitter
         EmitLine("]");
     }
 
-    private static IReadOnlyList<LlvmValueType> DecodeLocalTypes(
+    private IReadOnlyList<LlvmValueType> DecodeLocalTypes(
         MetadataReader reader,
         StandaloneSignatureHandle signatureHandle)
     {
@@ -2841,7 +3099,7 @@ public sealed class LlvmIrEmitter
         return types.Select(GetType).ToArray();
     }
 
-    private static LlvmValueType GetType(KernelType type) => type.Name switch {
+    private LlvmValueType GetType(KernelType type) => type.Name switch {
         "System.Void" => LlvmValueType.Void,
         "System.Boolean" => LlvmValueType.Boolean,
         "System.Int32" => LlvmValueType.Int32,
@@ -2872,6 +3130,8 @@ public sealed class LlvmIrEmitter
         "Sia.Spirv.Texture2D" => LlvmValueType.Texture2DFloat,
         "Sia.Spirv.Texture2DArray" => LlvmValueType.Texture2DArrayFloat,
         "Sia.Spirv.Sampler" => LlvmValueType.Sampler,
+        _ when type.Name == _stageInputLayout?.Name => LlvmValueType.StageInput,
+        _ when type.Name == _stageOutputLayout?.Name => LlvmValueType.StageOutput,
         _ => throw new InvalidDataException($"CIL type '{type.Name}' is not supported by the LLVM backend.")
     };
 
@@ -3087,6 +3347,8 @@ public sealed class LlvmIrEmitter
         LlvmValueType.Texture2DFloat => GetTexture2DTargetType(),
         LlvmValueType.Texture2DArrayFloat => GetTexture2DArrayTargetType(),
         LlvmValueType.Sampler => GetSamplerTargetType(),
+        LlvmValueType.StageInput => "%sia.stage.input",
+        LlvmValueType.StageOutput => "%sia.stage.output",
         LlvmValueType.Struct => "%sia.struct",
         _ when IsBuffer(type) => GetBufferTargetType(type),
         _ when IsWorkgroupMemory(type) =>
@@ -3124,6 +3386,27 @@ public sealed class LlvmIrEmitter
         module.AppendLine();
     }
 
+    private void EmitStageIoTypeDeclarations(StringBuilder module)
+    {
+        EmitStageIoTypeDeclaration(module, "%sia.stage.input", _stageInputLayout);
+        EmitStageIoTypeDeclaration(module, "%sia.stage.output", _stageOutputLayout);
+    }
+
+    private static void EmitStageIoTypeDeclaration(
+        StringBuilder module,
+        string name,
+        SpirvStageIoLayout? layout)
+    {
+        if (layout == null) {
+            return;
+        }
+        module.Append(name).Append(" = type { ")
+            .Append(string.Join(", ", layout.Fields.Select(field =>
+                GetLlvmType(GetScalarType(field.Type)))))
+            .AppendLine(" }");
+        module.AppendLine();
+    }
+
     private static int GetAlignment(LlvmValueType type)
     {
         if (TryGetScalarVector(type, out var scalarType, out var length)) {
@@ -3132,7 +3415,8 @@ public sealed class LlvmIrEmitter
             }
             return length == 2 ? 8 : 16;
         }
-        return type is LlvmValueType.UInt3 or LlvmValueType.Struct ||
+        return type is LlvmValueType.UInt3 or LlvmValueType.Struct or
+            LlvmValueType.StageInput or LlvmValueType.StageOutput ||
             TryGetMatrixShape(type, out _, out _) ? 16 : 4;
     }
 

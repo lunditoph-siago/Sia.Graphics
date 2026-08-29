@@ -9,6 +9,8 @@ internal sealed record SpirvArtifactManifest(
     string SpirvVersion,
     IReadOnlyList<SpirvManifestResource> Resources,
     IReadOnlyList<SpirvManifestPushConstant> PushConstants,
+    IReadOnlyList<SpirvManifestStageIo> StageInputs,
+    IReadOnlyList<SpirvManifestStageIo> StageOutputs,
     SpirvManifestToolchain Toolchain,
     string SourceHash,
     string KernelAbi,
@@ -40,5 +42,12 @@ internal sealed record SpirvManifestPushConstant(
     string Type,
     int Offset,
     int Size);
+
+internal sealed record SpirvManifestStageIo(
+    string Name,
+    string Semantic,
+    string Type,
+    uint? Location,
+    bool Flat);
 
 internal sealed record SpirvManifestToolchain(string Llvm, string SpirvTools, string? Naga);

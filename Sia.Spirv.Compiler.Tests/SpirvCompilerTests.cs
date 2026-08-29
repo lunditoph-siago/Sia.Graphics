@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Sia.Spirv.Compiler.Compilation;
 
 namespace Sia.Spirv.Compiler.Tests;
@@ -48,6 +49,8 @@ public sealed class SpirvCompilerTests
         var wgsl = File.ReadAllText(wgslPath);
         var llvmPath = Assert.IsType<string>(artifact.LlvmIrPath);
         var llvm = File.ReadAllText(llvmPath);
+        using var manifest = JsonDocument.Parse(File.ReadAllText(artifact.ManifestPath));
+        var manifestRoot = manifest.RootElement;
         Assert.DoesNotContain("alloca ", llvm);
         Assert.Contains($"@{artifact.Kernel.Stage.ToString().ToLowerInvariant()}", wgsl);
         Assert.DoesNotContain("var<push_constant>", wgsl);
@@ -77,8 +80,24 @@ public sealed class SpirvCompilerTests
         if (artifact.Kernel.QualifiedName ==
             $"{typeof(FullscreenVertexShaders).FullName}.{nameof(FullscreenVertexShaders.Vertex)}") {
             Assert.Contains("@builtin(vertex_index)", wgsl);
+            Assert.Contains("@builtin(position)", wgsl);
+            Assert.Contains("@location(0)", wgsl);
             Assert.DoesNotContain("bool()", wgsl);
             Assert.DoesNotContain("undef", llvm);
+            Assert.Contains(
+                manifestRoot.GetProperty("stageInputs").EnumerateArray(),
+                input => input.GetProperty("semantic").GetString() == "vertex-index");
+            Assert.Contains(
+                manifestRoot.GetProperty("stageOutputs").EnumerateArray(),
+                output => output.GetProperty("semantic").GetString() == "position");
+        }
+        if (artifact.Kernel.QualifiedName ==
+            $"{typeof(ExplicitFragmentShaders).FullName}.{nameof(ExplicitFragmentShaders.Fragment)}") {
+            Assert.Contains("@builtin(position)", wgsl);
+            Assert.Contains("@location(0)", wgsl);
+            Assert.Contains(
+                manifestRoot.GetProperty("stageInputs").EnumerateArray(),
+                input => input.GetProperty("semantic").GetString() == "fragment-position");
         }
     }
 }

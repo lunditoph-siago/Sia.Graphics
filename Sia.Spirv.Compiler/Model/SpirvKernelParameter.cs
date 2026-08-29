@@ -5,9 +5,11 @@ public sealed record SpirvKernelParameter(
     int Position,
     SpirvKernelParameterKind Kind,
     SpirvScalarType ScalarType,
-    SpirvStructLayout? StructLayout = null)
+    SpirvStructLayout? StructLayout = null,
+    SpirvStageIoLayout? StageIoLayout = null)
 {
     public bool IsResource => Kind is not (
+        SpirvKernelParameterKind.StageInput or
         SpirvKernelParameterKind.PushConstant or
         SpirvKernelParameterKind.WorkgroupMemory);
 }

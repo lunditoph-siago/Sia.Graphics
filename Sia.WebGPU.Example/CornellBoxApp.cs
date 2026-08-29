@@ -45,7 +45,6 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private uint _frameIndex;
     private bool _glfwInitialized;
     private bool _surfaceConfigured;
-    private bool _uiEnabled;
     private bool _disposed;
 
     private float _cameraYaw;
@@ -77,9 +76,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             previousTime = currentTime;
 
             HandleInput(deltaTime);
-            if (_uiEnabled) {
-                UpdateUi();
-            }
+            UpdateUi();
             if (!ResizeIfNeeded()) {
                 Thread.Sleep(16);
                 continue;
@@ -118,13 +115,10 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
 
         _device = Wgpu.RequestDevice(_adapter);
         _queue = Wgpu.GetQueue(_device);
-        _uiEnabled = Wgpu.Backend != WgpuBackendKind.BrowserGles;
 
         CreateUniformBuffer();
         CreatePipelines();
-        if (_uiEnabled) {
-            InitializeUi();
-        }
+        InitializeUi();
         InitializeRenderGraph();
         ResizeIfNeeded(force: true);
     }
@@ -721,9 +715,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
 
         ReleaseAccumulationResources();
         DisposeRenderGraph();
-        if (_uiEnabled) {
-            DisposeUi();
-        }
+        DisposeUi();
         Wgpu.Release(ref _presentationPipeline);
         Wgpu.Release(ref _pathPipeline);
         Wgpu.Release(ref _pipelineLayout);

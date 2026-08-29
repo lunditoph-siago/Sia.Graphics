@@ -22,5 +22,6 @@
 
   <ItemGroup>
     <EmbeddedResource Include="UI/Render/Shaders/ui_node.wgsl" />
+    <EmbeddedResource Include="UI/Render/Shaders/ui_node_compat_vertex.wgsl" />
   </ItemGroup>
 </Project>

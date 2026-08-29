@@ -95,4 +95,39 @@ public sealed class SpirvFrontendTests
                 Assert.Equal(16, field.Offset);
             });
     }
+
+    [Fact]
+    public void AnalyzePreservesExplicitRasterInputAndReturnAbi()
+    {
+        var vertex = SpirvTestAssembly.GetKernel(
+            typeof(FullscreenVertexShaders),
+            nameof(FullscreenVertexShaders.Vertex));
+        var vertexInput = Assert.IsType<SpirvStageIoLayout>(
+            Assert.Single(vertex.Parameters).StageIoLayout);
+        var vertexOutput = Assert.IsType<SpirvStageIoLayout>(vertex.ReturnLayout);
+
+        Assert.Equal(SpirvKernelParameterKind.StageInput, vertex.Parameters[0].Kind);
+        Assert.Collection(
+            vertexInput.Fields,
+            field => Assert.Equal(SpirvStageIoKind.VertexIndex, field.Kind),
+            field => Assert.Equal(SpirvStageIoKind.InstanceIndex, field.Kind));
+        Assert.Collection(
+            vertexOutput.Fields,
+            field => Assert.Equal(SpirvStageIoKind.Position, field.Kind),
+            field => {
+                Assert.Equal(SpirvStageIoKind.Location, field.Kind);
+                Assert.Equal(0u, field.Location);
+            });
+
+        var fragment = SpirvTestAssembly.GetKernel(
+            typeof(ExplicitFragmentShaders),
+            nameof(ExplicitFragmentShaders.Fragment));
+        var fragmentInput = Assert.IsType<SpirvStageIoLayout>(
+            Assert.Single(fragment.Parameters).StageIoLayout);
+        var fragmentOutput = Assert.IsType<SpirvStageIoLayout>(fragment.ReturnLayout);
+
+        Assert.Contains(fragmentInput.Fields,
+            field => field.Kind == SpirvStageIoKind.FragmentPosition);
+        Assert.Equal(SpirvStageIoKind.Location, Assert.Single(fragmentOutput.Fields).Kind);
+    }
 }

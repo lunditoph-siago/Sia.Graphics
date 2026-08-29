@@ -10,7 +10,8 @@ internal static class SpirvLegalityAnalyzer
     public static void Analyze(
         string method,
         ShaderCilView view,
-        ICollection<SpirvDiagnostic> diagnostics)
+        ICollection<SpirvDiagnostic> diagnostics,
+        string? stageOutputType = null)
     {
         foreach (var block in view.Graph.Blocks) {
             for (var index = 0; index < block.Instructions.Count; index++) {
@@ -24,7 +25,8 @@ internal static class SpirvLegalityAnalyzer
                         instruction.Offset);
                 }
                 else if (instruction.OpCode == OpCodes.Newobj &&
-                      !IsRecognizedValueTypeConstructor(view, block, index)) {
+                      !IsRecognizedValueTypeConstructor(
+                          view, block, index, stageOutputType)) {
                     Add(
                         diagnostics,
                         SpirvDiagnosticIds.ManagedHeapAllocation,
@@ -73,10 +75,15 @@ internal static class SpirvLegalityAnalyzer
         return call.Intrinsic is not null || call.DeclaringType == "Sia.Spirv.UInt3";
     }
 
-    private static bool IsRecognizedValueTypeConstructor(ShaderCilView view, CilBasicBlock block, int index)
+    private static bool IsRecognizedValueTypeConstructor(
+        ShaderCilView view,
+        CilBasicBlock block,
+        int index,
+        string? stageOutputType)
     {
         var call = view.ResolveCall(block, index);
-        return call.Intrinsic == IntrinsicKind.MathConstruct;
+        return call.Intrinsic == IntrinsicKind.MathConstruct ||
+            call.DeclaringType == stageOutputType;
     }
 
     private static void Add(

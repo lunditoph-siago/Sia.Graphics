@@ -152,7 +152,8 @@ public sealed class SpirvCompiler
         var binding = 0;
         var offset = 0;
         foreach (var parameter in kernel.Parameters) {
-            if (parameter.Kind == SpirvKernelParameterKind.WorkgroupMemory) {
+            if (parameter.Kind is SpirvKernelParameterKind.WorkgroupMemory or
+                SpirvKernelParameterKind.StageInput) {
                 continue;
             }
             if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2D) {
@@ -234,6 +235,14 @@ public sealed class SpirvCompiler
                 4,
                 4));
         }
+        var stageInputs = kernel.Parameters
+            .Where(static parameter => parameter.Kind == SpirvKernelParameterKind.StageInput)
+            .SelectMany(static parameter => parameter.StageIoLayout!.Fields)
+            .Select(CreateManifestStageIo)
+            .ToArray();
+        var stageOutputs = kernel.ReturnLayout?.Fields
+            .Select(CreateManifestStageIo)
+            .ToArray() ?? [];
         return new SpirvArtifactManifest(
             kernel.Name,
             kernel.QualifiedName,
@@ -246,11 +255,28 @@ public sealed class SpirvCompiler
             ReadSpirvVersion(spirvPath),
             resources,
             pushConstants,
+            stageInputs,
+            stageOutputs,
             new SpirvManifestToolchain(llvmVersion, spirvToolsVersion, nagaVersion),
             sourceHash,
             options.KernelAbi == SpirvKernelAbi.WebGpu ? "webgpu" : "vulkan",
             kernel.Stage.ToString().ToLowerInvariant());
     }
+
+    private static SpirvManifestStageIo CreateManifestStageIo(SpirvStageIoField field) =>
+        new(
+            field.Name,
+            field.Kind switch {
+                SpirvStageIoKind.Location => "location",
+                SpirvStageIoKind.Position => "position",
+                SpirvStageIoKind.VertexIndex => "vertex-index",
+                SpirvStageIoKind.InstanceIndex => "instance-index",
+                SpirvStageIoKind.FragmentPosition => "fragment-position",
+                _ => throw new ArgumentOutOfRangeException(nameof(field))
+            },
+            GetScalarName(field.Type),
+            field.Location,
+            field.Flat);
 
     private static bool IsCacheHit(
         string manifestPath,

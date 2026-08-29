@@ -10,6 +10,7 @@ public sealed record SpirvKernel(
     SpirvShaderStage Stage,
     SpirvWorkgroupSize WorkgroupSize,
     IReadOnlyList<SpirvKernelParameter> Parameters,
+    SpirvStageIoLayout? ReturnLayout,
     CilControlFlowGraph ControlFlowGraph)
 {
     public string QualifiedName => $"{DeclaringType}.{Name}";

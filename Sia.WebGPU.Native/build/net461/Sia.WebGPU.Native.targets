@@ -9,7 +9,7 @@
     <SiaWebGpuCachePath Condition="'$(SiaWebGpuBackend)' == 'Dawn' And '$(SiaWebGpuCachePath)' == ''">$([MSBuild]::NormalizePath('$(BaseIntermediateOutputPath)siawebgpu-cache'))</SiaWebGpuCachePath>
     <WasmCachePath Condition="'$(SiaWebGpuBackend)' == 'Dawn' And '$(WasmCachePath)' == ''">$(SiaWebGpuCachePath)</WasmCachePath>
     <_SiaWebGpuPortBackend Condition="'$(SiaWebGpuBackend)' == 'Dawn'">dawn</_SiaWebGpuPortBackend>
-    <_SiaWebGpuPortBackend Condition="'$(SiaWebGpuBackend)' == 'WgpuGles'">wgpu</_SiaWebGpuPortBackend>
+    <_SiaWebGpuPortBackend Condition="'$(SiaWebGpuBackend)' == 'Wgpu'">wgpu</_SiaWebGpuPortBackend>
     <_SiaWebGpuPortPath>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)..\..\ports\siawebgpu\siawebgpu.port.py'))</_SiaWebGpuPortPath>
     <SiaWebGpuWgpuArchive Condition="'$(SiaWebGpuWgpuArchive)' == ''">$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)..\..\runtimes\browser-wasm\native\libwgpu_native.a'))</SiaWebGpuWgpuArchive>
     <_SiaWebGpuPortArchiveOption>$([System.String]::Copy('$(SiaWebGpuWgpuArchive)').Replace(':', '::'))</_SiaWebGpuPortArchiveOption>
@@ -19,7 +19,7 @@
     <EmccFlags>$(EmccFlags) --use-port=&quot;$(_SiaWebGpuPortPath):backend=dawn&quot; --use-port=emdawnwebgpu:cpp_bindings=false</EmccFlags>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(_SiaWebGPUNative_IsBrowser)' == 'true' And '$(_SiaWebGpuPortConfigured)' != 'true' And '$(SiaWebGpuBackend)' == 'WgpuGles'">
+  <PropertyGroup Condition="'$(_SiaWebGPUNative_IsBrowser)' == 'true' And '$(_SiaWebGpuPortConfigured)' != 'true' And '$(SiaWebGpuBackend)' == 'Wgpu'">
     <EmccFlags>$(EmccFlags) --use-port=&quot;$(_SiaWebGpuPortPath):backend=wgpu:archive=$(_SiaWebGpuPortArchiveOption)&quot; -sUSE_WEBGL2=1 -sFULL_ES3=1</EmccFlags>
   </PropertyGroup>
 
@@ -31,7 +31,7 @@
     <NativeFileReference Include="$(MSBuildThisFileDirectory)..\..\ports\siawebgpu\src\siawebgpu_dawn.c" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(_SiaWebGPUNative_IsBrowser)' == 'true' And '$(SiaWebGpuBackend)' == 'WgpuGles'">
+  <ItemGroup Condition="'$(_SiaWebGPUNative_IsBrowser)' == 'true' And '$(SiaWebGpuBackend)' == 'Wgpu'">
     <NativeFileReference Include="$(MSBuildThisFileDirectory)..\..\ports\siawebgpu\src\siawebgpu_wgpu.c" />
   </ItemGroup>
 
@@ -39,10 +39,10 @@
           BeforeTargets="PrepareForWasmBuildNative"
           Condition="'$(_SiaWebGPUNative_IsBrowser)' == 'true'">
     <Error Condition="'$(_SiaWebGpuPortBackend)' == ''"
-           Text="SiaWebGpuBackend must be Dawn or WgpuGles, not '$(SiaWebGpuBackend)'." />
+           Text="SiaWebGpuBackend must be Dawn or Wgpu, not '$(SiaWebGpuBackend)'." />
     <Error Condition="!Exists('$(_SiaWebGpuPortPath)')"
            Text="The siawebgpu Emscripten port was not found at '$(_SiaWebGpuPortPath)'." />
-    <Error Condition="'$(SiaWebGpuBackend)' == 'WgpuGles' And !Exists('$(SiaWebGpuWgpuArchive)')"
+    <Error Condition="'$(SiaWebGpuBackend)' == 'Wgpu' And !Exists('$(SiaWebGpuWgpuArchive)')"
            Text="The wgpu/GLES archive was not found at '$(SiaWebGpuWgpuArchive)'." />
   </Target>
 

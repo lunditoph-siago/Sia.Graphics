@@ -1,0 +1,9 @@
+<Project>
+  <Target Name="BuildRepositorySpirvCompiler"
+          BeforeTargets="CompileSiaSpirvKernels"
+          Condition="'$(EnableSpirvCompilation)' == 'true' and '$(DesignTimeBuild)' != 'true'">
+    <MSBuild Projects="$(MSBuildThisFileDirectory)../Sia.Spirv.Tool/Sia.Spirv.Tool.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration)" />
+  </Target>
+</Project>

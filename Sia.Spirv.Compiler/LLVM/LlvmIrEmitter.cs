@@ -127,7 +127,9 @@ public sealed class LlvmIrEmitter
         }
 
         var module = new StringBuilder();
-        module.AppendLine("target triple = \"spirv1.5-vulkan1.2-compute\"");
+        var targetStage = GetTargetStage(kernel.Stage);
+        module.Append("target triple = \"spirv1.5-vulkan1.2-")
+            .Append(targetStage).AppendLine("\"");
         module.AppendLine();
         EmitMatrixTypeDeclarations(module);
         EmitStructTypeDeclaration(module);
@@ -694,28 +696,28 @@ public sealed class LlvmIrEmitter
     {
         if (_readsVertexIndex) {
             module.AppendLine(
-                "@__spirv_BuiltInVertexIndex = external hidden addrspace(7) global i32");
+                "@__spirv_BuiltInVertexIndex = external hidden thread_local addrspace(7) global i32");
         }
         if (_readsInstanceIndex) {
             module.AppendLine(
-                "@__spirv_BuiltInInstanceIndex = external hidden addrspace(7) global i32");
+                "@__spirv_BuiltInInstanceIndex = external hidden thread_local addrspace(7) global i32");
         }
         if (_readsFragmentPosition) {
             module.AppendLine(
-                "@__spirv_BuiltInFragCoord = external hidden addrspace(7) global <4 x float>");
+                "@__spirv_BuiltInFragCoord = external hidden thread_local addrspace(7) global <4 x float>");
         }
         if (_writesPosition) {
             module.AppendLine(
-                "@__spirv_BuiltInPosition = external hidden addrspace(8) global <4 x float>");
+                "@__spirv_BuiltInPosition = external hidden thread_local addrspace(8) global <4 x float>");
         }
         foreach (var location in _stageInputs.Order()) {
             module.Append("@sia.input.location.").Append(location)
-                .Append(" = external hidden addrspace(7) global <4 x float>, !spirv.Decorations !")
+                .Append(" = external hidden thread_local addrspace(7) global <4 x float>, !spirv.Decorations !")
                 .Append(GetLocationMetadataId(location)).AppendLine();
         }
         foreach (var location in _stageOutputs.Order()) {
             module.Append("@sia.output.location.").Append(location)
-                .Append(" = external hidden addrspace(8) global <4 x float>, !spirv.Decorations !")
+                .Append(" = external hidden thread_local addrspace(8) global <4 x float>, !spirv.Decorations !")
                 .Append(GetLocationMetadataId(location)).AppendLine();
         }
         if (_readsVertexIndex || _readsInstanceIndex || _readsFragmentPosition ||
@@ -849,6 +851,13 @@ public sealed class LlvmIrEmitter
         module.Append("attributes #0 = { \"hlsl.shader\"=\"")
             .Append(stage).AppendLine("\" }");
     }
+
+    internal static string GetTargetStage(SpirvShaderStage stage) => stage switch {
+        SpirvShaderStage.Compute => "compute",
+        SpirvShaderStage.Vertex => "vertex",
+        SpirvShaderStage.Fragment => "pixel",
+        _ => throw new ArgumentOutOfRangeException(nameof(stage))
+    };
 
     private void EmitLocationMetadata(StringBuilder module)
     {

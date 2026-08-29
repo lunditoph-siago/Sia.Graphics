@@ -93,7 +93,8 @@ public sealed class SpirvCompiler
                     llvmPath,
                     spirvPath,
                     options.OptimizationLevel,
-                    options.TargetEnvironment);
+                    options.TargetEnvironment,
+                    kernel.Stage);
                 toolchain.Validate(spirvPath, options.TargetEnvironment);
                 if (options.KernelAbi == SpirvKernelAbi.WebGpu) {
                     toolchain.OptimizeForWebGpu(spirvPath);

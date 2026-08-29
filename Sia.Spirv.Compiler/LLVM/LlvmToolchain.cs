@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Sia.Spirv;
 
 namespace Sia.Spirv.Compiler.LLVM;
 
@@ -54,8 +55,8 @@ public sealed class LlvmToolchain
         ValidateOptimizationLevel(optimizationLevel);
         var passes = optimizationLevel == 0 || ContainsNativeAtomics(inputPath)
             ? "mem2reg,structurizecfg,simplifycfg"
-            : "mem2reg,simplifycfg,early-cse,sccp,adce," +
-              "structurizecfg,simplifycfg";
+            : "mem2reg,structurizecfg,simplifycfg,early-cse,sccp,adce," +
+              "simplifycfg";
         Run(
             ToolName("opt"),
             "-S",
@@ -69,12 +70,14 @@ public sealed class LlvmToolchain
         string inputPath,
         string outputPath,
         int optimizationLevel,
-        string targetEnvironment)
+        string targetEnvironment,
+        SpirvShaderStage shaderStage)
     {
         ValidateOptimizationLevel(optimizationLevel);
+        var targetStage = LlvmIrEmitter.GetTargetStage(shaderStage);
         var triple = targetEnvironment switch {
-            "vulkan1.2" => "spirv1.5-vulkan1.2-compute",
-            "vulkan1.3" => "spirv1.6-vulkan1.3-compute",
+            "vulkan1.2" => $"spirv1.5-vulkan1.2-{targetStage}",
+            "vulkan1.3" => $"spirv1.6-vulkan1.3-{targetStage}",
             _ => throw new ArgumentException(
                 $"Target environment '{targetEnvironment}' is not supported.",
                 nameof(targetEnvironment))

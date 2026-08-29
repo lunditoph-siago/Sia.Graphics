@@ -2,6 +2,7 @@ namespace Sia.Spirv.Compiler.Model;
 
 public enum SpirvScalarType
 {
+    Boolean,
     Int32,
     UInt32,
     Float32,

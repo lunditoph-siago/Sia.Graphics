@@ -22,5 +22,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Sia.Spirv.Compiler\Sia.Spirv.Compiler.csproj" />
     <ProjectReference Include="..\Sia.Spirv.Core\Sia.Spirv.Core.csproj" />
+    <ProjectReference Include="..\Sia.Spirv.Runtime\Sia.Spirv.Runtime.csproj" />
   </ItemGroup>
 </Project>

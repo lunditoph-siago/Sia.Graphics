@@ -1,5 +1,7 @@
 using System.Text.Json;
+using Sia.Math;
 using Sia.Spirv.Compiler.Compilation;
+using Sia.Spirv.Runtime;
 
 namespace Sia.Spirv.Compiler.Tests;
 
@@ -71,6 +73,19 @@ public sealed class SpirvCompilerTests
             Assert.Contains("atomicExchange", wgsl);
         }
         if (artifact.Kernel.QualifiedName ==
+            $"{typeof(ComputeShaders).FullName}.{nameof(ComputeShaders.CopyPackedStructs)}") {
+            var module = SpirvArtifactLoader.Load(artifact.ManifestPath);
+            var mapping = SpirvBufferMapping<ComputeShaders.PackedParticle>.Create(
+                module.Manifest,
+                "source");
+            ComputeShaders.PackedParticle[] values = [
+                new(new float3(1.0f, 2.0f, 3.0f), 5u)
+            ];
+
+            Assert.Equal(16, mapping.GpuStride);
+            Assert.Equal(16, mapping.Pack(values).Length);
+        }
+        if (artifact.Kernel.QualifiedName ==
             $"{typeof(TextureShaders).FullName}.{nameof(TextureShaders.SampleAndLoad)}") {
             Assert.Contains("textureSampleLevel(texture", wgsl);
             Assert.Contains("textureSampleLevel(textureArray", wgsl);
@@ -82,6 +97,9 @@ public sealed class SpirvCompilerTests
             Assert.Contains("@builtin(vertex_index)", wgsl);
             Assert.Contains("@builtin(position)", wgsl);
             Assert.Contains("@location(0)", wgsl);
+            Assert.Contains("vec2<f32>", wgsl);
+            Assert.Contains("@interpolate(linear, centroid)", wgsl);
+            Assert.Contains("@interpolate(flat)", wgsl);
             Assert.DoesNotContain("bool()", wgsl);
             Assert.DoesNotContain("undef", llvm);
             Assert.Contains(
@@ -94,6 +112,8 @@ public sealed class SpirvCompilerTests
         if (artifact.Kernel.QualifiedName ==
             $"{typeof(ExplicitFragmentShaders).FullName}.{nameof(ExplicitFragmentShaders.Fragment)}") {
             Assert.Contains("@builtin(position)", wgsl);
+            Assert.Contains("@builtin(front_facing)", wgsl);
+            Assert.Contains("@builtin(frag_depth)", wgsl);
             Assert.Contains("@location(0)", wgsl);
             Assert.Contains(
                 manifestRoot.GetProperty("stageInputs").EnumerateArray(),

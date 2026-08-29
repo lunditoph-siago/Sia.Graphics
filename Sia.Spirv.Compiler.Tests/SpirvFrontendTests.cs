@@ -97,6 +97,32 @@ public sealed class SpirvFrontendTests
     }
 
     [Fact]
+    public void AnalyzePacksVectorTailIntoFloat3Padding()
+    {
+        var kernel = SpirvTestAssembly.GetKernel(
+            typeof(ComputeShaders),
+            nameof(ComputeShaders.CopyPackedStructs));
+        var layout = Assert.IsType<SpirvStructLayout>(kernel.Parameters[0].StructLayout);
+
+        Assert.Equal(16, layout.Alignment);
+        Assert.Equal(16, layout.Size);
+        Assert.Equal(16, layout.ArrayStride);
+        Assert.Collection(
+            layout.Fields,
+            field => {
+                Assert.Equal("Position", field.Name);
+                Assert.Equal(SpirvScalarType.Float32x3, field.Type);
+                Assert.Equal(0, field.Offset);
+                Assert.Equal(12, field.Size);
+            },
+            field => {
+                Assert.Equal("Id", field.Name);
+                Assert.Equal(SpirvScalarType.UInt32, field.Type);
+                Assert.Equal(12, field.Offset);
+            });
+    }
+
+    [Fact]
     public void AnalyzePreservesExplicitRasterInputAndReturnAbi()
     {
         var vertex = SpirvTestAssembly.GetKernel(
@@ -117,6 +143,15 @@ public sealed class SpirvFrontendTests
             field => {
                 Assert.Equal(SpirvStageIoKind.Location, field.Kind);
                 Assert.Equal(0u, field.Location);
+                Assert.Equal(SpirvScalarType.Float32x2, field.Type);
+                Assert.Equal(InterpolationMode.Linear, field.Interpolation);
+                Assert.Equal(InterpolationSampling.Centroid, field.Sampling);
+            },
+            field => {
+                Assert.Equal(SpirvStageIoKind.Location, field.Kind);
+                Assert.Equal(1u, field.Location);
+                Assert.Equal(SpirvScalarType.UInt32, field.Type);
+                Assert.Equal(InterpolationMode.Flat, field.Interpolation);
             });
 
         var fragment = SpirvTestAssembly.GetKernel(
@@ -128,6 +163,13 @@ public sealed class SpirvFrontendTests
 
         Assert.Contains(fragmentInput.Fields,
             field => field.Kind == SpirvStageIoKind.FragmentPosition);
-        Assert.Equal(SpirvStageIoKind.Location, Assert.Single(fragmentOutput.Fields).Kind);
+        Assert.Contains(fragmentInput.Fields,
+            field => field.Kind == SpirvStageIoKind.FrontFacing &&
+                field.Type == SpirvScalarType.Boolean);
+        Assert.Contains(fragmentOutput.Fields,
+            field => field.Kind == SpirvStageIoKind.Location);
+        Assert.Contains(fragmentOutput.Fields,
+            field => field.Kind == SpirvStageIoKind.FragmentDepth &&
+                field.Type == SpirvScalarType.Float32);
     }
 }

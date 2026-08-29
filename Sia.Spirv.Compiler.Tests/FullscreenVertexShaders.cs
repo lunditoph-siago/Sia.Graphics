@@ -18,7 +18,8 @@ internal static class FullscreenVertexShaders
         }
 
         return new FullscreenVertexOutput(
-            new float4(x * 0.5f + 0.5f, y * 0.5f + 0.5f, 0.0f, 1.0f),
+            new float2(x * 0.5f + 0.5f, y * 0.5f + 0.5f),
+            input.InstanceIndex,
             new float4(x, y, 0.0f, 1.0f));
     }
 }

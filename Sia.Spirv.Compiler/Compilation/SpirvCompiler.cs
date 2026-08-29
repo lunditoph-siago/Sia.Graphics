@@ -201,15 +201,15 @@ public sealed class SpirvCompiler
                     parameter.Kind == SpirvKernelParameterKind.ReadOnlyStorageBuffer
                         ? "read-only"
                         : "read-write",
-                    layout?.Name ?? GetScalarName(parameter.ScalarType),
+                    layout?.Name ?? SpirvTypeLayout.GetName(parameter.ScalarType),
                     0,
                     binding++,
-                    layout?.Alignment ?? GetTypeAlignment(parameter.ScalarType),
-                    layout?.Size ?? GetTypeSize(parameter.ScalarType),
-                    layout?.ArrayStride ?? GetArrayStride(parameter.ScalarType),
+                    layout?.Alignment ?? SpirvTypeLayout.GetAlignment(parameter.ScalarType),
+                    layout?.Size ?? SpirvTypeLayout.GetSize(parameter.ScalarType),
+                    layout?.ArrayStride ?? SpirvTypeLayout.GetArrayStride(parameter.ScalarType),
                     layout?.Fields.Select(static field => new SpirvManifestStructField(
                         field.Name,
-                        GetScalarName(field.Type),
+                        SpirvTypeLayout.GetName(field.Type),
                         field.Offset,
                         field.Alignment,
                         field.Size)).ToArray()));
@@ -217,7 +217,7 @@ public sealed class SpirvCompiler
             else {
                 pushConstants.Add(new SpirvManifestPushConstant(
                     parameter.Name,
-                    GetScalarName(parameter.ScalarType),
+                    SpirvTypeLayout.GetName(parameter.ScalarType),
                     offset,
                     4));
                 offset += 4;
@@ -272,11 +272,15 @@ public sealed class SpirvCompiler
                 SpirvStageIoKind.VertexIndex => "vertex-index",
                 SpirvStageIoKind.InstanceIndex => "instance-index",
                 SpirvStageIoKind.FragmentPosition => "fragment-position",
+                SpirvStageIoKind.FrontFacing => "front-facing",
+                SpirvStageIoKind.FragmentDepth => "fragment-depth",
                 _ => throw new ArgumentOutOfRangeException(nameof(field))
             },
-            GetScalarName(field.Type),
+            SpirvTypeLayout.GetName(field.Type),
             field.Location,
-            field.Flat);
+            field.Flat,
+            field.Interpolation?.ToString().ToLowerInvariant(),
+            field.Sampling?.ToString().ToLowerInvariant());
 
     private static bool IsCacheHit(
         string manifestPath,
@@ -343,41 +347,6 @@ public sealed class SpirvCompiler
         var version = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(header[4..]);
         return $"{(version >> 16) & 0xff}.{(version >> 8) & 0xff}";
     }
-
-    private static string GetScalarName(SpirvScalarType type) => type switch {
-        SpirvScalarType.Int32 => "int32",
-        SpirvScalarType.UInt32 => "uint32",
-        SpirvScalarType.Float32 => "float32",
-        SpirvScalarType.Int32x2 => "int32x2",
-        SpirvScalarType.Int32x3 => "int32x3",
-        SpirvScalarType.Int32x4 => "int32x4",
-        SpirvScalarType.UInt32x2 => "uint32x2",
-        SpirvScalarType.UInt32x3 => "uint32x3",
-        SpirvScalarType.UInt32x4 => "uint32x4",
-        SpirvScalarType.Float32x2 => "float32x2",
-        SpirvScalarType.Float32x3 => "float32x3",
-        SpirvScalarType.Float32x4 => "float32x4",
-        _ => throw new ArgumentOutOfRangeException(nameof(type))
-    };
-
-    private static int GetTypeAlignment(SpirvScalarType type) => type switch {
-        SpirvScalarType.Int32 or SpirvScalarType.UInt32 or SpirvScalarType.Float32 => 4,
-        SpirvScalarType.Int32x2 or SpirvScalarType.UInt32x2 or SpirvScalarType.Float32x2 => 8,
-        _ => 16
-    };
-
-    private static int GetTypeSize(SpirvScalarType type) => type switch {
-        SpirvScalarType.Int32 or SpirvScalarType.UInt32 or SpirvScalarType.Float32 => 4,
-        SpirvScalarType.Int32x2 or SpirvScalarType.UInt32x2 or SpirvScalarType.Float32x2 => 8,
-        SpirvScalarType.Int32x3 or SpirvScalarType.UInt32x3 or SpirvScalarType.Float32x3 => 12,
-        _ => 16
-    };
-
-    private static int GetArrayStride(SpirvScalarType type) =>
-        AlignUp(GetTypeSize(type), GetTypeAlignment(type));
-
-    private static int AlignUp(int value, int alignment) =>
-        checked((value + alignment - 1) / alignment * alignment);
 
     private static string SanitizeFileName(string value)
     {

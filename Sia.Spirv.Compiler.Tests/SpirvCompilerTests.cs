@@ -17,7 +17,8 @@ public sealed class SpirvCompilerTests
                 ToolchainDirectory = SpirvTestToolchain.Directory,
                 KernelAbi = SpirvKernelAbi.WebGpu,
                 EmitWgsl = true,
-                EmitLlvmIr = true
+                EmitLlvmIr = true,
+                OptimizationLevel = 3
             };
 
             var artifacts = compiler.CompileAssembly(

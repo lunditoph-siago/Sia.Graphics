@@ -10,6 +10,7 @@ URL = 'https://github.com/lunditoph-siago/Sia.Graphics'
 
 OPTIONS = {
     'backend': 'Backend implementation: dawn or wgpu. Default: dawn.',
+    'archive': 'Path to the wasm32-unknown-emscripten wgpu-native archive.',
 }
 
 _VALID_OPTIONS = {
@@ -18,6 +19,7 @@ _VALID_OPTIONS = {
 
 _opts = {
     'backend': 'dawn',
+    'archive': None,
 }
 
 _port_dir = os.path.dirname(os.path.realpath(__file__))
@@ -25,6 +27,9 @@ _port_dir = os.path.dirname(os.path.realpath(__file__))
 
 def handle_options(options, error_handler):
     for option, value in options.items():
+        if option == 'archive':
+            _opts[option] = value
+            continue
         value = value.lower()
         if option not in _VALID_OPTIONS:
             error_handler(f'unknown option [{option}]')
@@ -35,6 +40,8 @@ def handle_options(options, error_handler):
 
 
 def _wgpu_archive():
+    if _opts['archive']:
+        return os.path.realpath(_opts['archive'])
     override = os.environ.get('SIAWEBGPU_WGPU_ARCHIVE')
     if override:
         return os.path.realpath(override)

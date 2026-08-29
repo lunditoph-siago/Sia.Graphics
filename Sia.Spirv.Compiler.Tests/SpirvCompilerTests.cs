@@ -74,5 +74,11 @@ public sealed class SpirvCompilerTests
             Assert.Contains("textureLoad(texture", wgsl);
             Assert.Contains("textureLoad(textureArray", wgsl);
         }
+        if (artifact.Kernel.QualifiedName ==
+            $"{typeof(FullscreenVertexShaders).FullName}.{nameof(FullscreenVertexShaders.Vertex)}") {
+            Assert.Contains("@builtin(vertex_index)", wgsl);
+            Assert.DoesNotContain("bool()", wgsl);
+            Assert.DoesNotContain("undef", llvm);
+        }
     }
 }

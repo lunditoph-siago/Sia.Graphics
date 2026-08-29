@@ -6,6 +6,25 @@ namespace Sia.Spirv.Compiler.Tests;
 public sealed class LlvmIrEmitterTests
 {
     [Fact]
+    public void EmitUsesTheShaderStageInTheTargetTriple()
+    {
+        var kernel = SpirvTestAssembly.GetKernel(
+            typeof(FullscreenVertexShaders),
+            nameof(FullscreenVertexShaders.Vertex));
+
+        var module = new LlvmIrEmitter().Emit(
+            SpirvTestAssembly.Path,
+            kernel,
+            SpirvKernelAbi.WebGpu);
+
+        Assert.Contains(
+            "target triple = \"spirv1.5-vulkan1.2-vertex\"",
+            module.Text);
+        Assert.Contains("external hidden thread_local addrspace(7)", module.Text);
+        Assert.Contains("external hidden thread_local addrspace(8)", module.Text);
+    }
+
+    [Fact]
     public void EmitMergesEvaluationStackAcrossShortCircuitBlocks()
     {
         var kernel = SpirvTestAssembly.GetKernel(

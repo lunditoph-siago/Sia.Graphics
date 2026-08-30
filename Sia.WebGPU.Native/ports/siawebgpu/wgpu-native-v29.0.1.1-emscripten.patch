@@ -40,21 +40,21 @@ index 0b5f174..56721d5 100644
          }
      }
 diff --git a/ffi/wgpu.h b/ffi/wgpu.h
-index 401d5b9..bdd88db 100644
+index 4f7d4e0..e5f8870 100644
 --- a/ffi/wgpu.h
 +++ b/ffi/wgpu.h
-@@ -41,6 +41,8 @@ typedef enum WGPUNativeSType
+@@ -39,6 +39,8 @@ typedef enum WGPUNativeSType
+     WGPUSType_PrimitiveStateExtras = 0x0003000A,
+     /** Identifies @ref WGPUSamplerDescriptorExtras. */
      WGPUSType_SamplerDescriptorExtras = 0x0003000B,
-     /** Identifies @ref WGPUSurfaceSourceOhosNativeWindow. */
-     WGPUSType_SurfaceSourceOhosNativeWindow = 0x0003000C,
 +    /** Identifies @ref WGPUEmscriptenSurfaceSourceCanvasHTMLSelector. */
 +    WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector = 0x00040000,
      WGPUNativeSType_Force32 = 0x7FFFFFFF
  } WGPUNativeSType;
 
-@@ -1415,6 +1417,16 @@ typedef struct WGPUSurfaceSourceOhosNativeWindow
-     void *window;
- } WGPUSurfaceSourceOhosNativeWindow WGPU_STRUCTURE_ATTRIBUTE;
+@@ -1365,6 +1367,16 @@ typedef struct WGPUSurfaceSourceSwapChainPanel
+     void *panelNative;
+ } WGPUSurfaceSourceSwapChainPanel WGPU_STRUCTURE_ATTRIBUTE;
 
 +/**
 + * Chained in @ref WGPUSurfaceDescriptor to select an HTML canvas when
@@ -70,13 +70,13 @@ index 401d5b9..bdd88db 100644
  {
      WGPUPolygonMode_Fill = 0,
 diff --git a/src/conv.rs b/src/conv.rs
-index 5fd1a56..f80a257 100644
+index f7e51f9..e90d57a 100644
 --- a/src/conv.rs
 +++ b/src/conv.rs
-@@ -1880,7 +1880,18 @@ pub unsafe fn map_surface(
+@@ -1869,7 +1869,18 @@ pub unsafe fn map_surface(
+     _metal: Option<&native::WGPUSurfaceSourceMetalLayer>,
      android: Option<&native::WGPUSurfaceSourceAndroidNativeWindow>,
      _swap_chain_panel: Option<&native::WGPUSurfaceSourceSwapChainPanel>,
-     ohos: Option<&native::WGPUSurfaceSourceOhosNativeWindow>,
 +    emscripten_canvas: Option<&native::WGPUEmscriptenSurfaceSourceCanvasHTMLSelector>,
  ) -> CreateSurfaceParams {
 +    if emscripten_canvas.is_some() {
@@ -93,7 +93,7 @@ index 5fd1a56..f80a257 100644
          let display_handle = raw_window_handle::WindowsDisplayHandle::new();
          let mut window_handle =
 diff --git a/src/lib.rs b/src/lib.rs
-index e725738..fcdb2af 100644
+index ba92673..96e6ab2 100644
 --- a/src/lib.rs
 +++ b/src/lib.rs
 @@ -445,17 +445,22 @@ const DEFAULT_DEVICE_LOST_HANDLER: DeviceLostCallback = DeviceLostCallback {
@@ -114,9 +114,9 @@ index e725738..fcdb2af 100644
      },
  }
 
-+#[cfg(send_sync)]
++#[cfg(not(target_family = "wasm"))]
 +type ErrorSource = Box<dyn error::Error + Send + 'static>;
-+#[cfg(not(send_sync))]
++#[cfg(target_family = "wasm")]
 +type ErrorSource = Box<dyn error::Error + 'static>;
 +
  impl error::Error for Error {
@@ -126,7 +126,7 @@ index e725738..fcdb2af 100644
      format!("Validation Error\n\nCaused by:\n{}", output)
  }
 
-+#[cfg(send_sync)]
++#[cfg(not(target_family = "wasm"))]
  fn handle_error_fatal(
      cause: impl error::Error + Send + Sync + 'static,
      operation: &'static str,
@@ -134,12 +134,12 @@ index e725738..fcdb2af 100644
      panic!("Error in {operation}: {f}", f = format_error(&cause));
  }
 
-+#[cfg(not(send_sync))]
++#[cfg(target_family = "wasm")]
 +fn handle_error_fatal(cause: impl error::Error + 'static, operation: &'static str) -> ! {
 +    panic!("Error in {operation}: {f}", f = format_error(&cause));
 +}
 +
-+#[cfg(send_sync)]
++#[cfg(not(target_family = "wasm"))]
  fn handle_error(
      sink_mutex: &Mutex<ErrorSinkRaw>,
      source: impl error::Error + Send + Sync + 'static,
@@ -147,7 +147,7 @@ index e725738..fcdb2af 100644
      });
  }
 
-+#[cfg(not(send_sync))]
++#[cfg(target_family = "wasm")]
 +fn handle_error(
 +    sink_mutex: &Mutex<ErrorSinkRaw>,
 +    source: impl error::Error + 'static,
@@ -187,12 +187,12 @@ index e725738..fcdb2af 100644
  // webgpu.h functions
 
  #[no_mangle]
-@@ -2802,7 +2851,8 @@ pub unsafe extern "C" fn wgpuInstanceCreateSurface(
+@@ -2798,7 +2847,8 @@ pub unsafe extern "C" fn wgpuInstanceCreateSurface(
+             WGPUSType_SurfaceSourceWaylandSurface => native::WGPUSurfaceSourceWaylandSurface,
              WGPUSType_SurfaceSourceMetalLayer => native::WGPUSurfaceSourceMetalLayer,
              WGPUSType_SurfaceSourceAndroidNativeWindow => native::WGPUSurfaceSourceAndroidNativeWindow,
-             WGPUSType_SurfaceSourceSwapChainPanel => native::WGPUSurfaceSourceSwapChainPanel,
--            WGPUSType_SurfaceSourceOhosNativeWindow => native::WGPUSurfaceSourceOhosNativeWindow)
-+            WGPUSType_SurfaceSourceOhosNativeWindow => native::WGPUSurfaceSourceOhosNativeWindow,
+-            WGPUSType_SurfaceSourceSwapChainPanel => native::WGPUSurfaceSourceSwapChainPanel)
++            WGPUSType_SurfaceSourceSwapChainPanel => native::WGPUSurfaceSourceSwapChainPanel,
 +            WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector => native::WGPUEmscriptenSurfaceSourceCanvasHTMLSelector)
      );
 

@@ -21,11 +21,16 @@
     <SpirvOptimizationLevel>3</SpirvOptimizationLevel>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(SiaWebGpuBackend)' == '' And '$(_SiaWebGpuSiteRootPublishDir)' == ''">
+    <_SiaWebGpuSiteRootPublishDir>$(PublishDir)</_SiaWebGpuSiteRootPublishDir>
+    <EnableSpirvCompilation>false</EnableSpirvCompilation>
+  </PropertyGroup>
+
   <ItemGroup>
-    <Compile Remove="obj_desktop\**" />
-    <EmbeddedResource Remove="obj_desktop\**" />
-    <None Remove="obj_desktop\**" />
-    <Content Remove="obj_desktop\**" />
+    <Compile Remove="obj_desktop\**;publish\**" />
+    <EmbeddedResource Remove="obj_desktop\**;publish\**" />
+    <None Remove="obj_desktop\**;publish\**" />
+    <Content Remove="obj_desktop\**;publish\**" />
   </ItemGroup>
 
   <ItemGroup>
@@ -65,5 +70,27 @@
   </Target>
 
   <Import Project="..\Sia.WebGPU.Native\build\net461\Sia.WebGPU.Native.targets" />
+
+  <Target Name="AssembleSiaWebGpuSite"
+          AfterTargets="Publish;PublishSiaSpirvArtifacts"
+          Condition="'$(_SiaWebGpuSiteRootPublishDir)' != ''">
+    <MSBuild
+      Projects="$(MSBuildProjectFullPath)"
+      Targets="Publish"
+      Properties="Configuration=$(Configuration);SiaWebGpuBackend=Dawn;PublishDir=$(_SiaWebGpuSiteRootPublishDir)dawn\" />
+    <MSBuild
+      Projects="$(MSBuildProjectFullPath)"
+      Targets="Publish"
+      Properties="Configuration=$(Configuration);SiaWebGpuBackend=Wgpu;PublishDir=$(_SiaWebGpuSiteRootPublishDir)wgpu\" />
+
+    <RemoveDir Directories="$(_SiaWebGpuSiteRootPublishDir)wwwroot"
+               Condition="Exists('$(_SiaWebGpuSiteRootPublishDir)wwwroot')" />
+    <ItemGroup>
+      <_SiaWebGpuSiteStrayFile Include="$(_SiaWebGpuSiteRootPublishDir)*.js;$(_SiaWebGpuSiteRootPublishDir)*.json;$(_SiaWebGpuSiteRootPublishDir)web.config" />
+      <_SiaWebGpuLauncherFile Include="index.html" />
+    </ItemGroup>
+    <Delete Files="@(_SiaWebGpuSiteStrayFile)" />
+    <Copy SourceFiles="@(_SiaWebGpuLauncherFile)" DestinationFolder="$(_SiaWebGpuSiteRootPublishDir)%(RecursiveDir)" />
+  </Target>
 
 </Project>

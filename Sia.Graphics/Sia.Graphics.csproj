@@ -18,6 +18,8 @@
 
   <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0-browser'">
     <SupportedOSPlatformVersion>0.0</SupportedOSPlatformVersion>
+    <DefineConstants Condition="'$(SiaWebGpuBackend)' == 'Dawn' Or '$(SiaWebGpuBackend)' == ''">$(DefineConstants);SIA_WEBGPU_BACKEND_DAWN</DefineConstants>
+    <DefineConstants Condition="'$(SiaWebGpuBackend)' == 'Wgpu'">$(DefineConstants);SIA_WEBGPU_BACKEND_WGPU</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

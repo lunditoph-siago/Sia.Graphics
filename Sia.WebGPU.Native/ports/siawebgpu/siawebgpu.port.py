@@ -69,7 +69,7 @@ def linker_setup(ports, settings):
     settings.MIN_WEBGL_VERSION = 2
     settings.MAX_WEBGL_VERSION = 2
     settings.FULL_ES3 = 1
-    settings.WASM_LEGACY_EXCEPTIONS = 0
+    settings.WASM_LEGACY_EXCEPTIONS = 1
 
 
 def get(ports, settings, shared):

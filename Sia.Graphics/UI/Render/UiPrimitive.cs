@@ -6,6 +6,8 @@ namespace Sia.Graphics.UI;
 [StructLayout(LayoutKind.Sequential, Size = 96)]
 internal struct UiPrimitive
 {
+    public static readonly ulong Stride = (ulong)Marshal.SizeOf<UiPrimitive>();
+
     public float TransformM11, TransformM12, TransformM21, TransformM22;
     public float TranslateX, TranslateY, TopLeftX, TopLeftY;
     public float SizeX, SizeY, PackedUvMinXAndLayer, UvMinY;

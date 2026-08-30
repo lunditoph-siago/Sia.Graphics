@@ -6,9 +6,9 @@ namespace Sia.Graphics.UI;
 
 public sealed unsafe class UiPipeline
 {
-    private const int k_StorageBindGroupEntryCount = 5;
-    private const int k_CompatibilityBindGroupEntryCount = 3;
-    private const int k_VertexAttributeCount = 7;
+    private const int k_SharedBindGroupEntryCount = 3;
+    private const int k_MaxExtraBindGroupEntries = 2;
+    private const int k_MaxVertexAttributeCount = 7;
     private const int k_InitialTextureArrayLayers = 4;
 
     internal Entity Device { get; }
@@ -16,7 +16,7 @@ public sealed unsafe class UiPipeline
     internal Entity RenderPipeline { get; }
     internal Entity ViewUniformBuffer { get; }
     internal Entity BindGroupLayout { get; }
-    internal bool UsesVertexStorage { get; }
+    internal IUiVertexSource VertexSource { get; }
     private Entity TextureArray { get; set; }
     private Entity TextureArrayView { get; set; }
     private Entity Sampler { get; }
@@ -33,7 +33,7 @@ public sealed unsafe class UiPipeline
         Entity textureArrayView,
         Entity sampler,
         int textureArrayLayers,
-        bool usesVertexStorage)
+        IUiVertexSource vertexSource)
     {
         Device = device;
         Queue = queue;
@@ -44,32 +44,27 @@ public sealed unsafe class UiPipeline
         TextureArrayView = textureArrayView;
         Sampler = sampler;
         TextureArrayLayers = textureArrayLayers;
-        UsesVertexStorage = usesVertexStorage;
+        VertexSource = vertexSource;
     }
 
     public static UiPipeline Create(World world, Entity device, Entity queue, WGPUTextureFormat targetFormat)
     {
+        var vertexSource = UiVertexSourceFactory.Create();
         var deviceHandle = device.GetWgpu<WGPUDevice>();
-        var usesVertexStorage = Wgpu.Backend != WgpuBackendKind.BrowserGles;
-        var shaderModule = world.OwnWgpu(
+        var fragmentShaderModule = world.OwnWgpu(
             Wgpu.CreateWgslShaderModule(deviceHandle, UiShaderSource.Load(), "ui_node"));
-        var vertexShaderModule = usesVertexStorage
-            ? shaderModule
-            : world.OwnWgpu(Wgpu.CreateWgslShaderModule(
-                deviceHandle,
-                UiShaderSource.LoadCompatibilityVertex(),
-                "ui_node_compat_vertex"));
+        var vertexShaderModule = vertexSource.LoadVertexShaderModule(world, deviceHandle, fragmentShaderModule);
         var bindGroupLayout = world.OwnWgpu(
-            CreateBindGroupLayout(deviceHandle, usesVertexStorage));
+            CreateBindGroupLayout(deviceHandle, vertexSource));
         var pipelineLayout = world.OwnWgpu(
             CreatePipelineLayout(deviceHandle, bindGroupLayout.GetWgpu<WGPUBindGroupLayout>()));
         var renderPipeline = world.OwnWgpu(CreateRenderPipeline(
             deviceHandle,
             vertexShaderModule.GetWgpu<WGPUShaderModule>(),
-            shaderModule.GetWgpu<WGPUShaderModule>(),
+            fragmentShaderModule.GetWgpu<WGPUShaderModule>(),
             pipelineLayout.GetWgpu<WGPUPipelineLayout>(),
             targetFormat,
-            usesVertexStorage));
+            vertexSource));
         var viewUniformBuffer = world.CreateWgpuBuffer(device, new WGPUBufferDescriptor {
             NextInChain = null,
             Label = default,
@@ -92,67 +87,33 @@ public sealed unsafe class UiPipeline
             textureArrayView,
             sampler,
             k_InitialTextureArrayLayers,
-            usesVertexStorage);
+            vertexSource);
     }
 
-    internal WgpuHandle<WGPUBindGroup> CreateBindGroup(
-        WgpuHandle<WGPUBuffer> primitiveBuffer,
-        ulong primitiveBufferSize,
-        WgpuHandle<WGPUBuffer> paintOrderBuffer,
-        ulong paintOrderBufferSize)
+    internal WgpuHandle<WGPUBindGroup> CreateBindGroup()
     {
         Span<WGPUBindGroupEntry> entries =
-            stackalloc WGPUBindGroupEntry[k_StorageBindGroupEntryCount];
+            stackalloc WGPUBindGroupEntry[k_SharedBindGroupEntryCount + k_MaxExtraBindGroupEntries];
         entries[0] = WGPUBindGroupEntry.Default with {
             Binding = 0,
             Buffer = (WGPUBuffer*)ViewUniformBuffer.GetWgpu<WGPUBuffer>().DangerousGetHandle(),
             Size = UiOrthographicProjection.k_UniformByteSize
         };
-        entries[1] = WGPUBindGroupEntry.Default with {
-            Binding = 1,
-            Buffer = (WGPUBuffer*)primitiveBuffer.DangerousGetHandle(),
-            Size = primitiveBufferSize
-        };
-        entries[2] = WGPUBindGroupEntry.Default with {
-            Binding = 2,
-            Buffer = (WGPUBuffer*)paintOrderBuffer.DangerousGetHandle(),
-            Size = paintOrderBufferSize
-        };
-        entries[3] = WGPUBindGroupEntry.Default with {
+        var extraCount = VertexSource.WriteBindGroupEntries(entries.Slice(1, k_MaxExtraBindGroupEntries));
+        var textureIndex = 1 + extraCount;
+        var samplerIndex = 2 + extraCount;
+        entries[textureIndex] = WGPUBindGroupEntry.Default with {
             Binding = 3,
             TextureView = (WGPUTextureView*)TextureArrayView
                 .GetWgpu<WGPUTextureView>()
                 .DangerousGetHandle()
         };
-        entries[4] = WGPUBindGroupEntry.Default with {
+        entries[samplerIndex] = WGPUBindGroupEntry.Default with {
             Binding = 4,
             Sampler = (WGPUSampler*)Sampler.GetWgpu<WGPUSampler>().DangerousGetHandle()
         };
 
-        return CreateBindGroup(entries);
-    }
-
-    internal WgpuHandle<WGPUBindGroup> CreateCompatibilityBindGroup()
-    {
-        Span<WGPUBindGroupEntry> entries =
-            stackalloc WGPUBindGroupEntry[k_CompatibilityBindGroupEntryCount];
-        entries[0] = WGPUBindGroupEntry.Default with {
-            Binding = 0,
-            Buffer = (WGPUBuffer*)ViewUniformBuffer.GetWgpu<WGPUBuffer>().DangerousGetHandle(),
-            Size = UiOrthographicProjection.k_UniformByteSize
-        };
-        entries[1] = WGPUBindGroupEntry.Default with {
-            Binding = 3,
-            TextureView = (WGPUTextureView*)TextureArrayView
-                .GetWgpu<WGPUTextureView>()
-                .DangerousGetHandle()
-        };
-        entries[2] = WGPUBindGroupEntry.Default with {
-            Binding = 4,
-            Sampler = (WGPUSampler*)Sampler.GetWgpu<WGPUSampler>().DangerousGetHandle()
-        };
-
-        return CreateBindGroup(entries);
+        return CreateBindGroup(entries[..(k_SharedBindGroupEntryCount + extraCount)]);
     }
 
     private WgpuHandle<WGPUBindGroup> CreateBindGroup(Span<WGPUBindGroupEntry> entries)
@@ -304,34 +265,20 @@ public sealed unsafe class UiPipeline
 
     private static WgpuHandle<WGPUBindGroupLayout> CreateBindGroupLayout(
         WgpuHandle<WGPUDevice> device,
-        bool usesVertexStorage)
+        IUiVertexSource vertexSource)
     {
-        var entryCount = usesVertexStorage
-            ? k_StorageBindGroupEntryCount
-            : k_CompatibilityBindGroupEntryCount;
         Span<WGPUBindGroupLayoutEntry> entries =
-            stackalloc WGPUBindGroupLayoutEntry[entryCount];
+            stackalloc WGPUBindGroupLayoutEntry[k_SharedBindGroupEntryCount + k_MaxExtraBindGroupEntries];
         entries[0] = WGPUBindGroupLayoutEntry.Default;
         entries[0].Binding = 0;
         entries[0].Visibility = WGPUShaderStage.Vertex;
         entries[0].Buffer = WGPUBufferBindingLayout.Default;
         entries[0].Buffer.Type = WGPUBufferBindingType.Uniform;
-        var textureIndex = 1;
-        var samplerIndex = 2;
-        if (usesVertexStorage) {
-            entries[1] = WGPUBindGroupLayoutEntry.Default;
-            entries[1].Binding = 1;
-            entries[1].Visibility = WGPUShaderStage.Vertex;
-            entries[1].Buffer = WGPUBufferBindingLayout.Default;
-            entries[1].Buffer.Type = WGPUBufferBindingType.ReadOnlyStorage;
-            entries[2] = WGPUBindGroupLayoutEntry.Default;
-            entries[2].Binding = 2;
-            entries[2].Visibility = WGPUShaderStage.Vertex;
-            entries[2].Buffer = WGPUBufferBindingLayout.Default;
-            entries[2].Buffer.Type = WGPUBufferBindingType.ReadOnlyStorage;
-            textureIndex = 3;
-            samplerIndex = 4;
-        }
+
+        var extraCount = vertexSource.WriteBindGroupLayoutEntries(entries.Slice(1, k_MaxExtraBindGroupEntries));
+        var textureIndex = 1 + extraCount;
+        var samplerIndex = 2 + extraCount;
+
         entries[textureIndex] = WGPUBindGroupLayoutEntry.Default;
         entries[textureIndex].Binding = 3;
         entries[textureIndex].Visibility = WGPUShaderStage.Fragment;
@@ -344,6 +291,7 @@ public sealed unsafe class UiPipeline
         entries[samplerIndex].Sampler = WGPUSamplerBindingLayout.Default;
         entries[samplerIndex].Sampler.Type = WGPUSamplerBindingType.Filtering;
 
+        var entryCount = k_SharedBindGroupEntryCount + extraCount;
         fixed (WGPUBindGroupLayoutEntry* entriesPtr = entries) {
             var descriptor = WGPUBindGroupLayoutDescriptor.Default;
             descriptor.EntryCount = (nuint)entryCount;
@@ -369,7 +317,7 @@ public sealed unsafe class UiPipeline
         WgpuHandle<WGPUShaderModule> fragmentShaderModule,
         WgpuHandle<WGPUPipelineLayout> pipelineLayout,
         WGPUTextureFormat targetFormat,
-        bool usesVertexStorage)
+        IUiVertexSource vertexSource)
     {
         var vertexEntryPoint = "vertex"u8;
         var fragmentEntryPoint = "fragment"u8;
@@ -397,20 +345,14 @@ public sealed unsafe class UiPipeline
             fragment.TargetCount = 1;
             fragment.Targets = &colorTarget;
 
-            Span<WGPUVertexAttribute> attributes = stackalloc WGPUVertexAttribute[k_VertexAttributeCount];
-            attributes[0] = VertexAttribute(WGPUVertexFormat.Float32x4, 0, 0);
-            attributes[1] = VertexAttribute(WGPUVertexFormat.Float32x4, 16, 1);
-            attributes[2] = VertexAttribute(WGPUVertexFormat.Float32x4, 32, 2);
-            attributes[3] = VertexAttribute(WGPUVertexFormat.Uint32x2, 48, 3);
-            attributes[4] = VertexAttribute(WGPUVertexFormat.Uint32x2, 56, 4);
-            attributes[5] = VertexAttribute(WGPUVertexFormat.Float32x4, 64, 5);
-            attributes[6] = VertexAttribute(WGPUVertexFormat.Uint32, 80, 6);
+            Span<WGPUVertexAttribute> attributes = stackalloc WGPUVertexAttribute[k_MaxVertexAttributeCount];
+            var attributeCount = vertexSource.WriteVertexAttributes(attributes);
 
             fixed (WGPUVertexAttribute* attributesPtr = attributes) {
                 var vertexBuffer = WGPUVertexBufferLayout.Default;
                 vertexBuffer.StepMode = WGPUVertexStepMode.Instance;
-                vertexBuffer.ArrayStride = 96;
-                vertexBuffer.AttributeCount = k_VertexAttributeCount;
+                vertexBuffer.ArrayStride = UiPrimitive.Stride;
+                vertexBuffer.AttributeCount = (uint)attributeCount;
                 vertexBuffer.Attributes = attributesPtr;
 
                 var descriptor = WGPURenderPipelineDescriptor.Default;
@@ -421,7 +363,7 @@ public sealed unsafe class UiPipeline
                     Data = vertexEntry,
                     Length = (nuint)vertexEntryPoint.Length
                 };
-                if (!usesVertexStorage) {
+                if (attributeCount > 0) {
                     descriptor.Vertex.BufferCount = 1;
                     descriptor.Vertex.Buffers = &vertexBuffer;
                 }
@@ -435,16 +377,6 @@ public sealed unsafe class UiPipeline
             }
         }
     }
-
-    private static WGPUVertexAttribute VertexAttribute(
-        WGPUVertexFormat format,
-        ulong offset,
-        uint shaderLocation) =>
-        WGPUVertexAttribute.Default with {
-            Format = format,
-            Offset = offset,
-            ShaderLocation = shaderLocation
-        };
 
     private static WGPUSamplerDescriptor SamplerDescriptor()
     {

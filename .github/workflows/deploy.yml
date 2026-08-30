@@ -53,7 +53,7 @@ jobs:
           --configuration "$BUILD_CONFIG"
           --no-restore
           -p:WasmCachePath="$RUNNER_TEMP/wasm-cache"
-          -p:PublishDir="$PUBLISH_OUTPUT/"
+          -p:PublishDir="$PUBLISH_OUTPUT/wwwroot/"
 
       - name: Prepare Pages artifact
         run: touch "$PUBLISH_OUTPUT/wwwroot/.nojekyll"

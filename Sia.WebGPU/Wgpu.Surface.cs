@@ -1,7 +1,17 @@
+using System.Runtime.InteropServices;
+
 namespace Sia.WebGPU;
 
 public static unsafe partial class Wgpu
 {
+#if BROWSER
+    [DllImport(
+        "__Internal_emscripten",
+        EntryPoint = "siaWebGpuSurfacePresent",
+        ExactSpelling = true)]
+    private static extern WGPUStatus SiaWebGpuSurfacePresent(WGPUSurface* surface);
+#endif
+
     public static void ConfigureSurface(
         WgpuHandle<WGPUSurface> surface,
         in WGPUSurfaceConfiguration configuration)
@@ -26,8 +36,14 @@ public static unsafe partial class Wgpu
             WgpuHandle<WGPUTexture>.FromOptionalPointer(native.Texture));
     }
 
-    public static WGPUStatus PresentSurface(WgpuHandle<WGPUSurface> surface) =>
-        WgpuUnsafe.wgpuSurfacePresent(GetPointer(surface));
+    public static WGPUStatus PresentSurface(WgpuHandle<WGPUSurface> surface)
+    {
+#if BROWSER
+        return SiaWebGpuSurfacePresent(GetPointer(surface));
+#else
+        return WgpuUnsafe.wgpuSurfacePresent(GetPointer(surface));
+#endif
+    }
 
     public static void PresentSurfaceOrThrow(WgpuHandle<WGPUSurface> surface)
     {

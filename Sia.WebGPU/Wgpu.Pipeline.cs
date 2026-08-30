@@ -50,7 +50,7 @@ public static unsafe partial class Wgpu
             BinaryPrimitives.ReadUInt32LittleEndian(spirv) != 0x07230203) {
             throw new ArgumentException("The shader is not a valid SPIR-V binary module.", nameof(spirv));
         }
-#if BROWSER
+#if SIA_WEBGPU_BACKEND_DAWN
         return CreateWgslShaderModule(device, TranslateSpirvToWgsl(spirv.ToArray()), label);
 #else
         if (!BitConverter.IsLittleEndian) {
@@ -69,7 +69,7 @@ public static unsafe partial class Wgpu
         if (spirv.Length < 5 || spirv[0] != 0x07230203) {
             throw new ArgumentException("The shader is not a valid SPIR-V binary module.", nameof(spirv));
         }
-#if BROWSER
+#if SIA_WEBGPU_BACKEND_DAWN
         return CreateWgslShaderModule(
             device,
             TranslateSpirvToWgsl(MemoryMarshal.AsBytes(spirv).ToArray()),

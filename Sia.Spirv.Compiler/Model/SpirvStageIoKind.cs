@@ -6,5 +6,7 @@ public enum SpirvStageIoKind
     Position,
     VertexIndex,
     InstanceIndex,
-    FragmentPosition
+    FragmentPosition,
+    FrontFacing,
+    FragmentDepth
 }

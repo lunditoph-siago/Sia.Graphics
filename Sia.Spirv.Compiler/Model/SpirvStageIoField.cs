@@ -1,3 +1,5 @@
+using Sia.Spirv;
+
 namespace Sia.Spirv.Compiler.Model;
 
 public sealed record SpirvStageIoField(
@@ -6,4 +8,8 @@ public sealed record SpirvStageIoField(
     SpirvStageIoKind Kind,
     SpirvScalarType Type,
     uint? Location = null,
-    bool Flat = false);
+    InterpolationMode? Interpolation = null,
+    InterpolationSampling? Sampling = null)
+{
+    public bool Flat => Interpolation == InterpolationMode.Flat;
+}

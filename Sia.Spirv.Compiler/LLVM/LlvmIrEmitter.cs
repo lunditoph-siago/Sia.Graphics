@@ -17,10 +17,7 @@ public sealed class LlvmIrEmitter
 {
     private readonly StringBuilder _body = new();
     private readonly HashSet<LlvmValueType> _bufferTypes = [];
-    private readonly HashSet<uint> _stageInputs = [];
-    private readonly HashSet<uint> _stageOutputs = [];
-    private readonly HashSet<uint> _flatStageInputs = [];
-    private readonly HashSet<uint> _flatStageOutputs = [];
+    private readonly Dictionary<StageLocation, StageLocationInfo> _stageLocations = [];
     private readonly HashSet<int> _inlineCallStack = [];
     private SpirvKernelAbi _kernelAbi;
     private SpirvShaderStage _shaderStage;
@@ -31,7 +28,9 @@ public sealed class LlvmIrEmitter
     private bool _readsVertexIndex;
     private bool _readsInstanceIndex;
     private bool _readsFragmentPosition;
+    private bool _readsFrontFacing;
     private bool _writesPosition;
+    private bool _writesFragmentDepth;
     private bool _usesTexture2DLoad;
     private bool _usesTexture2DSampleLevel;
     private bool _usesTexture2DArrayLoad;
@@ -73,10 +72,7 @@ public sealed class LlvmIrEmitter
 
         _body.Clear();
         _bufferTypes.Clear();
-        _stageInputs.Clear();
-        _stageOutputs.Clear();
-        _flatStageInputs.Clear();
-        _flatStageOutputs.Clear();
+        _stageLocations.Clear();
         _inlineCallStack.Clear();
         _kernelAbi = kernelAbi;
         _shaderStage = kernel.Stage;
@@ -99,7 +95,9 @@ public sealed class LlvmIrEmitter
         _readsVertexIndex = false;
         _readsInstanceIndex = false;
         _readsFragmentPosition = false;
+        _readsFrontFacing = false;
         _writesPosition = false;
+        _writesFragmentDepth = false;
         _usesTexture2DLoad = false;
         _usesTexture2DSampleLevel = false;
         _usesTexture2DArrayLoad = false;
@@ -148,6 +146,7 @@ public sealed class LlvmIrEmitter
         module.AppendLine();
         EmitIntrinsicDeclarations(kernel, module);
         EmitShaderAttributes(kernel, module);
+        EmitExecutionModes(entryPoint, module);
         EmitLocationMetadata(module);
         return new LlvmIrModule(module.ToString(), entryPoint);
     }
@@ -709,12 +708,12 @@ public sealed class LlvmIrEmitter
     {
         switch (field.Kind) {
             case SpirvStageIoKind.Location:
-                var locations = input ? _stageInputs : _stageOutputs;
-                var flatLocations = input ? _flatStageInputs : _flatStageOutputs;
-                locations.Add(field.Location!.Value);
-                if (field.Flat) {
-                    flatLocations.Add(field.Location.Value);
-                }
+                RegisterStageLocation(
+                    input,
+                    field.Location!.Value,
+                    field.Type,
+                    field.Interpolation,
+                    field.Sampling);
                 break;
             case SpirvStageIoKind.Position:
                 _writesPosition = true;
@@ -728,6 +727,12 @@ public sealed class LlvmIrEmitter
             case SpirvStageIoKind.FragmentPosition:
                 _readsFragmentPosition = true;
                 break;
+            case SpirvStageIoKind.FrontFacing:
+                _readsFrontFacing = true;
+                break;
+            case SpirvStageIoKind.FragmentDepth:
+                _writesFragmentDepth = true;
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(field));
         }
@@ -738,8 +743,25 @@ public sealed class LlvmIrEmitter
         SpirvStageIoKind.VertexIndex => "@__spirv_BuiltInVertexIndex",
         SpirvStageIoKind.InstanceIndex => "@__spirv_BuiltInInstanceIndex",
         SpirvStageIoKind.FragmentPosition => "@__spirv_BuiltInFragCoord",
+        SpirvStageIoKind.FrontFacing => "@__spirv_BuiltInFrontFacing",
         _ => throw new InvalidDataException($"{field.Kind} is not a stage-input semantic.")
     };
+
+    private void RegisterStageLocation(
+        bool input,
+        uint location,
+        SpirvScalarType type,
+        InterpolationMode? interpolation,
+        InterpolationSampling? sampling)
+    {
+        var key = new StageLocation(input, location);
+        var info = new StageLocationInfo(type, interpolation, sampling);
+        if (_stageLocations.TryGetValue(key, out var existing) && existing != info) {
+            throw new InvalidDataException(
+                $"Stage location {location} has conflicting type or interpolation declarations.");
+        }
+        _stageLocations[key] = info;
+    }
 
     private void EmitGlobalDeclarations(SpirvKernel kernel, StringBuilder module)
     {
@@ -799,22 +821,33 @@ public sealed class LlvmIrEmitter
             module.AppendLine(
                 "@__spirv_BuiltInFragCoord = external hidden thread_local addrspace(7) global <4 x float>");
         }
+        if (_readsFrontFacing) {
+            module.AppendLine(
+                "@__spirv_BuiltInFrontFacing = external hidden thread_local addrspace(7) global i1");
+        }
         if (_writesPosition) {
             module.AppendLine(
                 "@__spirv_BuiltInPosition = external hidden thread_local addrspace(8) global <4 x float>");
         }
-        foreach (var location in _stageInputs.Order()) {
-            module.Append("@sia.input.location.").Append(location)
-                .Append(" = external hidden thread_local addrspace(7) global <4 x float>, !spirv.Decorations !")
-                .Append(GetLocationMetadataId(location)).AppendLine();
+        if (_writesFragmentDepth) {
+            module.AppendLine(
+                "@__spirv_BuiltInFragDepth = external hidden thread_local addrspace(8) global float");
         }
-        foreach (var location in _stageOutputs.Order()) {
-            module.Append("@sia.output.location.").Append(location)
-                .Append(" = external hidden thread_local addrspace(8) global <4 x float>, !spirv.Decorations !")
-                .Append(GetLocationMetadataId(location)).AppendLine();
+        foreach (var entry in _stageLocations
+            .OrderBy(static entry => entry.Key.Input ? 0 : 1)
+            .ThenBy(static entry => entry.Key.Location)) {
+            var key = entry.Key;
+            var addressSpace = key.Input ? 7 : 8;
+            var direction = key.Input ? "input" : "output";
+            module.Append("@sia.").Append(direction).Append(".location.").Append(key.Location)
+                .Append(" = external hidden thread_local addrspace(").Append(addressSpace)
+                .Append(") global ").Append(GetLlvmType(GetScalarType(entry.Value.Type)))
+                .Append(", !spirv.Decorations !")
+                .Append(GetLocationMetadataId(key)).AppendLine();
         }
         if (_readsVertexIndex || _readsInstanceIndex || _readsFragmentPosition ||
-            _writesPosition || _stageInputs.Count != 0 || _stageOutputs.Count != 0) {
+            _readsFrontFacing || _writesPosition ||
+            _writesFragmentDepth || _stageLocations.Count != 0) {
             module.AppendLine();
         }
     }
@@ -954,7 +987,10 @@ public sealed class LlvmIrEmitter
 
     private void EmitLocationMetadata(StringBuilder module)
     {
-        var locations = _stageInputs.Concat(_stageOutputs).Distinct().Order().ToArray();
+        var locations = _stageLocations.Keys
+            .OrderBy(static location => location.Input ? 0 : 1)
+            .ThenBy(static location => location.Location)
+            .ToArray();
         if (locations.Length == 0) {
             return;
         }
@@ -962,37 +998,67 @@ public sealed class LlvmIrEmitter
         module.AppendLine();
         var nextMetadataId = 0;
         foreach (var location in locations) {
+            var decorations = GetInterpolationDecorations(_stageLocations[location]);
             var decorationsId = nextMetadataId++;
             var locationId = nextMetadataId++;
             module.Append('!').Append(decorationsId).Append(" = !{!")
                 .Append(locationId);
-            if (IsFlatLocation(location)) {
-                module.Append(", !").Append(nextMetadataId);
+            for (var index = 0; index < decorations.Length; index++) {
+                module.Append(", !").Append(nextMetadataId + index);
             }
             module.AppendLine("}");
             module.Append('!').Append(locationId).Append(" = !{i32 30, i32 ")
-                .Append(location).AppendLine("}");
-            if (IsFlatLocation(location)) {
-                module.Append('!').Append(nextMetadataId++).AppendLine(" = !{i32 14}");
+                .Append(location.Location).AppendLine("}");
+            foreach (var decoration in decorations) {
+                module.Append('!').Append(nextMetadataId++)
+                    .Append(" = !{i32 ").Append(decoration).AppendLine("}");
             }
         }
     }
 
-    private int GetLocationMetadataId(uint location)
+    private void EmitExecutionModes(string entryPoint, StringBuilder module)
     {
-        var locations = _stageInputs.Concat(_stageOutputs).Distinct().Order().ToArray();
+        if (!_writesFragmentDepth) {
+            return;
+        }
+
+        const int metadataId = 1000000;
+        module.AppendLine();
+        module.Append("!spirv.ExecutionMode = !{!").Append(metadataId).AppendLine("}");
+        module.Append('!').Append(metadataId).Append(" = !{ptr @")
+            .Append(entryPoint).AppendLine(", i32 12}");
+    }
+
+    private int GetLocationMetadataId(StageLocation location)
+    {
+        var locations = _stageLocations.Keys
+            .OrderBy(static candidate => candidate.Input ? 0 : 1)
+            .ThenBy(static candidate => candidate.Location);
         var metadataId = 0;
         foreach (var candidate in locations) {
             if (candidate == location) {
                 return metadataId;
             }
-            metadataId += IsFlatLocation(candidate) ? 3 : 2;
+            metadataId += 2 + GetInterpolationDecorations(_stageLocations[candidate]).Length;
         }
-        throw new InvalidOperationException($"Location {location} was not registered.");
+        throw new InvalidOperationException(
+            $"Stage location {location.Location} was not registered.");
     }
 
-    private bool IsFlatLocation(uint location) =>
-        _flatStageInputs.Contains(location) || _flatStageOutputs.Contains(location);
+    private static int[] GetInterpolationDecorations(StageLocationInfo info)
+    {
+        List<int> decorations = [];
+        if (info.Interpolation == InterpolationMode.Linear) {
+            decorations.Add(13);
+        }
+        else if (info.Interpolation == InterpolationMode.Flat) {
+            decorations.Add(14);
+        }
+        if (info.Sampling == InterpolationSampling.Centroid) {
+            decorations.Add(16);
+        }
+        return [.. decorations];
+    }
 
     private delegate void IntrinsicHandler(
         LlvmIrEmitter emitter,
@@ -1366,6 +1432,7 @@ public sealed class LlvmIrEmitter
     private static string GetStageOutputGlobal(SpirvStageIoField field) => field.Kind switch {
         SpirvStageIoKind.Location => $"@sia.output.location.{field.Location}",
         SpirvStageIoKind.Position => "@__spirv_BuiltInPosition",
+        SpirvStageIoKind.FragmentDepth => "@__spirv_BuiltInFragDepth",
         _ => throw new InvalidDataException($"{field.Kind} is not a stage-output semantic.")
     };
 
@@ -1450,10 +1517,12 @@ public sealed class LlvmIrEmitter
         emitter.EnsureRasterizationStage(kind.ToString(), offset);
         var location = GetConstantIndex(arguments[0], uint.MaxValue, "location", offset);
         var component = GetConstantIndex(arguments[1], 3, "component", offset);
-        emitter._stageInputs.Add(location);
-        if (kind == IntrinsicKind.GetFlatInput) {
-            emitter._flatStageInputs.Add(location);
-        }
+        emitter.RegisterStageLocation(
+            true,
+            location,
+            SpirvScalarType.Float32x4,
+            kind == IntrinsicKind.GetFlatInput ? InterpolationMode.Flat : null,
+            kind == IntrinsicKind.GetFlatInput ? InterpolationSampling.Center : null);
         stack.Push(emitter.EmitInputComponent($"@sia.input.location.{location}", component));
     }
 
@@ -1623,10 +1692,12 @@ public sealed class LlvmIrEmitter
     {
         emitter.EnsureRasterizationStage(kind.ToString(), offset);
         var location = GetConstantIndex(arguments[0], uint.MaxValue, "location", offset);
-        emitter._stageOutputs.Add(location);
-        if (kind == IntrinsicKind.SetFlatOutput) {
-            emitter._flatStageOutputs.Add(location);
-        }
+        emitter.RegisterStageLocation(
+            false,
+            location,
+            SpirvScalarType.Float32x4,
+            kind == IntrinsicKind.SetFlatOutput ? InterpolationMode.Flat : null,
+            kind == IntrinsicKind.SetFlatOutput ? InterpolationSampling.Center : null);
         emitter.EmitOutputVector($"@sia.output.location.{location}", arguments.Skip(1).ToArray(), offset);
     }
 
@@ -3136,6 +3207,7 @@ public sealed class LlvmIrEmitter
     };
 
     private static LlvmValueType GetScalarType(SpirvScalarType type) => type switch {
+        SpirvScalarType.Boolean => LlvmValueType.Boolean,
         SpirvScalarType.Int32 => LlvmValueType.Int32,
         SpirvScalarType.UInt32 => LlvmValueType.UInt32,
         SpirvScalarType.Float32 => LlvmValueType.Float32,
@@ -3759,6 +3831,13 @@ public sealed class LlvmIrEmitter
         int Position,
         LlvmValue Result,
         IReadOnlyList<EvaluationStackEdge> IncomingEdges);
+
+    private readonly record struct StageLocation(bool Input, uint Location);
+
+    private readonly record struct StageLocationInfo(
+        SpirvScalarType Type,
+        InterpolationMode? Interpolation,
+        InterpolationSampling? Sampling);
 
     private static InvalidDataException CreateUnsupported(int offset, string message) =>
         new($"{message} (IL_{offset:x4})");

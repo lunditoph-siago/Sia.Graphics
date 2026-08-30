@@ -21,7 +21,10 @@ public sealed class SpirvFrontend
     private const string k_VertexIndexAttributeName = "Sia.Spirv.VertexIndexAttribute";
     private const string k_InstanceIndexAttributeName = "Sia.Spirv.InstanceIndexAttribute";
     private const string k_FragmentPositionAttributeName = "Sia.Spirv.FragmentPositionAttribute";
+    private const string k_FrontFacingAttributeName = "Sia.Spirv.FrontFacingAttribute";
+    private const string k_FragmentDepthAttributeName = "Sia.Spirv.FragmentDepthAttribute";
     private const string k_FlatAttributeName = "Sia.Spirv.FlatAttribute";
+    private const string k_InterpolateAttributeName = "Sia.Spirv.InterpolateAttribute";
 
     public SpirvFrontendResult Analyze(string assemblyPath)
     {
@@ -318,7 +321,8 @@ public sealed class SpirvFrontend
 
             SpirvStageIoKind? kind = null;
             uint? location = null;
-            var flat = false;
+            InterpolationMode? interpolation = null;
+            InterpolationSampling? sampling = null;
             foreach (var attributeHandle in field.GetCustomAttributes()) {
                 var attribute = reader.GetCustomAttribute(attributeHandle);
                 var attributeName = MetadataNames.GetAttributeTypeName(reader, attribute);
@@ -328,6 +332,8 @@ public sealed class SpirvFrontend
                     k_VertexIndexAttributeName => SpirvStageIoKind.VertexIndex,
                     k_InstanceIndexAttributeName => SpirvStageIoKind.InstanceIndex,
                     k_FragmentPositionAttributeName => SpirvStageIoKind.FragmentPosition,
+                    k_FrontFacingAttributeName => SpirvStageIoKind.FrontFacing,
+                    k_FragmentDepthAttributeName => SpirvStageIoKind.FragmentDepth,
                     _ => (SpirvStageIoKind?)null
                 };
                 if (currentKind != null) {
@@ -343,14 +349,32 @@ public sealed class SpirvFrontend
                     }
                 }
                 else if (attributeName == k_FlatAttributeName) {
-                    flat = true;
+                    if (interpolation != null) {
+                        throw new InvalidDataException(
+                            $"Stage-I/O field '{typeName}.{reader.GetString(field.Name)}' has multiple interpolation attributes.");
+                    }
+                    interpolation = InterpolationMode.Flat;
+                    sampling = InterpolationSampling.Center;
+                }
+                else if (attributeName == k_InterpolateAttributeName) {
+                    if (interpolation != null) {
+                        throw new InvalidDataException(
+                            $"Stage-I/O field '{typeName}.{reader.GetString(field.Name)}' has multiple interpolation attributes.");
+                    }
+                    var value = attribute.DecodeValue(new CustomAttributeTypeProvider());
+                    interpolation = (InterpolationMode)Convert.ToInt32(value.FixedArguments[0].Value);
+                    sampling = (InterpolationSampling)Convert.ToInt32(value.FixedArguments[1].Value);
+                    if (!Enum.IsDefined(interpolation.Value) || !Enum.IsDefined(sampling.Value)) {
+                        throw new InvalidDataException(
+                            $"Stage-I/O field '{typeName}.{reader.GetString(field.Name)}' has invalid interpolation values.");
+                    }
                 }
             }
 
             if (kind == null) {
-                if (flat) {
+                if (interpolation != null) {
                     throw new InvalidDataException(
-                        $"Stage-I/O field '{typeName}.{reader.GetString(field.Name)}' uses Flat without Location.");
+                        $"Stage-I/O field '{typeName}.{reader.GetString(field.Name)}' uses interpolation without Location.");
                 }
                 unannotatedFields.Add(reader.GetString(field.Name));
                 continue;
@@ -361,15 +385,24 @@ public sealed class SpirvFrontend
                 throw new InvalidDataException(
                     $"Stage-I/O field '{typeName}.{reader.GetString(field.Name)}' has unsupported type '{fieldType.Name}'.");
             }
+            if (kind == SpirvStageIoKind.Location &&
+                interpolation == null &&
+                IsIntegerType(scalarType) &&
+                (stage == SpirvShaderStage.Vertex && !input ||
+                 stage == SpirvShaderStage.Fragment && input)) {
+                interpolation = InterpolationMode.Flat;
+                sampling = InterpolationSampling.Center;
+            }
             ValidateStageIoField(typeName, reader.GetString(field.Name), stage, input,
-                kind.Value, scalarType, flat);
+                kind.Value, scalarType, interpolation, sampling);
             fields.Add(new SpirvStageIoField(
                 reader.GetString(field.Name),
                 MetadataTokens.GetToken(fieldHandle),
                 kind.Value,
                 scalarType,
                 location,
-                flat));
+                interpolation,
+                sampling));
         }
 
         if (!hasSemantic) {
@@ -415,7 +448,8 @@ public sealed class SpirvFrontend
         bool input,
         SpirvStageIoKind kind,
         SpirvScalarType type,
-        bool flat)
+        InterpolationMode? interpolation,
+        InterpolationSampling? sampling)
     {
         var validSemantic = (stage, input, kind) switch {
             (SpirvShaderStage.Vertex, true, SpirvStageIoKind.Location or
@@ -423,27 +457,50 @@ public sealed class SpirvFrontend
             (SpirvShaderStage.Vertex, false, SpirvStageIoKind.Location or
                 SpirvStageIoKind.Position) => true,
             (SpirvShaderStage.Fragment, true, SpirvStageIoKind.Location or
-                SpirvStageIoKind.FragmentPosition) => true,
-            (SpirvShaderStage.Fragment, false, SpirvStageIoKind.Location) => true,
+                SpirvStageIoKind.FragmentPosition or SpirvStageIoKind.FrontFacing) => true,
+            (SpirvShaderStage.Fragment, false, SpirvStageIoKind.Location or
+                SpirvStageIoKind.FragmentDepth) => true,
             _ => false
         };
         if (!validSemantic) {
             throw new InvalidDataException(
                 $"Stage-I/O semantic {kind} is invalid on '{typeName}.{fieldName}'.");
         }
-        var expectedType = kind is SpirvStageIoKind.VertexIndex or SpirvStageIoKind.InstanceIndex
-            ? SpirvScalarType.UInt32
-            : SpirvScalarType.Float32x4;
-        if (type != expectedType) {
+        var expectedType = kind switch {
+            SpirvStageIoKind.Position or SpirvStageIoKind.FragmentPosition =>
+                SpirvScalarType.Float32x4,
+            SpirvStageIoKind.VertexIndex or SpirvStageIoKind.InstanceIndex =>
+                SpirvScalarType.UInt32,
+            SpirvStageIoKind.FrontFacing => SpirvScalarType.Boolean,
+            SpirvStageIoKind.FragmentDepth => SpirvScalarType.Float32,
+            _ => (SpirvScalarType?)null
+        };
+        if (expectedType != null && type != expectedType) {
             throw new InvalidDataException(
-                $"Stage-I/O field '{typeName}.{fieldName}' must have type '{expectedType}'.");
+                $"Stage-I/O field '{typeName}.{fieldName}' must have type '{expectedType.Value}'.");
         }
-        if (flat && (kind != SpirvStageIoKind.Location ||
+        if (kind == SpirvStageIoKind.Location && !IsLocationType(type)) {
+            throw new InvalidDataException(
+                $"Stage-I/O location field '{typeName}.{fieldName}' has unsupported type '{type}'.");
+        }
+        if (interpolation != null && (kind != SpirvStageIoKind.Location ||
             stage == SpirvShaderStage.Vertex && input ||
             stage == SpirvShaderStage.Fragment && !input)) {
             throw new InvalidDataException(
-                $"Flat is valid only on vertex-output and fragment-input Location fields, " +
+                $"Interpolation is valid only on vertex-output and fragment-input Location fields, " +
                 $"not '{typeName}.{fieldName}'.");
+        }
+        if (interpolation == InterpolationMode.Flat &&
+            sampling != InterpolationSampling.Center) {
+            throw new InvalidDataException(
+                $"Flat interpolation on '{typeName}.{fieldName}' does not accept a sampling mode.");
+        }
+        if (kind == SpirvStageIoKind.Location && IsIntegerType(type) &&
+            (stage == SpirvShaderStage.Vertex && !input ||
+             stage == SpirvShaderStage.Fragment && input) &&
+            interpolation != InterpolationMode.Flat) {
+            throw new InvalidDataException(
+                $"Integer stage-I/O field '{typeName}.{fieldName}' must use flat interpolation.");
         }
     }
 
@@ -451,7 +508,11 @@ public sealed class SpirvFrontend
         DecodeBufferElementType(MetadataReader reader, KernelType type)
     {
         if (TryDecodeScalarType(type, out var scalarType)) {
-            return (scalarType, null);
+            if (IsHostShareableType(scalarType)) {
+                return (scalarType, null);
+            }
+            throw new InvalidDataException(
+                $"Storage-buffer element type '{type.Name}' is not host-shareable.");
         }
         return (SpirvScalarType.Struct, DecodeStructLayout(reader, type.Name));
     }
@@ -479,13 +540,14 @@ public sealed class SpirvFrontend
                 continue;
             }
             var fieldType = field.DecodeSignature(new KernelTypeProvider(), genericContext: null);
-            if (!TryDecodeScalarType(fieldType, out var scalarType)) {
+            if (!TryDecodeScalarType(fieldType, out var scalarType) ||
+                !IsHostShareableType(scalarType)) {
                 throw new InvalidDataException(
                     $"Storage-buffer struct field '{typeName}.{reader.GetString(field.Name)}' " +
                     $"has unsupported type '{fieldType.Name}'.");
             }
-            var alignment = GetTypeAlignment(scalarType);
-            var size = GetTypeSize(scalarType);
+            var alignment = SpirvTypeLayout.GetAlignment(scalarType);
+            var size = SpirvTypeLayout.GetSize(scalarType);
             offset = AlignUp(offset, alignment);
             fields.Add(new SpirvStructField(
                 reader.GetString(field.Name), scalarType, offset, alignment, size));
@@ -520,6 +582,7 @@ public sealed class SpirvFrontend
     private static bool TryDecodeScalarType(KernelType type, out SpirvScalarType scalarType)
     {
         scalarType = type.Name switch {
+            "System.Boolean" => SpirvScalarType.Boolean,
             "System.Int32" => SpirvScalarType.Int32,
             "System.UInt32" => SpirvScalarType.UInt32,
             "System.Single" => SpirvScalarType.Float32,
@@ -537,18 +600,16 @@ public sealed class SpirvFrontend
         return scalarType != SpirvScalarType.Struct;
     }
 
-    private static int GetTypeAlignment(SpirvScalarType type) => type switch {
-        SpirvScalarType.Int32 or SpirvScalarType.UInt32 or SpirvScalarType.Float32 => 4,
-        SpirvScalarType.Int32x2 or SpirvScalarType.UInt32x2 or SpirvScalarType.Float32x2 => 8,
-        _ => 16
-    };
+    private static bool IsLocationType(SpirvScalarType type) =>
+        type != SpirvScalarType.Boolean && type != SpirvScalarType.Struct;
 
-    private static int GetTypeSize(SpirvScalarType type) => type switch {
-        SpirvScalarType.Int32 or SpirvScalarType.UInt32 or SpirvScalarType.Float32 => 4,
-        SpirvScalarType.Int32x2 or SpirvScalarType.UInt32x2 or SpirvScalarType.Float32x2 => 8,
-        SpirvScalarType.Int32x3 or SpirvScalarType.UInt32x3 or SpirvScalarType.Float32x3 => 12,
-        _ => 16
-    };
+    private static bool IsIntegerType(SpirvScalarType type) => type is
+        SpirvScalarType.Int32 or SpirvScalarType.UInt32 or
+        SpirvScalarType.Int32x2 or SpirvScalarType.Int32x3 or SpirvScalarType.Int32x4 or
+        SpirvScalarType.UInt32x2 or SpirvScalarType.UInt32x3 or SpirvScalarType.UInt32x4;
+
+    private static bool IsHostShareableType(SpirvScalarType type) =>
+        type != SpirvScalarType.Boolean && type != SpirvScalarType.Struct;
 
     private static int AlignUp(int value, int alignment) =>
         checked((value + alignment - 1) / alignment * alignment);

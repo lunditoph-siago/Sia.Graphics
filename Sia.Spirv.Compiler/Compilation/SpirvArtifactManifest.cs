@@ -48,6 +48,8 @@ internal sealed record SpirvManifestStageIo(
     string Semantic,
     string Type,
     uint? Location,
-    bool Flat);
+    bool Flat,
+    string? Interpolation,
+    string? Sampling);
 
 internal sealed record SpirvManifestToolchain(string Llvm, string SpirvTools, string? Naga);

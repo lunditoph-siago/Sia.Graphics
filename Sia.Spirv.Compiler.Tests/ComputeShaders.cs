@@ -17,6 +17,18 @@ internal static class ComputeShaders
         }
     }
 
+    internal struct PackedParticle
+    {
+        public float3 Position;
+        public uint Id;
+
+        public PackedParticle(float3 position, uint id)
+        {
+            Position = position;
+            Id = id;
+        }
+    }
+
     [SpirvKernel(8, 4, 2)]
     public static void Synchronize(
         StorageBuffer<float> values,
@@ -68,6 +80,15 @@ internal static class ComputeShaders
     public static void CopyStructs(
         ReadOnlyStorageBuffer<Particle> source,
         StorageBuffer<Particle> destination)
+    {
+        var index = Gpu.GlobalInvocationId.X;
+        destination[index] = source[index];
+    }
+
+    [SpirvKernel(64)]
+    public static void CopyPackedStructs(
+        ReadOnlyStorageBuffer<PackedParticle> source,
+        StorageBuffer<PackedParticle> destination)
     {
         var index = Gpu.GlobalInvocationId.X;
         destination[index] = source[index];

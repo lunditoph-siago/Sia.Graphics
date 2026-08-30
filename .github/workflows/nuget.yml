@@ -459,6 +459,56 @@ jobs:
             Sia.Spirv.Naga/target
           key: sia-spirv-naga-browser-${{ hashFiles('Sia.Spirv.Naga/Cargo.lock') }}
 
+      - name: Cache wgpu browser archive
+        id: wgpu-browser-cache
+        uses: actions/cache@v6
+        with:
+          path: Sia.WebGPU.Native/runtimes/browser-wasm/native/libwgpu_native.a
+          key: wgpu-browser-archive-${{ hashFiles(
+            'Sia.WebGPU.Native/ports/siawebgpu/BuildWGPU.sh',
+            'Sia.WebGPU.Native/ports/siawebgpu/wgpu-native-v29.0.1.1-emscripten.patch') }}
+
+      - name: Install Rust nightly for wgpu-native
+        if: steps.wgpu-browser-cache.outputs.cache-hit != 'true'
+        run: |
+          rustup toolchain install nightly --profile minimal
+          rustup component add rust-src --toolchain nightly
+          rustup target add wasm32-unknown-emscripten --toolchain nightly
+
+      - name: Install libclang
+        if: steps.wgpu-browser-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libclang-dev
+          libclang_dir=$(dirname "$(find /usr/lib -name 'libclang-*.so*' \
+            -o -name 'libclang.so*' 2>/dev/null | head -n1)")
+          echo "LIBCLANG_PATH=$libclang_dir" >> "$GITHUB_ENV"
+
+      - name: Install Emscripten
+        if: steps.wgpu-browser-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          git clone --quiet --depth 1 \
+            https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          cd "$RUNNER_TEMP/emsdk"
+          ./emsdk install latest
+          ./emsdk activate latest
+          echo "EMSDK=$RUNNER_TEMP/emsdk" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/emsdk" >> "$GITHUB_PATH"
+          echo "$RUNNER_TEMP/emsdk/upstream/emscripten" >> "$GITHUB_PATH"
+          node_bin=$(dirname "$(find "$RUNNER_TEMP/emsdk/node" -maxdepth 2 -name node -type f | head -n1)")
+          echo "$node_bin" >> "$GITHUB_PATH"
+
+      - name: Build wgpu browser archive
+        if: steps.wgpu-browser-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          printf 'int main(){return 0;}' > /tmp/sysroot-probe.c
+          emcc /tmp/sysroot-probe.c -o /tmp/sysroot-probe.js
+          export EMSCRIPTEN_SYSROOT="$EMSDK/upstream/emscripten/cache/sysroot"
+          ./Sia.WebGPU.Native/ports/siawebgpu/BuildWGPU.sh \
+            Sia.WebGPU.Native/runtimes/browser-wasm/native/libwgpu_native.a
+
       - name: Pack managed packages
         shell: pwsh
         run: |

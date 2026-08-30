@@ -38,6 +38,26 @@ jobs:
       - name: Restore WebAssembly workload
         run: dotnet workload restore "$EXAMPLES_PROJECT"
 
+      - name: Fetch published wgpu browser archive
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/fetch-wgpu-native.csproj" <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net10.0</TargetFramework>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="Sia.WebGPU.Native" Version="*" />
+            </ItemGroup>
+          </Project>
+          EOF
+          dotnet restore "$RUNNER_TEMP/fetch-wgpu-native.csproj" \
+            --packages "$RUNNER_TEMP/fetch-wgpu-native-packages"
+          archive=$(find "$RUNNER_TEMP/fetch-wgpu-native-packages/sia.webgpu.native" \
+            -path "*/runtimes/browser-wasm/native/libwgpu_native.a" | head -n1)
+          mkdir -p Sia.WebGPU.Native/runtimes/browser-wasm/native
+          cp "$archive" Sia.WebGPU.Native/runtimes/browser-wasm/native/libwgpu_native.a
+
       - name: Restore solution
         run: dotnet restore "$SOLUTION"
 

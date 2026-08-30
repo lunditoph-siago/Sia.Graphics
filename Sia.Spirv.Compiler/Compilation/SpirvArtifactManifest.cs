@@ -14,7 +14,8 @@ internal sealed record SpirvArtifactManifest(
     SpirvManifestToolchain Toolchain,
     string SourceHash,
     string KernelAbi,
-    string ShaderStage);
+    string ShaderStage,
+    string? LlvmPasses = null);
 
 internal sealed record SpirvManifestWorkgroupSize(uint X, uint Y, uint Z);
 

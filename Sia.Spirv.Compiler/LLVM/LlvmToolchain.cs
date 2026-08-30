@@ -50,13 +50,16 @@ public sealed class LlvmToolchain
             "The Sia SPIR-V LLVM toolchain was not found. Set SIA_SPIRV_TOOLCHAIN or pass ToolchainDirectory.");
     }
 
-    public void Optimize(string inputPath, string outputPath, int optimizationLevel)
+    public void Optimize(
+        string inputPath,
+        string outputPath,
+        int optimizationLevel,
+        string? optimizationPasses = null)
     {
         ValidateOptimizationLevel(optimizationLevel);
-        var passes = optimizationLevel == 0 || ContainsNativeAtomics(inputPath)
-            ? "mem2reg,structurizecfg,simplifycfg"
-            : "mem2reg,structurizecfg,simplifycfg,early-cse,sccp,adce," +
-              "simplifycfg";
+        var passes = string.IsNullOrWhiteSpace(optimizationPasses)
+            ? GetDefaultPasses(inputPath, optimizationLevel)
+            : ValidatePasses(optimizationPasses);
         Run(
             ToolName("opt"),
             "-S",
@@ -64,6 +67,22 @@ public sealed class LlvmToolchain
             inputPath,
             "-o",
             outputPath);
+    }
+
+    private static string GetDefaultPasses(string inputPath, int optimizationLevel) =>
+        optimizationLevel == 0 || ContainsNativeAtomics(inputPath)
+            ? "sroa,mem2reg,structurizecfg,simplifycfg"
+            : "sroa,mem2reg,structurizecfg,simplifycfg,early-cse,sccp,adce," +
+              "simplifycfg";
+
+    private static string ValidatePasses(string passes)
+    {
+        if (passes.Any(char.IsControl)) {
+            throw new ArgumentException(
+                "LLVM pass pipelines must not contain control characters.",
+                nameof(passes));
+        }
+        return passes.Trim();
     }
 
     public void Compile(

@@ -88,7 +88,11 @@ public sealed class SpirvCompiler
             var module = new LlvmIrEmitter().Emit(assemblyPath, kernel, options.KernelAbi);
             File.WriteAllText(rawLlvmPath, module.Text, new UTF8Encoding(false));
             try {
-                toolchain.Optimize(rawLlvmPath, llvmPath, options.OptimizationLevel);
+                toolchain.Optimize(
+                    rawLlvmPath,
+                    llvmPath,
+                    options.OptimizationLevel,
+                    options.LlvmPasses);
                 toolchain.Compile(
                     llvmPath,
                     spirvPath,
@@ -260,7 +264,8 @@ public sealed class SpirvCompiler
             new SpirvManifestToolchain(llvmVersion, spirvToolsVersion, nagaVersion),
             sourceHash,
             options.KernelAbi == SpirvKernelAbi.WebGpu ? "webgpu" : "vulkan",
-            kernel.Stage.ToString().ToLowerInvariant());
+            kernel.Stage.ToString().ToLowerInvariant(),
+            options.LlvmPasses);
     }
 
     private static SpirvManifestStageIo CreateManifestStageIo(SpirvStageIoField field) =>
@@ -328,6 +333,7 @@ public sealed class SpirvCompiler
             options.KernelAbi,
             options.EmitWgsl,
             options.OptimizationLevel,
+            options.LlvmPasses,
             options.EmitLlvmIr,
             llvmVersion,
             spirvToolsVersion,

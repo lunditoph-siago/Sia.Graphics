@@ -12,4 +12,5 @@ public sealed record SpirvArtifactManifest(
     SpirvToolchainInfo Toolchain,
     string SourceHash,
     string KernelAbi = "vulkan",
-    string ShaderStage = "compute");
+    string ShaderStage = "compute",
+    string? LlvmPasses = null);

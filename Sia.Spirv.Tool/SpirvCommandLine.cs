@@ -20,6 +20,14 @@ internal static class SpirvCommandLine
             var values = ParseOptions(args.Skip(1).ToArray());
             var assemblyPath = GetRequired(values, "assembly");
             var outputPath = GetRequired(values, "output");
+            var passes = values.GetValueOrDefault("passes");
+            var passesFile = values.GetValueOrDefault("passes-json");
+            if (passes != null && passesFile != null) {
+                throw new ArgumentException("Options '--passes' and '--passes-json' cannot be combined.");
+            }
+            if (passesFile != null) {
+                passes = SpirvPassConfiguration.Load(passesFile).LlvmPasses;
+            }
             var options = new SpirvCompilationOptions {
                 ToolchainDirectory = values.GetValueOrDefault("toolchain"),
                 TargetEnvironment = values.GetValueOrDefault("target") ?? "vulkan1.2",
@@ -28,6 +36,7 @@ internal static class SpirvCommandLine
                 OptimizationLevel = int.Parse(
                     values.GetValueOrDefault("optimization") ?? "2",
                     System.Globalization.CultureInfo.InvariantCulture),
+                LlvmPasses = passes,
                 EmitLlvmIr = !values.ContainsKey("no-llvm-ir")
             };
             var artifacts = new SpirvCompiler().CompileAssembly(
@@ -106,6 +115,7 @@ internal static class SpirvCommandLine
             "Usage: sia-spirv compile --assembly <path> --output <directory> " +
             "[--toolchain <directory>] [--target vulkan1.2|vulkan1.3] " +
             "[--abi vulkan|webgpu] [--emit-wgsl] " +
-            "[--optimization 0..3] [--no-llvm-ir]");
+            "[--optimization 0..3] [--passes <pipeline>] [--passes-json <path>] " +
+            "[--no-llvm-ir]");
     }
 }

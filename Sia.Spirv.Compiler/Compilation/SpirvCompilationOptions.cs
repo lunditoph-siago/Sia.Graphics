@@ -12,5 +12,7 @@ public sealed record SpirvCompilationOptions
 
     public int OptimizationLevel { get; init; } = 2;
 
+    public string? LlvmPasses { get; init; }
+
     public bool EmitLlvmIr { get; init; } = true;
 }

@@ -7,7 +7,7 @@
     <Description>Pre-built native wgpu library for all platforms.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/gfx-rs/wgpu-native</RepositoryUrl>
-    <WgpuReleaseTag>v29.0.0.0</WgpuReleaseTag>
+    <WgpuReleaseTag>v29.0.1.1</WgpuReleaseTag>
     <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);FetchWgpuBinaries</TargetsForTfmSpecificContentInPackage>
   </PropertyGroup>
 

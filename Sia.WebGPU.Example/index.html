@@ -109,6 +109,38 @@
             border-color: #e8e8e8;
         }
 
+        #bar label {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            color: #999;
+            font-size: 11px;
+            letter-spacing: .5px;
+        }
+
+        #bar select {
+            background: #000;
+            color: #999;
+            border: 1px solid #444;
+            border-radius: 2px;
+            padding: 3px 6px;
+            font: inherit;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        #bar input {
+            width: 48px;
+            box-sizing: border-box;
+            background: #000;
+            color: #999;
+            border: 1px solid #444;
+            border-radius: 2px;
+            padding: 3px 5px;
+            font: inherit;
+            font-size: 11px;
+        }
+
         #stage {
             position: fixed;
             inset: 0;
@@ -165,16 +197,66 @@
     <div id="bar">
         <button id="btn-dawn" type="button">DAWN</button>
         <button id="btn-wgpu" type="button">WGPU</button>
+        <label for="render-scale">SCALE
+            <input id="render-scale" type="number" min="1" max="3" step="0.25" value="1" />×
+        </label>
     </div>
     <div id="stage"></div>
     <script type="module">
         const KEY = 'sia-webgpu-backend';
+        const SCALE_KEY = 'sia-webgpu-render-scale';
+        const MAX_MANUAL_SCALE = 3;
+        const MAX_AUTO_SCALE = 3;
         const boot = document.getElementById('boot');
         const log = document.getElementById('log');
         const bar = document.getElementById('bar');
         const stage = document.getElementById('stage');
         const btnDawn = document.getElementById('btn-dawn');
         const btnWgpu = document.getElementById('btn-wgpu');
+        const renderScale = document.getElementById('render-scale');
+        let mountedBackend = null;
+
+        const round2 = (n) => Math.round(n * 100) / 100;
+
+        function computeScale(savedValue) {
+            if (savedValue) {
+                const manualScale = Number(savedValue);
+                if (Number.isFinite(manualScale)) {
+                    return Math.min(MAX_MANUAL_SCALE, Math.max(1, manualScale));
+                }
+            }
+
+            const width = Math.max(1, stage.clientWidth || window.innerWidth || 1);
+            const height = Math.max(1, stage.clientHeight || window.innerHeight || 1);
+            const screenWidth = Math.max(1, window.screen?.width || width);
+            const screenHeight = Math.max(1, window.screen?.height || height);
+            const dpr = Number.isFinite(window.devicePixelRatio)
+                ? Math.max(1, window.devicePixelRatio)
+                : 1;
+            const widthScale = screenWidth * dpr / width;
+            const heightScale = screenHeight * dpr / height;
+            return Math.min(MAX_AUTO_SCALE, Math.max(1, Math.min(widthScale, heightScale)));
+        }
+
+        function layoutFrame() {
+            const frame = stage.querySelector('iframe');
+            if (!frame) return;
+            const scale = computeScale(localStorage.getItem(SCALE_KEY));
+            const w = Math.max(1, Math.round(stage.clientWidth));
+            const h = Math.max(1, Math.round(stage.clientHeight));
+            frame.style.position = 'absolute';
+            frame.style.top = '0';
+            frame.style.left = '0';
+            frame.style.width = `${Math.round(w * scale)}px`;
+            frame.style.height = `${Math.round(h * scale)}px`;
+            frame.style.transformOrigin = 'top left';
+            frame.style.transform = `scale(${1 / scale})`;
+            if (document.activeElement !== renderScale) {
+                renderScale.value = round2(scale);
+            }
+        }
+
+        renderScale.value = round2(computeScale(localStorage.getItem(SCALE_KEY)));
 
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const pad = (s) => s.padEnd(5);
@@ -256,6 +338,7 @@
         }
 
         function mount(backend) {
+            mountedBackend = backend;
             stage.replaceChildren();
             btnDawn.classList.toggle('active', backend === 'dawn');
             btnWgpu.classList.toggle('active', backend === 'wgpu');
@@ -270,6 +353,7 @@
                 frame.title = 'Sia.WebGPU Example';
                 frame.src = `${backend}/wwwroot/index.html`;
                 stage.appendChild(frame);
+                layoutFrame();
             }
             stage.classList.add('visible');
         }
@@ -301,6 +385,21 @@
 
         btnDawn.addEventListener('click', () => void run('dawn'));
         btnWgpu.addEventListener('click', () => void run('wgpu'));
+        renderScale.addEventListener('change', () => {
+            const value = Number(renderScale.value);
+            if (!Number.isFinite(value)) {
+                return;
+            }
+            const clamped = Math.min(MAX_MANUAL_SCALE, Math.max(1, value));
+            renderScale.value = clamped;
+            localStorage.setItem(SCALE_KEY, String(clamped));
+            layoutFrame();
+        });
+        window.addEventListener('resize', () => {
+            if (mountedBackend !== null) {
+                layoutFrame();
+            }
+        });
 
         const saved = localStorage.getItem(KEY);
         void run(saved === 'dawn' || saved === 'wgpu' ? saved : null);

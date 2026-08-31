@@ -30,6 +30,7 @@ internal static class CornellBoxPathTracerShaders
         float resolutionX,
         float resolutionY,
         float frame,
+        float padding,
         float sampleCount,
         float bounceLimit,
         float aperture,
@@ -566,18 +567,18 @@ internal static class CornellBoxPathTracerShaders
         var averageY = sampleSumY / sampleDivisor;
         var averageZ = sampleSumZ / sampleDivisor;
 
-        var previousX = 0.0f;
-        var previousY = 0.0f;
-        var previousZ = 0.0f;
+        var accumulatedX = averageX;
+        var accumulatedY = averageY;
+        var accumulatedZ = averageZ;
         if (frame > 0.0f) {
-            previousX = previousAccumulation.Load((int)pixelX, (int)pixelY, 0);
-            previousY = previousAccumulation.Load((int)pixelX, (int)pixelY, 1);
-            previousZ = previousAccumulation.Load((int)pixelX, (int)pixelY, 2);
+            var previousX = previousAccumulation.Load((int)pixelX, (int)pixelY, 0);
+            var previousY = previousAccumulation.Load((int)pixelX, (int)pixelY, 1);
+            var previousZ = previousAccumulation.Load((int)pixelX, (int)pixelY, 2);
+            var sampleWeight = 1.0f / (frame + 1.0f);
+            accumulatedX = previousX + (averageX - previousX) * sampleWeight;
+            accumulatedY = previousY + (averageY - previousY) * sampleWeight;
+            accumulatedZ = previousZ + (averageZ - previousZ) * sampleWeight;
         }
-
-        var accumulatedX = (previousX * frame + averageX) / (frame + 1.0f);
-        var accumulatedY = (previousY * frame + averageY) / (frame + 1.0f);
-        var accumulatedZ = (previousZ * frame + averageZ) / (frame + 1.0f);
 
         Gpu.SetOutput(0, accumulatedX, accumulatedY, accumulatedZ, 1.0f);
     }
@@ -596,6 +597,7 @@ internal static class CornellBoxPathTracerShaders
         float resolutionX,
         float resolutionY,
         float frame,
+        float padding,
         float sampleCount,
         float bounceLimit,
         float aperture,

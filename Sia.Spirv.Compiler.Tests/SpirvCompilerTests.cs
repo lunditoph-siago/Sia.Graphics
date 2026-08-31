@@ -59,6 +59,13 @@ public sealed class SpirvCompilerTests
         if (artifact.Kernel.QualifiedName ==
             $"{typeof(ComputeShaders).FullName}.{nameof(ComputeShaders.Synchronize)}") {
             Assert.Contains("workgroupBarrier();", wgsl);
+            Assert.Contains("var<uniform>", wgsl);
+            var parameterResource = Assert.Single(
+                manifestRoot.GetProperty("resources").EnumerateArray(),
+                static resource => resource.GetProperty("name").GetString() == "sia.parameters");
+            Assert.Equal("uniform-buffer", parameterResource.GetProperty("kind").GetString());
+            Assert.Equal(16, parameterResource.GetProperty("alignment").GetInt32());
+            Assert.Equal(16, parameterResource.GetProperty("size").GetInt32());
         }
 
         if (artifact.Kernel.QualifiedName ==

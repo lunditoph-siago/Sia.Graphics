@@ -14,9 +14,13 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private const int k_InitialWidth = 1280;
     private const int k_InitialHeight = 720;
     private const int k_UniformSize = 80;
-    private const WGPUTextureFormat k_AccumulationFormat = WGPUTextureFormat.RGBA32Float;
+    private const WGPUTextureFormat k_AccumulationFormat = WGPUTextureFormat.RGBA16Float;
     private const string k_RasterShaderArtifactName =
         "Sia.WebGPU.Example.CornellBoxRasterShaders.FullscreenVertex";
+    private const string k_PathShaderArtifactName =
+        "Sia.WebGPU.Example.CornellBoxPathTracerShaders.PathFragment";
+    private const string k_PresentShaderArtifactName =
+        "Sia.WebGPU.Example.CornellBoxPathTracerShaders.PresentFragment";
 
     private readonly WgpuHandle<WGPUTexture>[] _accumulationTextures = new WgpuHandle<WGPUTexture>[2];
     private readonly HashSet<Key> _pressedKeys = [];
@@ -34,6 +38,8 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private WgpuHandle<WGPURenderPipeline> _presentationPipeline;
 #if BROWSER
     private byte[]? _browserVertexSpirv;
+    private byte[]? _browserPathSpirv;
+    private byte[]? _browserPresentSpirv;
 #endif
 
     private WGPUTextureFormat _surfaceFormat;
@@ -265,6 +271,38 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private void CreatePipelines()
     {
         var entries = stackalloc WGPUBindGroupLayoutEntry[2];
+#if BROWSER
+        entries[0] = new WGPUBindGroupLayoutEntry {
+            NextInChain = null,
+            Binding = 0,
+            Visibility = WGPUShaderStage.Fragment,
+            BindingArraySize = 0,
+            Buffer = default,
+            Sampler = default,
+            Texture = new WGPUTextureBindingLayout {
+                NextInChain = null,
+                SampleType = WGPUTextureSampleType.UnfilterableFloat,
+                ViewDimension = WGPUTextureViewDimension._2D,
+                Multisampled = 0,
+            },
+            StorageTexture = default,
+        };
+        entries[1] = new WGPUBindGroupLayoutEntry {
+            NextInChain = null,
+            Binding = 1,
+            Visibility = WGPUShaderStage.Fragment,
+            BindingArraySize = 0,
+            Buffer = new WGPUBufferBindingLayout {
+                NextInChain = null,
+                Type = WGPUBufferBindingType.Uniform,
+                HasDynamicOffset = 0,
+                MinBindingSize = k_UniformSize,
+            },
+            Sampler = default,
+            Texture = default,
+            StorageTexture = default,
+        };
+#else
         entries[0] = new WGPUBindGroupLayoutEntry {
             NextInChain = null,
             Binding = 0,
@@ -295,6 +333,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             },
             StorageTexture = default,
         };
+#endif
 
         var bindGroupLayoutDescriptor = new WGPUBindGroupLayoutDescriptor {
             NextInChain = null,
@@ -315,11 +354,16 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         };
         _pipelineLayout = Wgpu.CreatePipelineLayout(_device, in pipelineLayoutDescriptor);
 
+        var vertexShader = default(WgpuHandle<WGPUShaderModule>);
+#if BROWSER
+        var pathFragmentShader = default(WgpuHandle<WGPUShaderModule>);
+        var presentFragmentShader = default(WgpuHandle<WGPUShaderModule>);
+#else
         var fragmentShader = Wgpu.CreateWgslShaderModule(
             _device,
             CornellBoxShaders.Source,
             "Cornell Box path tracer");
-        var vertexShader = default(WgpuHandle<WGPUShaderModule>);
+#endif
         try {
 #if BROWSER
             vertexShader = Wgpu.CreateSpirvShaderModule(
@@ -327,17 +371,27 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
                 _browserVertexSpirv ?? throw new InvalidOperationException(
                     "The browser SPIR-V shader was not loaded."),
                 "C# full-screen vertex shader");
+            pathFragmentShader = Wgpu.CreateSpirvShaderModule(
+                _device,
+                _browserPathSpirv ?? throw new InvalidOperationException(
+                    "The browser path-tracing SPIR-V shader was not loaded."),
+                "C# Cornell Box path tracer");
+            presentFragmentShader = Wgpu.CreateSpirvShaderModule(
+                _device,
+                _browserPresentSpirv ?? throw new InvalidOperationException(
+                    "The browser presentation SPIR-V shader was not loaded."),
+                "C# Cornell Box presentation shader");
             _pathPipeline = CreateRenderPipeline(
                 vertexShader,
                 nameof(CornellBoxRasterShaders.FullscreenVertex),
-                fragmentShader,
-                "path_main",
+                pathFragmentShader,
+                nameof(CornellBoxPathTracerShaders.PathFragment),
                 k_AccumulationFormat);
             _presentationPipeline = CreateRenderPipeline(
                 vertexShader,
                 nameof(CornellBoxRasterShaders.FullscreenVertex),
-                fragmentShader,
-                "present_main",
+                presentFragmentShader,
+                nameof(CornellBoxPathTracerShaders.PresentFragment),
                 _surfaceFormat);
 #else
             vertexShader = CreateCSharpVertexShader();
@@ -357,7 +411,12 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         }
         finally {
             Wgpu.Release(ref vertexShader);
+#if BROWSER
+            Wgpu.Release(ref pathFragmentShader);
+            Wgpu.Release(ref presentFragmentShader);
+#else
             Wgpu.Release(ref fragmentShader);
+#endif
         }
     }
 
@@ -494,6 +553,26 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         WgpuHandle<WGPUTextureView> textureView)
     {
         var entries = stackalloc WGPUBindGroupEntry[2];
+#if BROWSER
+        entries[0] = new WGPUBindGroupEntry {
+            NextInChain = null,
+            Binding = 0,
+            Buffer = null,
+            Offset = 0,
+            Size = 0,
+            Sampler = null,
+            TextureView = Pointer(textureView),
+        };
+        entries[1] = new WGPUBindGroupEntry {
+            NextInChain = null,
+            Binding = 1,
+            Buffer = Pointer(_uniformBuffer),
+            Offset = 0,
+            Size = k_UniformSize,
+            Sampler = null,
+            TextureView = null,
+        };
+#else
         entries[0] = new WGPUBindGroupEntry {
             NextInChain = null,
             Binding = 0,
@@ -512,6 +591,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             Sampler = null,
             TextureView = Pointer(textureView),
         };
+#endif
         var descriptor = new WGPUBindGroupDescriptor {
             NextInChain = null,
             Label = default,

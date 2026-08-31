@@ -71,8 +71,13 @@ internal sealed partial class CornellBoxApp
 
         _device = await Wgpu.RequestDeviceAsync(_adapter);
         _queue = Wgpu.GetQueue(_device);
-        _browserVertexSpirv = Convert.FromBase64String(
-            await LoadBinaryBase64($"spirv/{k_RasterShaderArtifactName}.spv"));
+        var vertexSpirvTask = LoadBinaryBase64($"spirv/{k_RasterShaderArtifactName}.spv");
+        var pathSpirvTask = LoadBinaryBase64($"spirv/{k_PathShaderArtifactName}.spv");
+        var presentSpirvTask = LoadBinaryBase64($"spirv/{k_PresentShaderArtifactName}.spv");
+        await Task.WhenAll(vertexSpirvTask, pathSpirvTask, presentSpirvTask);
+        _browserVertexSpirv = Convert.FromBase64String(await vertexSpirvTask);
+        _browserPathSpirv = Convert.FromBase64String(await pathSpirvTask);
+        _browserPresentSpirv = Convert.FromBase64String(await presentSpirvTask);
 
         CreateUniformBuffer();
         CreatePipelines();

@@ -59,7 +59,7 @@ internal sealed partial class CornellBoxApp
                 Resizable: true),
             new GlfwWindowOptions(ClientApi.NoApi));
 
-        _instance = Wgpu.CreateSpirvInstance();
+        _instance = Wgpu.CreateInstance();
         _surface = CreateSurface(_instance, _window);
 
         _adapter = await RequestBrowserAdapterAsync();
@@ -71,8 +71,6 @@ internal sealed partial class CornellBoxApp
 
         _device = await Wgpu.RequestDeviceAsync(_adapter);
         _queue = Wgpu.GetQueue(_device);
-        _browserVertexSpirv = Convert.FromBase64String(
-            await LoadBinaryBase64($"spirv/{k_RasterShaderArtifactName}.spv"));
 
         CreateUniformBuffer();
         CreatePipelines();
@@ -98,10 +96,6 @@ internal sealed partial class CornellBoxApp
 
     [JSImport("getCanvasHeight", "main.js")]
     private static partial int GetCanvasHeight();
-
-    [JSImport("loadBinaryBase64", "main.js")]
-    [return: JSMarshalAs<JSType.Promise<JSType.String>>]
-    private static partial Task<string> LoadBinaryBase64(string path);
 
     private async Task<WgpuHandle<WGPUAdapter>> RequestBrowserAdapterAsync()
     {

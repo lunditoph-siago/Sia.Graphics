@@ -6,21 +6,35 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SIA//WEBGPU</title>
     <style>
-        html,
-        body {
+        :root {
+            --bg: #000;
+            --fg: #e8e8e8;
+            --fg-bright: #fff;
+            --muted: #999;
+            --dim: #777;
+            --border: #444;
+            --border-soft: #222;
+            --mono: "Consolas", "SF Mono", "Cascadia Code", "Courier New", monospace;
+        }
+
+        html, body {
             width: 100%;
             height: 100%;
             margin: 0;
             overflow: hidden;
-            background: #000;
-            font-family: "Consolas", "SF Mono", "Cascadia Code", "Courier New", monospace;
+            background: var(--bg);
+            font-family: var(--mono);
+        }
+        body {
+            display: flex;
+            flex-direction: column;
         }
 
         #boot {
             position: fixed;
             inset: 0;
-            background: #000;
-            color: #e8e8e8;
+            background: var(--bg);
+            color: var(--fg);
             padding: 28px 32px;
             overflow-y: auto;
             font-size: 14px;
@@ -28,164 +42,134 @@
             white-space: pre-wrap;
             z-index: 20;
             transition: opacity .35s, transform .35s;
-        }
-
-        #boot.collapsed {
-            opacity: 0;
-            transform: translateY(-8px);
-            pointer-events: none;
-        }
-
-        .tag {
-            color: #e8e8e8;
-        }
-
-        .fail .tag {
-            background: #e8e8e8;
-            color: #000;
-        }
-
-        .dim {
-            color: #777;
-        }
-
-        .cursor {
-            display: inline-block;
-            width: .55em;
-            height: 1em;
-            background: #e8e8e8;
-            vertical-align: text-bottom;
-            animation: blink .9s steps(1) infinite;
-        }
-
-        @keyframes blink {
-
-            0%,
-            49% {
-                opacity: 1
+            &.collapsed {
+                opacity: 0;
+                transform: translateY(-8px);
+                pointer-events: none;
             }
-
-            50%,
-            100% {
-                opacity: 0
+            .tag {
+                color: var(--fg);
+            }
+            .fail .tag {
+                background: var(--fg);
+                color: var(--bg);
+            }
+            .dim {
+                color: var(--dim);
+            }
+            .cursor {
+                display: inline-block;
+                width: .55em;
+                height: 1em;
+                background: var(--fg);
+                vertical-align: text-bottom;
+                animation: blink .9s steps(1) infinite;
+            }
+        }
+        @keyframes blink {
+            0%, 49% {
+                opacity: 1;
+            }
+            50%, 100% {
+                opacity: 0;
             }
         }
 
         #bar {
-            position: fixed;
-            top: 10px;
-            left: 10px;
+            flex: none;
             display: flex;
-            gap: 6px;
-            z-index: 10;
-            transform: translateY(-140%);
-            transition: transform .3s;
-        }
-
-        #bar.visible {
-            transform: translateY(0);
-        }
-
-        #bar button {
-            background: #000;
-            color: #999;
-            border: 1px solid #444;
-            border-radius: 2px;
-            padding: 3px 9px;
-            font: inherit;
-            font-size: 11px;
-            letter-spacing: .5px;
-            cursor: pointer;
-        }
-
-        #bar button:hover {
-            color: #fff;
-            border-color: #888;
-        }
-
-        #bar button.active {
-            color: #000;
-            background: #e8e8e8;
-            border-color: #e8e8e8;
-        }
-
-        #bar label {
-            display: inline-flex;
             align-items: center;
-            gap: 5px;
-            color: #999;
-            font-size: 11px;
-            letter-spacing: .5px;
-        }
-
-        #bar select {
-            background: #000;
-            color: #999;
-            border: 1px solid #444;
-            border-radius: 2px;
-            padding: 3px 6px;
-            font: inherit;
-            font-size: 11px;
-            cursor: pointer;
-        }
-
-        #bar input {
-            width: 48px;
-            box-sizing: border-box;
-            background: #000;
-            color: #999;
-            border: 1px solid #444;
-            border-radius: 2px;
-            padding: 3px 5px;
-            font: inherit;
-            font-size: 11px;
+            gap: 6px;
+            padding: 6px 10px;
+            background: var(--bg);
+            border-bottom: 1px solid var(--border-soft);
+            transform: translateY(-100%);
+            transition: transform .3s;
+            &.visible {
+                transform: translateY(0);
+            }
+            button, select, input {
+                background: var(--bg);
+                color: var(--muted);
+                border: 1px solid var(--border);
+                border-radius: 2px;
+                font: inherit;
+                font-size: 11px;
+            }
+            button {
+                padding: 3px 9px;
+                letter-spacing: .5px;
+                cursor: pointer;
+                &:hover {
+                    color: var(--fg-bright);
+                    border-color: #888;
+                }
+                &.active {
+                    color: var(--bg);
+                    background: var(--fg);
+                    border-color: var(--fg);
+                }
+            }
+            select {
+                padding: 3px 6px;
+                cursor: pointer;
+            }
+            input {
+                width: 48px;
+                box-sizing: border-box;
+                padding: 3px 5px;
+            }
+            label {
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                color: var(--muted);
+                font-size: 11px;
+                letter-spacing: .5px;
+            }
         }
 
         #stage {
-            position: fixed;
-            inset: 0;
+            position: relative;
+            flex: 1 1 auto;
+            min-height: 0;
             opacity: 0;
             transition: opacity .4s;
-        }
-
-        #stage.visible {
-            opacity: 1;
-        }
-
-        #stage iframe {
-            width: 100%;
-            height: 100%;
-            border: 0;
-            display: block;
-            background: #000;
-        }
-
-        #stage .msg {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-direction: column;
-            gap: 10px;
-            color: #e8e8e8;
-            text-align: center;
-            padding: 24px;
-            box-sizing: border-box;
-            font-size: 13px;
-        }
-
-        #stage .msg h1 {
-            font-size: 15px;
-            margin: 0;
-            font-weight: normal;
-        }
-
-        #stage .msg p {
-            font-size: 12px;
-            color: #777;
-            max-width: 480px;
-            margin: 0;
+            &.visible {
+                opacity: 1;
+            }
+            iframe {
+                width: 100%;
+                height: 100%;
+                border: 0;
+                display: block;
+                background: var(--bg);
+            }
+            .msg {
+                width: 100%;
+                height: 100%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex-direction: column;
+                gap: 10px;
+                color: var(--fg);
+                text-align: center;
+                padding: 24px;
+                box-sizing: border-box;
+                font-size: 13px;
+                h1 {
+                    font-size: 15px;
+                    margin: 0;
+                    font-weight: normal;
+                }
+                p {
+                    font-size: 12px;
+                    color: var(--dim);
+                    max-width: 480px;
+                    margin: 0;
+                }
+            }
         }
     </style>
 </head>
@@ -355,7 +339,12 @@
                 stage.appendChild(frame);
                 layoutFrame();
             }
+        }
+
+        function reveal() {
             stage.classList.add('visible');
+            boot.classList.add('collapsed');
+            bar.classList.add('visible');
         }
 
         async function run(forced) {
@@ -375,12 +364,13 @@
                 localStorage.setItem(KEY, backend);
                 await line('LOAD', `${backend}/index.html`);
             }
+
+            mount(backend);
+
             await line('DONE', 'handoff complete');
             await sleep(150);
 
-            mount(backend);
-            boot.classList.add('collapsed');
-            bar.classList.add('visible');
+            reveal();
         }
 
         btnDawn.addEventListener('click', () => void run('dawn'));

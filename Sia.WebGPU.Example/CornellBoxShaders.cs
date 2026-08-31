@@ -22,12 +22,10 @@ internal static class CornellBoxShaders
         }
 
         struct Hit {
-            t: f32,
-            position: vec3f,
-            normal: vec3f,
-            albedo: vec3f,
-            emission: vec3f,
-            material: u32,
+            position: vec4f,
+            normal: vec4f,
+            albedo: vec4f,
+            emission: vec4f,
         }
 
         @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -83,13 +81,11 @@ internal static class CornellBoxShaders
             material: u32,
             hit: ptr<function, Hit>,
         ) {
-            if (t > EPSILON && t < (*hit).t) {
-                (*hit).t = t;
-                (*hit).position = ray.origin + ray.direction * t;
-                (*hit).normal = normal;
-                (*hit).albedo = albedo;
-                (*hit).emission = emission;
-                (*hit).material = material;
+            if (t > EPSILON && t < (*hit).position.w) {
+                (*hit).position = vec4f(ray.origin + ray.direction * t, t);
+                (*hit).normal = vec4f(normal, f32(material));
+                (*hit).albedo = vec4f(albedo, 0.0);
+                (*hit).emission = vec4f(emission, 0.0);
             }
         }
 
@@ -151,7 +147,7 @@ internal static class CornellBoxShaders
             let near_t = max(max(nearest.x, nearest.y), nearest.z);
             let far_t = min(min(farthest.x, farthest.y), farthest.z);
 
-            if (near_t <= EPSILON || near_t >= far_t || near_t >= (*hit).t) {
+            if (near_t <= EPSILON || near_t >= far_t || near_t >= (*hit).position.w) {
                 return;
             }
 
@@ -185,7 +181,7 @@ internal static class CornellBoxShaders
             }
 
             let root = -half_b - sqrt(discriminant);
-            if (root > EPSILON && root < (*hit).t) {
+            if (root > EPSILON && root < (*hit).position.w) {
                 let position = ray.origin + ray.direction * root;
                 commit_hit(ray, root, normalize(position - center), albedo, vec3f(0.0), material, hit);
             }
@@ -193,12 +189,10 @@ internal static class CornellBoxShaders
 
         fn intersect_scene(ray: Ray) -> Hit {
             var hit = Hit(
-                1e30,
-                vec3f(0.0),
-                vec3f(0.0),
-                vec3f(0.0),
-                vec3f(0.0),
-                DIFFUSE,
+                vec4f(0.0, 0.0, 0.0, 1e30),
+                vec4f(0.0),
+                vec4f(0.0),
+                vec4f(0.0),
             );
 
             intersect_room(ray, &hit);
@@ -247,25 +241,25 @@ internal static class CornellBoxShaders
                 1.999,
                 mix(-0.42, 0.24, random(state)),
             );
-            let to_light = light_position - hit.position;
+            let to_light = light_position - hit.position.xyz;
             let distance_squared = dot(to_light, to_light);
             let distance = sqrt(distance_squared);
             let light_direction = to_light / distance;
-            let surface_cosine = max(0.0, dot(hit.normal, light_direction));
+            let surface_cosine = max(0.0, dot(hit.normal.xyz, light_direction));
             let light_cosine = max(0.0, light_direction.y);
             if (surface_cosine <= 0.0 || light_cosine <= 0.0) {
                 return vec3f(0.0);
             }
 
-            let shadow_ray = Ray(hit.position + hit.normal * EPSILON * 2.0, light_direction);
+            let shadow_ray = Ray(hit.position.xyz + hit.normal.xyz * EPSILON * 2.0, light_direction);
             let blocker = intersect_scene(shadow_ray);
-            if (blocker.t < distance - 0.01) {
+            if (blocker.position.w < distance - 0.01) {
                 return vec3f(0.0);
             }
 
             let light_area = 0.72 * 0.66;
             let light_emission = vec3f(18.0, 15.0, 10.5);
-            return hit.albedo * light_emission * (surface_cosine * light_cosine * light_area / (PI * distance_squared));
+            return hit.albedo.xyz * light_emission * (surface_cosine * light_cosine * light_area / (PI * distance_squared));
         }
 
         fn make_camera_ray(pixel: vec2u, state: ptr<function, u32>) -> Ray {
@@ -308,26 +302,26 @@ internal static class CornellBoxShaders
                 }
 
                 let hit = intersect_scene(ray);
-                if (hit.t >= 1e29) {
+                if (hit.position.w >= 1e29) {
                     break;
                 }
 
-                if (dot(hit.emission, hit.emission) > 0.0) {
+                if (dot(hit.emission.xyz, hit.emission.xyz) > 0.0) {
                     if (previous_was_specular) {
-                        radiance += throughput * hit.emission;
+                        radiance += throughput * hit.emission.xyz;
                     }
                     break;
                 }
 
-                if (hit.material == MIRROR) {
-                    throughput *= hit.albedo;
-                    ray = Ray(hit.position + hit.normal * EPSILON * 2.0, reflect(ray.direction, hit.normal));
+                if (u32(hit.normal.w) == MIRROR) {
+                    throughput *= hit.albedo.xyz;
+                    ray = Ray(hit.position.xyz + hit.normal.xyz * EPSILON * 2.0, reflect(ray.direction, hit.normal.xyz));
                     previous_was_specular = true;
                     continue;
                 }
 
                 radiance += throughput * sample_direct_light(hit, state);
-                throughput *= hit.albedo;
+                throughput *= hit.albedo.xyz;
                 previous_was_specular = false;
 
                 if (bounce >= 3u) {
@@ -338,8 +332,8 @@ internal static class CornellBoxShaders
                     throughput /= survival;
                 }
 
-                let direction = cosine_hemisphere(hit.normal, state);
-                ray = Ray(hit.position + hit.normal * EPSILON * 2.0, direction);
+                let direction = cosine_hemisphere(hit.normal.xyz, state);
+                ray = Ray(hit.position.xyz + hit.normal.xyz * EPSILON * 2.0, direction);
             }
 
             return radiance;
@@ -366,7 +360,7 @@ internal static class CornellBoxShaders
             if (frame > 0u) {
                 previous = textureLoad(previous_accumulation, vec2i(pixel), 0).rgb;
             }
-            let accumulated = (previous * f32(frame) + sample_average) / f32(frame + 1u);
+            let accumulated = previous + (sample_average - previous) / f32(frame + 1u);
             return vec4f(accumulated, 1.0);
         }
 

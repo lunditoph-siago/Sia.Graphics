@@ -79,39 +79,35 @@ internal static class CornellBoxShaders
             albedo: vec3f,
             emission: vec3f,
             material: u32,
-            hit: Hit,
-        ) -> Hit {
-            if (t > EPSILON && t < hit.position.w) {
-                return Hit(
-                    vec4f(ray.origin + ray.direction * t, t),
-                    vec4f(normal, f32(material)),
-                    vec4f(albedo, 0.0),
-                    vec4f(emission, 0.0),
-                );
+            hit: ptr<function, Hit>,
+        ) {
+            if (t > EPSILON && t < (*hit).position.w) {
+                (*hit).position = vec4f(ray.origin + ray.direction * t, t);
+                (*hit).normal = vec4f(normal, f32(material));
+                (*hit).albedo = vec4f(albedo, 0.0);
+                (*hit).emission = vec4f(emission, 0.0);
             }
-            return hit;
         }
 
-        fn intersect_room(ray: Ray, hit: Hit) -> Hit {
-            var result = hit;
+        fn intersect_room(ray: Ray, hit: ptr<function, Hit>) {
             let white = vec3f(0.76, 0.73, 0.68);
 
             var t = (-1.0 - ray.origin.x) / ray.direction.x;
             var point = ray.origin + ray.direction * t;
             if (point.y >= 0.0 && point.y <= 2.0 && point.z >= -1.0 && point.z <= 1.0) {
-                result = commit_hit(ray, t, vec3f(1.0, 0.0, 0.0), vec3f(0.63, 0.065, 0.05), vec3f(0.0), DIFFUSE, result);
+                commit_hit(ray, t, vec3f(1.0, 0.0, 0.0), vec3f(0.63, 0.065, 0.05), vec3f(0.0), DIFFUSE, hit);
             }
 
             t = (1.0 - ray.origin.x) / ray.direction.x;
             point = ray.origin + ray.direction * t;
             if (point.y >= 0.0 && point.y <= 2.0 && point.z >= -1.0 && point.z <= 1.0) {
-                result = commit_hit(ray, t, vec3f(-1.0, 0.0, 0.0), vec3f(0.12, 0.45, 0.15), vec3f(0.0), DIFFUSE, result);
+                commit_hit(ray, t, vec3f(-1.0, 0.0, 0.0), vec3f(0.12, 0.45, 0.15), vec3f(0.0), DIFFUSE, hit);
             }
 
             t = (0.0 - ray.origin.y) / ray.direction.y;
             point = ray.origin + ray.direction * t;
             if (point.x >= -1.0 && point.x <= 1.0 && point.z >= -1.0 && point.z <= 1.0) {
-                result = commit_hit(ray, t, vec3f(0.0, 1.0, 0.0), white, vec3f(0.0), DIFFUSE, result);
+                commit_hit(ray, t, vec3f(0.0, 1.0, 0.0), white, vec3f(0.0), DIFFUSE, hit);
             }
 
             t = (2.0 - ray.origin.y) / ray.direction.y;
@@ -123,15 +119,14 @@ internal static class CornellBoxShaders
                     albedo = vec3f(0.0);
                     emission = vec3f(18.0, 15.0, 10.5);
                 }
-                result = commit_hit(ray, t, vec3f(0.0, -1.0, 0.0), albedo, emission, DIFFUSE, result);
+                commit_hit(ray, t, vec3f(0.0, -1.0, 0.0), albedo, emission, DIFFUSE, hit);
             }
 
             t = (-1.0 - ray.origin.z) / ray.direction.z;
             point = ray.origin + ray.direction * t;
             if (point.x >= -1.0 && point.x <= 1.0 && point.y >= 0.0 && point.y <= 2.0) {
-                result = commit_hit(ray, t, vec3f(0.0, 0.0, 1.0), white, vec3f(0.0), DIFFUSE, result);
+                commit_hit(ray, t, vec3f(0.0, 0.0, 1.0), white, vec3f(0.0), DIFFUSE, hit);
             }
-            return result;
         }
 
         fn intersect_box(
@@ -140,8 +135,8 @@ internal static class CornellBoxShaders
             half_extent: vec3f,
             angle: f32,
             albedo: vec3f,
-            hit: Hit,
-        ) -> Hit {
+            hit: ptr<function, Hit>,
+        ) {
             let local_origin = rotate_y(ray.origin - center, -angle);
             let local_direction = rotate_y(ray.direction, -angle);
             let inverse_direction = vec3f(1.0) / local_direction;
@@ -152,8 +147,8 @@ internal static class CornellBoxShaders
             let near_t = max(max(nearest.x, nearest.y), nearest.z);
             let far_t = min(min(farthest.x, farthest.y), farthest.z);
 
-            if (near_t <= EPSILON || near_t >= far_t || near_t >= hit.position.w) {
-                return hit;
+            if (near_t <= EPSILON || near_t >= far_t || near_t >= (*hit).position.w) {
+                return;
             }
 
             var local_normal = vec3f(0.0);
@@ -166,7 +161,7 @@ internal static class CornellBoxShaders
                 local_normal.z = select(1.0, -1.0, local_direction.z > 0.0);
             }
 
-            return commit_hit(ray, near_t, rotate_y(local_normal, angle), albedo, vec3f(0.0), DIFFUSE, hit);
+            commit_hit(ray, near_t, rotate_y(local_normal, angle), albedo, vec3f(0.0), DIFFUSE, hit);
         }
 
         fn intersect_sphere(
@@ -175,22 +170,21 @@ internal static class CornellBoxShaders
             radius: f32,
             albedo: vec3f,
             material: u32,
-            hit: Hit,
-        ) -> Hit {
+            hit: ptr<function, Hit>,
+        ) {
             let offset = ray.origin - center;
             let half_b = dot(offset, ray.direction);
             let c = dot(offset, offset) - radius * radius;
             let discriminant = half_b * half_b - c;
             if (discriminant <= 0.0) {
-                return hit;
+                return;
             }
 
             let root = -half_b - sqrt(discriminant);
-            if (root > EPSILON && root < hit.position.w) {
+            if (root > EPSILON && root < (*hit).position.w) {
                 let position = ray.origin + ray.direction * root;
-                return commit_hit(ray, root, normalize(position - center), albedo, vec3f(0.0), material, hit);
+                commit_hit(ray, root, normalize(position - center), albedo, vec3f(0.0), material, hit);
             }
-            return hit;
         }
 
         fn intersect_scene(ray: Ray) -> Hit {
@@ -201,30 +195,30 @@ internal static class CornellBoxShaders
                 vec4f(0.0),
             );
 
-            hit = intersect_room(ray, hit);
-            hit = intersect_box(
+            intersect_room(ray, &hit);
+            intersect_box(
                 ray,
                 vec3f(-0.38, 0.34, 0.15),
                 vec3f(0.38, 0.34, 0.38),
                 -0.24,
                 vec3f(0.74, 0.70, 0.63),
-                hit,
+                &hit,
             );
-            hit = intersect_box(
+            intersect_box(
                 ray,
                 vec3f(0.39, 0.69, -0.29),
                 vec3f(0.31, 0.69, 0.31),
                 0.30,
                 vec3f(0.70, 0.72, 0.69),
-                hit,
+                &hit,
             );
-            hit = intersect_sphere(
+            intersect_sphere(
                 ray,
                 vec3f(-0.38, 0.88, 0.15),
                 0.22,
                 vec3f(0.92, 0.76, 0.45),
                 MIRROR,
-                hit,
+                &hit,
             );
             return hit;
         }

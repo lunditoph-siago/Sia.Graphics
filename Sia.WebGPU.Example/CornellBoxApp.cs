@@ -14,7 +14,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private const int k_InitialWidth = 1280;
     private const int k_InitialHeight = 720;
     private const int k_UniformSize = 80;
-    private const WGPUTextureFormat k_AccumulationFormat = WGPUTextureFormat.RGBA32Float;
+    private const WGPUTextureFormat k_AccumulationFormat = WGPUTextureFormat.RGBA16Float;
     private readonly WgpuHandle<WGPUTexture>[] _accumulationTextures = new WgpuHandle<WGPUTexture>[2];
     private readonly HashSet<Key> _pressedKeys = [];
 

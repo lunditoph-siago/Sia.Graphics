@@ -4,10 +4,10 @@ on:
   push:
     tags:
       - 'v*.*.*'
-  workflow_dispatch:
 
 permissions:
   contents: read
+  packages: write
   id-token: write
   attestations: write
 
@@ -30,16 +30,11 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          if ('${{ github.ref_type }}' -eq 'tag') {
-            if ('${{ github.ref_type }}' -ne 'tag' -or
-                '${{ github.ref_name }}' -notmatch '^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
-              throw 'Publishing requires a version tag such as v0.1.0-preview.1.'
-            }
-            $version = '${{ github.ref_name }}'.Substring(1)
+          if ('${{ github.ref_type }}' -ne 'tag' -or
+              '${{ github.ref_name }}' -notmatch '^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+            throw 'Publishing requires a version tag such as v0.1.0-preview.1.'
           }
-          else {
-            $version = '0.1.0-ci.${{ github.run_number }}'
-          }
+          $version = '${{ github.ref_name }}'.Substring(1)
           $match = [Regex]::Match(
             $env:DOTNET_SDK_VERSION,
             '^\d+\.\d+\.\d+(?:-[^.]+\.\d+)?')
@@ -682,6 +677,7 @@ jobs:
     environment: nuget.org
     permissions:
       contents: read
+      packages: write
       id-token: write
       attestations: write
     steps:
@@ -706,6 +702,7 @@ jobs:
         shell: pwsh
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
           $version = '${{ needs.prepare.outputs.version }}'
@@ -727,8 +724,25 @@ jobs:
             $package = "artifacts/packages/$packageId.$version.nupkg"
             dotnet nuget push $package `
               --api-key $env:NUGET_API_KEY `
-              --source https://api.nuget.org/v3/index.json
+              --source https://api.nuget.org/v3/index.json `
+              --skip-duplicate
             if ($LASTEXITCODE -ne 0) {
               throw "Publishing '$packageId' failed."
+            }
+          }
+          dotnet nuget add source `
+            "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" `
+            --name github `
+            --username "${{ github.repository_owner }}" `
+            --password $env:GITHUB_TOKEN `
+            --store-password-in-clear-text
+          foreach ($packageId in $packageIds) {
+            $package = "artifacts/packages/$packageId.$version.nupkg"
+            dotnet nuget push $package `
+              --api-key $env:GITHUB_TOKEN `
+              --source github `
+              --skip-duplicate
+            if ($LASTEXITCODE -ne 0) {
+              throw "Publishing '$packageId' to GitHub Packages failed."
             }
           }

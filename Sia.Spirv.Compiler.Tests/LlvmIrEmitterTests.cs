@@ -118,6 +118,12 @@ public sealed class LlvmIrEmitterTests
         Assert.Contains(
             "declare void @llvm.spv.group.memory.barrier.with.group.sync()",
             module.Text);
+        Assert.Contains(
+            "target(\"spirv.VulkanBuffer\", [1 x <4 x i32>], 2, 0)",
+            module.Text);
+        Assert.Contains("resource.getpointer.p12", module.Text);
+        Assert.Contains("load <4 x i32>, ptr addrspace(12)", module.Text);
+        Assert.Contains("extractelement <4 x i32>", module.Text);
     }
 
     [Fact]

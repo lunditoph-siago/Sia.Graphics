@@ -7,6 +7,10 @@ namespace Sia.WebGPU.Example;
 #if BROWSER
 internal sealed partial class CornellBoxApp
 {
+#if SIA_SPIRV_ASSETS
+    private const string k_ShaderAssetRoot = "spirv/Sia.WebGPU.Example.";
+    private SpirvShaderAssets? _spirvShaderAssets;
+#endif
     private double? _previousAnimationFrameTime;
 
     public async Task RunAsync()
@@ -72,6 +76,9 @@ internal sealed partial class CornellBoxApp
         _device = await Wgpu.RequestDeviceAsync(_adapter);
         _queue = Wgpu.GetQueue(_device);
 
+#if SIA_SPIRV_ASSETS
+        _spirvShaderAssets = await LoadSpirvShaderAssetsAsync();
+#endif
         CreateUniformBuffer();
         CreatePipelines();
         InitializeUi();
@@ -96,6 +103,31 @@ internal sealed partial class CornellBoxApp
 
     [JSImport("getCanvasHeight", "main.js")]
     private static partial int GetCanvasHeight();
+
+#if SIA_SPIRV_ASSETS
+    private static async Task<SpirvShaderAssets> LoadSpirvShaderAssetsAsync()
+    {
+        Console.WriteLine("Loading generated C# SPIR-V shader assets.");
+        return new SpirvShaderAssets(
+            await LoadSpirvAssetAsync(
+                $"{k_ShaderAssetRoot}CornellBoxRasterShaders.FullscreenVertex.spv"),
+            await LoadSpirvAssetAsync(
+                $"{k_ShaderAssetRoot}CornellBoxPathTracerShaders.PathFragment.spv"),
+            await LoadSpirvAssetAsync(
+                $"{k_ShaderAssetRoot}CornellBoxPathTracerShaders.PresentFragment.spv"));
+    }
+
+    private static async Task<byte[]> LoadSpirvAssetAsync(string path) =>
+        Convert.FromBase64String(await LoadBinaryBase64(path));
+
+    [JSImport("loadBinaryBase64", "main.js")]
+    private static partial Task<string> LoadBinaryBase64(string path);
+
+    private sealed record SpirvShaderAssets(
+        byte[] FullscreenVertex,
+        byte[] PathFragment,
+        byte[] PresentFragment);
+#endif
 
     private async Task<WgpuHandle<WGPUAdapter>> RequestBrowserAdapterAsync()
     {

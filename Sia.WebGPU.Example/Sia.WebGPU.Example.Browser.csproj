@@ -14,7 +14,10 @@
     <WasmBuildNative>true</WasmBuildNative>
     <WasmAllowUndefinedSymbols>true</WasmAllowUndefinedSymbols>
     <EmccExtraLDFlags>-sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH</EmccExtraLDFlags>
-    <EnableSpirvCompilation>true</EnableSpirvCompilation>
+    <SiaShaderAssetFormat Condition="'$(SiaShaderAssetFormat)' == ''">Wgsl</SiaShaderAssetFormat>
+    <EnableSpirvCompilation Condition="'$(SiaShaderAssetFormat)' == 'Wgsl'">false</EnableSpirvCompilation>
+    <EnableSpirvCompilation Condition="'$(SiaShaderAssetFormat)' == 'Spirv'">true</EnableSpirvCompilation>
+    <DefineConstants Condition="'$(SiaShaderAssetFormat)' == 'Spirv'">$(DefineConstants);SIA_SPIRV_ASSETS</DefineConstants>
     <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
     <SpirvKernelAbi>webgpu</SpirvKernelAbi>
     <SpirvEmitWgsl>true</SpirvEmitWgsl>
@@ -23,7 +26,6 @@
 
   <PropertyGroup Condition="'$(SiaWebGpuBackend)' == '' And '$(_SiaWebGpuSiteRootPublishDir)' == ''">
     <_SiaWebGpuSiteRootPublishDir>$(PublishDir)</_SiaWebGpuSiteRootPublishDir>
-    <EnableSpirvCompilation>false</EnableSpirvCompilation>
   </PropertyGroup>
 
   <ItemGroup>
@@ -77,11 +79,19 @@
     <MSBuild
       Projects="$(MSBuildProjectFullPath)"
       Targets="Publish"
-      Properties="Configuration=$(Configuration);SiaWebGpuBackend=Dawn;PublishDir=$(_SiaWebGpuSiteRootPublishDir)dawn\" />
+      Properties="Configuration=$(Configuration);SiaWebGpuBackend=Dawn;SiaShaderAssetFormat=Wgsl;PublishDir=$(_SiaWebGpuSiteRootPublishDir)dawn-wgsl\" />
     <MSBuild
       Projects="$(MSBuildProjectFullPath)"
       Targets="Publish"
-      Properties="Configuration=$(Configuration);SiaWebGpuBackend=Wgpu;PublishDir=$(_SiaWebGpuSiteRootPublishDir)wgpu\" />
+      Properties="Configuration=$(Configuration);SiaWebGpuBackend=Wgpu;SiaShaderAssetFormat=Wgsl;PublishDir=$(_SiaWebGpuSiteRootPublishDir)wgpu-wgsl\" />
+    <MSBuild
+      Projects="$(MSBuildProjectFullPath)"
+      Targets="Publish"
+      Properties="Configuration=$(Configuration);SiaWebGpuBackend=Dawn;SiaShaderAssetFormat=Spirv;PublishDir=$(_SiaWebGpuSiteRootPublishDir)dawn-spirv\" />
+    <MSBuild
+      Projects="$(MSBuildProjectFullPath)"
+      Targets="Publish"
+      Properties="Configuration=$(Configuration);SiaWebGpuBackend=Wgpu;SiaShaderAssetFormat=Spirv;PublishDir=$(_SiaWebGpuSiteRootPublishDir)wgpu-spirv\" />
 
     <RemoveDir Directories="$(_SiaWebGpuSiteRootPublishDir)wwwroot"
                Condition="Exists('$(_SiaWebGpuSiteRootPublishDir)wwwroot')" />

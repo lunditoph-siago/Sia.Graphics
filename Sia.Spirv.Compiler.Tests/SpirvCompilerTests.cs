@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Sia.Math;
 using Sia.Spirv.Compiler.Compilation;
+using Sia.Spirv.Compiler.Model;
 using Sia.Spirv.Runtime;
 
 namespace Sia.Spirv.Compiler.Tests;
@@ -117,9 +118,19 @@ public sealed class SpirvCompilerTests
         Assert.DoesNotContain("alloca ", llvm);
         Assert.Contains($"@{artifact.Kernel.Stage.ToString().ToLowerInvariant()}", wgsl);
         Assert.DoesNotContain("var<push_constant>", wgsl);
+        if (artifact.Kernel.Parameters.Any(static parameter =>
+            parameter.Kind == SpirvKernelParameterKind.PushConstant)) {
+            var parameters = Assert.Single(
+                SpirvArtifactLoader.Load(artifact.ManifestPath).Manifest.Resources,
+                static resource => resource.Name == "sia.parameters");
+            Assert.Equal("uniform-buffer", parameters.Kind);
+            Assert.Equal(16, parameters.Alignment);
+            Assert.Equal(16, parameters.ArrayStride);
+        }
         if (artifact.Kernel.QualifiedName ==
             $"{typeof(ComputeShaders).FullName}.{nameof(ComputeShaders.Synchronize)}") {
             Assert.Contains("workgroupBarrier();", wgsl);
+            Assert.Contains("var<uniform>", wgsl);
         }
 
         if (artifact.Kernel.QualifiedName ==

@@ -236,16 +236,18 @@ public sealed class SpirvCompiler
             }
         }
         if (options.KernelAbi == SpirvKernelAbi.WebGpu && pushConstants.Count != 0) {
+            var parameterVectorCount = (pushConstants.Count + 3) / 4;
             resources.Add(new SpirvManifestResource(
                 "sia.parameters",
-                "storage-buffer",
+                "uniform-buffer",
                 "read-only",
-                "uint32",
+                "uint32x4",
                 0,
                 binding,
-                4,
-                4,
-                4));
+                16,
+                parameterVectorCount * 16,
+                16,
+                ElementCount: parameterVectorCount));
         }
         var stageInputs = kernel.Parameters
             .Where(static parameter => parameter.Kind == SpirvKernelParameterKind.StageInput)

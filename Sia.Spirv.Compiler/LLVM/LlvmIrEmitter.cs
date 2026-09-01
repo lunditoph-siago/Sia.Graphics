@@ -547,6 +547,7 @@ public sealed class LlvmIrEmitter
             static parameter => parameter.Kind == SpirvKernelParameterKind.PushConstant);
         string? pushConstantValue = null;
         string? parameterHandle = null;
+        var parameterVectorCount = GetParameterVectorCount(kernel);
         if (hasPushConstants && _kernelAbi == SpirvKernelAbi.Vulkan) {
             pushConstantValue = NextValue("push.constants");
             prologue.Append("  ").Append(pushConstantValue)
@@ -556,8 +557,9 @@ public sealed class LlvmIrEmitter
         else if (hasPushConstants) {
             parameterHandle = NextValue("parameters");
             prologue.Append("  ").Append(parameterHandle).Append(" = call ")
-                .Append(GetParameterTargetType()).Append(" @llvm.spv.resource.handlefrombinding.")
-                .Append(GetParameterMangling()).Append("(i32 0, i32 ")
+                .Append(GetParameterTargetType(parameterVectorCount))
+                .Append(" @llvm.spv.resource.handlefrombinding.")
+                .Append(GetParameterMangling(parameterVectorCount)).Append("(i32 0, i32 ")
                 .Append(kernel.Parameters.Count(static parameter => parameter.IsResource))
                 .AppendLine(", i32 1, i32 0, ptr nonnull @.str.parameters)");
         }
@@ -645,13 +647,19 @@ public sealed class LlvmIrEmitter
                 else {
                     var identifier = SanitizeIdentifier(parameter.Name);
                     var pointer = NextValue($"{identifier}.pointer");
+                    var vector = NextValue($"{identifier}.vector");
                     var word = NextValue($"{identifier}.word");
-                    prologue.Append("  ").Append(pointer).Append(" = call ptr addrspace(11) ")
-                        .Append("@llvm.spv.resource.getpointer.p11.").Append(GetParameterMangling())
-                        .Append('(').Append(GetParameterTargetType()).Append(' ').Append(parameterHandle)
-                        .Append(", i32 ").Append(pushConstantIndex).AppendLine(")");
-                    prologue.Append("  ").Append(word).Append(" = load i32, ptr addrspace(11) ")
-                        .Append(pointer).AppendLine(", align 4");
+                    prologue.Append("  ").Append(pointer).Append(" = call ptr addrspace(12) ")
+                        .Append("@llvm.spv.resource.getpointer.p12.")
+                        .Append(GetParameterMangling(parameterVectorCount))
+                        .Append('(').Append(GetParameterTargetType(parameterVectorCount))
+                        .Append(' ').Append(parameterHandle)
+                        .Append(", i32 ").Append(pushConstantIndex / 4).AppendLine(")");
+                    prologue.Append("  ").Append(vector)
+                        .Append(" = load <4 x i32>, ptr addrspace(12) ")
+                        .Append(pointer).AppendLine(", align 16");
+                    prologue.Append("  ").Append(word).Append(" = extractelement <4 x i32> ")
+                        .Append(vector).Append(", i32 ").Append(pushConstantIndex % 4).AppendLine();
                     if (type == LlvmValueType.Float32) {
                         value = NextValue(identifier);
                         prologue.Append("  ").Append(value).Append(" = bitcast i32 ")
@@ -969,13 +977,14 @@ public sealed class LlvmIrEmitter
             kernel.Parameters.Any(static parameter =>
                 parameter.Kind == SpirvKernelParameterKind.PushConstant) &&
             !_bufferBindings.Any(static binding =>
-                !binding.IsUniform && binding.Type == LlvmValueType.ReadOnlyBufferUInt32)) {
-            var targetType = GetParameterTargetType();
-            var mangling = GetParameterMangling();
+                binding.IsUniform && binding.Type == LlvmValueType.ReadOnlyBufferUInt32x4)) {
+            var parameterVectorCount = GetParameterVectorCount(kernel);
+            var targetType = GetParameterTargetType(parameterVectorCount);
+            var mangling = GetParameterMangling(parameterVectorCount);
             module.Append("declare ").Append(targetType)
                 .Append(" @llvm.spv.resource.handlefrombinding.").Append(mangling)
                 .AppendLine("(i32, i32, i32, i32, ptr)");
-            module.Append("declare ptr addrspace(11) @llvm.spv.resource.getpointer.p11.")
+            module.Append("declare ptr addrspace(12) @llvm.spv.resource.getpointer.p12.")
                 .Append(mangling).Append('(').Append(targetType).AppendLine(", i32)");
         }
         module.AppendLine();
@@ -3332,11 +3341,15 @@ public sealed class LlvmIrEmitter
         return type == LlvmValueType.Float32 ? "f32" : "i32";
     }
 
-    private static string GetParameterTargetType() =>
-        "target(\"spirv.VulkanBuffer\", [0 x i32], 12, 0)";
+    private static int GetParameterVectorCount(SpirvKernel kernel) =>
+        (kernel.Parameters.Count(static parameter =>
+            parameter.Kind == SpirvKernelParameterKind.PushConstant) + 3) / 4;
 
-    private static string GetParameterMangling() =>
-        "tspirv.VulkanBuffer_a0i32_12_0t";
+    private static string GetParameterTargetType(int vectorCount) =>
+        $"target(\"spirv.VulkanBuffer\", [{vectorCount} x <4 x i32>], 2, 0)";
+
+    private static string GetParameterMangling(int vectorCount) =>
+        $"tspirv.VulkanBuffer_a{vectorCount}v4i32_2_0t";
 
     private static string GetTexture2DTargetType() =>
         "target(\"spirv.Image\", float, 1, 2, 0, 0, 1, 0)";

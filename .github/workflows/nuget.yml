@@ -11,6 +11,10 @@ permissions:
   id-token: write
   attestations: write
 
+concurrency:
+  group: publish-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   DOTNET_SDK_VERSION: 11.0.100-preview.7.26381.103
   LLVM_COMMIT: 10eea834e26333cb0d3e71e75faa536144ecc099
@@ -689,7 +693,7 @@ jobs:
           path: artifacts/packages
 
       - name: Attest packages
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest@v4
         with:
           subject-path: artifacts/packages/*.nupkg
 

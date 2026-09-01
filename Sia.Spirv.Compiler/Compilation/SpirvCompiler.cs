@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Sia.Spirv.Compiler.Diagnostics;
+using Sia.Spirv.Compiler.Legalization;
 using Sia.Spirv.Compiler.LLVM;
 using Sia.Spirv.Compiler.Model;
 
@@ -47,7 +48,11 @@ public sealed class SpirvCompiler
         Directory.CreateDirectory(outputDirectory);
 
         var artifacts = new List<SpirvArtifact>(frontend.Kernels.Count);
-        foreach (var kernel in frontend.Kernels) {
+        foreach (var sourceKernel in frontend.Kernels) {
+            var legalizationPlan = new SpirvLegalizationPlanner().Resolve(
+                sourceKernel,
+                options.TargetProfile);
+            var kernel = legalizationPlan.Kernel;
             var fileName = SanitizeFileName(kernel.QualifiedName);
             var llvmPath = Path.Combine(outputDirectory, $"{fileName}.ll");
             var rawLlvmPath = Path.Combine(outputDirectory, $"{fileName}.raw.ll");
@@ -61,6 +66,7 @@ public sealed class SpirvCompiler
                 assemblyHash,
                 kernel,
                 options,
+                legalizationPlan,
                 llvmVersion,
                 spirvToolsVersion,
                 nagaVersion);
@@ -122,6 +128,7 @@ public sealed class SpirvCompiler
             var manifest = CreateManifest(
                 kernel,
                 options,
+                legalizationPlan,
                 llvmVersion,
                 spirvToolsVersion,
                 nagaVersion,
@@ -145,6 +152,7 @@ public sealed class SpirvCompiler
     private static SpirvArtifactManifest CreateManifest(
         SpirvKernel kernel,
         SpirvCompilationOptions options,
+        SpirvLegalizationPlan legalizationPlan,
         string llvmVersion,
         string spirvToolsVersion,
         string? nagaVersion,
@@ -196,27 +204,27 @@ public sealed class SpirvCompiler
                     0,
                     0));
             }
-            else if (parameter.Kind is SpirvKernelParameterKind.ReadOnlyStorageBuffer or
+            else if (parameter.Kind is SpirvKernelParameterKind.UniformBuffer or
+                    SpirvKernelParameterKind.ReadOnlyStorageBuffer or
                     SpirvKernelParameterKind.StorageBuffer) {
-                var layout = parameter.StructLayout;
+                var layout = parameter.PhysicalLayout;
                 resources.Add(new SpirvManifestResource(
                     parameter.Name,
-                    "storage-buffer",
-                    parameter.Kind == SpirvKernelParameterKind.ReadOnlyStorageBuffer
+                    parameter.Kind == SpirvKernelParameterKind.UniformBuffer
+                        ? "uniform-buffer"
+                        : "storage-buffer",
+                    parameter.Kind is SpirvKernelParameterKind.ReadOnlyStorageBuffer or
+                        SpirvKernelParameterKind.UniformBuffer
                         ? "read-only"
                         : "read-write",
-                    layout?.Name ?? SpirvTypeLayout.GetName(parameter.ScalarType),
+                    layout?.LogicalType.Name ?? SpirvTypeLayout.GetName(parameter.ScalarType),
                     0,
                     binding++,
                     layout?.Alignment ?? SpirvTypeLayout.GetAlignment(parameter.ScalarType),
                     layout?.Size ?? SpirvTypeLayout.GetSize(parameter.ScalarType),
                     layout?.ArrayStride ?? SpirvTypeLayout.GetArrayStride(parameter.ScalarType),
-                    layout?.Fields.Select(static field => new SpirvManifestStructField(
-                        field.Name,
-                        SpirvTypeLayout.GetName(field.Type),
-                        field.Offset,
-                        field.Alignment,
-                        field.Size)).ToArray()));
+                    layout == null ? null : CreateManifestFields(layout),
+                    parameter.BufferLength));
             }
             else {
                 pushConstants.Add(new SpirvManifestPushConstant(
@@ -265,8 +273,21 @@ public sealed class SpirvCompiler
             sourceHash,
             options.KernelAbi == SpirvKernelAbi.WebGpu ? "webgpu" : "vulkan",
             kernel.Stage.ToString().ToLowerInvariant(),
-            options.LlvmPasses);
+            options.LlvmPasses,
+            legalizationPlan.StrategyIds);
     }
+
+    private static IReadOnlyList<SpirvManifestStructField> CreateManifestFields(
+        PhysicalStructLayout layout) =>
+        layout.LogicalType.Fields.Select((field, logicalFieldIndex) => {
+            var member = layout.GetLogicalMember(logicalFieldIndex);
+            return new SpirvManifestStructField(
+                field.Name,
+                SpirvTypeLayout.GetName(field.Type),
+                member.Offset,
+                member.Alignment,
+                member.Size);
+        }).ToArray();
 
     private static SpirvManifestStageIo CreateManifestStageIo(SpirvStageIoField field) =>
         new(
@@ -314,6 +335,7 @@ public sealed class SpirvCompiler
         string assemblyHash,
         SpirvKernel kernel,
         SpirvCompilationOptions options,
+        SpirvLegalizationPlan legalizationPlan,
         string llvmVersion,
         string spirvToolsVersion,
         string? nagaVersion)
@@ -335,6 +357,13 @@ public sealed class SpirvCompiler
             options.OptimizationLevel,
             options.LlvmPasses,
             options.EmitLlvmIr,
+            options.TargetProfile.SupportsStorageBuffers,
+            options.TargetProfile.PreferUniformForBoundedReadOnlyBuffers,
+            options.TargetProfile.MaxStorageBuffersPerShaderStage,
+            options.TargetProfile.MaxStorageBufferBindingSize,
+            options.TargetProfile.MaxUniformBuffersPerShaderStage,
+            options.TargetProfile.MaxUniformBufferBindingSize,
+            string.Join(',', legalizationPlan.StrategyIds),
             llvmVersion,
             spirvToolsVersion,
             nagaVersion);

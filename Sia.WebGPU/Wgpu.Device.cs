@@ -193,6 +193,16 @@ public static unsafe partial class Wgpu
         WgpuHandle<WGPUQueue>.FromPointer(
             WgpuUnsafe.wgpuDeviceGetQueue(GetPointer(device)));
 
+    public static WGPULimits GetLimits(WgpuHandle<WGPUDevice> device)
+    {
+        var limits = WGPULimits.Default;
+        var status = WgpuUnsafe.wgpuDeviceGetLimits(GetPointer(device), &limits);
+        if (status != WGPUStatus.Success) {
+            throw new InvalidOperationException("WebGPU failed to report the device limits.");
+        }
+        return limits;
+    }
+
     public static void DestroyDevice(WgpuHandle<WGPUDevice> device) =>
         WgpuUnsafe.wgpuDeviceDestroy(GetPointer(device));
 

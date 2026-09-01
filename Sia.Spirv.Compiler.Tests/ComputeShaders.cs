@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Sia.Math;
 using Sia.Spirv;
 
@@ -23,6 +24,34 @@ internal static class ComputeShaders
         public uint Id;
 
         public PackedParticle(float3 position, uint id)
+        {
+            Position = position;
+            Id = id;
+        }
+    }
+
+    internal struct AlignedParticle
+    {
+        public uint Id;
+        public float3 Position;
+
+        public AlignedParticle(uint id, float3 position)
+        {
+            Id = id;
+            Position = position;
+        }
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    internal struct LogicalParticle
+    {
+        [FieldOffset(64)]
+        public float3 Position;
+
+        [FieldOffset(0)]
+        public uint Id;
+
+        public LogicalParticle(float3 position, uint id)
         {
             Position = position;
             Id = id;
@@ -88,6 +117,33 @@ internal static class ComputeShaders
     [SpirvKernel(64)]
     public static void CopyPackedStructs(
         ReadOnlyStorageBuffer<PackedParticle> source,
+        StorageBuffer<PackedParticle> destination)
+    {
+        var index = Gpu.GlobalInvocationId.X;
+        destination[index] = source[index];
+    }
+
+    [SpirvKernel(64)]
+    public static void CopyAlignedStructs(
+        ReadOnlyStorageBuffer<AlignedParticle> source,
+        StorageBuffer<AlignedParticle> destination)
+    {
+        var index = Gpu.GlobalInvocationId.X;
+        destination[index] = source[index];
+    }
+
+    [SpirvKernel(64)]
+    public static void CopyLogicalStructs(
+        ReadOnlyStorageBuffer<LogicalParticle> source,
+        StorageBuffer<LogicalParticle> destination)
+    {
+        var index = Gpu.GlobalInvocationId.X;
+        destination[index] = source[index];
+    }
+
+    [SpirvKernel(4)]
+    public static void CopyBoundedStructs(
+        [SpirvBufferLength(4)] ReadOnlyStorageBuffer<PackedParticle> source,
         StorageBuffer<PackedParticle> destination)
     {
         var index = Gpu.GlobalInvocationId.X;

@@ -1,3 +1,5 @@
+using Sia.Spirv.Compiler.Legalization;
+
 namespace Sia.Spirv.Compiler.Model;
 
 public sealed record SpirvKernelParameter(
@@ -5,8 +7,9 @@ public sealed record SpirvKernelParameter(
     int Position,
     SpirvKernelParameterKind Kind,
     SpirvScalarType ScalarType,
-    SpirvStructLayout? StructLayout = null,
-    SpirvStageIoLayout? StageIoLayout = null)
+    PhysicalStructLayout? PhysicalLayout = null,
+    SpirvStageIoLayout? StageIoLayout = null,
+    int? BufferLength = null)
 {
     public bool IsResource => Kind is not (
         SpirvKernelParameterKind.StageInput or

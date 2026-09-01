@@ -6,13 +6,13 @@ namespace Sia.Graphics.UI;
 public static class UiShaderSource
 {
     private const string k_ResourceName = "Sia.Graphics.UI.Render.Shaders.ui_node.wgsl";
-    private const string k_CompatibilityVertexResourceName =
-        "Sia.Graphics.UI.Render.Shaders.ui_node_compat_vertex.wgsl";
+    private const string k_VertexBufferResourceName =
+        "Sia.Graphics.UI.Render.Shaders.ui_node_vertex_buffer.wgsl";
 
     public static string Load() => LoadResource(k_ResourceName);
 
-    public static string LoadCompatibilityVertex() =>
-        LoadResource(k_CompatibilityVertexResourceName);
+    public static string LoadVertexBuffer() =>
+        LoadResource(k_VertexBufferResourceName);
 
     private static string LoadResource(string resourceName)
     {

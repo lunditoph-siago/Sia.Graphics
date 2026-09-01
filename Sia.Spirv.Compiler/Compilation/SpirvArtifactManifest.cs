@@ -15,7 +15,8 @@ internal sealed record SpirvArtifactManifest(
     string SourceHash,
     string KernelAbi,
     string ShaderStage,
-    string? LlvmPasses = null);
+    string? LlvmPasses = null,
+    IReadOnlyList<string>? LegalizationStrategies = null);
 
 internal sealed record SpirvManifestWorkgroupSize(uint X, uint Y, uint Z);
 
@@ -29,7 +30,8 @@ internal sealed record SpirvManifestResource(
     int Alignment,
     int Size,
     int ArrayStride,
-    IReadOnlyList<SpirvManifestStructField>? Fields = null);
+    IReadOnlyList<SpirvManifestStructField>? Fields = null,
+    int? ElementCount = null);
 
 internal sealed record SpirvManifestStructField(
     string Name,

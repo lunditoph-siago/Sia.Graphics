@@ -1,4 +1,4 @@
-#define_import_path sia::ui_node_compat_vertex
+#define_import_path sia::ui_node_vertex_buffer
 
 const BORDER_LEFT: u32 = 1u;
 const BORDER_TOP: u32 = 2u;

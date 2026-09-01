@@ -3,7 +3,7 @@ using Sia.WebGPU;
 
 namespace Sia.Graphics.UI;
 
-internal sealed unsafe class CompatVertexSource : IUiVertexSource
+internal sealed unsafe class VertexBufferVertexSource : IUiVertexSource
 {
     private readonly List<int> _dirtySlots = [];
     private readonly List<UiPrimitive> _orderedPrimitives = [];
@@ -13,7 +13,7 @@ internal sealed unsafe class CompatVertexSource : IUiVertexSource
     public Entity LoadVertexShaderModule(
         World world, WgpuHandle<WGPUDevice> device, Entity fragmentShaderModule) =>
         world.OwnWgpu(Wgpu.CreateWgslShaderModule(
-            device, UiShaderSource.LoadCompatibilityVertex(), "ui_node_compat_vertex"));
+            device, UiShaderSource.LoadVertexBuffer(), "ui_node_vertex_buffer"));
 
     public int WriteBindGroupLayoutEntries(Span<WGPUBindGroupLayoutEntry> entries) => 0;
 

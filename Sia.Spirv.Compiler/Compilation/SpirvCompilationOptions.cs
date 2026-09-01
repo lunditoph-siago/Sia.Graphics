@@ -15,4 +15,6 @@ public sealed record SpirvCompilationOptions
     public string? LlvmPasses { get; init; }
 
     public bool EmitLlvmIr { get; init; } = true;
+
+    public SpirvTargetProfile TargetProfile { get; init; } = SpirvTargetProfile.Default;
 }

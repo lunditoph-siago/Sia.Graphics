@@ -5,6 +5,4 @@ internal readonly record struct LlvmValue(
     LlvmValueType Type,
     bool IsReference = false,
     int AddressSpace = 0,
-    string? ResourceExpression = null,
-    string? ElementIndexExpression = null,
-    LlvmValueType ResourceType = LlvmValueType.Void);
+    LlvmBufferBinding? BufferBinding = null);

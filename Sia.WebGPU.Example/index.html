@@ -80,6 +80,7 @@
             display: flex;
             align-items: center;
             gap: 6px;
+            min-width: 0;
             padding: 6px 10px;
             background: var(--bg);
             border-bottom: 1px solid var(--border-soft);
@@ -127,6 +128,44 @@
                 font-size: 11px;
                 letter-spacing: .5px;
             }
+        }
+
+        #profiles {
+            display: flex;
+            flex: 1 1 auto;
+            gap: 6px;
+            min-width: 0;
+            overflow-x: auto;
+            overscroll-behavior-x: contain;
+            scrollbar-width: none;
+            touch-action: pan-x;
+            -webkit-overflow-scrolling: touch;
+            &::-webkit-scrollbar {
+                display: none;
+            }
+            button {
+                flex: 0 0 auto;
+            }
+        }
+
+        .profile-group {
+            display: flex;
+            flex: 0 0 auto;
+            gap: 3px;
+            & + & {
+                margin-left: 2px;
+                padding-left: 5px;
+                border-left: 1px solid var(--border-soft);
+            }
+        }
+
+        #shared-controls {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            padding-left: 6px;
+            background: var(--bg);
+            border-left: 1px solid var(--border-soft);
         }
 
         #stage {
@@ -179,11 +218,21 @@
         <div id="log"></div>
     </div>
     <div id="bar">
-        <button id="btn-dawn" type="button">DAWN</button>
-        <button id="btn-wgpu" type="button">WGPU</button>
-        <label for="render-scale">SCALE
-            <input id="render-scale" type="number" min="1" max="3" step="0.25" value="1" />×
-        </label>
+        <div id="profiles">
+            <div class="profile-group" role="group" aria-label="Backend">
+                <button type="button" data-backend="dawn">DAWN</button>
+                <button type="button" data-backend="wgpu">WGPU</button>
+            </div>
+            <div class="profile-group" role="group" aria-label="Shader format">
+                <button type="button" data-shader="wgsl">WGSL</button>
+                <button type="button" data-shader="spirv">SPV</button>
+            </div>
+        </div>
+        <div id="shared-controls">
+            <label for="render-scale">SCALE
+                <input id="render-scale" type="number" min="1" max="3" step="0.25" value="1" />×
+            </label>
+        </div>
     </div>
     <div id="stage"></div>
     <script type="module">
@@ -195,10 +244,16 @@
         const log = document.getElementById('log');
         const bar = document.getElementById('bar');
         const stage = document.getElementById('stage');
-        const btnDawn = document.getElementById('btn-dawn');
-        const btnWgpu = document.getElementById('btn-wgpu');
+        const backendButtons = [...document.querySelectorAll('[data-backend]')];
+        const shaderButtons = [...document.querySelectorAll('[data-shader]')];
         const renderScale = document.getElementById('render-scale');
-        let mountedBackend = null;
+        const profiles = {
+            'dawn-wgsl': { backend: 'dawn/webgpu', shader: 'handwritten WGSL' },
+            'wgpu-wgsl': { backend: 'wgpu/gles', shader: 'handwritten WGSL' },
+            'dawn-spirv': { backend: 'dawn/webgpu', shader: 'C# SPIR-V via Naga' },
+            'wgpu-spirv': { backend: 'wgpu/gles', shader: 'C# SPIR-V' },
+        };
+        let mountedProfile = null;
 
         const round2 = (n) => Math.round(n * 100) / 100;
 
@@ -304,7 +359,7 @@
                 await line('OK', 'adapter acquired');
                 for (const e of adapter.extra) await info(e);
                 await info('backend = dawn/webgpu');
-                return 'dawn';
+                return 'dawn-wgsl';
             }
             await line('WARN', adapter.detail);
             await info('falling back to webgl2');
@@ -314,19 +369,24 @@
                 await line('OK', 'webgl2 available');
                 for (const e of gl.extra) await info(e);
                 await info('backend = wgpu/gles');
-                return 'wgpu';
+                return 'wgpu-wgsl';
             }
             await line('WARN', gl.detail);
             await line('FAIL', 'no compatible backend found', { cls: 'fail' });
             return null;
         }
 
-        function mount(backend) {
-            mountedBackend = backend;
+        function mount(profileId) {
+            mountedProfile = profileId;
             stage.replaceChildren();
-            btnDawn.classList.toggle('active', backend === 'dawn');
-            btnWgpu.classList.toggle('active', backend === 'wgpu');
-            if (backend === null) {
+            const [backend, shader] = profileId?.split('-') ?? [];
+            for (const button of backendButtons) {
+                button.classList.toggle('active', button.dataset.backend === backend);
+            }
+            for (const button of shaderButtons) {
+                button.classList.toggle('active', button.dataset.shader === shader);
+            }
+            if (profileId === null) {
                 stage.innerHTML = `<div class="msg">
       <h1>[FAIL] no compatible backend found</h1>
       <p>No WebGPU adapter or WebGL2 context was detected.
@@ -335,7 +395,7 @@
             } else {
                 const frame = document.createElement('iframe');
                 frame.title = 'Sia.WebGPU Example';
-                frame.src = `${backend}/wwwroot/index.html`;
+                frame.src = `${profileId}/wwwroot/index.html`;
                 stage.appendChild(frame);
                 layoutFrame();
             }
@@ -354,18 +414,21 @@
             stage.classList.remove('visible');
 
             await line('INIT', 'sia.webgpu bootstrap');
-            let backend = forced;
+            let profileId = forced;
             if (forced) {
                 await line('CACHE', `saved profile: ${forced}`);
             } else {
-                backend = await detect();
+                profileId = await detect();
             }
-            if (backend !== null) {
-                localStorage.setItem(KEY, backend);
-                await line('LOAD', `${backend}/index.html`);
+            if (profileId !== null) {
+                localStorage.setItem(KEY, profileId);
+                const profile = profiles[profileId];
+                await info(`backend = ${profile.backend}`);
+                await info(`shader = ${profile.shader}`);
+                await line('LOAD', `${profileId}/index.html`);
             }
 
-            mount(backend);
+            mount(profileId);
 
             await line('DONE', 'handoff complete');
             await sleep(150);
@@ -373,8 +436,18 @@
             reveal();
         }
 
-        btnDawn.addEventListener('click', () => void run('dawn'));
-        btnWgpu.addEventListener('click', () => void run('wgpu'));
+        for (const button of backendButtons) {
+            button.addEventListener('click', () => {
+                const shader = mountedProfile?.split('-')[1] ?? 'wgsl';
+                void run(`${button.dataset.backend}-${shader}`);
+            });
+        }
+        for (const button of shaderButtons) {
+            button.addEventListener('click', () => {
+                const backend = mountedProfile?.split('-')[0] ?? 'dawn';
+                void run(`${backend}-${button.dataset.shader}`);
+            });
+        }
         renderScale.addEventListener('change', () => {
             const value = Number(renderScale.value);
             if (!Number.isFinite(value)) {
@@ -386,13 +459,13 @@
             layoutFrame();
         });
         window.addEventListener('resize', () => {
-            if (mountedBackend !== null) {
+            if (mountedProfile !== null) {
                 layoutFrame();
             }
         });
 
         const saved = localStorage.getItem(KEY);
-        void run(saved === 'dawn' || saved === 'wgpu' ? saved : null);
+        void run(saved in profiles ? saved : null);
     </script>
 </body>
 

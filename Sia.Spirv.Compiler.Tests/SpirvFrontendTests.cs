@@ -1,4 +1,5 @@
 using Sia.Spirv;
+using Sia.Spirv.Compiler.Legalization;
 using Sia.Spirv.Compiler.Model;
 
 namespace Sia.Spirv.Compiler.Tests;
@@ -72,28 +73,31 @@ public sealed class SpirvFrontendTests
     }
 
     [Fact]
-    public void AnalyzeComputesDeterministicStructBufferLayout()
+    public void AnalyzeLegalizesStructBufferLayout()
     {
         var kernel = SpirvTestAssembly.GetKernel(
             typeof(ComputeShaders),
             nameof(ComputeShaders.CopyStructs));
-        var layout = Assert.IsType<SpirvStructLayout>(kernel.Parameters[0].StructLayout);
+        var layout = Assert.IsType<PhysicalStructLayout>(kernel.Parameters[0].PhysicalLayout);
 
         Assert.Equal(16, layout.Alignment);
         Assert.Equal(32, layout.Size);
         Assert.Equal(32, layout.ArrayStride);
         Assert.Collection(
-            layout.Fields,
+            layout.LogicalType.Fields,
             field => {
                 Assert.Equal("Position", field.Name);
                 Assert.Equal(SpirvScalarType.Float32x4, field.Type);
-                Assert.Equal(0, field.Offset);
             },
             field => {
                 Assert.Equal("Id", field.Name);
                 Assert.Equal(SpirvScalarType.UInt32, field.Type);
-                Assert.Equal(16, field.Offset);
             });
+        Assert.Equal(0, layout.GetLogicalMember(0).Offset);
+        Assert.Equal(16, layout.GetLogicalMember(1).Offset);
+        var padding = Assert.Single(layout.Members, static member => member.IsPadding);
+        Assert.Equal(20, padding.Offset);
+        Assert.Equal(12, padding.Size);
     }
 
     [Fact]
@@ -102,24 +106,40 @@ public sealed class SpirvFrontendTests
         var kernel = SpirvTestAssembly.GetKernel(
             typeof(ComputeShaders),
             nameof(ComputeShaders.CopyPackedStructs));
-        var layout = Assert.IsType<SpirvStructLayout>(kernel.Parameters[0].StructLayout);
+        var layout = Assert.IsType<PhysicalStructLayout>(kernel.Parameters[0].PhysicalLayout);
 
         Assert.Equal(16, layout.Alignment);
         Assert.Equal(16, layout.Size);
         Assert.Equal(16, layout.ArrayStride);
         Assert.Collection(
-            layout.Fields,
+            layout.LogicalType.Fields,
             field => {
                 Assert.Equal("Position", field.Name);
                 Assert.Equal(SpirvScalarType.Float32x3, field.Type);
-                Assert.Equal(0, field.Offset);
-                Assert.Equal(12, field.Size);
             },
             field => {
                 Assert.Equal("Id", field.Name);
                 Assert.Equal(SpirvScalarType.UInt32, field.Type);
-                Assert.Equal(12, field.Offset);
             });
+        Assert.Equal(0, layout.GetLogicalMember(0).Offset);
+        Assert.Equal(12, layout.GetLogicalMember(0).Size);
+        Assert.Equal(12, layout.GetLogicalMember(1).Offset);
+        Assert.DoesNotContain(layout.Members, static member => member.IsPadding);
+    }
+
+    [Fact]
+    public void AnalyzeIgnoresClrPhysicalLayout()
+    {
+        var kernel = SpirvTestAssembly.GetKernel(
+            typeof(ComputeShaders),
+            nameof(ComputeShaders.CopyLogicalStructs));
+        var layout = Assert.IsType<PhysicalStructLayout>(kernel.Parameters[0].PhysicalLayout);
+
+        Assert.Equal(16, layout.ArrayStride);
+        Assert.Equal("Position", layout.LogicalType.Fields[0].Name);
+        Assert.Equal(0, layout.GetLogicalMember(0).Offset);
+        Assert.Equal("Id", layout.LogicalType.Fields[1].Name);
+        Assert.Equal(12, layout.GetLogicalMember(1).Offset);
     }
 
     [Fact]
@@ -171,5 +191,16 @@ public sealed class SpirvFrontendTests
         Assert.Contains(fragmentOutput.Fields,
             field => field.Kind == SpirvStageIoKind.FragmentDepth &&
                 field.Type == SpirvScalarType.Float32);
+    }
+
+    [Fact]
+    public void AnalyzeReadsBoundedBufferRequirement()
+    {
+        var kernel = SpirvTestAssembly.GetKernel(
+            typeof(ComputeShaders),
+            nameof(ComputeShaders.CopyBoundedStructs));
+
+        Assert.Equal(4, kernel.Parameters[0].BufferLength);
+        Assert.Null(kernel.Parameters[1].BufferLength);
     }
 }

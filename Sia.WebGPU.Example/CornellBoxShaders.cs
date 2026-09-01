@@ -6,9 +6,8 @@ internal static class CornellBoxShaders
         struct Uniforms {
             camera_position_exposure: vec4f,
             camera_target_fov: vec4f,
-            resolution_frame: vec4f,
-            render_settings: vec4f,
-            presentation_settings: vec4f,
+            resolution_frame_sample_count: vec4f,
+            render_settings_presentation: vec4f,
         }
 
         struct VertexOutput {
@@ -263,7 +262,7 @@ internal static class CornellBoxShaders
         }
 
         fn make_camera_ray(pixel: vec2u, state: ptr<function, u32>) -> Ray {
-            let resolution = uniforms.resolution_frame.xy;
+            let resolution = uniforms.resolution_frame_sample_count.xy;
             let jitter = vec2f(random(state), random(state));
             let screen = ((vec2f(pixel) + jitter) / resolution) * 2.0 - vec2f(1.0);
             let camera_position = uniforms.camera_position_exposure.xyz;
@@ -278,8 +277,8 @@ internal static class CornellBoxShaders
                     - up * screen.y * scale,
             );
 
-            let aperture = uniforms.render_settings.z;
-            let focus_distance = uniforms.render_settings.w;
+            let aperture = uniforms.render_settings_presentation.y;
+            let focus_distance = uniforms.render_settings_presentation.z;
             let disk_radius = sqrt(random(state)) * aperture;
             let disk_angle = random(state) * 2.0 * PI;
             let lens_offset = right * (cos(disk_angle) * disk_radius) + up * (sin(disk_angle) * disk_radius);
@@ -294,7 +293,7 @@ internal static class CornellBoxShaders
             var throughput = vec3f(1.0);
             var radiance = vec3f(0.0);
             var previous_was_specular = true;
-            let bounce_limit = u32(uniforms.render_settings.y);
+            let bounce_limit = u32(uniforms.render_settings_presentation.x);
 
             for (var bounce = 0u; bounce < 12u; bounce++) {
                 if (bounce >= bounce_limit) {
@@ -342,8 +341,8 @@ internal static class CornellBoxShaders
         @fragment
         fn path_main(input: VertexOutput) -> @location(0) vec4f {
             let pixel = vec2u(input.position.xy);
-            let frame = u32(uniforms.resolution_frame.z);
-            let sample_count = u32(uniforms.render_settings.x);
+            let frame = u32(uniforms.resolution_frame_sample_count.z);
+            let sample_count = u32(uniforms.resolution_frame_sample_count.w);
             var sample_sum = vec3f(0.0);
 
             for (var sample = 0u; sample < 8u; sample++) {
@@ -375,7 +374,7 @@ internal static class CornellBoxShaders
             let pixel = vec2i(input.position.xy);
             var color = textureLoad(previous_accumulation, pixel, 0).rgb;
             color = aces_filmic(color * uniforms.camera_position_exposure.w);
-            if (uniforms.presentation_settings.x < 0.5) {
+            if (uniforms.render_settings_presentation.w < 0.5) {
                 color = pow(color, vec3f(1.0 / 2.2));
             }
 

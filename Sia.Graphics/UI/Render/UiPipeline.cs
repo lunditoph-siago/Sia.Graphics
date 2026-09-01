@@ -1,4 +1,5 @@
 using Sia;
+using Sia.Graphics.Compatibility;
 using Sia.Graphics.Text;
 using Sia.WebGPU;
 
@@ -17,6 +18,8 @@ public sealed unsafe class UiPipeline
     internal Entity ViewUniformBuffer { get; }
     internal Entity BindGroupLayout { get; }
     internal IUiVertexSource VertexSource { get; }
+    public GpuTargetProfile TargetProfile { get; }
+    public UiVertexDataMode VertexDataMode { get; }
     private Entity TextureArray { get; set; }
     private Entity TextureArrayView { get; set; }
     private Entity Sampler { get; }
@@ -33,7 +36,9 @@ public sealed unsafe class UiPipeline
         Entity textureArrayView,
         Entity sampler,
         int textureArrayLayers,
-        IUiVertexSource vertexSource)
+        IUiVertexSource vertexSource,
+        GpuTargetProfile targetProfile,
+        UiVertexDataMode vertexDataMode)
     {
         Device = device;
         Queue = queue;
@@ -45,11 +50,34 @@ public sealed unsafe class UiPipeline
         Sampler = sampler;
         TextureArrayLayers = textureArrayLayers;
         VertexSource = vertexSource;
+        TargetProfile = targetProfile;
+        VertexDataMode = vertexDataMode;
     }
 
-    public static UiPipeline Create(World world, Entity device, Entity queue, WGPUTextureFormat targetFormat)
+    public static UiPipeline Create(
+        World world,
+        Entity device,
+        Entity queue,
+        WGPUTextureFormat targetFormat) =>
+        Create(
+            world,
+            device,
+            queue,
+            targetFormat,
+            GpuTargetProfile.Query(device.GetWgpu<WGPUDevice>()));
+
+    public static UiPipeline Create(
+        World world,
+        Entity device,
+        Entity queue,
+        WGPUTextureFormat targetFormat,
+        GpuTargetProfile targetProfile)
     {
-        var vertexSource = UiVertexSourceFactory.Create();
+        ArgumentNullException.ThrowIfNull(targetProfile);
+        var legalizationPlan = UiLegalizationPlanner.Resolve(
+            UiRequirementAnalysis.Analyze(),
+            targetProfile);
+        var vertexSource = UiVertexSourceFactory.Create(legalizationPlan);
         var deviceHandle = device.GetWgpu<WGPUDevice>();
         var fragmentShaderModule = world.OwnWgpu(
             Wgpu.CreateWgslShaderModule(deviceHandle, UiShaderSource.Load(), "ui_node"));
@@ -87,7 +115,9 @@ public sealed unsafe class UiPipeline
             textureArrayView,
             sampler,
             k_InitialTextureArrayLayers,
-            vertexSource);
+            vertexSource,
+            targetProfile,
+            legalizationPlan.VertexDataMode);
     }
 
     internal WgpuHandle<WGPUBindGroup> CreateBindGroup()

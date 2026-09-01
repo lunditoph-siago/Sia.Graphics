@@ -45,9 +45,9 @@ public sealed class SpirvBufferMapping<T>
             throw new PlatformNotSupportedException(
                 "SPIR-V buffer mapping currently requires a little-endian CPU.");
         }
-        if (resource.Kind != "storage-buffer") {
+        if (resource.Kind is not ("storage-buffer" or "uniform-buffer")) {
             throw new ArgumentException(
-                $"Resource '{resource.Name}' is '{resource.Kind}', not a storage buffer.",
+                $"Resource '{resource.Name}' is '{resource.Kind}', not a mappable buffer.",
                 nameof(resource));
         }
         if (resource.Alignment <= 0 || resource.Size <= 0 || resource.ArrayStride <= 0 ||
@@ -72,6 +72,14 @@ public sealed class SpirvBufferMapping<T>
     public int GetByteLength(int elementCount)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(elementCount);
+        if (Resource.ElementCount is { } capacity) {
+            if (elementCount > capacity) {
+                throw new ArgumentOutOfRangeException(
+                    nameof(elementCount),
+                    $"Resource '{Resource.Name}' has capacity for {capacity} elements.");
+            }
+            return checked(capacity * GpuStride);
+        }
         return checked(elementCount * GpuStride);
     }
 

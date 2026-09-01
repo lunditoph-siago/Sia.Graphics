@@ -7,6 +7,7 @@ public enum SpirvKernelParameterKind
     SampledTexture2DArray,
     Sampler,
     ReadOnlyStorageBuffer,
+    UniformBuffer,
     StorageBuffer,
     WorkgroupMemory,
     PushConstant

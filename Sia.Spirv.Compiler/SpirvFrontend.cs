@@ -6,6 +6,7 @@ using Sia.Spirv;
 using Sia.Spirv.Compiler.Analysis;
 using Sia.Spirv.Compiler.Diagnostics;
 using Sia.Spirv.Compiler.IL;
+using Sia.Spirv.Compiler.Legalization;
 using Sia.Spirv.Compiler.Metadata;
 using Sia.Spirv.Compiler.Model;
 
@@ -25,6 +26,7 @@ public sealed class SpirvFrontend
     private const string k_FragmentDepthAttributeName = "Sia.Spirv.FragmentDepthAttribute";
     private const string k_FlatAttributeName = "Sia.Spirv.FlatAttribute";
     private const string k_InterpolateAttributeName = "Sia.Spirv.InterpolateAttribute";
+    private const string k_BufferLengthAttributeName = "Sia.Spirv.SpirvBufferLengthAttribute";
 
     public SpirvFrontendResult Analyze(string assemblyPath)
     {
@@ -209,24 +211,32 @@ public sealed class SpirvFrontend
         SpirvShaderStage stage)
     {
         var signature = method.DecodeSignature(new KernelTypeProvider(), genericContext: null);
-        var names = method.GetParameters()
+        var parameterDefinitions = method.GetParameters()
             .Select(reader.GetParameter)
             .Where(static parameter => parameter.SequenceNumber != 0)
             .OrderBy(static parameter => parameter.SequenceNumber)
-            .Select(parameter => reader.GetString(parameter.Name))
             .ToArray();
         var parameters = new SpirvKernelParameter[signature.ParameterTypes.Length];
         for (var position = 0; position < signature.ParameterTypes.Length; position++) {
             var type = signature.ParameterTypes[position];
-            var (kind, scalarType, structLayout, stageIoLayout) =
+            var (kind, scalarType, physicalLayout, stageIoLayout) =
                 DecodeParameterType(reader, type, stage);
+            var definition = parameterDefinitions[position];
+            var bufferLength = DecodeBufferLength(reader, definition);
+            if (bufferLength != null &&
+                kind != SpirvKernelParameterKind.ReadOnlyStorageBuffer) {
+                throw new InvalidDataException(
+                    $"SpirvBufferLengthAttribute can only annotate a read-only storage buffer, " +
+                    $"not '{reader.GetString(definition.Name)}'.");
+            }
             parameters[position] = new SpirvKernelParameter(
-                position < names.Length ? names[position] : $"arg{position}",
+                reader.GetString(definition.Name),
                 position,
                 kind,
                 scalarType,
-                structLayout,
-                stageIoLayout);
+                physicalLayout,
+                stageIoLayout,
+                bufferLength);
         }
         if (parameters.Count(static parameter =>
             parameter.Kind == SpirvKernelParameterKind.StageInput) > 1) {
@@ -235,10 +245,34 @@ public sealed class SpirvFrontend
         return parameters;
     }
 
+    private static int? DecodeBufferLength(
+        MetadataReader reader,
+        Parameter definition)
+    {
+        int? length = null;
+        foreach (var attributeHandle in definition.GetCustomAttributes()) {
+            var attribute = reader.GetCustomAttribute(attributeHandle);
+            if (MetadataNames.GetAttributeTypeName(reader, attribute) !=
+                k_BufferLengthAttributeName) {
+                continue;
+            }
+            if (length != null) {
+                throw new InvalidDataException(
+                    "A shader parameter cannot declare multiple SpirvBufferLength attributes.");
+            }
+            var value = attribute.DecodeValue(new CustomAttributeTypeProvider());
+            length = Convert.ToInt32(value.FixedArguments.Single().Value);
+            if (length <= 0) {
+                throw new InvalidDataException("A shader buffer length must be greater than zero.");
+            }
+        }
+        return length;
+    }
+
     private static (
         SpirvKernelParameterKind Kind,
         SpirvScalarType ScalarType,
-        SpirvStructLayout? StructLayout,
+        PhysicalStructLayout? PhysicalLayout,
         SpirvStageIoLayout? StageIoLayout)
         DecodeParameterType(MetadataReader reader, KernelType type, SpirvShaderStage stage)
     {
@@ -504,7 +538,7 @@ public sealed class SpirvFrontend
         }
     }
 
-    private static (SpirvScalarType Type, SpirvStructLayout? Layout)
+    private static (SpirvScalarType Type, PhysicalStructLayout? Layout)
         DecodeBufferElementType(MetadataReader reader, KernelType type)
     {
         if (TryDecodeScalarType(type, out var scalarType)) {
@@ -514,10 +548,13 @@ public sealed class SpirvFrontend
             throw new InvalidDataException(
                 $"Storage-buffer element type '{type.Name}' is not host-shareable.");
         }
-        return (SpirvScalarType.Struct, DecodeStructLayout(reader, type.Name));
+        var logicalType = DecodeStructType(reader, type.Name);
+        return (
+            SpirvScalarType.Struct,
+            new ShaderLayoutEngine().Legalize(logicalType, ShaderAddressSpace.Storage));
     }
 
-    private static SpirvStructLayout DecodeStructLayout(MetadataReader reader, string typeName)
+    private static ShaderStructType DecodeStructType(MetadataReader reader, string typeName)
     {
         var typeHandle = reader.TypeDefinitions.FirstOrDefault(handle =>
             MetadataNames.GetTypeName(reader, handle) == typeName);
@@ -526,14 +563,8 @@ public sealed class SpirvFrontend
                 $"Storage-buffer struct '{typeName}' must be declared in the shader assembly.");
         }
         var definition = reader.GetTypeDefinition(typeHandle);
-        if ((definition.Attributes & TypeAttributes.LayoutMask) != TypeAttributes.SequentialLayout) {
-            throw new InvalidDataException(
-                $"Storage-buffer struct '{typeName}' must use sequential layout.");
-        }
 
-        var fields = new List<SpirvStructField>();
-        var offset = 0;
-        var structAlignment = 1;
+        var fields = new List<ShaderStructField>();
         foreach (var fieldHandle in definition.GetFields()) {
             var field = reader.GetFieldDefinition(fieldHandle);
             if ((field.Attributes & FieldAttributes.Static) != 0) {
@@ -546,24 +577,12 @@ public sealed class SpirvFrontend
                     $"Storage-buffer struct field '{typeName}.{reader.GetString(field.Name)}' " +
                     $"has unsupported type '{fieldType.Name}'.");
             }
-            var alignment = SpirvTypeLayout.GetAlignment(scalarType);
-            var size = SpirvTypeLayout.GetSize(scalarType);
-            offset = AlignUp(offset, alignment);
-            fields.Add(new SpirvStructField(
-                reader.GetString(field.Name), scalarType, offset, alignment, size));
-            offset += size;
-            structAlignment = Math.Max(structAlignment, alignment);
+            fields.Add(new ShaderStructField(reader.GetString(field.Name), scalarType));
         }
         if (fields.Count == 0) {
             throw new InvalidDataException($"Storage-buffer struct '{typeName}' has no instance fields.");
         }
-        var sizeAligned = AlignUp(offset, structAlignment);
-        return new SpirvStructLayout(
-            typeName,
-            structAlignment,
-            sizeAligned,
-            sizeAligned,
-            fields);
+        return new ShaderStructType(typeName, fields);
     }
 
     private static SpirvScalarType DecodePushConstantType(KernelType type) => type.Name switch {
@@ -611,6 +630,4 @@ public sealed class SpirvFrontend
     private static bool IsHostShareableType(SpirvScalarType type) =>
         type != SpirvScalarType.Boolean && type != SpirvScalarType.Struct;
 
-    private static int AlignUp(int value, int alignment) =>
-        checked((value + alignment - 1) / alignment * alignment);
 }

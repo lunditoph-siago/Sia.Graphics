@@ -8,6 +8,7 @@ using System.Text;
 using Sia.Spirv;
 using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.IL;
+using Sia.Spirv.Compiler.Legalization;
 using Sia.Spirv.Compiler.Metadata;
 using Sia.Spirv.Compiler.Model;
 
@@ -16,13 +17,14 @@ namespace Sia.Spirv.Compiler.LLVM;
 public sealed class LlvmIrEmitter
 {
     private readonly StringBuilder _body = new();
-    private readonly HashSet<LlvmValueType> _bufferTypes = [];
+    private readonly HashSet<LlvmBufferBinding> _bufferBindings = [];
     private readonly Dictionary<StageLocation, StageLocationInfo> _stageLocations = [];
     private readonly HashSet<int> _inlineCallStack = [];
     private SpirvKernelAbi _kernelAbi;
     private SpirvShaderStage _shaderStage;
     private SpirvWorkgroupSize _currentWorkgroupSize;
-    private SpirvStructLayout? _structLayout;
+    private PhysicalStructLayout[] _physicalStructLayouts = [];
+    private string? _logicalStructTypeName;
     private SpirvStageIoLayout? _stageInputLayout;
     private SpirvStageIoLayout? _stageOutputLayout;
     private bool _readsVertexIndex;
@@ -71,22 +73,27 @@ public sealed class LlvmIrEmitter
         var view = new ShaderCilView(kernel.ControlFlowGraph, resolver);
 
         _body.Clear();
-        _bufferTypes.Clear();
+        _bufferBindings.Clear();
         _stageLocations.Clear();
         _inlineCallStack.Clear();
         _kernelAbi = kernelAbi;
         _shaderStage = kernel.Stage;
         _currentWorkgroupSize = kernel.WorkgroupSize;
-        var structLayouts = kernel.Parameters
-            .Select(static parameter => parameter.StructLayout)
+        _physicalStructLayouts = kernel.Parameters
+            .Select(static parameter => parameter.PhysicalLayout)
             .Where(static layout => layout != null)
-            .DistinctBy(static layout => layout!.Name)
+            .Select(static layout => layout!)
+            .DistinctBy(static layout => (layout.LogicalType.Name, layout.AddressSpace))
             .ToArray();
-        if (structLayouts.Length > 1) {
+        var logicalStructTypes = _physicalStructLayouts
+            .Select(static layout => layout.LogicalType.Name)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (logicalStructTypes.Length > 1) {
             throw new InvalidDataException(
-                "A kernel currently supports one distinct storage-buffer struct type.");
+                "A kernel currently supports one distinct buffer struct type.");
         }
-        _structLayout = structLayouts.SingleOrDefault();
+        _logicalStructTypeName = logicalStructTypes.SingleOrDefault();
         _stageInputLayout = kernel.Parameters
             .SingleOrDefault(static parameter =>
                 parameter.Kind == SpirvKernelParameterKind.StageInput)
@@ -540,6 +547,7 @@ public sealed class LlvmIrEmitter
             static parameter => parameter.Kind == SpirvKernelParameterKind.PushConstant);
         string? pushConstantValue = null;
         string? parameterHandle = null;
+        var parameterVectorCount = GetParameterVectorCount(kernel);
         if (hasPushConstants && _kernelAbi == SpirvKernelAbi.Vulkan) {
             pushConstantValue = NextValue("push.constants");
             prologue.Append("  ").Append(pushConstantValue)
@@ -549,8 +557,9 @@ public sealed class LlvmIrEmitter
         else if (hasPushConstants) {
             parameterHandle = NextValue("parameters");
             prologue.Append("  ").Append(parameterHandle).Append(" = call ")
-                .Append(GetParameterTargetType()).Append(" @llvm.spv.resource.handlefrombinding.")
-                .Append(GetParameterMangling()).Append("(i32 0, i32 ")
+                .Append(GetParameterTargetType(parameterVectorCount))
+                .Append(" @llvm.spv.resource.handlefrombinding.")
+                .Append(GetParameterMangling(parameterVectorCount)).Append("(i32 0, i32 ")
                 .Append(kernel.Parameters.Count(static parameter => parameter.IsResource))
                 .AppendLine(", i32 1, i32 0, ptr nonnull @.str.parameters)");
         }
@@ -595,21 +604,30 @@ public sealed class LlvmIrEmitter
                 values[parameter.Position] = new LlvmValue(value, LlvmValueType.Sampler);
                 binding++;
             }
-            else if (parameter.Kind is SpirvKernelParameterKind.ReadOnlyStorageBuffer or
+            else if (parameter.Kind is SpirvKernelParameterKind.UniformBuffer or
+                      SpirvKernelParameterKind.ReadOnlyStorageBuffer or
                       SpirvKernelParameterKind.StorageBuffer) {
                 var type = GetBufferType(
                     parameter.ScalarType,
-                    parameter.Kind == SpirvKernelParameterKind.ReadOnlyStorageBuffer);
-                _bufferTypes.Add(type);
+                    parameter.Kind != SpirvKernelParameterKind.StorageBuffer);
+                var bufferBinding = new LlvmBufferBinding(
+                    type,
+                    parameter.Kind,
+                    parameter.BufferLength,
+                    parameter.PhysicalLayout);
+                _bufferBindings.Add(bufferBinding);
                 var value = NextValue(SanitizeIdentifier(parameter.Name));
-                var targetType = GetBufferTargetType(type);
-                var mangling = GetBufferMangling(type);
+                var targetType = GetBufferTargetType(bufferBinding);
+                var mangling = GetBufferMangling(bufferBinding);
                 prologue.Append("  ").Append(value).Append(" = call ")
                     .Append(targetType).Append(" @llvm.spv.resource.handlefrombinding.")
                     .Append(mangling).Append("(i32 0, i32 ").Append(binding)
                     .Append(", i32 1, i32 0, ptr nonnull @.str.")
                     .Append(parameter.Position).AppendLine(")");
-                values[parameter.Position] = new LlvmValue(value, type);
+                values[parameter.Position] = new LlvmValue(
+                    value,
+                    type,
+                    BufferBinding: bufferBinding);
                 binding++;
             }
             else if (parameter.Kind == SpirvKernelParameterKind.WorkgroupMemory) {
@@ -629,13 +647,19 @@ public sealed class LlvmIrEmitter
                 else {
                     var identifier = SanitizeIdentifier(parameter.Name);
                     var pointer = NextValue($"{identifier}.pointer");
+                    var vector = NextValue($"{identifier}.vector");
                     var word = NextValue($"{identifier}.word");
-                    prologue.Append("  ").Append(pointer).Append(" = call ptr addrspace(11) ")
-                        .Append("@llvm.spv.resource.getpointer.p11.").Append(GetParameterMangling())
-                        .Append('(').Append(GetParameterTargetType()).Append(' ').Append(parameterHandle)
-                        .Append(", i32 ").Append(pushConstantIndex).AppendLine(")");
-                    prologue.Append("  ").Append(word).Append(" = load i32, ptr addrspace(11) ")
-                        .Append(pointer).AppendLine(", align 4");
+                    prologue.Append("  ").Append(pointer).Append(" = call ptr addrspace(12) ")
+                        .Append("@llvm.spv.resource.getpointer.p12.")
+                        .Append(GetParameterMangling(parameterVectorCount))
+                        .Append('(').Append(GetParameterTargetType(parameterVectorCount))
+                        .Append(' ').Append(parameterHandle)
+                        .Append(", i32 ").Append(pushConstantIndex / 4).AppendLine(")");
+                    prologue.Append("  ").Append(vector)
+                        .Append(" = load <4 x i32>, ptr addrspace(12) ")
+                        .Append(pointer).AppendLine(", align 16");
+                    prologue.Append("  ").Append(word).Append(" = extractelement <4 x i32> ")
+                        .Append(vector).Append(", i32 ").Append(pushConstantIndex % 4).AppendLine();
                     if (type == LlvmValueType.Float32) {
                         value = NextValue(identifier);
                         prologue.Append("  ").Append(value).Append(" = bitcast i32 ")
@@ -859,15 +883,17 @@ public sealed class LlvmIrEmitter
             module.AppendLine("declare i32 @llvm.spv.thread.id.in.group.i32(i32)");
             module.AppendLine("declare i32 @llvm.spv.group.id.i32(i32)");
         }
-        foreach (var type in _bufferTypes
-            .OrderBy(static type => type)
+        foreach (var binding in _bufferBindings
+            .OrderBy(static binding => binding.Type)
+            .ThenBy(static binding => binding.Kind)
             .DistinctBy(GetBufferMangling)) {
-            var targetType = GetBufferTargetType(type);
-            var mangling = GetBufferMangling(type);
+            var targetType = GetBufferTargetType(binding);
+            var mangling = GetBufferMangling(binding);
             module.Append("declare ").Append(targetType)
                 .Append(" @llvm.spv.resource.handlefrombinding.").Append(mangling)
                 .AppendLine("(i32, i32, i32, i32, ptr)");
-            module.Append("declare ptr addrspace(11) @llvm.spv.resource.getpointer.p11.")
+            module.Append("declare ptr addrspace(").Append(binding.AddressSpace)
+                .Append(") @llvm.spv.resource.getpointer.p").Append(binding.AddressSpace).Append('.')
                 .Append(mangling).Append('(').Append(targetType).AppendLine(", i32)");
         }
         if (kernel.Parameters.Any(static parameter =>
@@ -950,13 +976,15 @@ public sealed class LlvmIrEmitter
         if (_kernelAbi == SpirvKernelAbi.WebGpu &&
             kernel.Parameters.Any(static parameter =>
                 parameter.Kind == SpirvKernelParameterKind.PushConstant) &&
-            !_bufferTypes.Contains(LlvmValueType.ReadOnlyBufferUInt32)) {
-            var targetType = GetParameterTargetType();
-            var mangling = GetParameterMangling();
+            !_bufferBindings.Any(static binding =>
+                binding.IsUniform && binding.Type == LlvmValueType.ReadOnlyBufferUInt32x4)) {
+            var parameterVectorCount = GetParameterVectorCount(kernel);
+            var targetType = GetParameterTargetType(parameterVectorCount);
+            var mangling = GetParameterMangling(parameterVectorCount);
             module.Append("declare ").Append(targetType)
                 .Append(" @llvm.spv.resource.handlefrombinding.").Append(mangling)
                 .AppendLine("(i32, i32, i32, i32, ptr)");
-            module.Append("declare ptr addrspace(11) @llvm.spv.resource.getpointer.p11.")
+            module.Append("declare ptr addrspace(12) @llvm.spv.resource.getpointer.p12.")
                 .Append(mangling).Append('(').Append(targetType).AppendLine(", i32)");
         }
         module.AppendLine();
@@ -1746,24 +1774,17 @@ public sealed class LlvmIrEmitter
         EnsureInteger(index, "index", offset);
         var pointer = NextValue();
         if (IsBuffer(instance.Type)) {
-            if (GetBufferElementType(instance.Type) == LlvmValueType.Struct) {
-                var layout = _structLayout ?? throw new InvalidOperationException(
-                    "Struct buffer used without a decoded layout.");
-                var scaledIndex = NextValue();
-                EmitLine($"{scaledIndex} = mul i32 {index.Expression}, {layout.ArrayStride / 4}");
-                return new LlvmValue(
-                    string.Empty,
-                    LlvmValueType.Struct,
-                    true,
-                    11,
-                    instance.Expression,
-                    scaledIndex,
-                    instance.Type);
-            }
-            var targetType = GetBufferTargetType(instance.Type);
-            var mangling = GetBufferMangling(instance.Type);
-            EmitLine($"{pointer} = call ptr addrspace(11) @llvm.spv.resource.getpointer.p11.{mangling}({targetType} {instance.Expression}, i32 {index.Expression})");
-            return new LlvmValue(pointer, GetBufferElementType(instance.Type), true, 11);
+            var binding = instance.BufferBinding ?? throw new InvalidOperationException(
+                "Buffer value has no legalized resource binding.");
+            var targetType = GetBufferTargetType(binding);
+            var mangling = GetBufferMangling(binding);
+            EmitLine($"{pointer} = call ptr addrspace({binding.AddressSpace}) @llvm.spv.resource.getpointer.p{binding.AddressSpace}.{mangling}({targetType} {instance.Expression}, i32 {index.Expression})");
+            return new LlvmValue(
+                pointer,
+                GetBufferElementType(instance.Type),
+                true,
+                binding.AddressSpace,
+                binding);
         }
 
         var elementType = GetWorkgroupElementType(instance.Type);
@@ -2866,7 +2887,7 @@ public sealed class LlvmIrEmitter
     private void EmitLoadObject(int token, int offset, Stack<LlvmValue> stack)
     {
         var decodedType = DecodeType(token);
-        var type = decodedType.Name == _structLayout?.Name
+        var type = decodedType.Name == _logicalStructTypeName
             ? LlvmValueType.Struct
             : GetType(decodedType);
         var pointer = Pop(stack, offset);
@@ -2915,37 +2936,15 @@ public sealed class LlvmIrEmitter
 
     private LlvmValue EmitLoadStruct(LlvmValue pointer)
     {
-        var layout = _structLayout ?? throw new InvalidOperationException(
-            "Struct load used without a decoded layout.");
+        var layout = GetReferenceStructLayout(pointer, "load");
         var aggregate = "poison";
-        for (var fieldIndex = 0; fieldIndex < layout.Fields.Count; fieldIndex++) {
-            var field = layout.Fields[fieldIndex];
+        for (var fieldIndex = 0; fieldIndex < layout.LogicalType.Fields.Count; fieldIndex++) {
+            var field = layout.LogicalType.Fields[fieldIndex];
+            var member = layout.GetLogicalMember(fieldIndex);
             var fieldType = GetScalarType(field.Type);
-            var componentCount = TryGetScalarVector(fieldType, out var scalarType, out var length)
-                ? length
-                : 1;
-            if (componentCount == 1) {
-                scalarType = fieldType;
-            }
-            var components = new string[componentCount];
-            for (var component = 0; component < componentCount; component++) {
-                var wordPointer = EmitStructWordPointer(
-                    pointer,
-                    field.Offset / 4 + component);
-                var word = NextValue();
-                EmitLine($"{word} = load i32, ptr addrspace(11) {wordPointer}, align 4");
-                if (scalarType == LlvmValueType.Float32) {
-                    var converted = NextValue();
-                    EmitLine($"{converted} = bitcast i32 {word} to float");
-                    components[component] = converted;
-                }
-                else {
-                    components[component] = word;
-                }
-            }
-            var fieldValue = componentCount == 1
-                ? components[0]
-                : EmitVector(fieldType, components);
+            var fieldPointer = EmitStructFieldPointer(pointer, fieldIndex);
+            var fieldValue = NextValue();
+            EmitLine($"{fieldValue} = load {GetLlvmType(fieldType)}, {GetPointerType(pointer.AddressSpace)} {fieldPointer}, align {member.Alignment}");
             var next = NextValue();
             EmitLine($"{next} = insertvalue %sia.struct {aggregate}, {GetLlvmType(fieldType)} {fieldValue}, {fieldIndex}");
             aggregate = next;
@@ -2955,53 +2954,32 @@ public sealed class LlvmIrEmitter
 
     private void EmitStoreStruct(LlvmValue pointer, LlvmValue value)
     {
-        var layout = _structLayout ?? throw new InvalidOperationException(
-            "Struct store used without a decoded layout.");
-        for (var fieldIndex = 0; fieldIndex < layout.Fields.Count; fieldIndex++) {
-            var field = layout.Fields[fieldIndex];
+        var layout = GetReferenceStructLayout(pointer, "store");
+        for (var fieldIndex = 0; fieldIndex < layout.LogicalType.Fields.Count; fieldIndex++) {
+            var field = layout.LogicalType.Fields[fieldIndex];
+            var member = layout.GetLogicalMember(fieldIndex);
             var fieldType = GetScalarType(field.Type);
             var fieldValue = NextValue();
             EmitLine($"{fieldValue} = extractvalue %sia.struct {value.Expression}, {fieldIndex}");
-            var componentCount = TryGetScalarVector(fieldType, out var scalarType, out var length)
-                ? length
-                : 1;
-            if (componentCount == 1) {
-                scalarType = fieldType;
-            }
-            for (var component = 0; component < componentCount; component++) {
-                var componentValue = componentCount == 1
-                    ? fieldValue
-                    : ExtractVectorElement(fieldValue, fieldType, component);
-                if (scalarType == LlvmValueType.Float32) {
-                    var converted = NextValue();
-                    EmitLine($"{converted} = bitcast float {componentValue} to i32");
-                    componentValue = converted;
-                }
-                var wordPointer = EmitStructWordPointer(
-                    pointer,
-                    field.Offset / 4 + component);
-                EmitLine($"store i32 {componentValue}, ptr addrspace(11) {wordPointer}, align 4");
-            }
+            var fieldPointer = EmitStructFieldPointer(pointer, fieldIndex);
+            EmitLine($"store {GetLlvmType(fieldType)} {fieldValue}, {GetPointerType(pointer.AddressSpace)} {fieldPointer}, align {member.Alignment}");
         }
     }
 
-    private string EmitStructWordPointer(LlvmValue reference, int wordOffset)
+    private string EmitStructFieldPointer(LlvmValue reference, int fieldIndex)
     {
-        if (reference.ResourceExpression == null ||
-            reference.ElementIndexExpression == null ||
-            !IsBuffer(reference.ResourceType)) {
-            throw new InvalidOperationException("Struct reference has no storage-buffer origin.");
-        }
-        var index = reference.ElementIndexExpression;
-        if (wordOffset != 0) {
-            var offsetIndex = NextValue();
-            EmitLine($"{offsetIndex} = add i32 {index}, {wordOffset}");
-            index = offsetIndex;
-        }
+        var layout = GetReferenceStructLayout(reference, "access");
+        var physicalFieldIndex = layout.GetLogicalMember(fieldIndex).PhysicalIndex;
         var pointer = NextValue();
-        EmitLine($"{pointer} = call ptr addrspace(11) @llvm.spv.resource.getpointer.p11.{GetBufferMangling(reference.ResourceType)}({GetBufferTargetType(reference.ResourceType)} {reference.ResourceExpression}, i32 {index})");
+        EmitLine($"{pointer} = getelementptr inbounds {GetPhysicalStructTypeName(layout)}, ptr addrspace({reference.AddressSpace}) {reference.Expression}, i32 0, i32 {physicalFieldIndex}");
         return pointer;
     }
+
+    private static PhysicalStructLayout GetReferenceStructLayout(
+        LlvmValue reference,
+        string operation) =>
+        reference.BufferBinding?.PhysicalLayout ?? throw new InvalidOperationException(
+            $"Struct {operation} used without a legalized physical layout.");
 
     private void EmitBinary(OpCode opCode, int offset, Stack<LlvmValue> stack)
     {
@@ -3299,19 +3277,61 @@ public sealed class LlvmIrEmitter
         _ => throw new ArgumentOutOfRangeException(nameof(type))
     };
 
-    private static string GetBufferTargetType(LlvmValueType type) =>
-        $"target(\"spirv.VulkanBuffer\", [0 x {GetBufferStorageType(type)}], 12, {(IsReadOnlyBuffer(type) ? 0 : 1)})";
+    private static string GetBufferTargetType(
+        LlvmValueType type,
+        PhysicalStructLayout? physicalLayout = null) =>
+        GetBufferTargetType(new LlvmBufferBinding(
+            type,
+            IsReadOnlyBuffer(type)
+                ? SpirvKernelParameterKind.ReadOnlyStorageBuffer
+                : SpirvKernelParameterKind.StorageBuffer,
+            null,
+            physicalLayout));
 
-    private static string GetBufferMangling(LlvmValueType type) =>
-        $"tspirv.VulkanBuffer_a0{GetTypeMangling(GetBufferStorageElementType(type))}_12_{(IsReadOnlyBuffer(type) ? 0 : 1)}t";
+    private static string GetBufferTargetType(LlvmBufferBinding binding)
+    {
+        var elementCount = binding.IsUniform
+            ? binding.ElementCount ?? throw new InvalidOperationException(
+                "Uniform buffer used without a fixed element count.")
+            : 0;
+        var storageClass = binding.IsUniform ? 2 : 12;
+        var access = binding.IsUniform || IsReadOnlyBuffer(binding.Type) ? 0 : 1;
+        return $"target(\"spirv.VulkanBuffer\", [{elementCount} x {GetBufferStorageType(binding)}], {storageClass}, {access})";
+    }
 
-    private static LlvmValueType GetBufferStorageElementType(LlvmValueType type) =>
-        GetBufferElementType(type) == LlvmValueType.Struct
-            ? LlvmValueType.UInt32
-            : GetBufferElementType(type);
+    private static string GetBufferMangling(LlvmBufferBinding binding)
+    {
+        var elementCount = binding.IsUniform
+            ? binding.ElementCount ?? throw new InvalidOperationException(
+                "Uniform buffer used without a fixed element count.")
+            : 0;
+        var storageClass = binding.IsUniform ? 2 : 12;
+        var access = binding.IsUniform || IsReadOnlyBuffer(binding.Type) ? 0 : 1;
+        return $"tspirv.VulkanBuffer_a{elementCount}{GetBufferStorageMangling(binding)}_{storageClass}_{access}t";
+    }
 
-    private static string GetBufferStorageType(LlvmValueType type) =>
-        GetLlvmType(GetBufferStorageElementType(type));
+    private static string GetBufferStorageType(LlvmBufferBinding binding)
+    {
+        if (GetBufferElementType(binding.Type) != LlvmValueType.Struct) {
+            return GetLlvmType(GetBufferElementType(binding.Type));
+        }
+        return GetPhysicalStructTypeName(RequirePhysicalLayout(binding.PhysicalLayout));
+    }
+
+    private static string GetBufferStorageMangling(LlvmBufferBinding binding)
+    {
+        if (GetBufferElementType(binding.Type) != LlvmValueType.Struct) {
+            return GetTypeMangling(GetBufferElementType(binding.Type));
+        }
+        var layout = RequirePhysicalLayout(binding.PhysicalLayout);
+        return layout.AddressSpace == ShaderAddressSpace.Uniform
+            ? "s_sia.struct.uniforms"
+            : "s_sia.struct.storages";
+    }
+
+    private static PhysicalStructLayout RequirePhysicalLayout(PhysicalStructLayout? layout) =>
+        layout ?? throw new InvalidOperationException(
+            "Struct buffer used without a decoded physical layout.");
 
     private static string GetTypeMangling(LlvmValueType type)
     {
@@ -3321,11 +3341,15 @@ public sealed class LlvmIrEmitter
         return type == LlvmValueType.Float32 ? "f32" : "i32";
     }
 
-    private static string GetParameterTargetType() =>
-        "target(\"spirv.VulkanBuffer\", [0 x i32], 12, 0)";
+    private static int GetParameterVectorCount(SpirvKernel kernel) =>
+        (kernel.Parameters.Count(static parameter =>
+            parameter.Kind == SpirvKernelParameterKind.PushConstant) + 3) / 4;
 
-    private static string GetParameterMangling() =>
-        "tspirv.VulkanBuffer_a0i32_12_0t";
+    private static string GetParameterTargetType(int vectorCount) =>
+        $"target(\"spirv.VulkanBuffer\", [{vectorCount} x <4 x i32>], 2, 0)";
+
+    private static string GetParameterMangling(int vectorCount) =>
+        $"tspirv.VulkanBuffer_a{vectorCount}v4i32_2_0t";
 
     private static string GetTexture2DTargetType() =>
         "target(\"spirv.Image\", float, 1, 2, 0, 0, 1, 0)";
@@ -3448,15 +3472,35 @@ public sealed class LlvmIrEmitter
 
     private void EmitStructTypeDeclaration(StringBuilder module)
     {
-        if (_structLayout == null) {
+        if (_physicalStructLayouts.Length == 0) {
             return;
         }
+        var logicalType = _physicalStructLayouts[0].LogicalType;
         module.Append("%sia.struct = type { ")
-            .Append(string.Join(", ", _structLayout.Fields.Select(field =>
+            .Append(string.Join(", ", logicalType.Fields.Select(field =>
                 GetLlvmType(GetScalarType(field.Type)))))
             .AppendLine(" }");
+        foreach (var layout in _physicalStructLayouts
+            .OrderBy(static layout => layout.AddressSpace)) {
+            module.Append(GetPhysicalStructTypeName(layout)).Append(" = type <{ ")
+                .Append(string.Join(", ", GetPhysicalStructFields(layout)))
+                .AppendLine(" }>");
+        }
         module.AppendLine();
     }
+
+    private static string GetPhysicalStructTypeName(PhysicalStructLayout layout) =>
+        layout.AddressSpace == ShaderAddressSpace.Uniform
+            ? "%sia.struct.uniform"
+            : "%sia.struct.storage";
+
+    private static IReadOnlyList<string> GetPhysicalStructFields(
+        PhysicalStructLayout layout) =>
+        layout.Members.Select(member => member.IsPadding
+            ? $"[{member.Size / 4} x i32]"
+            : GetLlvmType(GetScalarType(
+                layout.LogicalType.Fields[member.LogicalFieldIndex!.Value].Type)))
+            .ToArray();
 
     private void EmitStageIoTypeDeclarations(StringBuilder module)
     {

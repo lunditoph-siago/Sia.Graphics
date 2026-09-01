@@ -10,7 +10,8 @@ public sealed record SpirvResourceBinding(
     int Alignment = 0,
     int Size = 0,
     int ArrayStride = 0,
-    IReadOnlyList<SpirvStructFieldLayout>? Fields = null);
+    IReadOnlyList<SpirvStructFieldLayout>? Fields = null,
+    int? ElementCount = null);
 
 public sealed record SpirvStructFieldLayout(
     string Name,

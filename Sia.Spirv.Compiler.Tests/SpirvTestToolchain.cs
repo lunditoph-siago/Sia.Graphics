@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace Sia.Spirv.Compiler.Tests;
@@ -8,6 +9,32 @@ internal static class SpirvTestToolchain
         OperatingSystem.IsWindows() ? ".exe" : string.Empty;
 
     public static string? Directory { get; } = FindDirectory();
+
+    public static string Disassemble(string spirvPath)
+    {
+        var directory = Directory ?? throw new InvalidOperationException(
+            "The SPIR-V test toolchain is not installed.");
+        var startInfo = new ProcessStartInfo {
+            FileName = Path.Combine(directory, "spirv-dis" + s_ExecutableSuffix),
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        startInfo.ArgumentList.Add(spirvPath);
+
+        using var process = Process.Start(startInfo) ?? throw new InvalidOperationException(
+            $"Failed to start '{startInfo.FileName}'.");
+        var standardOutput = process.StandardOutput.ReadToEnd();
+        var standardError = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        if (process.ExitCode != 0) {
+            throw new InvalidDataException(
+                $"spirv-dis failed with exit code {process.ExitCode}:" +
+                $"{Environment.NewLine}{standardError.Trim()}");
+        }
+        return standardOutput;
+    }
 
     private static string? FindDirectory()
     {
@@ -53,7 +80,7 @@ internal static class SpirvTestToolchain
     }
 
     private static bool IsComplete(string directory) =>
-        new[] { "llc", "opt", "spirv-opt", "spirv-val", "naga" }
+        new[] { "llc", "opt", "spirv-dis", "spirv-opt", "spirv-val", "naga" }
             .All(tool => File.Exists(Path.Combine(directory, tool + s_ExecutableSuffix)));
 }
 

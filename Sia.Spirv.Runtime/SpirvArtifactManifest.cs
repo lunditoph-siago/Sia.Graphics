@@ -13,4 +13,5 @@ public sealed record SpirvArtifactManifest(
     string SourceHash,
     string KernelAbi = "vulkan",
     string ShaderStage = "compute",
-    string? LlvmPasses = null);
+    string? LlvmPasses = null,
+    IReadOnlyList<string>? LegalizationStrategies = null);

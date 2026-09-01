@@ -1,4 +1,5 @@
 using Sia.Spirv.Compiler.Compilation;
+using Sia.Spirv.Compiler.Legalization;
 using Sia.Spirv.Compiler.LLVM;
 
 namespace Sia.Spirv.Compiler.Tests;
@@ -117,6 +118,12 @@ public sealed class LlvmIrEmitterTests
         Assert.Contains(
             "declare void @llvm.spv.group.memory.barrier.with.group.sync()",
             module.Text);
+        Assert.Contains(
+            "target(\"spirv.VulkanBuffer\", [1 x <4 x i32>], 2, 0)",
+            module.Text);
+        Assert.Contains("resource.getpointer.p12", module.Text);
+        Assert.Contains("load <4 x i32>, ptr addrspace(12)", module.Text);
+        Assert.Contains("extractelement <4 x i32>", module.Text);
     }
 
     [Fact]
@@ -201,7 +208,7 @@ public sealed class LlvmIrEmitterTests
     }
 
     [Fact]
-    public void EmitCopiesStructBuffersUsingDeclaredLayout()
+    public void EmitCopiesStructBuffersUsingPhysicalLayoutType()
     {
         var kernel = SpirvTestAssembly.GetKernel(
             typeof(ComputeShaders),
@@ -213,9 +220,67 @@ public sealed class LlvmIrEmitterTests
             SpirvKernelAbi.WebGpu);
 
         Assert.Contains("%sia.struct = type { <4 x float>, i32 }", module.Text);
-        Assert.Matches(@" = mul i32 [^,\r\n]+, 8", module.Text);
-        Assert.Matches(@" = add i32 [^,\r\n]+, 4", module.Text);
-        Assert.Contains("insertvalue %sia.struct", module.Text);
-        Assert.Contains("extractvalue %sia.struct", module.Text);
+        Assert.Contains(
+            "%sia.struct.storage = type <{ <4 x float>, i32, [3 x i32] }>",
+            module.Text);
+        Assert.Contains(
+            "getelementptr inbounds %sia.struct.storage, ptr addrspace(11)",
+            module.Text);
+        Assert.Contains("load <4 x float>, ptr addrspace(11)", module.Text);
+        Assert.Contains("store <4 x float>", module.Text);
+        Assert.DoesNotContain("mul i32", module.Text);
+        Assert.DoesNotContain("bitcast i32", module.Text);
+    }
+
+    [Fact]
+    public void EmitAddsPaddingOnlyToThePhysicalStruct()
+    {
+        var kernel = SpirvTestAssembly.GetKernel(
+            typeof(ComputeShaders),
+            nameof(ComputeShaders.CopyAlignedStructs));
+
+        var module = new LlvmIrEmitter().Emit(
+            SpirvTestAssembly.Path,
+            kernel,
+            SpirvKernelAbi.WebGpu);
+
+        Assert.Contains("%sia.struct = type { i32, <3 x float> }", module.Text);
+        Assert.Contains(
+            "%sia.struct.storage = type <{ i32, [3 x i32], <3 x float>, [1 x i32] }>",
+            module.Text);
+        Assert.Matches(
+            @"getelementptr inbounds %sia\.struct\.storage, ptr addrspace\(11\) [^,]+, i32 0, i32 2",
+            module.Text);
+    }
+
+    [Fact]
+    public void EmitConsumesStorageToUniformLegalizationPlan()
+    {
+        var kernel = SpirvTestAssembly.GetKernel(
+            typeof(ComputeShaders),
+            nameof(ComputeShaders.CopyBoundedStructs));
+        var target = SpirvTargetProfile.Default with {
+            PreferUniformForBoundedReadOnlyBuffers = true
+        };
+        var plan = new SpirvLegalizationPlanner().Resolve(kernel, target);
+
+        var module = new LlvmIrEmitter().Emit(
+            SpirvTestAssembly.Path,
+            plan.Kernel,
+            SpirvKernelAbi.WebGpu);
+
+        Assert.Contains("%sia.struct.uniform = type <{ <3 x float>, i32 }>", module.Text);
+        Assert.Contains("%sia.struct.storage = type <{ <3 x float>, i32 }>", module.Text);
+        Assert.Contains(
+            "target(\"spirv.VulkanBuffer\", [4 x %sia.struct.uniform], 2, 0)",
+            module.Text);
+        Assert.Contains("resource.getpointer.p12", module.Text);
+        Assert.Contains("load <3 x float>, ptr addrspace(12)", module.Text);
+        Assert.Contains(
+            "getelementptr inbounds %sia.struct.uniform, ptr addrspace(12)",
+            module.Text);
+        Assert.Contains(
+            "getelementptr inbounds %sia.struct.storage, ptr addrspace(11)",
+            module.Text);
     }
 }

@@ -1,6 +1,8 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Sia.Math;
 using Sia.Spirv.Compiler.Compilation;
+using Sia.Spirv.Compiler.Model;
 using Sia.Spirv.Runtime;
 
 namespace Sia.Spirv.Compiler.Tests;
@@ -45,6 +47,66 @@ public sealed class SpirvCompilerTests
         }
     }
 
+    [SpirvToolchainFact]
+    public void CompileAssemblyLowersBoundedStorageBufferToUniform()
+    {
+        var outputDirectory = Path.Combine(
+            Path.GetTempPath(),
+            "sia-spirv-tests",
+            Guid.NewGuid().ToString("N"));
+        try {
+            var options = new SpirvCompilationOptions {
+                ToolchainDirectory = SpirvTestToolchain.Directory,
+                KernelAbi = SpirvKernelAbi.WebGpu,
+                EmitWgsl = true,
+                EmitLlvmIr = true,
+                OptimizationLevel = 3,
+                TargetProfile = SpirvTargetProfile.Default with {
+                    PreferUniformForBoundedReadOnlyBuffers = true
+                }
+            };
+
+            var artifacts = new SpirvCompiler().CompileAssembly(
+                SpirvTestAssembly.Path,
+                outputDirectory,
+                options);
+            var artifact = Assert.Single(artifacts, artifact =>
+                artifact.Kernel.QualifiedName ==
+                    $"{typeof(ComputeShaders).FullName}.{nameof(ComputeShaders.CopyBoundedStructs)}");
+
+            var llvm = File.ReadAllText(Assert.IsType<string>(artifact.LlvmIrPath));
+            var wgsl = File.ReadAllText(Assert.IsType<string>(artifact.WgslPath));
+            Assert.Contains(
+                "target(\"spirv.VulkanBuffer\", [4 x %sia.struct.uniform], 2, 0)",
+                llvm);
+            Assert.Contains("var<uniform>", wgsl);
+
+            var module = SpirvArtifactLoader.Load(artifact.ManifestPath);
+            var source = Assert.Single(
+                module.Manifest.Resources,
+                static resource => resource.Name == "source");
+            Assert.Equal("uniform-buffer", source.Kind);
+            Assert.Equal(4, source.ElementCount);
+            Assert.Equal(16, source.ArrayStride);
+            Assert.Contains(
+                "buffer.storage_to_uniform",
+                module.Manifest.LegalizationStrategies!);
+
+            var mapping = SpirvBufferMapping<ComputeShaders.PackedParticle>.Create(source);
+            ComputeShaders.PackedParticle[] values = [
+                new(new float3(1.0f, 2.0f, 3.0f), 7u)
+            ];
+            var packed = mapping.Pack(values);
+            Assert.Equal(64, packed.Length);
+            Assert.All(packed[16..], static value => Assert.Equal(0, value));
+        }
+        finally {
+            if (System.IO.Directory.Exists(outputDirectory)) {
+                System.IO.Directory.Delete(outputDirectory, true);
+            }
+        }
+    }
+
     private static void AssertArtifact(SpirvArtifact artifact)
     {
         var wgslPath = Assert.IsType<string>(artifact.WgslPath);
@@ -56,9 +118,19 @@ public sealed class SpirvCompilerTests
         Assert.DoesNotContain("alloca ", llvm);
         Assert.Contains($"@{artifact.Kernel.Stage.ToString().ToLowerInvariant()}", wgsl);
         Assert.DoesNotContain("var<push_constant>", wgsl);
+        if (artifact.Kernel.Parameters.Any(static parameter =>
+            parameter.Kind == SpirvKernelParameterKind.PushConstant)) {
+            var parameters = Assert.Single(
+                SpirvArtifactLoader.Load(artifact.ManifestPath).Manifest.Resources,
+                static resource => resource.Name == "sia.parameters");
+            Assert.Equal("uniform-buffer", parameters.Kind);
+            Assert.Equal(16, parameters.Alignment);
+            Assert.Equal(16, parameters.ArrayStride);
+        }
         if (artifact.Kernel.QualifiedName ==
             $"{typeof(ComputeShaders).FullName}.{nameof(ComputeShaders.Synchronize)}") {
             Assert.Contains("workgroupBarrier();", wgsl);
+            Assert.Contains("var<uniform>", wgsl);
         }
 
         if (artifact.Kernel.QualifiedName ==
@@ -74,6 +146,11 @@ public sealed class SpirvCompilerTests
         }
         if (artifact.Kernel.QualifiedName ==
             $"{typeof(ComputeShaders).FullName}.{nameof(ComputeShaders.CopyPackedStructs)}") {
+            Assert.Contains("%sia.struct.storage = type <{ <3 x float>, i32 }>", llvm);
+            Assert.Contains("load <3 x float>, ptr addrspace(11)", llvm);
+            Assert.DoesNotContain("bitcast i32", llvm);
+            AssertStorageStructLayout(artifact, 16, 0, 12);
+
             var module = SpirvArtifactLoader.Load(artifact.ManifestPath);
             var mapping = SpirvBufferMapping<ComputeShaders.PackedParticle>.Create(
                 module.Manifest,
@@ -84,6 +161,18 @@ public sealed class SpirvCompilerTests
 
             Assert.Equal(16, mapping.GpuStride);
             Assert.Equal(16, mapping.Pack(values).Length);
+        }
+        if (artifact.Kernel.QualifiedName ==
+            $"{typeof(ComputeShaders).FullName}.{nameof(ComputeShaders.CopyAlignedStructs)}") {
+            Assert.Contains(
+                "%sia.struct.storage = type <{ i32, [3 x i32], <3 x float>, [1 x i32] }>",
+                llvm);
+            AssertStorageStructLayout(artifact, 32, 0, 4, 16, 28);
+        }
+        if (artifact.Kernel.QualifiedName ==
+            $"{typeof(ComputeShaders).FullName}.{nameof(ComputeShaders.CopyLogicalStructs)}") {
+            Assert.Contains("%sia.struct.storage = type <{ <3 x float>, i32 }>", llvm);
+            AssertStorageStructLayout(artifact, 16, 0, 12);
         }
         if (artifact.Kernel.QualifiedName ==
             $"{typeof(TextureShaders).FullName}.{nameof(TextureShaders.SampleAndLoad)}") {
@@ -119,5 +208,31 @@ public sealed class SpirvCompilerTests
                 manifestRoot.GetProperty("stageInputs").EnumerateArray(),
                 input => input.GetProperty("semantic").GetString() == "fragment-position");
         }
+    }
+
+    private static void AssertStorageStructLayout(
+        SpirvArtifact artifact,
+        int arrayStride,
+        params int[] offsets)
+    {
+        var spirv = SpirvTestToolchain.Disassemble(artifact.SpirvPath);
+        var structName = Regex.Match(
+            spirv,
+            "OpName (?<id>%\\S+) \\\"sia\\.struct\\.storage\\\"");
+        Assert.True(structName.Success, "The physical storage struct has no SPIR-V name.");
+        var structId = structName.Groups["id"].Value;
+        for (var index = 0; index < offsets.Length; index++) {
+            Assert.Contains(
+                $"OpMemberDecorate {structId} {index} Offset {offsets[index]}",
+                spirv);
+        }
+
+        var runtimeArray = Regex.Match(
+            spirv,
+            $"(?m)^\\s*(?<id>%\\S+) = OpTypeRuntimeArray {Regex.Escape(structId)}\\s*$");
+        Assert.True(runtimeArray.Success, "The physical storage struct has no runtime array.");
+        Assert.Contains(
+            $"OpDecorate {runtimeArray.Groups["id"].Value} ArrayStride {arrayStride}",
+            spirv);
     }
 }

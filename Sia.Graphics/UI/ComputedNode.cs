@@ -48,7 +48,8 @@ public record struct ComputedNode
     public UiClipRect? ClipRect;
 
     public Size ScrollbarSize;
-    public Size ScrollPosition;
+    public Size ScrollExtent;
+    public Point ScrollPosition;
 
     public float OutlineWidth;
     public float OutlineOffset;

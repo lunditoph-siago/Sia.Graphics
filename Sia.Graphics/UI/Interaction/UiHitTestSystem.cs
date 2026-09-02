@@ -11,14 +11,33 @@ public sealed class UiHitTestSystem() : SystemBase(
         var pointer = world.AcquireAddon<UiPointerState>();
         var state = world.AcquireAddon<UiInteractionState>();
 
-        var hit = FindTopmostHit(query, pointer.Position);
-        var delta = new Point(pointer.Position.X - state.LastPosition.X, pointer.Position.Y - state.LastPosition.Y);
+        var processed = false;
+        while (pointer.TryRead(out var position, out var buttonDown)) {
+            ProcessPointer(world, query, state, position, buttonDown);
+            processed = true;
+        }
+
+        if (!processed)
+            ProcessPointer(world, query, state, pointer.Position, pointer.ButtonDown);
+    }
+
+    private static void ProcessPointer(
+        World world,
+        IEntityQuery query,
+        UiInteractionState state,
+        Point position,
+        bool buttonDown)
+    {
+        var hit = FindTopmostHit(query, position);
+        var delta = new Point(
+            position.X - state.LastPosition.X,
+            position.Y - state.LastPosition.Y);
 
         UpdateHover(world, state, hit);
-        UpdatePressAndDrag(world, state, hit, pointer, delta);
+        UpdatePressAndDrag(world, state, hit, position, buttonDown, delta);
 
-        state.LastPosition = pointer.Position;
-        state.WasButtonDown = pointer.ButtonDown;
+        state.LastPosition = position;
+        state.WasButtonDown = buttonDown;
     }
 
     private static void UpdateHover(World world, UiInteractionState state, Entity? hit)
@@ -42,31 +61,36 @@ public sealed class UiHitTestSystem() : SystemBase(
     }
 
     private static void UpdatePressAndDrag(
-        World world, UiInteractionState state, Entity? hit, UiPointerState pointer, Point delta)
+        World world,
+        UiInteractionState state,
+        Entity? hit,
+        Point position,
+        bool buttonDown,
+        Point delta)
     {
         if (state.Pressed is { } captured && !captured.IsValid) {
             state.Pressed = null;
         }
 
-        if (pointer.ButtonDown && !state.WasButtonDown && hit is { } pressTarget) {
+        if (buttonDown && !state.WasButtonDown && hit is { } pressTarget) {
             world.Dispatcher.Send(pressTarget, new PointerPress(0));
             if (!pressTarget.Contains<Pressed>())
                 pressTarget.Add<Pressed>();
-            world.Dispatcher.Send(pressTarget, new PointerDragStart(pointer.Position));
+            world.Dispatcher.Send(pressTarget, new PointerDragStart(position));
             state.Pressed = pressTarget;
             return;
         }
 
-        if (pointer.ButtonDown && state.WasButtonDown && state.Pressed is { } dragging) {
-            world.Dispatcher.Send(dragging, new PointerDrag(pointer.Position, delta));
+        if (buttonDown && state.WasButtonDown && state.Pressed is { } dragging) {
+            world.Dispatcher.Send(dragging, new PointerDrag(position, delta));
             return;
         }
 
-        if (!pointer.ButtonDown && state.WasButtonDown && state.Pressed is { } releasing) {
+        if (!buttonDown && state.WasButtonDown && state.Pressed is { } releasing) {
             world.Dispatcher.Send(releasing, new PointerRelease(0));
             if (releasing.Contains<Pressed>())
                 releasing.Remove<Pressed>();
-            world.Dispatcher.Send(releasing, new PointerDragEnd(pointer.Position));
+            world.Dispatcher.Send(releasing, new PointerDragEnd(position));
             if (Equals(hit, releasing))
                 world.Dispatcher.Send(releasing, new PointerClick(0));
             state.Pressed = null;

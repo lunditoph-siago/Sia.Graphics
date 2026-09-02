@@ -124,6 +124,13 @@ public sealed class UiLayoutSystem() : UiVersionedSystemBase(
         computed.Padding = layout.Padding;
         computed.BorderRadius = ResolveBorderRadius(entity.Get<Node>().BorderRadius, layout.Size, viewport);
         var style = entity.Get<Node>();
+        var contentExtent = MeasureContentExtent(tree, id, layout.ContentSize);
+        computed.ScrollExtent = new Size(
+            MathF.Max(0f, contentExtent.Width - layout.ContentSize.Width),
+            MathF.Max(0f, contentExtent.Height - layout.ContentSize.Height));
+        computed.ScrollPosition = new Point(
+            System.Math.Clamp(computed.ScrollPosition.X, 0f, computed.ScrollExtent.Width),
+            System.Math.Clamp(computed.ScrollPosition.Y, 0f, computed.ScrollExtent.Height));
         var clip = parentClip;
         if (style.Overflow.ClipsX || style.Overflow.ClipsY) {
             var ownClip = Bounds(world, layout.Size);
@@ -152,7 +159,10 @@ public sealed class UiLayoutSystem() : UiVersionedSystemBase(
         var contentOrigin = UiGlobalTransform.Translation(
             layout.Border.Left + layout.Padding.Left,
             layout.Border.Top + layout.Padding.Top);
-        var childBase = world * contentOrigin;
+        var scrollOffset = UiGlobalTransform.Translation(
+            style.Overflow.X == OverflowAxis.Scroll ? -computed.ScrollPosition.X : 0f,
+            style.Overflow.Y == OverflowAxis.Scroll ? -computed.ScrollPosition.Y : 0f);
+        var childBase = world * contentOrigin * scrollOffset;
 
         foreach (var child in entity.Get<UiChildren>().Value) {
             if (map.ContainsKey(child))
@@ -160,6 +170,18 @@ public sealed class UiLayoutSystem() : UiVersionedSystemBase(
                     tree, map, textMeasures, atlases, child,
                     childBase, viewport, clip, visited);
         }
+    }
+
+    private static Size MeasureContentExtent(LayoutTree tree, LayoutNodeId id, Size minimum)
+    {
+        var width = minimum.Width;
+        var height = minimum.Height;
+        foreach (var child in tree.GetChildren(id)) {
+            ref readonly var layout = ref tree.GetLayout(child);
+            width = MathF.Max(width, layout.Location.X + layout.Size.Width);
+            height = MathF.Max(height, layout.Location.Y + layout.Size.Height);
+        }
+        return new Size(width, height);
     }
 
     private static UiClipRect Bounds(UiGlobalTransform transform, Size size)

@@ -8,8 +8,12 @@ public readonly record struct RadioSelected(string Group, string Value) : IEvent
 
 public sealed class RadioButtonSystem() : SystemBase(Matchers.Of<RadioButton>())
 {
+    private IEntityQuery? _query;
+
     public override void Initialize(World world)
     {
+        _query = world.Query(Matchers.Of<RadioButton>());
+
         world.Dispatcher.Listen<PointerClick>((Entity target, in PointerClick _) => {
             if (!target.IsValid || !target.Contains<RadioButton>()
                 || target.Contains<Disabled>() || target.Contains<Checked>()) {
@@ -17,11 +21,8 @@ public sealed class RadioButtonSystem() : SystemBase(Matchers.Of<RadioButton>())
             }
 
             var selected = target.Get<RadioButton>();
-            var members = new List<Entity>();
-            world.Query(
-                Matchers.Of<RadioButton>(),
-                members,
-                static (in List<Entity> output, Entity entity) => output.Add(entity));
+            Span<Entity> members = new Entity[_query!.Count];
+            _query.Record(members);
 
             foreach (var member in members) {
                 if (!member.IsValid || member == target || !member.Contains<Checked>())

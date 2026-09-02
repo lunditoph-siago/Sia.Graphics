@@ -15,8 +15,14 @@ public readonly record struct DropdownChanged(string Value) : IEvent;
 public sealed class DropdownSystem() : SystemBase(
     Matchers.Of<Dropdown>().Or(Matchers.Of<DropdownOption>()))
 {
+    private IEntityQuery? _dropdowns;
+    private IEntityQuery? _expanded;
+
     public override void Initialize(World world)
     {
+        _dropdowns = world.Query(Matchers.Of<Dropdown, DropdownValue>());
+        _expanded = world.Query(Matchers.Of<Dropdown, Expanded>());
+
         world.Dispatcher.Listen<PointerClick>((Entity target, in PointerClick _) => {
             if (!target.IsValid || target.Contains<Disabled>()) {
                 CloseAll(world, null);
@@ -34,7 +40,7 @@ public sealed class DropdownSystem() : SystemBase(
 
             if (target.Contains<DropdownOption>()) {
                 var option = target.Get<DropdownOption>();
-                var owner = FindDropdown(world, option.Group);
+                var owner = FindDropdown(option.Group);
                 if (owner is { } dropdown) {
                     dropdown.Set(new DropdownValue(option.Value));
                     if (dropdown.Contains<Expanded>())
@@ -51,23 +57,21 @@ public sealed class DropdownSystem() : SystemBase(
         });
     }
 
-    private static Entity? FindDropdown(World world, string group)
+    private Entity? FindDropdown(string group)
     {
-        Entity? result = null;
-        world.Query(Matchers.Of<Dropdown, DropdownValue>(), (Entity entity) => {
-            if (result is null && entity.Get<Dropdown>().Group == group)
-                result = entity;
-        });
-        return result;
+        Span<Entity> dropdowns = new Entity[_dropdowns!.Count];
+        _dropdowns.Record(dropdowns);
+        foreach (var entity in dropdowns) {
+            if (entity.Get<Dropdown>().Group == group)
+                return entity;
+        }
+        return null;
     }
 
-    private static void CloseAll(World world, Entity? except)
+    private void CloseAll(World world, Entity? except)
     {
-        var expanded = new List<Entity>();
-        world.Query(
-            Matchers.Of<Dropdown, Expanded>(),
-            expanded,
-            static (in List<Entity> output, Entity entity) => output.Add(entity));
+        Span<Entity> expanded = new Entity[_expanded!.Count];
+        _expanded.Record(expanded);
         foreach (var dropdown in expanded) {
             if (dropdown == except)
                 continue;

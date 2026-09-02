@@ -52,10 +52,9 @@ public sealed class TextInputSystem() : SystemBase(Matchers.Of<TextInput>())
 
     private static void ApplyKey(World world, Entity target, Key key)
     {
-        if (!target.IsValid || !target.Contains<TextInput>())
+        if (!TryGetLive(target, out var input))
             return;
 
-        var input = target.Get<TextInput>();
         var caret = NormalizeCaret(input);
         switch (key) {
             case Key.Backspace:
@@ -102,10 +101,9 @@ public sealed class TextInputSystem() : SystemBase(Matchers.Of<TextInput>())
 
     private static void Insert(World world, Entity target, string value)
     {
-        if (!target.IsValid || !target.Contains<TextInput>())
+        if (!TryGetLive(target, out var input))
             return;
 
-        var input = target.Get<TextInput>();
         var caret = NormalizeCaret(input);
         var available = System.Math.Max(0, input.MaxLength - input.Value.Length);
         if (available == 0)
@@ -132,6 +130,17 @@ public sealed class TextInputSystem() : SystemBase(Matchers.Of<TextInput>())
     {
         target.Set(input);
         world.Dispatcher.Send(target, new TextInputChanged(input.Value, input.Caret));
+    }
+
+    private static bool TryGetLive(Entity target, out TextInput input)
+    {
+        if (target.IsValid && target.Contains<TextInput>()) {
+            input = target.Get<TextInput>();
+            return true;
+        }
+
+        input = default;
+        return false;
     }
 
     private static void SetFocus(World world, Entity? next)

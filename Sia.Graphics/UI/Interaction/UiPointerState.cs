@@ -14,21 +14,23 @@ public sealed class UiPointerState : IAddon
     internal void MoveTo(Point position)
     {
         Position = position;
-        _pending.Enqueue(new Snapshot(Position, ButtonDown));
+        Push();
     }
 
     internal void SetButtonDown(bool buttonDown)
     {
         ButtonDown = buttonDown;
-        _pending.Enqueue(new Snapshot(Position, ButtonDown));
+        Push();
     }
 
     internal void Cancel(Point position)
     {
         Position = position;
         ButtonDown = false;
-        _pending.Enqueue(new Snapshot(Position, ButtonDown));
+        Push();
     }
+
+    private void Push() => _pending.Enqueue(new Snapshot(Position, ButtonDown));
 
     internal bool TryRead(out Point position, out bool buttonDown)
     {

@@ -8,7 +8,7 @@ public readonly record struct ProgressBar(float Value, float Min = 0f, float Max
                 return 0f;
 
             var extent = Max - Min;
-            if (MathF.Abs(extent) < float.Epsilon)
+            if (extent == 0f)
                 return Value >= Max ? 1f : 0f;
 
             return System.Math.Clamp((Value - Min) / extent, 0f, 1f);

@@ -7,9 +7,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
-  id-token: write
-  attestations: write
 
 concurrency:
   group: publish-${{ github.repository }}-${{ github.ref }}
@@ -684,6 +681,7 @@ jobs:
       packages: write
       id-token: write
       attestations: write
+      artifact-metadata: write
     steps:
       - name: Download packages
         uses: actions/download-artifact@v8
@@ -702,10 +700,16 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
+      - name: NuGet login
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
       - name: Push packages
         shell: pwsh
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
@@ -727,8 +731,8 @@ jobs:
           foreach ($packageId in $packageIds) {
             $package = "artifacts/packages/$packageId.$version.nupkg"
             dotnet nuget push $package `
-              --api-key $env:NUGET_API_KEY `
-              --source https://api.nuget.org/v3/index.json `
+              --api-key "$env:NUGET_API_KEY" `
+              --source 'https://api.nuget.org/v3/index.json' `
               --skip-duplicate
             if ($LASTEXITCODE -ne 0) {
               throw "Publishing '$packageId' failed."
@@ -743,7 +747,7 @@ jobs:
           foreach ($packageId in $packageIds) {
             $package = "artifacts/packages/$packageId.$version.nupkg"
             dotnet nuget push $package `
-              --api-key $env:GITHUB_TOKEN `
+              --api-key "$env:GITHUB_TOKEN" `
               --source github `
               --skip-duplicate
             if ($LASTEXITCODE -ne 0) {

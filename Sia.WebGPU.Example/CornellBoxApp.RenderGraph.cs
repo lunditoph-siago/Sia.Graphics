@@ -1,6 +1,6 @@
 using Sia;
 using Sia.Graphics.Reactive;
-using Sia.Graphics.UI;
+using Sia.UI;
 using Sia.Reactive;
 using Sia.RenderGraph;
 using Sia.WebGPU;

@@ -23,6 +23,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
 #endif
     private const WGPUTextureFormat k_AccumulationFormat = WGPUTextureFormat.RGBA16Float;
     private readonly WgpuHandle<WGPUTexture>[] _accumulationTextures = new WgpuHandle<WGPUTexture>[2];
+    private readonly HashSet<Key> _downKeys = [];
     private readonly HashSet<Key> _pressedKeys = [];
 
     private GlfwWindow _window;
@@ -43,7 +44,6 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private int _framebufferHeight;
     private int _readIndex;
     private uint _frameIndex;
-    private bool _glfwInitialized;
     private bool _surfaceConfigured;
     private bool _disposed;
 
@@ -90,15 +90,12 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
 
     private void Initialize()
     {
-        Glfw.Initialize();
-        _glfwInitialized = true;
-        _window = Glfw.CreateWindow(
+        InitializeWindow(
             new WindowDescriptor(
                 k_InitialWidth,
                 k_InitialHeight,
                 "Sia.WebGPU · Cornell Box Path Tracer",
-                Resizable: true),
-            new GlfwWindowOptions(ClientApi.NoApi));
+                Resizable: true));
 
         _instance = Wgpu.CreateInstance();
         _surface = CreateSurface(_instance, _window);
@@ -588,6 +585,11 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
 
     private void HandleInput(float deltaTime)
     {
+        if (UiCapturesKeyboard()) {
+            _downKeys.Clear();
+            _pressedKeys.Clear();
+        }
+
         if (IsDown(Key.Escape)) {
             Glfw.RequestClose(_window);
         }
@@ -667,17 +669,9 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         }
     }
 
-    private bool IsDown(Key key) => Glfw.GetKey(_window, key) != InputAction.Release;
+    private bool IsDown(Key key) => _downKeys.Contains(key);
 
-    private bool Pressed(Key key)
-    {
-        if (IsDown(key)) {
-            return _pressedKeys.Add(key);
-        }
-
-        _pressedKeys.Remove(key);
-        return false;
-    }
+    private bool Pressed(Key key) => _pressedKeys.Remove(key);
 
     private void ResetAccumulation()
     {
@@ -733,13 +727,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         Wgpu.Release(ref _surface);
         Wgpu.Release(ref _instance);
 
-        if (!_window.IsNull) {
-            Glfw.DestroyWindow(ref _window);
-        }
-        if (_glfwInitialized) {
-            Glfw.Terminate();
-            _glfwInitialized = false;
-        }
+        DisposeWindow();
     }
 
     private static bool IsSrgb(WGPUTextureFormat format) => format is

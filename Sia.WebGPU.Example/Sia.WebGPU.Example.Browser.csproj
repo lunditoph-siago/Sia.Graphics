@@ -46,6 +46,14 @@
     <PackageReference Include="Sia.GLFW" Version="0.0.4" />
   </ItemGroup>
 
+  <ItemGroup Condition="Exists('..\..\Sia.Engine\Sia.UI\Sia.UI.csproj')">
+    <ProjectReference Include="..\..\Sia.Engine\Sia.UI\Sia.UI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="!Exists('..\..\Sia.Engine\Sia.UI\Sia.UI.csproj')">
+    <PackageReference Include="Sia.UI" Version="0.0.1" />
+  </ItemGroup>
+
   <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0-browser'">
     <SupportedOSPlatformVersion>0.0</SupportedOSPlatformVersion>
   </PropertyGroup>

@@ -1,9 +1,12 @@
 using System.Text;
-using Sia.Graphics.UI;
 
 namespace Sia.Graphics.Text;
 
-public readonly record struct ShapedGlyph(ushort GlyphId, Point Position)
+public readonly record struct TextPoint(float X, float Y);
+
+public readonly record struct TextSize(float Width, float Height);
+
+public readonly record struct ShapedGlyph(ushort GlyphId, TextPoint Position)
 {
     public Font? Font { get; init; }
     public int Codepoint { get; init; }
@@ -13,7 +16,7 @@ public readonly record struct ShapedGlyph(ushort GlyphId, Point Position)
 public sealed class ShapedText
 {
     public List<ShapedGlyph> Glyphs { get; } = [];
-    public Size Size { get; set; }
+    public TextSize Size { get; set; }
     public float Baseline { get; set; }
     public float LineHeight { get; set; }
 }
@@ -64,7 +67,7 @@ public static class TextShaper
                 var glyph = lines[lineIndex][glyphIndex];
                 if (glyphIndex > 0)
                     cursorX += glyph.KerningBefore;
-                result.Glyphs.Add(new ShapedGlyph(glyph.GlyphId, new Point(cursorX, baselineY)) {
+                result.Glyphs.Add(new ShapedGlyph(glyph.GlyphId, new TextPoint(cursorX, baselineY)) {
                     Font = glyph.Font,
                     Codepoint = glyph.Rune.Value,
                     UsedFallback = !ReferenceEquals(glyph.Font, font)
@@ -74,7 +77,7 @@ public static class TextShaper
             maxWidth = MathF.Max(maxWidth, cursorX);
         }
 
-        result.Size = new Size(maxWidth, lines.Count * lineHeight);
+        result.Size = new TextSize(maxWidth, lines.Count * lineHeight);
         return result;
     }
 

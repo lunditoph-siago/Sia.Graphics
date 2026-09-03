@@ -17,6 +17,9 @@
     <SiaShaderAssetFormat Condition="'$(SiaShaderAssetFormat)' == ''">Wgsl</SiaShaderAssetFormat>
     <EnableSpirvCompilation Condition="'$(SiaShaderAssetFormat)' == 'Wgsl'">false</EnableSpirvCompilation>
     <EnableSpirvCompilation Condition="'$(SiaShaderAssetFormat)' == 'Spirv'">true</EnableSpirvCompilation>
+    <_SiaRequiresSpirvTranslation>false</_SiaRequiresSpirvTranslation>
+    <_SiaRequiresSpirvTranslation
+      Condition="'$(SiaWebGpuBackend)' == 'Dawn' And '$(SiaShaderAssetFormat)' == 'Spirv'">true</_SiaRequiresSpirvTranslation>
     <DefineConstants Condition="'$(SiaShaderAssetFormat)' == 'Spirv'">$(DefineConstants);SIA_SPIRV_ASSETS</DefineConstants>
     <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
     <SpirvKernelAbi>webgpu</SpirvKernelAbi>
@@ -73,6 +76,19 @@
   </Target>
 
   <Import Project="..\Sia.WebGPU.Native\build\net461\Sia.WebGPU.Native.targets" />
+
+  <Target Name="WriteSiaShaderProfile" AfterTargets="Publish">
+    <PropertyGroup>
+      <_SiaShaderProfileDirectory>$([System.IO.Path]::Combine('$(PublishDir)', 'wwwroot'))</_SiaShaderProfileDirectory>
+      <_SiaShaderProfileFile>$([System.IO.Path]::Combine('$(_SiaShaderProfileDirectory)', 'shader-profile.js'))</_SiaShaderProfileFile>
+    </PropertyGroup>
+    <MakeDir Directories="$(_SiaShaderProfileDirectory)" />
+    <WriteLinesToFile
+      File="$(_SiaShaderProfileFile)"
+      Lines="export const requiresSpirvTranslation = $(_SiaRequiresSpirvTranslation);"
+      Overwrite="true"
+      Encoding="UTF-8" />
+  </Target>
 
   <Target Name="AssembleSiaWebGpuSite"
           AfterTargets="Publish;PublishSiaSpirvArtifacts"

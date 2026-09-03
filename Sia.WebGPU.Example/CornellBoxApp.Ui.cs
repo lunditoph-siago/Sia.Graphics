@@ -2,11 +2,10 @@ using System.Reflection;
 using Sia;
 using Sia.GLFW;
 using Sia.Graphics.Text;
-using Sia.Graphics.UI;
-using Sia.Input;
+using Sia.UI;
 using Sia.Reactive;
 using SiaReactive = Sia.Reactive.Reactive;
-using UiText = Sia.Graphics.UI.Text;
+using UiText = Sia.UI.Text;
 
 namespace Sia.WebGPU.Example;
 
@@ -42,11 +41,16 @@ internal sealed unsafe partial class CornellBoxApp
             .CreateStage(_uiWorld);
         _uiInteractionStage = SystemChain.Empty
             .Add<UiHitTestSystem>()
-            .Add<ButtonSystem>()
-            .Add<SliderSystem>()
+            .AddUiControls()
             .CreateStage(_uiWorld);
 
         _uiLayoutStage.Tick();
+        InitializeUiInput();
+        var framebufferSize = Glfw.GetFramebufferSize(_window);
+        var windowSize = Glfw.GetSize(_window);
+        UpdateUiInput(
+            new Size(windowSize.Width, windowSize.Height),
+            new Size(framebufferSize.Width, framebufferSize.Height));
     }
 
     private static ReactiveNode RenderUi(in UiViewProps props, ref Hooks hooks)
@@ -145,7 +149,6 @@ internal sealed unsafe partial class CornellBoxApp
                 "Reset renderer / 重置渲染",
                 new Color(0.48f, 0.18f, 0.22f, 1f),
                 assets));
-
         return SiaReactive.Group(
             root, panel, title, status, preview,
             exposure, samples, bounces, aperture, focus, fontSize, lockFocus, reset);
@@ -253,16 +256,13 @@ internal sealed unsafe partial class CornellBoxApp
         }
 
         var viewport = new Size(framebufferSize.Width, framebufferSize.Height);
+        UpdateUiInput(
+            new Size(windowSize.Width, windowSize.Height),
+            viewport);
         UpdateUiProps(mount, CreateUiProps(viewport));
         _uiWorld.FlushReactive();
         _uiLayoutStage.Tick();
 
-        var cursor = Glfw.GetCursorPosition(_window);
-        var pointer = _uiWorld.AcquireAddon<UiPointerState>();
-        pointer.Position = new Point(
-            (float)(cursor.X * framebufferSize.Width / windowSize.Width),
-            (float)(cursor.Y * framebufferSize.Height / windowSize.Height));
-        pointer.ButtonDown = Glfw.GetMouseButton(_window, MouseButton.Left) != InputAction.Release;
         _uiInteractionStage.Tick();
 
         UpdateUiProps(mount, CreateUiProps(viewport));
@@ -343,6 +343,7 @@ internal sealed unsafe partial class CornellBoxApp
 
     private void DisposeUi()
     {
+        DisposeUiInput();
         if (_uiMount is { } mount && mount.IsMounted)
             mount.Unmount();
         _uiInteractionStage?.Dispose();

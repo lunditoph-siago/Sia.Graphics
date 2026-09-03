@@ -52,16 +52,13 @@ internal sealed partial class CornellBoxApp
 
     private async Task InitializeAsync()
     {
-        Glfw.Initialize();
-        _glfwInitialized = true;
         var initialSize = GetCanvasSize();
-        _window = Glfw.CreateWindow(
+        InitializeWindow(
             new WindowDescriptor(
                 initialSize.Width,
                 initialSize.Height,
                 "Sia.WebGPU · Cornell Box Path Tracer",
-                Resizable: true),
-            new GlfwWindowOptions(ClientApi.NoApi));
+                Resizable: true));
 
         _instance = Wgpu.CreateInstance();
         _surface = CreateSurface(_instance, _window);

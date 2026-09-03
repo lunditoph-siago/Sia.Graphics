@@ -12,8 +12,8 @@ public sealed class FontAtlas
 
     public int Width { get; }
     public int Height { get; }
-    internal int Layer { get; }
-    internal byte[] Pixels => _pixels;
+    public int Layer { get; }
+    public ReadOnlySpan<byte> Pixels => _pixels;
 
     internal FontAtlas(int width, int height, int layer)
     {
@@ -54,7 +54,7 @@ public sealed class FontAtlas
         return true;
     }
 
-    internal bool TryTakeDirtyRegion(out FontAtlasDirtyRegion region)
+    public bool TryTakeDirtyRegion(out FontAtlasDirtyRegion region)
     {
         if (_dirtyLeft == int.MaxValue) {
             region = default;
@@ -73,4 +73,4 @@ public sealed class FontAtlas
     }
 }
 
-internal readonly record struct FontAtlasDirtyRegion(int X, int Y, int Width, int Height);
+public readonly record struct FontAtlasDirtyRegion(int X, int Y, int Width, int Height);

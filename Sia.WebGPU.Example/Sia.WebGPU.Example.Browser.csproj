@@ -44,6 +44,7 @@
     <ProjectReference Include="..\Sia.Spirv.Core\Sia.Spirv.Core.csproj" />
     <ProjectReference Include="..\Sia.WebGPU\Sia.WebGPU.csproj" />
     <PackageReference Include="Sia.GLFW" Version="0.0.4" />
+    <PackageReference Include="Sia.UI" Version="0.0.3" />
   </ItemGroup>
 
   <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0-browser'">

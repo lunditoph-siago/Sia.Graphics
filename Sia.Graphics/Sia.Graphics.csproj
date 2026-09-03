@@ -23,8 +23,4 @@
     <DefineConstants Condition="'$(SiaWebGpuBackend)' == 'Wgpu'">$(DefineConstants);SIA_WEBGPU_BACKEND_WGPU</DefineConstants>
   </PropertyGroup>
 
-  <ItemGroup>
-    <EmbeddedResource Include="UI/Render/Shaders/ui_node.wgsl" />
-    <EmbeddedResource Include="UI/Render/Shaders/ui_node_vertex_buffer.wgsl" />
-  </ItemGroup>
 </Project>

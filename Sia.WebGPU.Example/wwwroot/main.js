@@ -1,4 +1,5 @@
 import { dotnet } from './_framework/dotnet.js';
+import { requiresSpirvTranslation } from './shader-profile.js';
 
 const canvas = document.getElementById('canvas');
 
@@ -89,12 +90,10 @@ try {
     let translateSpirvToWgsl = () => {
         throw new Error('This build does not contain the SPIR-V translation asset.');
     };
-    try {
+    if (requiresSpirvTranslation) {
         const { createSpirvPolyfill } = await import('./spirv/sia-spirv-polyfill.js');
         translateSpirvToWgsl = await createSpirvPolyfill(
             new URL('./spirv/sia-spirv-naga.wasm', import.meta.url));
-    } catch (err) {
-        console.info('[startup] SPIR-V translator is not present in this WGSL build.', err);
     }
 
     Module.canvas = canvas;

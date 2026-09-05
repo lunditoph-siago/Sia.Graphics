@@ -81,14 +81,28 @@ public sealed partial class WgpuRenderGraphRegistry
         RenderGraphPassKey key,
         string name,
         RenderGraphPassDeclaration declaration,
-        RenderGraphPassKind kind = RenderGraphPassKind.Render)
+        RenderGraphPassKind kind = RenderGraphPassKind.Render) =>
+        RegisterPass(key, name, declaration, kind, ReservePassOrder());
+
+    internal long ReservePassOrder()
+    {
+        ThrowIfDisposed();
+        return NextRegistrationId();
+    }
+
+    internal RenderGraphRegistration RegisterPass(
+        RenderGraphPassKey key,
+        string name,
+        RenderGraphPassDeclaration declaration,
+        RenderGraphPassKind kind,
+        long order)
     {
         ThrowIfDisposed();
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(declaration);
         Validate(key);
         var id = NextRegistrationId();
-        if (!_passes.TryAdd(key, new(id, name, declaration, kind))) {
+        if (!_passes.TryAdd(key, new(id, order, name, declaration, kind))) {
             throw Duplicate("pass", key);
         }
         StructureChanged();

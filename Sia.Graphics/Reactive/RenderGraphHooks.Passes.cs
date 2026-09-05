@@ -13,14 +13,20 @@ public static partial class RenderGraphHooks
         RenderGraphPassDeclaration declaration,
         RenderGraphPassKind kind = RenderGraphPassKind.Render)
     {
+        var order = hooks.UseRef(static () => new PassOrder()).Value;
+        if (!ReferenceEquals(order.Registry, registry)) {
+            order.Registry = registry;
+            order.Value = registry.ReservePassOrder();
+        }
         hooks.UseEffect(
-            new PassDependencies(registry, key, name, declaration, kind),
+            new PassDependencies(registry, key, name, declaration, kind, order.Value),
             static (in PassDependencies dependencies) =>
                 dependencies.Registry.RegisterPass(
                     dependencies.Key,
                     dependencies.Name,
                     dependencies.Declaration,
-                    dependencies.Kind),
+                    dependencies.Kind,
+                    dependencies.Order),
             DisposeRegistration);
     }
 
@@ -52,7 +58,15 @@ public static partial class RenderGraphHooks
         RenderGraphPassKey Key,
         string Name,
         RenderGraphPassDeclaration Declaration,
-        RenderGraphPassKind Kind);
+        RenderGraphPassKind Kind,
+        long Order);
+
+    private sealed class PassOrder
+    {
+        public WgpuRenderGraphRegistry? Registry { get; set; }
+
+        public long Value { get; set; }
+    }
 
     private readonly record struct PassHandlerDependencies(
         WgpuRenderGraphRegistry Registry,

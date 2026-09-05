@@ -37,20 +37,33 @@ public static partial class RenderGraphCompiler
         RenderAttachmentSet nextAttachments,
         CompiledRenderGraphTexture[] textures)
     {
-        _ = groupStart;
-        if (groupAttachments.Count == 0 || !groupAttachments.SetEquals(nextAttachments)) {
+        if (passes[nextIndex].Kind != RenderGraphPassKind.Render ||
+            groupAttachments.Count == 0 || !groupAttachments.SetEquals(nextAttachments)) {
             return false;
         }
 
-        var previous = passes[nextIndex - 1];
         var next = passes[nextIndex];
+        for (var index = groupStart; index < nextIndex; index++) {
+            if (passes[index].Kind != RenderGraphPassKind.Render ||
+                HasFusionHazard(passes[index], next, groupAttachments, nextAttachments, textures)) {
+                return false;
+            }
+        }
+        return true;
+    }
 
+    private static bool HasFusionHazard(
+        CompiledRenderGraphPass previous,
+        CompiledRenderGraphPass next,
+        RenderAttachmentSet groupAttachments,
+        RenderAttachmentSet nextAttachments,
+        CompiledRenderGraphTexture[] textures)
+    {
         foreach (var a in previous.Buffers) {
             foreach (var b in next.Buffers) {
                 if (a.Buffer == b.Buffer &&
-                    RenderGraphValidation.Overlaps(a.Range, b.Range) &&
                     (Writes(a.Access) || Writes(b.Access))) {
-                    return false;
+                    return true;
                 }
             }
         }
@@ -62,21 +75,21 @@ public static partial class RenderGraphCompiler
                     continue;
                 }
                 if (aIsFusionPoint && nextAttachments.Contains((b.Texture, b.Subresources)) &&
+                    a.Usage == RenderGraphTextureUsage.RenderAttachment &&
+                    b.Usage == RenderGraphTextureUsage.RenderAttachment &&
                     a.Subresources == b.Subresources) {
-                    // The recognized shared render-attachment write itself — the point of the
-                    // merge, not a hazard.
                     continue;
                 }
 
                 var format = textures[a.Texture.Index].Descriptor.Format;
                 if (RenderGraphValidation.Overlaps(format, a.Subresources, b.Subresources) &&
                     (Writes(a.Access) || Writes(b.Access))) {
-                    return false;
+                    return true;
                 }
             }
         }
 
-        return true;
+        return false;
     }
 
     private static RenderAttachmentSet GetRenderAttachmentWrites(CompiledRenderGraphPass pass)

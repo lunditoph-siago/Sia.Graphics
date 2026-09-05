@@ -178,10 +178,6 @@ public sealed class WgpuRenderGraphPassContext
         WgpuRenderGraphColorAttachment colorAttachment,
         WgpuRenderGraphDepthStencilAttachment? depthStencilAttachment)
     {
-        if (_groupRenderPass.IsOpen) {
-            return _groupRenderPass.Encoder;
-        }
-
         Span<WgpuRenderGraphColorAttachment> single = stackalloc WgpuRenderGraphColorAttachment[1];
         single[0] = colorAttachment;
         return GetOrBeginRenderPass(single, depthStencilAttachment);
@@ -199,8 +195,8 @@ public sealed class WgpuRenderGraphPassContext
         ReadOnlySpan<WgpuRenderGraphColorAttachment> colorAttachments,
         WgpuRenderGraphDepthStencilAttachment? depthStencilAttachment)
     {
-        if (_groupRenderPass.IsOpen) {
-            return _groupRenderPass.Encoder;
+        if (Pass.Kind != RenderGraphPassKind.Render) {
+            throw new InvalidOperationException($"Pass '{Pass.Name}' was not declared as a render pass.");
         }
         if (colorAttachments.IsEmpty && depthStencilAttachment is null) {
             throw new ArgumentException(
@@ -215,6 +211,7 @@ public sealed class WgpuRenderGraphPassContext
                 : new WGPURenderPassColorAttachment[colorAttachments.Length];
         for (var index = 0; index < colorAttachments.Length; index++) {
             var attachment = colorAttachments[index];
+            ValidateRenderAttachment(attachment.Texture, attachment.Subresources);
             var view = GetTextureView(
                 attachment.Texture, attachment.Subresources, attachment.Cacheable);
             lowered[index] = WGPURenderPassColorAttachment.Default;
@@ -226,6 +223,7 @@ public sealed class WgpuRenderGraphPassContext
 
         var loweredDepthStencil = WGPURenderPassDepthStencilAttachment.Default;
         if (depthStencilAttachment is { } depthStencil) {
+            ValidateRenderAttachment(depthStencil.Texture, depthStencil.Subresources);
             var view = GetTextureView(
                 depthStencil.Texture, depthStencil.Subresources, depthStencil.Cacheable);
             loweredDepthStencil.View = (WGPUTextureView*)view.DangerousGetHandle();
@@ -241,6 +239,11 @@ public sealed class WgpuRenderGraphPassContext
                 depthStencil.StencilReadOnly ? WgpuConstants.True : WgpuConstants.False;
         }
 
+        if (_groupRenderPass.CanReuse(Pass.Handle, colorAttachments, depthStencilAttachment)) {
+            return _groupRenderPass.Encoder;
+        }
+        _groupRenderPass.End();
+
         fixed (WGPURenderPassColorAttachment* attachmentsPtr = lowered) {
             var descriptor = WGPURenderPassDescriptor.Default;
             descriptor.ColorAttachmentCount = (uint)lowered.Length;
@@ -253,7 +256,7 @@ public sealed class WgpuRenderGraphPassContext
                 throw new InvalidOperationException(
                     $"WebGPU could not begin the render pass for pass '{Pass.Name}'.");
             }
-            _groupRenderPass.SetEncoder(encoder);
+            _groupRenderPass.SetEncoder(encoder, Pass.Handle, colorAttachments, depthStencilAttachment);
             return encoder;
         }
     }
@@ -271,6 +274,19 @@ public sealed class WgpuRenderGraphPassContext
                 $"WebGPU could not begin the compute pass for pass '{Pass.Name}'.");
         }
         return computePass;
+    }
+
+    private void ValidateRenderAttachment(RenderGraphTextureHandle texture, RenderGraphTextureSubresourceRange subresources)
+    {
+        var normalized = Normalize(Plan.Graph.GetTexture(texture).Descriptor, subresources);
+        foreach (var access in Pass.Textures) {
+            if (access.Texture == texture &&
+                (access.Usage & RenderGraphTextureUsage.RenderAttachment) != 0 &&
+                Contains(access.Subresources, normalized)) {
+                return;
+            }
+        }
+        throw new ArgumentException($"Pass '{Pass.Name}' did not declare the requested render attachment.", nameof(texture));
     }
 
     private bool DeclaresSubresources(

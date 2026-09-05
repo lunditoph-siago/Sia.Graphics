@@ -14,9 +14,13 @@ public sealed class WgpuRenderGraphExecutionScratch
     private int _passContextCursor;
     private readonly List<WgpuRenderGraphGroupRenderPassState> _groupStates = [];
     private int _groupStateCursor;
+    private bool _executing;
 
     public void Clear()
     {
+        if (_executing) {
+            throw new InvalidOperationException("Render graph execution scratch is already in use.");
+        }
         _buffers.Clear();
         _textures.Clear();
         _ownedBuffers.Clear();
@@ -25,6 +29,14 @@ public sealed class WgpuRenderGraphExecutionScratch
         _passContextCursor = 0;
         _groupStateCursor = 0;
     }
+
+    internal void BeginExecution()
+    {
+        Clear();
+        _executing = true;
+    }
+
+    internal void EndExecution() => _executing = false;
 
     internal WgpuRenderGraphGroupRenderPassState RentGroupState()
     {

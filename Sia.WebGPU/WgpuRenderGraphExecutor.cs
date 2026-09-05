@@ -11,7 +11,17 @@ public static class WgpuRenderGraphExecutor
         WgpuRenderGraphBindings bindings,
         WgpuRenderGraphViewCache viewCache,
         WgpuRenderGraphExecutionScratch scratch) =>
-        Execute(plan, device, queue, bindings, viewCache, scratch, out _);
+        Execute(plan, device, queue, bindings, viewCache, scratch, resourcePool: null, out _);
+
+    public static WgpuRenderGraphExports Execute(
+        WgpuRenderGraphPlan plan,
+        WgpuHandle<WGPUDevice> device,
+        WgpuHandle<WGPUQueue> queue,
+        WgpuRenderGraphBindings bindings,
+        WgpuRenderGraphViewCache viewCache,
+        WgpuRenderGraphExecutionScratch scratch,
+        WgpuRenderGraphResourcePool resourcePool) =>
+        Execute(plan, device, queue, bindings, viewCache, scratch, resourcePool, out _);
 
     public static WgpuRenderGraphExports Execute(
         WgpuRenderGraphPlan plan,
@@ -21,6 +31,25 @@ public static class WgpuRenderGraphExecutor
         WgpuRenderGraphViewCache viewCache,
         WgpuRenderGraphExecutionScratch scratch,
         out int physicalRenderPassCount)
+        => Execute(
+            plan,
+            device,
+            queue,
+            bindings,
+            viewCache,
+            scratch,
+            resourcePool: null,
+            out physicalRenderPassCount);
+
+    public static WgpuRenderGraphExports Execute(
+        WgpuRenderGraphPlan plan,
+        WgpuHandle<WGPUDevice> device,
+        WgpuHandle<WGPUQueue> queue,
+        WgpuRenderGraphBindings bindings,
+        WgpuRenderGraphViewCache viewCache,
+        WgpuRenderGraphExecutionScratch scratch,
+        WgpuRenderGraphResourcePool? resourcePool,
+        out int physicalRenderPassCount)
     {
         return ExecuteCore(
             plan,
@@ -29,6 +58,7 @@ public static class WgpuRenderGraphExecutor
             bindings,
             viewCache,
             scratch,
+            resourcePool,
             captureExports: true,
             out physicalRenderPassCount)!;
     }
@@ -41,6 +71,25 @@ public static class WgpuRenderGraphExecutor
         WgpuRenderGraphViewCache viewCache,
         WgpuRenderGraphExecutionScratch scratch,
         out int physicalRenderPassCount)
+        => ExecuteWithoutExports(
+            plan,
+            device,
+            queue,
+            bindings,
+            viewCache,
+            scratch,
+            resourcePool: null,
+            out physicalRenderPassCount);
+
+    public static void ExecuteWithoutExports(
+        WgpuRenderGraphPlan plan,
+        WgpuHandle<WGPUDevice> device,
+        WgpuHandle<WGPUQueue> queue,
+        WgpuRenderGraphBindings bindings,
+        WgpuRenderGraphViewCache viewCache,
+        WgpuRenderGraphExecutionScratch scratch,
+        WgpuRenderGraphResourcePool? resourcePool,
+        out int physicalRenderPassCount)
     {
         _ = ExecuteCore(
             plan,
@@ -49,6 +98,7 @@ public static class WgpuRenderGraphExecutor
             bindings,
             viewCache,
             scratch,
+            resourcePool,
             captureExports: false,
             out physicalRenderPassCount);
     }
@@ -60,6 +110,7 @@ public static class WgpuRenderGraphExecutor
         WgpuRenderGraphBindings bindings,
         WgpuRenderGraphViewCache viewCache,
         WgpuRenderGraphExecutionScratch scratch,
+        WgpuRenderGraphResourcePool? resourcePool,
         bool captureExports,
         out int physicalRenderPassCount)
     {
@@ -79,6 +130,7 @@ public static class WgpuRenderGraphExecutor
         if (queue.IsNull) {
             throw new ArgumentException("The WebGPU queue is null.", nameof(queue));
         }
+        resourcePool?.BeginFrame(device);
 
         scratch.Clear();
         var buffers = scratch._buffers;
@@ -90,8 +142,8 @@ public static class WgpuRenderGraphExecutor
         var commandBuffer = default(WgpuHandle<WGPUCommandBuffer>);
 
         try {
-            CreateBuffers(plan, device, bindings, buffers, ownedBuffers);
-            CreateTextures(plan, device, bindings, textures, ownedTextures);
+            CreateBuffers(plan, device, bindings, buffers, ownedBuffers, resourcePool);
+            CreateTextures(plan, device, bindings, textures, ownedTextures, resourcePool);
 
             if (plan.Graph.Passes.Count != 0) {
                 commandEncoder = Wgpu.CreateCommandEncoder(device);
@@ -162,8 +214,8 @@ public static class WgpuRenderGraphExecutor
             viewCache.EndFrame();
             Wgpu.Release(ref commandBuffer);
             Wgpu.Release(ref commandEncoder);
-            ReleaseBuffers(buffers, ownedBuffers);
-            ReleaseTextures(textures, ownedTextures);
+            ReleaseBuffers(plan, buffers, ownedBuffers, resourcePool);
+            ReleaseTextures(plan, textures, ownedTextures, resourcePool);
         }
     }
 
@@ -172,7 +224,8 @@ public static class WgpuRenderGraphExecutor
         WgpuHandle<WGPUDevice> device,
         WgpuRenderGraphBindings bindings,
         Dictionary<RenderGraphBufferHandle, WgpuHandle<WGPUBuffer>> buffers,
-        HashSet<RenderGraphBufferHandle> ownedBuffers)
+        HashSet<RenderGraphBufferHandle> ownedBuffers,
+        WgpuRenderGraphResourcePool? resourcePool)
     {
         for (var index = 0; index < plan.Buffers.Count; index++) {
             var item = plan.Buffers[index];
@@ -192,16 +245,9 @@ public static class WgpuRenderGraphExecutor
                 continue;
             }
 
-            using var label = WgpuOwnedString.Create(resource.Descriptor.Name);
-            var descriptor = WGPUBufferDescriptor.Default;
-            descriptor.Label = label.View;
-            descriptor.Size = resource.Descriptor.Size;
-            descriptor.Usage = item.Usage;
-            var buffer = Wgpu.CreateBuffer(device, in descriptor);
-            if (buffer.IsNull) {
-                throw new InvalidOperationException(
-                    $"WebGPU could not create buffer '{resource.Descriptor.Name}'.");
-            }
+            var buffer = resourcePool is null
+                ? CreateBuffer(device, resource.Descriptor, item.Usage)
+                : resourcePool.RentBuffer(device, resource.Descriptor, item.Usage);
 
             buffers.Add(resource.Handle, buffer);
             ownedBuffers.Add(resource.Handle);
@@ -213,7 +259,8 @@ public static class WgpuRenderGraphExecutor
         WgpuHandle<WGPUDevice> device,
         WgpuRenderGraphBindings bindings,
         Dictionary<RenderGraphTextureHandle, WgpuHandle<WGPUTexture>> textures,
-        HashSet<RenderGraphTextureHandle> ownedTextures)
+        HashSet<RenderGraphTextureHandle> ownedTextures,
+        WgpuRenderGraphResourcePool? resourcePool)
     {
         for (var index = 0; index < plan.Textures.Count; index++) {
             var item = plan.Textures[index];
@@ -233,24 +280,14 @@ public static class WgpuRenderGraphExecutor
                 continue;
             }
 
-            using var label = WgpuOwnedString.Create(resource.Descriptor.Name);
-            var descriptor = WGPUTextureDescriptor.Default;
-            descriptor.Label = label.View;
-            descriptor.Usage = item.Usage;
-            descriptor.Dimension = item.Dimension;
-            descriptor.Size = new WGPUExtent3D {
-                Width = resource.Descriptor.Width,
-                Height = resource.Descriptor.Height,
-                DepthOrArrayLayers = resource.Descriptor.DepthOrArrayLayers,
-            };
-            descriptor.Format = item.Format;
-            descriptor.MipLevelCount = resource.Descriptor.MipLevelCount;
-            descriptor.SampleCount = resource.Descriptor.SampleCount;
-            var texture = Wgpu.CreateTexture(device, in descriptor);
-            if (texture.IsNull) {
-                throw new InvalidOperationException(
-                    $"WebGPU could not create texture '{resource.Descriptor.Name}'.");
-            }
+            var texture = resourcePool is null
+                ? CreateTexture(device, resource.Descriptor, item)
+                : resourcePool.RentTexture(
+                    device,
+                    resource.Descriptor,
+                    item.Dimension,
+                    item.Format,
+                    item.Usage);
 
             textures.Add(resource.Handle, texture);
             ownedTextures.Add(resource.Handle);
@@ -268,6 +305,50 @@ public static class WgpuRenderGraphExecutor
             throw new InvalidOperationException(
                 $"Imported buffer '{resource.Descriptor.Name}' does not match the compiled render graph descriptor.");
         }
+    }
+
+    private static WgpuHandle<WGPUBuffer> CreateBuffer(
+        WgpuHandle<WGPUDevice> device,
+        in RenderGraphBufferDescriptor resource,
+        WGPUBufferUsage usage)
+    {
+        using var label = WgpuOwnedString.Create(resource.Name);
+        var descriptor = WGPUBufferDescriptor.Default;
+        descriptor.Label = label.View;
+        descriptor.Size = resource.Size;
+        descriptor.Usage = usage;
+        var buffer = Wgpu.CreateBuffer(device, in descriptor);
+        if (buffer.IsNull) {
+            throw new InvalidOperationException(
+                $"WebGPU could not create buffer '{resource.Name}'.");
+        }
+        return buffer;
+    }
+
+    private static WgpuHandle<WGPUTexture> CreateTexture(
+        WgpuHandle<WGPUDevice> device,
+        in RenderGraphTextureDescriptor resource,
+        WgpuRenderGraphTexturePlan plan)
+    {
+        using var label = WgpuOwnedString.Create(resource.Name);
+        var descriptor = WGPUTextureDescriptor.Default;
+        descriptor.Label = label.View;
+        descriptor.Usage = plan.Usage;
+        descriptor.Dimension = plan.Dimension;
+        descriptor.Size = new WGPUExtent3D {
+            Width = resource.Width,
+            Height = resource.Height,
+            DepthOrArrayLayers = resource.DepthOrArrayLayers,
+        };
+        descriptor.Format = plan.Format;
+        descriptor.MipLevelCount = resource.MipLevelCount;
+        descriptor.SampleCount = resource.SampleCount;
+        var texture = Wgpu.CreateTexture(device, in descriptor);
+        if (texture.IsNull) {
+            throw new InvalidOperationException(
+                $"WebGPU could not create texture '{resource.Name}'.");
+        }
+        return texture;
     }
 
     private static void ValidateImported(
@@ -319,22 +400,49 @@ public static class WgpuRenderGraphExecutor
     }
 
     private static void ReleaseBuffers(
+        WgpuRenderGraphPlan plan,
         Dictionary<RenderGraphBufferHandle, WgpuHandle<WGPUBuffer>> buffers,
-        HashSet<RenderGraphBufferHandle> ownedBuffers)
+        HashSet<RenderGraphBufferHandle> ownedBuffers,
+        WgpuRenderGraphResourcePool? resourcePool)
     {
-        foreach (var buffer in ownedBuffers) {
-            var handle = buffers[buffer];
-            Wgpu.Release(ref handle);
+        foreach (var item in plan.Buffers) {
+            var resource = item.Resource;
+            if (!ownedBuffers.Contains(resource.Handle)) {
+                continue;
+            }
+            var handle = buffers[resource.Handle];
+            if (resourcePool is null) {
+                Wgpu.Release(ref handle);
+            }
+            else {
+                resourcePool.ReturnBuffer(resource.Descriptor, item.Usage, handle);
+            }
         }
     }
 
     private static void ReleaseTextures(
+        WgpuRenderGraphPlan plan,
         Dictionary<RenderGraphTextureHandle, WgpuHandle<WGPUTexture>> textures,
-        HashSet<RenderGraphTextureHandle> ownedTextures)
+        HashSet<RenderGraphTextureHandle> ownedTextures,
+        WgpuRenderGraphResourcePool? resourcePool)
     {
-        foreach (var texture in ownedTextures) {
-            var handle = textures[texture];
-            Wgpu.Release(ref handle);
+        foreach (var item in plan.Textures) {
+            var resource = item.Resource;
+            if (!ownedTextures.Contains(resource.Handle)) {
+                continue;
+            }
+            var handle = textures[resource.Handle];
+            if (resourcePool is null) {
+                Wgpu.Release(ref handle);
+            }
+            else {
+                resourcePool.ReturnTexture(
+                    resource.Descriptor,
+                    item.Dimension,
+                    item.Format,
+                    item.Usage,
+                    handle);
+            }
         }
     }
 }

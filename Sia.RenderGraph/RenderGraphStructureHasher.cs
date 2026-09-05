@@ -33,6 +33,7 @@ internal static class RenderGraphStructureHasher
 
         hash.Add((uint)definition.PassCount);
         foreach (var pass in definition.Passes) {
+            hash.Add(pass.HasSideEffects);
             hash.Add((uint)pass.Buffers.Length);
             foreach (var buffer in pass.Buffers) {
                 hash.Add((uint)buffer.BufferIndex);

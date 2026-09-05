@@ -56,6 +56,12 @@ public sealed class RenderGraphPassBuilder
         return this;
     }
 
+    public RenderGraphPassBuilder MarkSideEffect()
+    {
+        _graph.MarkSideEffect(Handle);
+        return this;
+    }
+
     private RenderGraphPassBuilder Add(
         RenderGraphBufferHandle buffer,
         RenderGraphAccess access,

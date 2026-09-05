@@ -7,14 +7,16 @@ public static partial class RenderGraphCompiler
         ArgumentNullException.ThrowIfNull(definition);
 
         var dependencies = BuildDependencies(definition);
-        var executionOrder = SortPasses(definition, dependencies);
+        var livePasses = FindLivePasses(definition, dependencies);
+        var executionOrder = SortPasses(definition, dependencies, livePasses);
         var executionIndices = new int[definition.PassCount];
+        Array.Fill(executionIndices, -1);
         for (var index = 0; index < executionOrder.Length; index++) {
             executionIndices[executionOrder[index]] = index;
         }
 
-        var bufferUsage = BuildBufferUsage(definition);
-        var textureUsage = BuildTextureUsage(definition);
+        var bufferUsage = BuildBufferUsage(definition, livePasses);
+        var textureUsage = BuildTextureUsage(definition, livePasses);
         ValidateImportedUsage(definition, bufferUsage, textureUsage);
         var bufferLifetimes = BuildBufferLifetimes(definition, executionOrder);
         var textureLifetimes = BuildTextureLifetimes(definition, executionOrder);
@@ -32,6 +34,7 @@ public static partial class RenderGraphCompiler
             textureUsage,
             textureLifetimes);
         var passGroups = BuildPassGroups(passes, textures);
+        var passStatuses = BuildPassStatuses(definition, livePasses);
 
         return new CompiledRenderGraph(
             definition.GraphId,
@@ -39,17 +42,34 @@ public static partial class RenderGraphCompiler
             textures,
             passes,
             passGroups,
-            RenderGraphStructureHasher.Compute(definition));
+            passStatuses,
+            RenderGraphStructureHasher.Compute(definition),
+            definition.PassCount);
     }
 
+    private static RenderGraphPassStatus[] BuildPassStatuses(
+        RenderGraphDefinition definition,
+        bool[] livePasses) =>
+        definition.Passes.Select((pass, index) => new RenderGraphPassStatus(
+            new RenderGraphPassHandle(definition.GraphId, index),
+            pass.Name,
+            pass.Kind,
+            livePasses[index],
+            pass.HasSideEffects)).ToArray();
+
     private static RenderGraphBufferUsage[] BuildBufferUsage(
-        RenderGraphDefinition definition)
+        RenderGraphDefinition definition,
+        bool[] livePasses)
     {
         var usage = definition.Buffers
             .Select(static resource =>
                 resource.Descriptor.Usage | resource.ExportUsage)
             .ToArray();
-        foreach (var pass in definition.Passes) {
+        for (var passIndex = 0; passIndex < definition.PassCount; passIndex++) {
+            if (!livePasses[passIndex]) {
+                continue;
+            }
+            var pass = definition.Passes[passIndex];
             foreach (var use in pass.Buffers) {
                 usage[use.BufferIndex] |= use.Usage;
             }
@@ -59,13 +79,18 @@ public static partial class RenderGraphCompiler
     }
 
     private static RenderGraphTextureUsage[] BuildTextureUsage(
-        RenderGraphDefinition definition)
+        RenderGraphDefinition definition,
+        bool[] livePasses)
     {
         var usage = definition.Textures
             .Select(static resource =>
                 resource.Descriptor.Usage | resource.ExportUsage)
             .ToArray();
-        foreach (var pass in definition.Passes) {
+        for (var passIndex = 0; passIndex < definition.PassCount; passIndex++) {
+            if (!livePasses[passIndex]) {
+                continue;
+            }
+            var pass = definition.Passes[passIndex];
             foreach (var use in pass.Textures) {
                 usage[use.TextureIndex] |= use.Usage;
             }
@@ -130,13 +155,14 @@ public static partial class RenderGraphCompiler
         int[] executionOrder,
         int[] executionIndices)
     {
-        var result = new CompiledRenderGraphPass[definition.PassCount];
+        var result = new CompiledRenderGraphPass[executionOrder.Length];
         for (var executionIndex = 0;
             executionIndex < executionOrder.Length;
             executionIndex++) {
             var passIndex = executionOrder[executionIndex];
             var pass = definition.Passes[passIndex];
             var passDependencies = dependencies[passIndex]
+                .Where(index => executionIndices[index] >= 0)
                 .OrderBy(index => executionIndices[index])
                 .Select(index => new RenderGraphPassHandle(definition.GraphId, index))
                 .ToArray();

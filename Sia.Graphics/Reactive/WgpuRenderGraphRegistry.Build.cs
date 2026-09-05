@@ -107,7 +107,9 @@ public sealed partial class WgpuRenderGraphRegistry
                 throw new InvalidOperationException(
                     $"Bound render graph pass '{key}' has not been registered.");
             }
-            bindings.SetPassHandler(handle, GetOrCreateAdapter(key, entry).Handler);
+            if (plan.Graph.IsPassLive(handle)) {
+                bindings.SetPassHandler(handle, GetOrCreateAdapter(key, entry).Handler);
+            }
         }
 
         ValidateImportedBindings(plan);

@@ -3,7 +3,7 @@ namespace Sia.RenderGraph;
 public sealed class CompiledRenderGraph
 {
     private readonly int _graphId;
-    private readonly CompiledRenderGraphPass[] _passesByDeclaration;
+    private readonly CompiledRenderGraphPass?[] _passesByDeclaration;
 
     internal CompiledRenderGraph(
         int graphId,
@@ -11,15 +11,18 @@ public sealed class CompiledRenderGraph
         CompiledRenderGraphTexture[] textures,
         CompiledRenderGraphPass[] passes,
         RenderGraphPassGroup[] passGroups,
-        RenderGraphStructureHash structureHash)
+        RenderGraphPassStatus[] passStatuses,
+        RenderGraphStructureHash structureHash,
+        int declaredPassCount)
     {
         _graphId = graphId;
         Buffers = Array.AsReadOnly(buffers);
         Textures = Array.AsReadOnly(textures);
         Passes = Array.AsReadOnly(passes);
         PassGroups = Array.AsReadOnly(passGroups);
+        PassStatuses = Array.AsReadOnly(passStatuses);
         StructureHash = structureHash;
-        _passesByDeclaration = new CompiledRenderGraphPass[passes.Length];
+        _passesByDeclaration = new CompiledRenderGraphPass?[declaredPassCount];
         foreach (var pass in passes) {
             _passesByDeclaration[pass.DeclarationIndex] = pass;
         }
@@ -33,18 +36,33 @@ public sealed class CompiledRenderGraph
 
     public IReadOnlyList<RenderGraphPassGroup> PassGroups { get; }
 
+    public IReadOnlyList<RenderGraphPassStatus> PassStatuses { get; }
+
+    public int CulledPassCount => PassStatuses.Count(static status => !status.IsLive);
+
     public RenderGraphStructureHash StructureHash { get; }
 
     public CompiledRenderGraphPass GetPass(RenderGraphPassHandle pass)
     {
-        if (pass.GraphId != _graphId ||
-            (uint)pass.Index >= (uint)_passesByDeclaration.Length) {
-            throw new ArgumentException(
-                "The pass does not belong to this compiled render graph.",
-                nameof(pass));
-        }
+        ValidatePass(pass);
+        return _passesByDeclaration[pass.Index] ??
+            throw new InvalidOperationException(
+                "The render graph pass was culled during compilation.");
+    }
 
-        return _passesByDeclaration[pass.Index];
+    public bool IsPassLive(RenderGraphPassHandle pass)
+    {
+        ValidatePass(pass);
+        return _passesByDeclaration[pass.Index] is not null;
+    }
+
+    public bool TryGetPass(
+        RenderGraphPassHandle pass,
+        out CompiledRenderGraphPass? compiledPass)
+    {
+        ValidatePass(pass);
+        compiledPass = _passesByDeclaration[pass.Index];
+        return compiledPass is not null;
     }
 
     public CompiledRenderGraphBuffer GetBuffer(RenderGraphBufferHandle buffer)
@@ -106,6 +124,16 @@ public sealed class CompiledRenderGraph
             throw new ArgumentException(
                 "The texture does not belong to this compiled render graph.",
                 nameof(texture));
+        }
+    }
+
+    private void ValidatePass(RenderGraphPassHandle pass)
+    {
+        if (pass.GraphId != _graphId ||
+            (uint)pass.Index >= (uint)_passesByDeclaration.Length) {
+            throw new ArgumentException(
+                "The pass does not belong to this compiled render graph.",
+                nameof(pass));
         }
     }
 }

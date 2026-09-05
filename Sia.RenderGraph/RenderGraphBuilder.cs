@@ -82,7 +82,8 @@ public sealed class RenderGraphBuilder
                     .ThenBy(static use => use.Subresources.BaseMipLevel)
                     .ThenBy(static use => use.Subresources.BaseArrayLayer)
                     .ThenBy(static use => use.Subresources.Aspect)],
-                [.. pass.Dependencies.Order()]))
+                [.. pass.Dependencies.Order()],
+                pass.HasSideEffects))
             .ToArray();
 
         return new RenderGraphDefinition(
@@ -191,6 +192,13 @@ public sealed class RenderGraphBuilder
         _passes[pass.Index].Dependencies.Add(dependency.Index);
     }
 
+    internal void MarkSideEffect(RenderGraphPassHandle pass)
+    {
+        EnsureMutable();
+        ValidatePass(pass, nameof(pass));
+        _passes[pass.Index].HasSideEffects = true;
+    }
+
     private RenderGraphBufferHandle AddBuffer(
         RenderGraphBufferDescriptor descriptor,
         bool isImported)
@@ -279,5 +287,7 @@ public sealed class RenderGraphBuilder
         public List<RenderGraphTextureUse> Textures { get; } = [];
 
         public HashSet<int> Dependencies { get; } = [];
+
+        public bool HasSideEffects { get; set; }
     }
 }

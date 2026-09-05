@@ -86,6 +86,12 @@ public sealed class RenderGraphPassDeclarationBuilder
         return this;
     }
 
+    public RenderGraphPassDeclarationBuilder MarkSideEffect()
+    {
+        _pass.MarkSideEffect();
+        return this;
+    }
+
     private RenderGraphBufferHandle GetBuffer(RenderGraphBufferKey key) =>
         _buffers.TryGetValue(key, out var handle)
             ? handle

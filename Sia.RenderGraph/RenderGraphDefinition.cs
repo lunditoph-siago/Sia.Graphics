@@ -60,4 +60,5 @@ internal sealed record RenderGraphPassDefinition(
     RenderGraphPassKind Kind,
     RenderGraphBufferUse[] Buffers,
     RenderGraphTextureUse[] Textures,
-    int[] Dependencies);
+    int[] Dependencies,
+    bool HasSideEffects);

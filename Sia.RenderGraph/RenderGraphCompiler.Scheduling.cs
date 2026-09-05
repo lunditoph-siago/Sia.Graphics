@@ -4,22 +4,30 @@ public static partial class RenderGraphCompiler
 {
     private static int[] SortPasses(
         RenderGraphDefinition definition,
-        HashSet<int>[] dependencies)
+        HashSet<int>[] dependencies,
+        bool[] livePasses)
     {
         var outgoing = CreateLists<int>(definition.PassCount);
         var remainingDependencies = new int[definition.PassCount];
         var ready = new SortedSet<int>();
         for (var passIndex = 0; passIndex < definition.PassCount; passIndex++) {
-            remainingDependencies[passIndex] = dependencies[passIndex].Count;
+            if (!livePasses[passIndex]) {
+                continue;
+            }
+            remainingDependencies[passIndex] = dependencies[passIndex]
+                .Count(dependency => livePasses[dependency]);
             if (remainingDependencies[passIndex] == 0) {
                 ready.Add(passIndex);
             }
             foreach (var dependency in dependencies[passIndex]) {
-                outgoing[dependency].Add(passIndex);
+                if (livePasses[dependency]) {
+                    outgoing[dependency].Add(passIndex);
+                }
             }
         }
 
-        var executionOrder = new int[definition.PassCount];
+        var livePassCount = livePasses.Count(static live => live);
+        var executionOrder = new int[livePassCount];
         var executionIndex = 0;
         while (ready.Count != 0) {
             var passIndex = ready.Min;
@@ -33,9 +41,9 @@ public static partial class RenderGraphCompiler
             }
         }
 
-        if (executionIndex != definition.PassCount) {
+        if (executionIndex != livePassCount) {
             var cyclePasses = Enumerable.Range(0, definition.PassCount)
-                .Where(index => remainingDependencies[index] != 0)
+                .Where(index => livePasses[index] && remainingDependencies[index] != 0)
                 .Select(index => $"'{definition.Passes[index].Name}'");
             throw new RenderGraphCompilationException(
                 $"Render graph contains a dependency cycle involving {string.Join(", ", cyclePasses)}.");

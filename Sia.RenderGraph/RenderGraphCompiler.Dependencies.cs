@@ -17,7 +17,9 @@ public static partial class RenderGraphCompiler
         var initializedTextures = CreateLists<RenderGraphTextureSubresourceRange>(
             definition.TextureCount);
 
-        for (var passIndex = 0; passIndex < definition.PassCount; passIndex++) {
+        var declaredOrder = SortPasses(
+            definition, dependencies, Enumerable.Repeat(true, definition.PassCount).ToArray());
+        foreach (var passIndex in declaredOrder) {
             var pass = definition.Passes[passIndex];
             ValidateReads(
                 definition,

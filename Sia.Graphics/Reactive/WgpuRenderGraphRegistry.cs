@@ -10,6 +10,7 @@ public sealed partial class WgpuRenderGraphRegistry : IAddon, IDisposable
 
     private sealed record PassEntry(
         long Id,
+        long Order,
         string Name,
         RenderGraphPassDeclaration Declaration,
         RenderGraphPassKind Kind);

@@ -32,14 +32,15 @@ public sealed partial class WgpuRenderGraphRegistry
             textureHandles.Add(key, handle);
         }
 
-        foreach (var (key, entry) in Ordered(_passes)) {
+        var orderedPasses = _passes.OrderBy(static item => item.Value.Order).ToArray();
+        foreach (var (key, entry) in orderedPasses) {
             var pass = entry.Kind == RenderGraphPassKind.Compute
                 ? builder.AddComputePass(entry.Name)
                 : builder.AddPass(entry.Name);
             passBuilders.Add(key, pass);
             passHandles.Add(key, pass.Handle);
         }
-        foreach (var (key, entry) in Ordered(_passes)) {
+        foreach (var (key, entry) in orderedPasses) {
             var pass = new RenderGraphPassDeclarationBuilder(
                 passBuilders[key],
                 bufferHandles,

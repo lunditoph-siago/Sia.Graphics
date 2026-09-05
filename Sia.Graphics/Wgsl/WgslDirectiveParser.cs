@@ -10,31 +10,14 @@ public static class WgslDirectiveParser
         var conditionals = new List<WgslConditionalDirective>();
 
         var lineNo = 0;
-        var inBlockComment = false;
+        var commentDepth = 0;
         var span = source.AsSpan();
 
         foreach (var rawLine in span.EnumerateLines()) {
             lineNo++;
-            var trimmed = rawLine.TrimStart();
+            var trimmed = WgslCommentMask.Apply(rawLine, ref commentDepth).AsSpan().TrimStart();
             if (trimmed.IsEmpty)
                 continue;
-
-            if (inBlockComment) {
-                if (trimmed.IndexOf("*/") >= 0)
-                    inBlockComment = false;
-                continue;
-            }
-
-            if (trimmed.StartsWith("//"))
-                continue;
-
-            if (trimmed.StartsWith("/*")) {
-                var end = IndexOfAfter(trimmed, "*/", 2);
-                if (end < 0) { inBlockComment = true; continue; }
-                trimmed = trimmed[end..].TrimStart();
-                if (trimmed.IsEmpty || trimmed.StartsWith("//"))
-                    continue;
-            }
 
             if (trimmed[0] != '#')
                 continue;
@@ -142,10 +125,4 @@ public static class WgslDirectiveParser
         return (cond.Trim(), null, null);
     }
 
-    private static int IndexOfAfter(ReadOnlySpan<char> text, string value, int start)
-    {
-        var slice = text[start..];
-        var idx = slice.IndexOf(value, StringComparison.Ordinal);
-        return idx >= 0 ? start + idx + value.Length : -1;
-    }
 }

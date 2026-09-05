@@ -15,29 +15,57 @@ public static class WgslConditionalCompiler
     public static string Compile(
         string source,
         IReadOnlyDictionary<string, string>? shaderDefs,
-        List<WgslDiagnostic>? diagnostics = null)
+        List<WgslDiagnostic>? diagnostics = null) =>
+        CompileCore(source, shaderDefs, diagnostics, false, out _);
+
+    internal static string CompileModule(
+        string source,
+        IReadOnlyDictionary<string, string>? shaderDefs,
+        List<WgslDiagnostic> diagnostics,
+        out Dictionary<string, string> definitions) =>
+        CompileCore(source, shaderDefs, diagnostics, true, out definitions);
+
+    private static string CompileCore(
+        string source,
+        IReadOnlyDictionary<string, string>? shaderDefs,
+        List<WgslDiagnostic>? diagnostics,
+        bool preserveImports,
+        out Dictionary<string, string> definitions)
     {
-        var directives = WgslDirectiveParser.Parse(source);
-        var defs = BuildDefMap(directives, shaderDefs);
+        var defs = shaderDefs is null ? new Dictionary<string, string>() : new Dictionary<string, string>(shaderDefs);
+        definitions = defs;
         var scopes = new Stack<Scope>();
-        var defNames = new HashSet<string>(defs.Keys);
         var sb = new StringBuilder(source.Length);
 
         var lineNo = 0;
+        var commentDepth = 0;
         foreach (var rawLine in source.AsSpan().EnumerateLines()) {
             lineNo++;
-            var trimmed = rawLine.TrimStart();
+            var maskedLine = WgslCommentMask.Apply(rawLine, ref commentDepth);
+            var trimmed = maskedLine.AsSpan().TrimStart();
             var isDirective = !trimmed.IsEmpty && trimmed[0] == '#';
+            var active = scopes.Count == 0 || scopes.All(s => s.IsActive);
 
             if (isDirective) {
+                var normalized = NormalizeSpaces(trimmed.ToString());
+                if (active && normalized.StartsWith("#define ", StringComparison.Ordinal)) {
+                    foreach (var (name, value) in WgslDirectiveParser.Parse(normalized).Defines) {
+                        defs[name] = value;
+                    }
+                }
+                if (active && preserveImports &&
+                    (normalized.StartsWith("#import ", StringComparison.Ordinal) ||
+                     normalized.StartsWith("#define_import_path ", StringComparison.Ordinal))) {
+                    sb.AppendLine(SubstituteDefs(trimmed.ToString(), defs));
+                    continue;
+                }
                 ProcessDirectiveLine(trimmed, scopes, defs, lineNo, diagnostics);
                 sb.AppendLine();
             }
             else {
-                var active = scopes.Count == 0 || scopes.All(s => s.IsActive);
                 if (active) {
-                    var line = rawLine.ToString();
-                    if (defNames.Count > 0)
+                    var line = maskedLine;
+                    if (defs.Count > 0)
                         line = SubstituteDefs(line, defs);
                     sb.AppendLine(line);
                 }
@@ -154,20 +182,6 @@ public static class WgslConditionalCompiler
         }
 
         return defs.ContainsKey(condition.Trim());
-    }
-
-    private static Dictionary<string, string> BuildDefMap(
-        WgslDirectiveInfo directives,
-        IReadOnlyDictionary<string, string>? shaderDefs)
-    {
-        var defs = new Dictionary<string, string>();
-        if (shaderDefs != null) {
-            foreach (var (k, v) in shaderDefs)
-                defs[k] = v;
-        }
-        foreach (var (k, v) in directives.Defines)
-            defs[k] = v;
-        return defs;
     }
 
     private static string SubstituteDefs(string line, Dictionary<string, string> defs)

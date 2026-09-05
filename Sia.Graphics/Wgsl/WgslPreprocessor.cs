@@ -9,12 +9,8 @@ public static class WgslPreprocessor
     {
         var diagnostics = new List<WgslDiagnostic>();
 
-        // Collect entry file's local defines and merge with external shaderDefs
-        var entryDirectives = WgslDirectiveParser.Parse(source);
-        var allDefs = MergeDefs(shaderDefs, entryDirectives.Defines);
-
-        // Build module graph
-        var modules = WgslModuleGraph.BuildAndSort("main", source, importResolver, diagnostics);
+        var entrySource = WgslConditionalCompiler.CompileModule(source, shaderDefs, diagnostics, out var allDefs);
+        var modules = WgslModuleGraph.BuildAndSort("main", entrySource, importResolver, diagnostics, allDefs);
         if (diagnostics.Any(d => d.Severity == WgslDiagnosticSeverity.Error))
             return WgslProcessResult.Failure(diagnostics);
 
@@ -42,19 +38,5 @@ public static class WgslPreprocessor
         var resolver = new WgslFileSystemImportResolver(Path.GetDirectoryName(fullPath)!, fullPath);
 
         return Process(source, shaderDefs, resolver.Resolve);
-    }
-
-    private static Dictionary<string, string> MergeDefs(
-        IReadOnlyDictionary<string, string>? externalDefs,
-        Dictionary<string, string> localDefs)
-    {
-        var merged = new Dictionary<string, string>();
-        if (externalDefs != null) {
-            foreach (var (k, v) in externalDefs)
-                merged[k] = v;
-        }
-        foreach (var (k, v) in localDefs)
-            merged[k] = v;
-        return merged;
     }
 }

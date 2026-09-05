@@ -130,9 +130,12 @@ public static class WgpuRenderGraphExecutor
         if (queue.IsNull) {
             throw new ArgumentException("The WebGPU queue is null.", nameof(queue));
         }
-        resourcePool?.BeginFrame(device);
-
-        scratch.Clear();
+        foreach (var pass in plan.Graph.Passes) {
+            if (!bindings.TryGetHandler(pass.Handle, out var handler) || handler is null) {
+                throw new InvalidOperationException($"Render graph pass '{pass.Name}' has no execution handler.");
+            }
+        }
+        scratch.BeginExecution();
         var buffers = scratch._buffers;
         var textures = scratch._textures;
         var ownedBuffers = scratch._ownedBuffers;
@@ -142,6 +145,7 @@ public static class WgpuRenderGraphExecutor
         var commandBuffer = default(WgpuHandle<WGPUCommandBuffer>);
 
         try {
+            resourcePool?.BeginFrame(device);
             CreateBuffers(plan, device, bindings, buffers, ownedBuffers, resourcePool);
             CreateTextures(plan, device, bindings, textures, ownedTextures, resourcePool);
 
@@ -157,27 +161,25 @@ public static class WgpuRenderGraphExecutor
                     groupIndex++) {
                     var group = plan.Graph.PassGroups[groupIndex];
                     var groupRenderPass = scratch.RentGroupState();
-                    for (var offset = 0; offset < group.Count; offset++) {
-                        var pass = plan.Graph.Passes[group.StartExecutionIndex + offset];
-                        if (!bindings.TryGetHandler(pass.Handle, out var handler) ||
-                            handler is null) {
-                            continue;
+                    try {
+                        for (var offset = 0; offset < group.Count; offset++) {
+                            var pass = plan.Graph.Passes[group.StartExecutionIndex + offset];
+                            if (!bindings.TryGetHandler(pass.Handle, out var handler) || handler is null) {
+                                throw new InvalidOperationException($"Render graph pass '{pass.Name}' has no execution handler.");
+                            }
+
+                            var context = scratch.RentPassContext(
+                                plan,
+                                pass,
+                                commandEncoder,
+                                viewCache,
+                                groupRenderPass);
+                            handler(context);
                         }
-
-                        var context = scratch.RentPassContext(
-                            plan,
-                            pass,
-                            commandEncoder,
-                            viewCache,
-                            groupRenderPass);
-                        handler(context);
                     }
-
-                    if (groupRenderPass.IsOpen) {
-                        var renderPass = groupRenderPass.Encoder;
-                        Wgpu.EndRenderPass(renderPass);
-                        Wgpu.Release(ref renderPass);
-                        physicalRenderPassCount++;
+                    finally {
+                        groupRenderPass.End();
+                        physicalRenderPassCount += groupRenderPass.RenderPassCount;
                     }
                 }
 
@@ -207,15 +209,20 @@ public static class WgpuRenderGraphExecutor
             return null;
         }
         finally {
-            for (var index = transientViews.Count - 1; index >= 0; index--) {
-                var view = transientViews[index];
-                Wgpu.Release(ref view);
+            try {
+                for (var index = transientViews.Count - 1; index >= 0; index--) {
+                    var view = transientViews[index];
+                    Wgpu.Release(ref view);
+                }
+                viewCache.EndFrame();
+                Wgpu.Release(ref commandBuffer);
+                Wgpu.Release(ref commandEncoder);
+                ReleaseBuffers(plan, buffers, ownedBuffers, resourcePool);
+                ReleaseTextures(plan, textures, ownedTextures, resourcePool);
             }
-            viewCache.EndFrame();
-            Wgpu.Release(ref commandBuffer);
-            Wgpu.Release(ref commandEncoder);
-            ReleaseBuffers(plan, buffers, ownedBuffers, resourcePool);
-            ReleaseTextures(plan, textures, ownedTextures, resourcePool);
+            finally {
+                scratch.EndExecution();
+            }
         }
     }
 

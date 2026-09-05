@@ -80,6 +80,14 @@ public sealed partial class WgpuRenderGraphRegistry : IAddon, IDisposable
         if (queue.IsNull) {
             throw new ArgumentException("The WebGPU queue is null.", nameof(queue));
         }
+        if (_device != device || _queue != queue) {
+            _exports?.Dispose();
+            _exports = null;
+            _executedPlan = null;
+            _viewCache.Clear();
+            _resourcePool.Clear();
+            LastRenderPassCount = 0;
+        }
         _device = device;
         _queue = queue;
     }

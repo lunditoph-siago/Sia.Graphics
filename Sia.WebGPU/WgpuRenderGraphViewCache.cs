@@ -17,7 +17,7 @@ public sealed class WgpuRenderGraphViewCache : IDisposable
     private readonly HashSet<Key> _usedThisFrame = [];
     private bool _disposed;
 
-    public WgpuHandle<WGPUTextureView> GetOrCreate(
+    public unsafe WgpuHandle<WGPUTextureView> GetOrCreate(
         WgpuHandle<WGPUTexture> texture,
         in WGPUTextureViewDescriptor descriptor)
     {
@@ -45,6 +45,7 @@ public sealed class WgpuRenderGraphViewCache : IDisposable
                 "WebGPU could not create a cached texture view.");
         }
 
+        WgpuUnsafe.wgpuTextureAddRef(texture.Pointer);
         _views.Add(key, view);
         return view;
     }
@@ -55,6 +56,8 @@ public sealed class WgpuRenderGraphViewCache : IDisposable
             foreach (var key in _views.Keys.Except(_usedThisFrame).ToArray()) {
                 var view = _views[key];
                 Wgpu.Release(ref view);
+                var texture = key.Texture;
+                Wgpu.Release(ref texture);
                 _views.Remove(key);
             }
         }
@@ -69,6 +72,8 @@ public sealed class WgpuRenderGraphViewCache : IDisposable
         foreach (var key in _views.Keys.ToArray()) {
             var view = _views[key];
             Wgpu.Release(ref view);
+            var texture = key.Texture;
+            Wgpu.Release(ref texture);
         }
         _views.Clear();
         _usedThisFrame.Clear();
@@ -84,6 +89,8 @@ public sealed class WgpuRenderGraphViewCache : IDisposable
         foreach (var key in _views.Keys.ToArray()) {
             var view = _views[key];
             Wgpu.Release(ref view);
+            var texture = key.Texture;
+            Wgpu.Release(ref texture);
         }
         _views.Clear();
         _usedThisFrame.Clear();

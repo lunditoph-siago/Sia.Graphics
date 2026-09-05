@@ -6,12 +6,13 @@ public static class WgslModuleGraph
         string entryName,
         string entrySource,
         WgslImportResolver importResolver,
-        List<WgslDiagnostic> diagnostics)
+        List<WgslDiagnostic> diagnostics,
+        IReadOnlyDictionary<string, string>? shaderDefs = null)
     {
         var registry = new Dictionary<string, WgslModuleNode>();
         var resolved = new HashSet<string>();
 
-        var entry = Build(entryName, entrySource, importResolver, registry, resolved, diagnostics);
+        var entry = Build(entryName, entrySource, importResolver, registry, resolved, diagnostics, shaderDefs);
         if (HasErrors(diagnostics))
             return [];
 
@@ -24,8 +25,10 @@ public static class WgslModuleGraph
         WgslImportResolver importResolver,
         Dictionary<string, WgslModuleNode> registry,
         HashSet<string> resolved,
-        List<WgslDiagnostic> diagnostics)
+        List<WgslDiagnostic> diagnostics,
+        IReadOnlyDictionary<string, string>? shaderDefs)
     {
+        source = WgslConditionalCompiler.CompileModule(source, shaderDefs, diagnostics, out _);
         var directives = WgslDirectiveParser.Parse(source);
         var canonicalName = directives.ImportPath ?? name;
 
@@ -54,7 +57,7 @@ public static class WgslModuleGraph
                 continue;
             }
 
-            var dep = Build(imp.Path, resolvedSource, importResolver, registry, resolved, diagnostics);
+            var dep = Build(imp.Path, resolvedSource, importResolver, registry, resolved, diagnostics, shaderDefs);
             if (!node.Dependencies.Contains(dep))
                 node.Dependencies.Add(dep);
         }

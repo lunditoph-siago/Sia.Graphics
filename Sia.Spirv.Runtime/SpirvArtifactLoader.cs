@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace Sia.Spirv.Runtime;
@@ -25,9 +26,17 @@ public static class SpirvArtifactLoader
                 nameof(manifestPath));
         }
         var spirvPath = manifestPath[..^suffix.Length] + ".spv";
+        if (manifest.SpirvFile is { } reference) {
+            spirvPath = ResolveArtifactPath(Path.GetDirectoryName(manifestPath)!, reference);
+        }
         var bytecode = File.ReadAllBytes(spirvPath);
-        if (bytecode.Length < 20 || BinaryPrimitives.ReadUInt32LittleEndian(bytecode) != 0x07230203) {
+        if (bytecode.Length < 20 || bytecode.Length % sizeof(uint) != 0 ||
+            BinaryPrimitives.ReadUInt32LittleEndian(bytecode) != 0x07230203) {
             throw new InvalidDataException($"'{spirvPath}' is not a valid SPIR-V binary module.");
+        }
+        if (manifest.SpirvSha256 is { } hash &&
+            !string.Equals(hash, Convert.ToHexString(SHA256.HashData(bytecode)), StringComparison.OrdinalIgnoreCase)) {
+            throw new InvalidDataException($"'{spirvPath}' does not match the manifest SPIR-V SHA.");
         }
 
         return new SpirvModuleArtifact(
@@ -35,5 +44,17 @@ public static class SpirvArtifactLoader
             manifestPath,
             bytecode,
             manifest);
+    }
+
+    internal static string ResolveArtifactPath(string directory, string reference)
+    {
+        directory = Path.GetFullPath(directory);
+        var path = Path.GetFullPath(Path.Combine(directory, reference));
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var prefix = Path.EndsInDirectorySeparator(directory) ? directory : directory + Path.DirectorySeparatorChar;
+        if (string.IsNullOrWhiteSpace(reference) || Path.IsPathRooted(reference) || !path.StartsWith(prefix, comparison)) {
+            throw new InvalidDataException("The referenced file must be inside the artifact directory.");
+        }
+        return path;
     }
 }

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using Sia.Spirv;
 
 namespace Sia.Spirv.Compiler.LLVM;
@@ -180,6 +181,13 @@ public sealed class LlvmToolchain
     {
         EnsureToolExists(ToolName("naga"));
         return FirstLine(Run(ToolName("naga"), "--version"));
+    }
+
+    public string GetNagaSha256()
+    {
+        EnsureToolExists(ToolName("naga"));
+        using var stream = File.OpenRead(Path.Combine(Directory, ToolName("naga")));
+        return Convert.ToHexString(SHA256.HashData(stream));
     }
 
     private string Run(string tool, params string[] arguments)

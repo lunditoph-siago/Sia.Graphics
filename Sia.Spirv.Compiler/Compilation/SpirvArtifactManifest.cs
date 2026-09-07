@@ -1,3 +1,5 @@
+using Sia.Spirv.Runtime;
+
 namespace Sia.Spirv.Compiler.Compilation;
 
 internal sealed record SpirvArtifactManifest(
@@ -16,7 +18,12 @@ internal sealed record SpirvArtifactManifest(
     string KernelAbi,
     string ShaderStage,
     string? LlvmPasses = null,
-    IReadOnlyList<string>? LegalizationStrategies = null);
+    IReadOnlyList<string>? LegalizationStrategies = null,
+    string? TargetName = null,
+    string? SpirvFile = null,
+    string? SpirvSha256 = null,
+    string? LayoutSha256 = null,
+    SpirvBufferRequirements? BufferRequirements = null);
 
 internal sealed record SpirvManifestWorkgroupSize(uint X, uint Y, uint Z);
 
@@ -55,4 +62,4 @@ internal sealed record SpirvManifestStageIo(
     string? Interpolation,
     string? Sampling);
 
-internal sealed record SpirvManifestToolchain(string Llvm, string SpirvTools, string? Naga);
+internal sealed record SpirvManifestToolchain(string Llvm, string SpirvTools, string? Naga, string? NagaSha256);

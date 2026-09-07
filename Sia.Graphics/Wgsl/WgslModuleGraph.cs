@@ -10,9 +10,8 @@ public static class WgslModuleGraph
         WgslCompilationContext? context = null)
     {
         var registry = new Dictionary<string, WgslModuleNode>();
-        var resolved = new HashSet<string>();
 
-        var entry = Build(entryName, entrySource, importResolver, registry, resolved, diagnostics, context);
+        var entry = Build(entryName, entrySource, importResolver, registry, diagnostics, context);
         if (HasErrors(diagnostics)) {
             return [];
         }
@@ -25,7 +24,6 @@ public static class WgslModuleGraph
         string source,
         WgslImportResolver importResolver,
         Dictionary<string, WgslModuleNode> registry,
-        HashSet<string> resolved,
         List<WgslDiagnostic> diagnostics,
         WgslCompilationContext? context)
     {
@@ -37,16 +35,7 @@ public static class WgslModuleGraph
             return existing;
         }
 
-        if (resolved.Contains(canonicalName)) {
-            diagnostics.Add(new WgslDiagnostic(
-                WgslDiagnosticSeverity.Error,
-                $"Circular import detected: module '{canonicalName}' imports itself via '{name}'",
-                0, name));
-            return new WgslModuleNode(canonicalName, source, directives);
-        }
-
-        resolved.Add(canonicalName);
-        var node = new WgslModuleNode(canonicalName, source, directives);
+        var node = new WgslModuleNode(canonicalName, source);
         registry[canonicalName] = node;
 
         foreach (var imp in directives.Imports) {
@@ -59,13 +48,12 @@ public static class WgslModuleGraph
                 continue;
             }
 
-            var dep = Build(imp.Path, resolvedSource, importResolver, registry, resolved, diagnostics, context);
+            var dep = Build(imp.Path, resolvedSource, importResolver, registry, diagnostics, context);
             if (!node.Dependencies.Contains(dep)) {
                 node.Dependencies.Add(dep);
             }
         }
 
-        resolved.Remove(canonicalName);
         return node;
     }
 

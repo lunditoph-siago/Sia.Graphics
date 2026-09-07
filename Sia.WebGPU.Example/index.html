@@ -325,17 +325,21 @@
             if (!('gpu' in navigator)) return { ok: false, detail: 'navigator.gpu not found' };
             await line('OK', 'navigator.gpu present');
             await line('CHECK', 'requestAdapter()');
-            try {
-                const adapter = await navigator.gpu.requestAdapter();
-                if (!adapter) return { ok: false, detail: 'adapter unavailable' };
-                const gi = adapter.info ?? (adapter.requestAdapterInfo ? await adapter.requestAdapterInfo() : null);
-                const extra = gi
-                    ? [gi.vendor, gi.architecture, gi.device, gi.description].filter(Boolean).map((v) => `gpu: ${v}`)
-                    : [];
-                return { ok: true, extra };
-            } catch (err) {
-                return { ok: false, detail: `adapter error: ${err?.message ?? err}` };
+            let detail = 'adapter unavailable';
+            for (const options of [{}, { featureLevel: 'compatibility' }]) {
+                try {
+                    const adapter = await navigator.gpu.requestAdapter(options);
+                    if (!adapter) continue;
+                    const gi = adapter.info ?? (adapter.requestAdapterInfo ? await adapter.requestAdapterInfo() : null);
+                    const extra = gi
+                        ? [gi.vendor, gi.architecture, gi.device, gi.description].filter(Boolean).map((v) => `gpu: ${v}`)
+                        : [];
+                    return { ok: true, extra };
+                } catch (err) {
+                    detail = `adapter error: ${err?.message ?? err}`;
+                }
             }
+            return { ok: false, detail };
         }
 
         async function probeWebGl2() {

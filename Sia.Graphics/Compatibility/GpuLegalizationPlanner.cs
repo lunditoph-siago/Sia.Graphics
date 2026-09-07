@@ -28,7 +28,7 @@ public static class GpuLegalizationPlanner
             storageEligible,
             uniformEligible,
             true,
-            target.MaxStorageBuffersPerShaderStage,
+            target.GetStorageBufferLimit,
             storageCounts);
         AllocateRequiredBindings(
             requirements,
@@ -36,7 +36,7 @@ public static class GpuLegalizationPlanner
             uniformEligible,
             storageEligible,
             false,
-            target.MaxUniformBuffersPerShaderStage,
+            _ => target.MaxUniformBuffersPerShaderStage,
             uniformCounts);
 
         for (var index = 0; index < requirements.Count; index++) {
@@ -46,13 +46,13 @@ public static class GpuLegalizationPlanner
             var requirement = requirements[index];
             if (storageEligible[index] && TryReserve(
                 requirement.Visibility,
-                target.MaxStorageBuffersPerShaderStage,
+                target.GetStorageBufferLimit,
                 storageCounts)) {
                 buffers[index] = NativeStorage(requirement);
             }
             else if (uniformEligible[index] && TryReserve(
                 requirement.Visibility,
-                target.MaxUniformBuffersPerShaderStage,
+                _ => target.MaxUniformBuffersPerShaderStage,
                 uniformCounts)) {
                 buffers[index] = Uniform(requirement);
             }
@@ -69,7 +69,7 @@ public static class GpuLegalizationPlanner
         bool[] eligible,
         bool[] alternativeEligible,
         bool storage,
-        uint limit,
+        Func<WGPUShaderStage, uint> getLimit,
         Dictionary<WGPUShaderStage, uint> counts)
     {
         for (var index = 0; index < requirements.Count; index++) {
@@ -77,7 +77,7 @@ public static class GpuLegalizationPlanner
                 continue;
             }
             var requirement = requirements[index];
-            buffers[index] = TryReserve(requirement.Visibility, limit, counts)
+            buffers[index] = TryReserve(requirement.Visibility, getLimit, counts)
                 ? storage
                     ? NativeStorage(requirement)
                     : Uniform(requirement)
@@ -136,7 +136,7 @@ public static class GpuLegalizationPlanner
 
     private static bool TryReserve(
         WGPUShaderStage visibility,
-        uint limit,
+        Func<WGPUShaderStage, uint> getLimit,
         Dictionary<WGPUShaderStage, uint> counts)
     {
         WGPUShaderStage[] stages = [
@@ -148,7 +148,7 @@ public static class GpuLegalizationPlanner
             if ((visibility & stage) == 0) {
                 continue;
             }
-            if (counts.GetValueOrDefault(stage) >= limit) {
+            if (counts.GetValueOrDefault(stage) >= getLimit(stage)) {
                 return false;
             }
         }

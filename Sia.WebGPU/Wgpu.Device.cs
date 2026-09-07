@@ -203,6 +203,26 @@ public static unsafe partial class Wgpu
         return limits;
     }
 
+    public static WGPULimits GetLimits(
+        WgpuHandle<WGPUDevice> device, out WGPUCompatibilityModeLimits compatibilityLimits)
+    {
+        var extension = WGPUCompatibilityModeLimits.Default;
+#if BROWSER && SIA_WEBGPU_BACKEND_DAWN
+        extension.Chain.SType = WGPUSType.CompatibilityModeLimits;
+        var limits = WGPULimits.Default;
+        limits.NextInChain = &extension.Chain;
+        var status = WgpuUnsafe.wgpuDeviceGetLimits(GetPointer(device), &limits);
+        if (status != WGPUStatus.Success) {
+            throw new InvalidOperationException("WebGPU failed to report the device stage limits.");
+        }
+        limits.NextInChain = null;
+#else
+        var limits = GetLimits(device);
+#endif
+        compatibilityLimits = extension;
+        return limits;
+    }
+
     public static void DestroyDevice(WgpuHandle<WGPUDevice> device) =>
         WgpuUnsafe.wgpuDeviceDestroy(GetPointer(device));
 

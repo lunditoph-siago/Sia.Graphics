@@ -1,0 +1,621 @@
+{
+  "localHeaderSha256": "80BD1DE34A06B574C4E0371BB0A4B5B14D2A8FCA4F9FAC78415A96CAA5194214",
+  "definitions": [
+    {
+      "id": "webgpu.feature.core-features-and-limits",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_CORE_FEATURES_AND_LIMITS",
+      "cMember": "WGPUFeatureName_CoreFeaturesAndLimits",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.depth-clip-control",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_DEPTH_CLIP_CONTROL",
+      "cMember": "WGPUFeatureName_DepthClipControl",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.depth32float-stencil8",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_DEPTH32FLOAT_STENCIL8",
+      "cMember": "WGPUFeatureName_Depth32FloatStencil8",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.texture-compression-bc",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_TEXTURE_COMPRESSION_BC",
+      "cMember": "WGPUFeatureName_TextureCompressionBC",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.texture-compression-bc-sliced-3d",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_TEXTURE_COMPRESSION_BC_SLICED_3D",
+      "cMember": "WGPUFeatureName_TextureCompressionBCSliced3D",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.texture-compression-etc2",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_TEXTURE_COMPRESSION_ETC2",
+      "cMember": "WGPUFeatureName_TextureCompressionETC2",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.texture-compression-astc",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_TEXTURE_COMPRESSION_ASTC",
+      "cMember": "WGPUFeatureName_TextureCompressionASTC",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.texture-compression-astc-sliced-3d",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_TEXTURE_COMPRESSION_ASTC_SLICED_3D",
+      "cMember": "WGPUFeatureName_TextureCompressionASTCSliced3D",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.timestamp-query",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_TIMESTAMP_QUERY",
+      "cMember": "WGPUFeatureName_TimestampQuery",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.indirect-first-instance",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_INDIRECT_FIRST_INSTANCE",
+      "cMember": "WGPUFeatureName_IndirectFirstInstance",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.shader-f16",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_SHADER_F16",
+      "cMember": "WGPUFeatureName_ShaderF16",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.rg11b10ufloat-renderable",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_RG11B10UFLOAT_RENDERABLE",
+      "cMember": "WGPUFeatureName_RG11B10UfloatRenderable",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.bgra8unorm-storage",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_BGRA8UNORM_STORAGE",
+      "cMember": "WGPUFeatureName_BGRA8UnormStorage",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.float32-filterable",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_FLOAT32_FILTERABLE",
+      "cMember": "WGPUFeatureName_Float32Filterable",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.float32-blendable",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_FLOAT32_BLENDABLE",
+      "cMember": "WGPUFeatureName_Float32Blendable",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.clip-distances",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_CLIP_DISTANCES",
+      "cMember": "WGPUFeatureName_ClipDistances",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.dual-source-blending",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_DUAL_SOURCE_BLENDING",
+      "cMember": "WGPUFeatureName_DualSourceBlending",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.subgroups",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_SUBGROUPS",
+      "cMember": "WGPUFeatureName_Subgroups",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.texture-formats-tier1",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_TEXTURE_FORMATS_TIER1",
+      "cMember": "WGPUFeatureName_TextureFormatsTier1",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.texture-formats-tier2",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_TEXTURE_FORMATS_TIER2",
+      "cMember": "WGPUFeatureName_TextureFormatsTier2",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.primitive-index",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_PRIMITIVE_INDEX",
+      "cMember": "WGPUFeatureName_PrimitiveIndex",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.texture-component-swizzle",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_TEXTURE_COMPONENT_SWIZZLE",
+      "cMember": "WGPUFeatureName_TextureComponentSwizzle",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.subgroup-size-control",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_SUBGROUP_SIZE_CONTROL",
+      "cMember": null,
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.feature.texture-compression-unaligned",
+      "kind": "DeviceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "CAP_TEXTURE_COMPRESSION_UNALIGNED",
+      "cMember": null,
+      "comparison": "None"
+    },
+    {
+      "id": "wgsl.language.readonly_and_readwrite_storage_textures",
+      "kind": "LanguageFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "WGSL_READONLY_AND_READWRITE_STORAGE_TEXTURES",
+      "cMember": "WGPUWGSLLanguageFeatureName_ReadonlyAndReadwriteStorageTextures",
+      "comparison": "None"
+    },
+    {
+      "id": "wgsl.language.packed_4x8_integer_dot_product",
+      "kind": "LanguageFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "WGSL_PACKED_4X8_INTEGER_DOT_PRODUCT",
+      "cMember": "WGPUWGSLLanguageFeatureName_Packed4x8IntegerDotProduct",
+      "comparison": "None"
+    },
+    {
+      "id": "wgsl.language.unrestricted_pointer_parameters",
+      "kind": "LanguageFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "WGSL_UNRESTRICTED_POINTER_PARAMETERS",
+      "cMember": "WGPUWGSLLanguageFeatureName_UnrestrictedPointerParameters",
+      "comparison": "None"
+    },
+    {
+      "id": "wgsl.language.pointer_composite_access",
+      "kind": "LanguageFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "WGSL_POINTER_COMPOSITE_ACCESS",
+      "cMember": "WGPUWGSLLanguageFeatureName_PointerCompositeAccess",
+      "comparison": "None"
+    },
+    {
+      "id": "wgsl.language.uniform_buffer_standard_layout",
+      "kind": "LanguageFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "WGSL_UNIFORM_BUFFER_STANDARD_LAYOUT",
+      "cMember": "WGPUWGSLLanguageFeatureName_UniformBufferStandardLayout",
+      "comparison": "None"
+    },
+    {
+      "id": "wgsl.language.subgroup_id",
+      "kind": "LanguageFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "WGSL_SUBGROUP_ID",
+      "cMember": "WGPUWGSLLanguageFeatureName_SubgroupId",
+      "comparison": "None"
+    },
+    {
+      "id": "wgsl.language.subgroup_uniformity",
+      "kind": "LanguageFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "WGSL_SUBGROUP_UNIFORMITY",
+      "cMember": "WGPUWGSLLanguageFeatureName_SubgroupUniformity",
+      "comparison": "None"
+    },
+    {
+      "id": "wgsl.language.texture_and_sampler_let",
+      "kind": "LanguageFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "WGSL_TEXTURE_AND_SAMPLER_LET",
+      "cMember": "WGPUWGSLLanguageFeatureName_TextureAndSamplerLet",
+      "comparison": "None"
+    },
+    {
+      "id": "wgsl.language.texture_formats_tier1",
+      "kind": "LanguageFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "WGSL_TEXTURE_FORMATS_TIER1",
+      "cMember": "WGPUWGSLLanguageFeatureName_TextureFormatsTier1",
+      "comparison": "None"
+    },
+    {
+      "id": "wgsl.language.linear_indexing",
+      "kind": "LanguageFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "WGSL_LINEAR_INDEXING",
+      "cMember": "WGPUWGSLLanguageFeatureName_LinearIndexing",
+      "comparison": "None"
+    },
+    {
+      "id": "wgsl.language.immediate_address_space",
+      "kind": "LanguageFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "WGSL_IMMEDIATE_ADDRESS_SPACE",
+      "cMember": null,
+      "comparison": "None"
+    },
+    {
+      "id": "wgsl.language.fragment_depth",
+      "kind": "LanguageFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "WGSL_FRAGMENT_DEPTH",
+      "cMember": null,
+      "comparison": "None"
+    },
+    {
+      "id": "wgsl.language.buffer_view",
+      "kind": "LanguageFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "WGSL_BUFFER_VIEW",
+      "cMember": null,
+      "comparison": "None"
+    },
+    {
+      "id": "wgsl.language.swizzle_assignment",
+      "kind": "LanguageFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": "WGSL_SWIZZLE_ASSIGNMENT",
+      "cMember": null,
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.limit.maxTextureDimension1D",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_TEXTURE_DIMENSION_1D",
+      "cMember": "maxTextureDimension1D",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxTextureDimension2D",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_TEXTURE_DIMENSION_2D",
+      "cMember": "maxTextureDimension2D",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxTextureDimension3D",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_TEXTURE_DIMENSION_3D",
+      "cMember": "maxTextureDimension3D",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxTextureArrayLayers",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_TEXTURE_ARRAY_LAYERS",
+      "cMember": "maxTextureArrayLayers",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxBindGroups",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_BIND_GROUPS",
+      "cMember": "maxBindGroups",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxBindGroupsPlusVertexBuffers",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_BIND_GROUPS_PLUS_VERTEX_BUFFERS",
+      "cMember": "maxBindGroupsPlusVertexBuffers",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxBindingsPerBindGroup",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_BINDINGS_PER_BIND_GROUP",
+      "cMember": "maxBindingsPerBindGroup",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxDynamicUniformBuffersPerPipelineLayout",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_DYNAMIC_UNIFORM_BUFFERS_PER_PIPELINE_LAYOUT",
+      "cMember": "maxDynamicUniformBuffersPerPipelineLayout",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxDynamicStorageBuffersPerPipelineLayout",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_DYNAMIC_STORAGE_BUFFERS_PER_PIPELINE_LAYOUT",
+      "cMember": "maxDynamicStorageBuffersPerPipelineLayout",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxSampledTexturesPerShaderStage",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_SAMPLED_TEXTURES_PER_SHADER_STAGE",
+      "cMember": "maxSampledTexturesPerShaderStage",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxSamplersPerShaderStage",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_SAMPLERS_PER_SHADER_STAGE",
+      "cMember": "maxSamplersPerShaderStage",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxStorageBuffersPerShaderStage",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_STORAGE_BUFFERS_PER_SHADER_STAGE",
+      "cMember": "maxStorageBuffersPerShaderStage",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxStorageTexturesPerShaderStage",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_STORAGE_TEXTURES_PER_SHADER_STAGE",
+      "cMember": "maxStorageTexturesPerShaderStage",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxUniformBuffersPerShaderStage",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_UNIFORM_BUFFERS_PER_SHADER_STAGE",
+      "cMember": "maxUniformBuffersPerShaderStage",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxUniformBufferBindingSize",
+      "kind": "Limit",
+      "valueKind": "UInt64",
+      "shaderSymbol": "LIMIT_MAX_UNIFORM_BUFFER_BINDING_SIZE",
+      "cMember": "maxUniformBufferBindingSize",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxStorageBufferBindingSize",
+      "kind": "Limit",
+      "valueKind": "UInt64",
+      "shaderSymbol": "LIMIT_MAX_STORAGE_BUFFER_BINDING_SIZE",
+      "cMember": "maxStorageBufferBindingSize",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.minUniformBufferOffsetAlignment",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT",
+      "cMember": "minUniformBufferOffsetAlignment",
+      "comparison": "Alignment"
+    },
+    {
+      "id": "webgpu.limit.minStorageBufferOffsetAlignment",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MIN_STORAGE_BUFFER_OFFSET_ALIGNMENT",
+      "cMember": "minStorageBufferOffsetAlignment",
+      "comparison": "Alignment"
+    },
+    {
+      "id": "webgpu.limit.maxVertexBuffers",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_VERTEX_BUFFERS",
+      "cMember": "maxVertexBuffers",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxBufferSize",
+      "kind": "Limit",
+      "valueKind": "UInt64",
+      "shaderSymbol": "LIMIT_MAX_BUFFER_SIZE",
+      "cMember": "maxBufferSize",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxVertexAttributes",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_VERTEX_ATTRIBUTES",
+      "cMember": "maxVertexAttributes",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxVertexBufferArrayStride",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_VERTEX_BUFFER_ARRAY_STRIDE",
+      "cMember": "maxVertexBufferArrayStride",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxInterStageShaderVariables",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_INTER_STAGE_SHADER_VARIABLES",
+      "cMember": "maxInterStageShaderVariables",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxColorAttachments",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_COLOR_ATTACHMENTS",
+      "cMember": "maxColorAttachments",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxColorAttachmentBytesPerSample",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_COLOR_ATTACHMENT_BYTES_PER_SAMPLE",
+      "cMember": "maxColorAttachmentBytesPerSample",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxComputeWorkgroupStorageSize",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_COMPUTE_WORKGROUP_STORAGE_SIZE",
+      "cMember": "maxComputeWorkgroupStorageSize",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxComputeInvocationsPerWorkgroup",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_COMPUTE_INVOCATIONS_PER_WORKGROUP",
+      "cMember": "maxComputeInvocationsPerWorkgroup",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxComputeWorkgroupSizeX",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_X",
+      "cMember": "maxComputeWorkgroupSizeX",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxComputeWorkgroupSizeY",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_Y",
+      "cMember": "maxComputeWorkgroupSizeY",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxComputeWorkgroupSizeZ",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_Z",
+      "cMember": "maxComputeWorkgroupSizeZ",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxComputeWorkgroupsPerDimension",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_COMPUTE_WORKGROUPS_PER_DIMENSION",
+      "cMember": "maxComputeWorkgroupsPerDimension",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxImmediateSize",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_IMMEDIATE_SIZE",
+      "cMember": "maxImmediateSize",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxStorageBuffersInVertexStage",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_STORAGE_BUFFERS_IN_VERTEX_STAGE",
+      "cMember": "maxStorageBuffersInVertexStage",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxStorageTexturesInVertexStage",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_STORAGE_TEXTURES_IN_VERTEX_STAGE",
+      "cMember": "maxStorageTexturesInVertexStage",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxStorageBuffersInFragmentStage",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_STORAGE_BUFFERS_IN_FRAGMENT_STAGE",
+      "cMember": "maxStorageBuffersInFragmentStage",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.limit.maxStorageTexturesInFragmentStage",
+      "kind": "Limit",
+      "valueKind": "UInt32",
+      "shaderSymbol": "LIMIT_MAX_STORAGE_TEXTURES_IN_FRAGMENT_STAGE",
+      "cMember": "maxStorageTexturesInFragmentStage",
+      "comparison": "Maximum"
+    },
+    {
+      "id": "webgpu.instance.timed-wait-any",
+      "kind": "InstanceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": null,
+      "cMember": "WGPUInstanceFeatureName_TimedWaitAny",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.instance.shader-source-spirv",
+      "kind": "InstanceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": null,
+      "cMember": "WGPUInstanceFeatureName_ShaderSourceSPIRV",
+      "comparison": "None"
+    },
+    {
+      "id": "webgpu.instance.multiple-devices-per-adapter",
+      "kind": "InstanceFeature",
+      "valueKind": "Boolean",
+      "shaderSymbol": null,
+      "cMember": "WGPUInstanceFeatureName_MultipleDevicesPerAdapter",
+      "comparison": "None"
+    }
+  ]
+}

@@ -5,41 +5,40 @@ namespace Sia.Graphics.Wgsl;
 public static class WgslSourceCombiner
 {
     public static string Combine(
-        IReadOnlyList<WgslModuleNode> modules,
-        IReadOnlyDictionary<string, string>? shaderDefs,
-        List<WgslDiagnostic>? diagnostics = null)
+        IReadOnlyList<WgslModuleNode> modules)
     {
-        // Compile each module once
-        var compiled = modules
-            .Select(m => WgslConditionalCompiler.Compile(m.Source, shaderDefs, diagnostics))
-            .ToList();
+        var compiled = modules.Select(m => m.Source).ToList();
 
-        // Extract WGSL enable/requires/diagnostic from all modules
         var wgslDirectives = new List<string>();
         var seenDirectives = new HashSet<string>();
-        foreach (var source in compiled)
+        foreach (var source in compiled) {
             ExtractWgslDirectives(source, wgslDirectives, seenDirectives);
+        }
 
         var sb = new StringBuilder();
 
-        foreach (var d in wgslDirectives)
-            sb.AppendLine(d);
+        foreach (var d in wgslDirectives) {
+            sb.Append(d).Append('\n');
+        }
 
-        if (wgslDirectives.Count > 0)
-            sb.AppendLine();
+        if (wgslDirectives.Count > 0) {
+            sb.Append('\n');
+        }
 
         for (var i = 0; i < modules.Count; i++) {
-            if (i > 0)
-                sb.AppendLine();
+            if (i > 0) {
+                sb.Append('\n');
+            }
 
-            sb.AppendLine($"// --- module: {modules[i].Name} ---");
-            sb.AppendLine();
+            sb.Append("// --- module: ").Append(modules[i].Name).Append(" ---\n");
+            sb.Append('\n');
 
             var cleaned = StripWgslDirectives(compiled[i]);
             sb.Append(cleaned);
 
-            if (!cleaned.EndsWith('\n'))
-                sb.AppendLine();
+            if (!cleaned.EndsWith('\n')) {
+                sb.Append('\n');
+            }
         }
 
         return sb.ToString();
@@ -52,12 +51,15 @@ public static class WgslSourceCombiner
     {
         foreach (var rawLine in source.AsSpan().EnumerateLines()) {
             var line = rawLine.TrimStart();
-            if (line.IsEmpty) continue;
+            if (line.IsEmpty) {
+                continue;
+            }
 
             if (line.StartsWith("enable ") || line.StartsWith("requires ") || line.StartsWith("diagnostic ")) {
                 var text = line.ToString();
-                if (seen.Add(text))
+                if (seen.Add(text)) {
                     directives.Add(text);
+                }
             }
         }
     }
@@ -68,11 +70,12 @@ public static class WgslSourceCombiner
         foreach (var rawLine in source.AsSpan().EnumerateLines()) {
             var line = rawLine.TrimStart();
             if (!line.IsEmpty &&
-                (line.StartsWith("enable ") || line.StartsWith("requires ") || line.StartsWith("diagnostic "))) {
-                sb.AppendLine();
+                (line.StartsWith("enable ") || line.StartsWith("requires ") || line.StartsWith("diagnostic ") ||
+                 line.StartsWith("#import ") || line.StartsWith("#define_import_path "))) {
+                sb.Append('\n');
             }
             else {
-                sb.AppendLine(rawLine.ToString());
+                sb.Append(rawLine).Append('\n');
             }
         }
         return sb.ToString();

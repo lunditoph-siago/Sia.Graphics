@@ -9,6 +9,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Compatibility/Catalog/gpu-capabilities.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Sia.RenderGraph\Sia.RenderGraph.csproj" />
     <ProjectReference Include="..\Sia.WebGPU\Sia.WebGPU.csproj" />
     <PackageReference Include="Sia.Input" Version="0.0.4" />

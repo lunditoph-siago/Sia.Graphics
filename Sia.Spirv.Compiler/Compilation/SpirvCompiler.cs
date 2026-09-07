@@ -6,10 +6,11 @@ using Sia.Spirv.Compiler.Diagnostics;
 using Sia.Spirv.Compiler.Legalization;
 using Sia.Spirv.Compiler.LLVM;
 using Sia.Spirv.Compiler.Model;
+using Sia.Spirv.Runtime;
 
 namespace Sia.Spirv.Compiler.Compilation;
 
-public sealed class SpirvCompiler
+public sealed partial class SpirvCompiler
 {
     private static readonly JsonSerializerOptions s_JsonOptions = new() {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -20,6 +21,17 @@ public sealed class SpirvCompiler
         string assemblyPath,
         string outputDirectory,
         SpirvCompilationOptions? options = null)
+    {
+        var artifacts = CompileAssemblyCore(assemblyPath, outputDirectory, options, null);
+        WriteArtifactList(outputDirectory, artifacts);
+        return artifacts;
+    }
+
+    private static IReadOnlyList<SpirvArtifact> CompileAssemblyCore(
+        string assemblyPath,
+        string outputDirectory,
+        SpirvCompilationOptions? options,
+        string? targetName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
@@ -44,6 +56,7 @@ public sealed class SpirvCompiler
         var llvmVersion = toolchain.GetLlvmVersion();
         var spirvToolsVersion = toolchain.GetSpirvToolsVersion();
         var nagaVersion = options.EmitWgsl ? toolchain.GetNagaVersion() : null;
+        var nagaSha256 = options.EmitWgsl ? toolchain.GetNagaSha256() : null;
         var assemblyHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(assemblyPath)));
         Directory.CreateDirectory(outputDirectory);
 
@@ -51,9 +64,13 @@ public sealed class SpirvCompiler
         foreach (var sourceKernel in frontend.Kernels) {
             var legalizationPlan = new SpirvLegalizationPlanner().Resolve(
                 sourceKernel,
-                options.TargetProfile);
+                options.TargetProfile,
+                options.KernelAbi);
             var kernel = legalizationPlan.Kernel;
             var fileName = SanitizeFileName(kernel.QualifiedName);
+            if (targetName is not null) {
+                fileName = $"{targetName}--{fileName}";
+            }
             var llvmPath = Path.Combine(outputDirectory, $"{fileName}.ll");
             var rawLlvmPath = Path.Combine(outputDirectory, $"{fileName}.raw.ll");
             var spirvPath = Path.Combine(outputDirectory, $"{fileName}.spv");
@@ -69,10 +86,12 @@ public sealed class SpirvCompiler
                 legalizationPlan,
                 llvmVersion,
                 spirvToolsVersion,
-                nagaVersion);
+                nagaVersion,
+                nagaSha256);
+            var cachedSpirvPath = targetName is null ? spirvPath : GetCachedBinaryPath(manifestPath, spirvPath);
             if (IsCacheHit(
                 manifestPath,
-                spirvPath,
+                cachedSpirvPath,
                 wgslPath,
                 llvmPath,
                 sourceHash,
@@ -80,7 +99,7 @@ public sealed class SpirvCompiler
                 options.EmitLlvmIr)) {
                 artifacts.Add(new SpirvArtifact(
                     kernel,
-                    spirvPath,
+                    cachedSpirvPath,
                     options.EmitWgsl ? wgslPath : null,
                     manifestPath,
                     options.EmitLlvmIr ? llvmPath : null,
@@ -125,6 +144,10 @@ public sealed class SpirvCompiler
             if (!options.EmitLlvmIr) {
                 File.Delete(llvmPath);
             }
+            var spirvSha256 = ComputeFileSha256(spirvPath);
+            if (targetName is not null) {
+                spirvPath = StoreBinary(spirvPath, outputDirectory, spirvSha256);
+            }
             var manifest = CreateManifest(
                 kernel,
                 options,
@@ -132,8 +155,12 @@ public sealed class SpirvCompiler
                 llvmVersion,
                 spirvToolsVersion,
                 nagaVersion,
+                nagaSha256,
                 spirvPath,
-                sourceHash);
+                sourceHash,
+                targetName,
+                Path.GetRelativePath(outputDirectory, spirvPath).Replace('\\', '/'),
+                spirvSha256);
             File.WriteAllText(
                 manifestPath,
                 JsonSerializer.Serialize(manifest, s_JsonOptions) + Environment.NewLine,
@@ -156,8 +183,12 @@ public sealed class SpirvCompiler
         string llvmVersion,
         string spirvToolsVersion,
         string? nagaVersion,
+        string? nagaSha256,
         string spirvPath,
-        string sourceHash)
+        string sourceHash,
+        string? targetName,
+        string spirvFile,
+        string spirvSha256)
     {
         var resources = new List<SpirvManifestResource>();
         var pushConstants = new List<SpirvManifestPushConstant>();
@@ -257,6 +288,21 @@ public sealed class SpirvCompiler
         var stageOutputs = kernel.ReturnLayout?.Fields
             .Select(CreateManifestStageIo)
             .ToArray() ?? [];
+        var layoutSha256 = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new {
+            options.KernelAbi,
+            kernel.Stage,
+            Resources = resources,
+            PushConstants = pushConstants,
+            StageInputs = stageInputs,
+            StageOutputs = stageOutputs
+        }, s_JsonOptions)));
+        var storage = resources.Where(static resource => resource.Kind == "storage-buffer").ToArray();
+        var uniforms = resources.Where(static resource => resource.Kind == "uniform-buffer").ToArray();
+        var bufferRequirements = new SpirvBufferRequirements(
+            storage.Length,
+            uniforms.Length,
+            storage.Select(GetBindingSize).DefaultIfEmpty().Max(),
+            uniforms.Select(GetBindingSize).DefaultIfEmpty().Max());
         return new SpirvArtifactManifest(
             kernel.Name,
             kernel.QualifiedName,
@@ -271,13 +317,21 @@ public sealed class SpirvCompiler
             pushConstants,
             stageInputs,
             stageOutputs,
-            new SpirvManifestToolchain(llvmVersion, spirvToolsVersion, nagaVersion),
+            new SpirvManifestToolchain(llvmVersion, spirvToolsVersion, nagaVersion, nagaSha256),
             sourceHash,
             options.KernelAbi == SpirvKernelAbi.WebGpu ? "webgpu" : "vulkan",
             kernel.Stage.ToString().ToLowerInvariant(),
             options.LlvmPasses,
-            legalizationPlan.StrategyIds);
+            legalizationPlan.StrategyIds,
+            targetName,
+            spirvFile,
+            spirvSha256,
+            layoutSha256,
+            bufferRequirements);
     }
+
+    private static ulong GetBindingSize(SpirvManifestResource resource) =>
+        checked((ulong)resource.ArrayStride * (ulong)(resource.ElementCount ?? 1));
 
     private static IReadOnlyList<SpirvManifestStructField> CreateManifestFields(
         PhysicalStructLayout layout) =>
@@ -326,7 +380,10 @@ public sealed class SpirvCompiler
         }
         try {
             using var document = JsonDocument.Parse(File.ReadAllText(manifestPath));
-            return document.RootElement.GetProperty("sourceHash").GetString() == sourceHash;
+            var root = document.RootElement;
+            return root.GetProperty("sourceHash").GetString() == sourceHash &&
+                (!root.TryGetProperty("spirvSha256", out var hash) ||
+                    hash.ValueKind == JsonValueKind.String && hash.GetString() == ComputeFileSha256(spirvPath));
         }
         catch (JsonException) {
             return false;
@@ -340,7 +397,8 @@ public sealed class SpirvCompiler
         SpirvLegalizationPlan legalizationPlan,
         string llvmVersion,
         string spirvToolsVersion,
-        string? nagaVersion)
+        string? nagaVersion,
+        string? nagaSha256)
     {
         var compilerVersion = typeof(SpirvCompiler).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0";
@@ -362,13 +420,16 @@ public sealed class SpirvCompiler
             options.TargetProfile.SupportsStorageBuffers,
             options.TargetProfile.PreferUniformForBoundedReadOnlyBuffers,
             options.TargetProfile.MaxStorageBuffersPerShaderStage,
+            options.TargetProfile.MaxStorageBuffersInVertexStage,
+            options.TargetProfile.MaxStorageBuffersInFragmentStage,
             options.TargetProfile.MaxStorageBufferBindingSize,
             options.TargetProfile.MaxUniformBuffersPerShaderStage,
             options.TargetProfile.MaxUniformBufferBindingSize,
             string.Join(',', legalizationPlan.StrategyIds),
             llvmVersion,
             spirvToolsVersion,
-            nagaVersion);
+            nagaVersion,
+            nagaSha256);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input)));
     }
 

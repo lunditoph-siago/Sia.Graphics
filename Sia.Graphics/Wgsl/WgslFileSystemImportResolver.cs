@@ -5,14 +5,12 @@ internal sealed class WgslFileSystemImportResolver
     private readonly string _rootDir;
     private readonly string _entryPath;
     private readonly Dictionary<string, string?> _cache = [];
-    private readonly Dictionary<string, string> _pathToModuleName = [];
     private Dictionary<string, string>? _moduleRegistry;
 
     public WgslFileSystemImportResolver(string rootDir, string entryPath)
     {
         _rootDir = rootDir;
         _entryPath = entryPath;
-        _pathToModuleName[entryPath] = "main";
     }
 
     public string? Resolve(string importPath, string importerName)
@@ -32,7 +30,6 @@ internal sealed class WgslFileSystemImportResolver
             _cache[importPath] = source;
             if (source != null) {
                 _cache[resolvedPath] = source;
-                _pathToModuleName[resolvedPath] = resolvedPath;
             }
         }
         else {

@@ -28,6 +28,11 @@ internal static class SpirvCommandLine
             if (passesFile != null) {
                 passes = SpirvPassConfiguration.Load(passesFile).LlvmPasses;
             }
+            var targetProfileFile = values.GetValueOrDefault("target-profile-json");
+            var variantsFile = values.GetValueOrDefault("variants-json");
+            if (targetProfileFile is not null && variantsFile is not null) {
+                throw new ArgumentException("Options '--target-profile-json' and '--variants-json' cannot be combined.");
+            }
             var options = new SpirvCompilationOptions {
                 ToolchainDirectory = values.GetValueOrDefault("toolchain"),
                 TargetEnvironment = values.GetValueOrDefault("target") ?? "vulkan1.2",
@@ -37,18 +42,25 @@ internal static class SpirvCommandLine
                     values.GetValueOrDefault("optimization") ?? "2",
                     System.Globalization.CultureInfo.InvariantCulture),
                 LlvmPasses = passes,
-                EmitLlvmIr = !values.ContainsKey("no-llvm-ir")
+                EmitLlvmIr = !values.ContainsKey("no-llvm-ir"),
+                TargetProfile = targetProfileFile is null
+                    ? SpirvTargetProfile.Default : SpirvTargetProfile.Load(targetProfileFile)
             };
-            var artifacts = new SpirvCompiler().CompileAssembly(
-                assemblyPath,
-                outputPath,
-                options);
+            var compiler = new SpirvCompiler();
+            var artifacts = variantsFile is null
+                ? compiler.CompileAssembly(assemblyPath, outputPath, options)
+                : compiler.CompileVariants(assemblyPath, outputPath, SpirvVariantConfiguration.Load(variantsFile).Targets, options);
             foreach (var artifact in artifacts) {
                 var state = artifact.CacheHit ? "cached" : "compiled";
                 Console.WriteLine($"SPIR-V {state}: {artifact.Kernel.QualifiedName} -> {artifact.SpirvPath}");
                 if (artifact.WgslPath != null) {
                     Console.WriteLine($"WGSL {state}: {artifact.Kernel.QualifiedName} -> {artifact.WgslPath}");
                 }
+            }
+            if (variantsFile is not null) {
+                var binaries = artifacts.Select(static artifact => artifact.SpirvPath).Distinct(StringComparer.Ordinal).ToArray();
+                Console.WriteLine($"SPIR-V variants: {artifacts.Count} logical artifacts, {binaries.Length} unique binaries, " +
+                    $"{binaries.Sum(static path => new FileInfo(path).Length)} bytes.");
             }
             return 0;
         }
@@ -64,6 +76,7 @@ internal static class SpirvCommandLine
         catch (Exception exception) when (exception is
             ArgumentException or
             FileNotFoundException or
+            InvalidDataException or
             IOException or
             SpirvCompilationException) {
             Console.Error.WriteLine(exception.Message);
@@ -116,6 +129,7 @@ internal static class SpirvCommandLine
             "[--toolchain <directory>] [--target vulkan1.2|vulkan1.3] " +
             "[--abi vulkan|webgpu] [--emit-wgsl] " +
             "[--optimization 0..3] [--passes <pipeline>] [--passes-json <path>] " +
+            "[--target-profile-json <path> | --variants-json <path>] " +
             "[--no-llvm-ir]");
     }
 }

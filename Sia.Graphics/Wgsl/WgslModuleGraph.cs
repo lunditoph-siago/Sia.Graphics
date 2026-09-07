@@ -7,14 +7,14 @@ public static class WgslModuleGraph
         string entrySource,
         WgslImportResolver importResolver,
         List<WgslDiagnostic> diagnostics,
-        IReadOnlyDictionary<string, string>? shaderDefs = null)
+        WgslCompilationContext? context = null)
     {
         var registry = new Dictionary<string, WgslModuleNode>();
-        var resolved = new HashSet<string>();
 
-        var entry = Build(entryName, entrySource, importResolver, registry, resolved, diagnostics, shaderDefs);
-        if (HasErrors(diagnostics))
+        var entry = Build(entryName, entrySource, importResolver, registry, diagnostics, context);
+        if (HasErrors(diagnostics)) {
             return [];
+        }
 
         return TopologicalSort(entry, diagnostics);
     }
@@ -24,27 +24,18 @@ public static class WgslModuleGraph
         string source,
         WgslImportResolver importResolver,
         Dictionary<string, WgslModuleNode> registry,
-        HashSet<string> resolved,
         List<WgslDiagnostic> diagnostics,
-        IReadOnlyDictionary<string, string>? shaderDefs)
+        WgslCompilationContext? context)
     {
-        source = WgslConditionalCompiler.CompileModule(source, shaderDefs, diagnostics, out _);
+        source = WgslConditionalCompiler.CompileModule(source, context, diagnostics, name);
         var directives = WgslDirectiveParser.Parse(source);
         var canonicalName = directives.ImportPath ?? name;
 
-        if (registry.TryGetValue(canonicalName, out var existing))
+        if (registry.TryGetValue(canonicalName, out var existing)) {
             return existing;
-
-        if (resolved.Contains(canonicalName)) {
-            diagnostics.Add(new WgslDiagnostic(
-                WgslDiagnosticSeverity.Error,
-                $"Circular import detected: module '{canonicalName}' imports itself via '{name}'",
-                0, name));
-            return new WgslModuleNode(canonicalName, source, directives);
         }
 
-        resolved.Add(canonicalName);
-        var node = new WgslModuleNode(canonicalName, source, directives);
+        var node = new WgslModuleNode(canonicalName, source);
         registry[canonicalName] = node;
 
         foreach (var imp in directives.Imports) {
@@ -57,12 +48,12 @@ public static class WgslModuleGraph
                 continue;
             }
 
-            var dep = Build(imp.Path, resolvedSource, importResolver, registry, resolved, diagnostics, shaderDefs);
-            if (!node.Dependencies.Contains(dep))
+            var dep = Build(imp.Path, resolvedSource, importResolver, registry, diagnostics, context);
+            if (!node.Dependencies.Contains(dep)) {
                 node.Dependencies.Add(dep);
+            }
         }
 
-        resolved.Remove(canonicalName);
         return node;
     }
 
@@ -86,8 +77,9 @@ public static class WgslModuleGraph
         List<WgslModuleNode> result,
         List<WgslDiagnostic> diagnostics)
     {
-        if (visited.Contains(node))
+        if (visited.Contains(node)) {
             return;
+        }
 
         if (inStack.Contains(node)) {
             diagnostics.Add(new WgslDiagnostic(
@@ -99,8 +91,9 @@ public static class WgslModuleGraph
 
         inStack.Add(node);
 
-        foreach (var dep in node.Dependencies)
+        foreach (var dep in node.Dependencies) {
             Visit(dep, visited, inStack, result, diagnostics);
+        }
 
         inStack.Remove(node);
         visited.Add(node);

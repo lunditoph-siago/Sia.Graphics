@@ -7,12 +7,40 @@ public sealed class SpirvLegalizationPlanner
 {
     public SpirvLegalizationPlan Resolve(
         SpirvKernel kernel,
-        SpirvTargetProfile target)
+        SpirvTargetProfile target,
+        SpirvKernelAbi kernelAbi = SpirvKernelAbi.Vulkan)
     {
         ArgumentNullException.ThrowIfNull(kernel);
         ArgumentNullException.ThrowIfNull(target);
+        target.Validate();
 
         var parameters = kernel.Parameters.ToArray();
+        var storageLimit = target.GetStorageBufferLimit(kernel.Stage);
+        var uniformCount = 0;
+        foreach (var parameter in parameters) {
+            if (parameter.Kind != SpirvKernelParameterKind.UniformBuffer) {
+                continue;
+            }
+            if (GetMinimumBindingSize(parameter) > target.MaxUniformBufferBindingSize) {
+                throw new InvalidDataException(
+                    $"Resource '{parameter.Name}' exceeds the target uniform-buffer binding size.");
+            }
+            uniformCount++;
+        }
+        var pushConstantCount = parameters.Count(static parameter =>
+            parameter.Kind == SpirvKernelParameterKind.PushConstant);
+        if (kernelAbi == SpirvKernelAbi.WebGpu && pushConstantCount != 0) {
+            var parameterSize = ((ulong)pushConstantCount + 3) / 4 * 16;
+            if (parameterSize > target.MaxUniformBufferBindingSize) {
+                throw new InvalidDataException(
+                    "Resource 'sia.parameters' exceeds the target uniform-buffer binding size.");
+            }
+            uniformCount++;
+        }
+        if (uniformCount > target.MaxUniformBuffersPerShaderStage) {
+            throw new InvalidDataException(
+                "The target profile cannot provide the required uniform-buffer bindings.");
+        }
         var resources = new List<SpirvResourceLegalization>();
         var uniformCandidates = new Dictionary<int, SpirvKernelParameter>();
         foreach (var parameter in parameters) {
@@ -27,14 +55,20 @@ public sealed class SpirvLegalizationPlanner
                 SpirvKernelParameterKind.ReadOnlyStorageBuffer or
                 SpirvKernelParameterKind.StorageBuffer) &&
                 !uniformCandidates.ContainsKey(parameter.Position));
-        if (!target.SupportsStorageBuffers && mandatoryStorageCount != 0 ||
-            mandatoryStorageCount > target.MaxStorageBuffersPerShaderStage) {
+        if (mandatoryStorageCount > storageLimit) {
             throw new InvalidDataException(
                 "The target profile cannot provide the required storage-buffer bindings.");
         }
 
+        var mandatoryUniformRemaining = parameters.Count(parameter =>
+            uniformCandidates.ContainsKey(parameter.Position) &&
+            (storageLimit == 0 || GetMinimumBindingSize(parameter) > target.MaxStorageBufferBindingSize));
+        if (mandatoryUniformRemaining > target.MaxUniformBuffersPerShaderStage - uniformCount) {
+            throw new InvalidDataException(
+                "The target profile cannot provide the required uniform-buffer fallbacks.");
+        }
+
         var storageCount = 0;
-        var uniformCount = 0;
         var mandatoryStorageRemaining = mandatoryStorageCount;
         for (var index = 0; index < parameters.Length; index++) {
             var parameter = parameters[index];
@@ -50,17 +84,22 @@ public sealed class SpirvLegalizationPlanner
             if (!hasUniformFallback) {
                 mandatoryStorageRemaining--;
             }
+            var requiresUniform = hasUniformFallback &&
+                (storageLimit == 0 || GetMinimumBindingSize(parameter) > target.MaxStorageBufferBindingSize);
+            if (requiresUniform) {
+                mandatoryUniformRemaining--;
+            }
             var storageSlotAvailable = hasUniformFallback
-                ? storageCount + mandatoryStorageRemaining <
-                    target.MaxStorageBuffersPerShaderStage
-                : storageCount < target.MaxStorageBuffersPerShaderStage;
-            var storageAvailable = target.SupportsStorageBuffers &&
-                storageSlotAvailable &&
+                ? storageCount + mandatoryStorageRemaining < storageLimit
+                : storageCount < storageLimit;
+            var storageAvailable = storageSlotAvailable &&
                 GetMinimumBindingSize(parameter) <= target.MaxStorageBufferBindingSize;
+            var uniformAvailable = hasUniformFallback &&
+                uniformCount + mandatoryUniformRemaining < target.MaxUniformBuffersPerShaderStage;
             var useUniform = hasUniformFallback &&
-                (target.PreferUniformForBoundedReadOnlyBuffers || !storageAvailable);
+                (target.PreferUniformForBoundedReadOnlyBuffers && uniformAvailable || !storageAvailable);
             if (useUniform) {
-                if (uniformCount >= target.MaxUniformBuffersPerShaderStage) {
+                if (!uniformAvailable) {
                     throw new InvalidDataException(
                         $"Resource '{parameter.Name}' exceeds the target uniform-buffer count.");
                 }
@@ -116,6 +155,6 @@ public sealed class SpirvLegalizationPlanner
     }
 
     private static ulong GetMinimumBindingSize(SpirvKernelParameter parameter) =>
-        (ulong)(parameter.PhysicalLayout?.ArrayStride ??
-            SpirvTypeLayout.GetArrayStride(parameter.ScalarType));
+        checked((ulong)(parameter.PhysicalLayout?.ArrayStride ??
+            SpirvTypeLayout.GetArrayStride(parameter.ScalarType)) * (ulong)(parameter.BufferLength ?? 1));
 }

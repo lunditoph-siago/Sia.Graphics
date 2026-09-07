@@ -3,6 +3,7 @@ namespace Sia.Graphics.Wgsl;
 public sealed class WgslProcessResult
 {
     public string CombinedSource { get; init; } = "";
+    public string ContextFingerprint { get; init; } = "";
     public List<WgslDiagnostic> Diagnostics { get; init; } = [];
     public bool HasErrors => Diagnostics.Any(d => d.Severity == WgslDiagnosticSeverity.Error);
 

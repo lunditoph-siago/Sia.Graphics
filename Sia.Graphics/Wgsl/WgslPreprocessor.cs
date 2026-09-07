@@ -5,24 +5,38 @@ public static class WgslPreprocessor
     public static WgslProcessResult Process(
         string source,
         IReadOnlyDictionary<string, string>? shaderDefs,
+        WgslImportResolver importResolver) =>
+        ProcessWithContext(source, WgslCompilationContext.FromDefinitions(shaderDefs), importResolver);
+
+    public static WgslProcessResult ProcessWithContext(
+        string source,
+        WgslCompilationContext? context,
         WgslImportResolver importResolver)
     {
         var diagnostics = new List<WgslDiagnostic>();
 
-        var entrySource = WgslConditionalCompiler.CompileModule(source, shaderDefs, diagnostics, out var allDefs);
-        var modules = WgslModuleGraph.BuildAndSort("main", entrySource, importResolver, diagnostics, allDefs);
-        if (diagnostics.Any(d => d.Severity == WgslDiagnosticSeverity.Error))
+        var modules = WgslModuleGraph.BuildAndSort("main", source, importResolver, diagnostics, context);
+        if (diagnostics.Any(d => d.Severity == WgslDiagnosticSeverity.Error)) {
             return WgslProcessResult.Failure(diagnostics);
+        }
 
-        // Combine into final WGSL
-        var combined = WgslSourceCombiner.Combine(modules, allDefs, diagnostics);
+        var combined = WgslSourceCombiner.Combine(modules);
 
-        return new WgslProcessResult { CombinedSource = combined, Diagnostics = diagnostics };
+        return new WgslProcessResult {
+            CombinedSource = combined,
+            Diagnostics = diagnostics,
+            ContextFingerprint = (context ?? WgslCompilationContext.Empty).Fingerprint
+        };
     }
 
     public static WgslProcessResult ProcessFile(
         string filePath,
-        IReadOnlyDictionary<string, string>? shaderDefs)
+        IReadOnlyDictionary<string, string>? shaderDefs) =>
+        ProcessFileWithContext(filePath, WgslCompilationContext.FromDefinitions(shaderDefs));
+
+    public static WgslProcessResult ProcessFileWithContext(
+        string filePath,
+        WgslCompilationContext? context)
     {
         var fullPath = Path.GetFullPath(filePath);
         if (!File.Exists(fullPath)) {
@@ -37,6 +51,6 @@ public static class WgslPreprocessor
         var source = File.ReadAllText(fullPath);
         var resolver = new WgslFileSystemImportResolver(Path.GetDirectoryName(fullPath)!, fullPath);
 
-        return Process(source, shaderDefs, resolver.Resolve);
+        return ProcessWithContext(source, context, resolver.Resolve);
     }
 }

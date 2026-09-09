@@ -50,10 +50,6 @@
     <PackageReference Include="Sia.UI" Version="0.0.5" />
   </ItemGroup>
 
-  <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0-browser'">
-    <SupportedOSPlatformVersion>0.0</SupportedOSPlatformVersion>
-  </PropertyGroup>
-
   <ItemGroup>
     <EmbeddedResource Include="Assets\Fonts\*.ttf">
       <LogicalName>Sia.WebGPU.Example.Fonts.%(Filename)%(Extension)</LogicalName>

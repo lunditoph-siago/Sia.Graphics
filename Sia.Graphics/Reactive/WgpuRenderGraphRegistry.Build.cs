@@ -82,12 +82,33 @@ public sealed partial class WgpuRenderGraphRegistry
 
     private WgpuRenderGraphBindings BuildBindings(WgpuRenderGraphPlan plan)
     {
-        var bindings = _bindings != null && ReferenceEquals(_bindings.Plan, plan)
-            ? _bindings
+        var retained = _bindings != null && ReferenceEquals(_bindings.Plan, plan);
+        var bindings = retained
+            ? _bindings!
             : new WgpuRenderGraphBindings(plan);
-        bindings.Clear();
+        var rebuild = !retained
+            || HasRemoved(_dirtyBufferBindings, _bufferBindings)
+            || HasRemoved(_dirtyTextureBindings, _textureBindings)
+            || HasRemoved(_dirtyPassHandlers, _passHandlers);
+        if (rebuild) {
+            bindings.Clear();
+            foreach (var (key, entry) in _bufferBindings) { BindBuffer(key, entry); }
+            foreach (var (key, entry) in _textureBindings) { BindTexture(key, entry); }
+            foreach (var (key, entry) in _passHandlers) { BindHandler(key, entry); }
+            ValidateImportedBindings(plan);
+        }
+        else {
+            foreach (var key in _dirtyBufferBindings) { BindBuffer(key, _bufferBindings[key]); }
+            foreach (var key in _dirtyTextureBindings) { BindTexture(key, _textureBindings[key]); }
+            foreach (var key in _dirtyPassHandlers) { BindHandler(key, _passHandlers[key]); }
+        }
+        _dirtyBufferBindings.Clear();
+        _dirtyTextureBindings.Clear();
+        _dirtyPassHandlers.Clear();
+        return bindings;
 
-        foreach (var (key, entry) in _bufferBindings) {
+        void BindBuffer(RenderGraphBufferKey key, Entry<WgpuHandle<WGPUBuffer>> entry)
+        {
             if (!_importedBuffers.ContainsKey(key) ||
                 !_bufferHandles.TryGetValue(key, out var handle)) {
                 throw new InvalidOperationException(
@@ -95,7 +116,9 @@ public sealed partial class WgpuRenderGraphRegistry
             }
             bindings.Bind(handle, entry.Value);
         }
-        foreach (var (key, entry) in _textureBindings) {
+
+        void BindTexture(RenderGraphTextureKey key, Entry<WgpuHandle<WGPUTexture>> entry)
+        {
             if (!_importedTextures.ContainsKey(key) ||
                 !_textureHandles.TryGetValue(key, out var handle)) {
                 throw new InvalidOperationException(
@@ -103,7 +126,9 @@ public sealed partial class WgpuRenderGraphRegistry
             }
             bindings.Bind(handle, entry.Value);
         }
-        foreach (var (key, entry) in _passHandlers) {
+
+        void BindHandler(RenderGraphPassKey key, Entry<WgpuReactiveRenderGraphPassHandler> entry)
+        {
             if (!_passHandles.TryGetValue(key, out var handle)) {
                 throw new InvalidOperationException(
                     $"Bound render graph pass '{key}' has not been registered.");
@@ -112,9 +137,15 @@ public sealed partial class WgpuRenderGraphRegistry
                 bindings.SetPassHandler(handle, GetOrCreateAdapter(key, entry).Handler);
             }
         }
+    }
 
-        ValidateImportedBindings(plan);
-        return bindings;
+    private static bool HasRemoved<TKey, TValue>(HashSet<TKey> dirty, Dictionary<TKey, TValue> entries)
+        where TKey : notnull
+    {
+        foreach (var key in dirty) {
+            if (!entries.ContainsKey(key)) { return true; }
+        }
+        return false;
     }
 
     private ReactiveRenderGraphPassAdapter GetOrCreateAdapter(

@@ -53,6 +53,9 @@ public sealed partial class WgpuRenderGraphRegistry : IAddon, IDisposable
     private long _preparedStructureVersion = -1;
     private long _bindingVersion;
     private long _preparedBindingVersion = -1;
+    private readonly HashSet<RenderGraphBufferKey> _dirtyBufferBindings = [];
+    private readonly HashSet<RenderGraphTextureKey> _dirtyTextureBindings = [];
+    private readonly HashSet<RenderGraphPassKey> _dirtyPassHandlers = [];
     private bool _disposed;
 
     public long StructureVersion => _structureVersion;
@@ -219,6 +222,9 @@ public sealed partial class WgpuRenderGraphRegistry : IAddon, IDisposable
         _resourcePool.Dispose();
         _executionScratch.Clear();
         _passAdapters.Clear();
+        _dirtyBufferBindings.Clear();
+        _dirtyTextureBindings.Clear();
+        _dirtyPassHandlers.Clear();
         _bindings = null;
         _plan = null;
         _buffers.Clear();

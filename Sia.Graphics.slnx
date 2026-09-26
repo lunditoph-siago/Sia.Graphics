@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="Sia.Graphics.Tests/Sia.Graphics.Tests.csproj" />
   <Project Path="Sia.Graphics/Sia.Graphics.csproj" />
   <Project Path="Sia.RenderGraph/Sia.RenderGraph.csproj" />
   <Project Path="Sia.Spirv.Bootstrap/Sia.Spirv.Bootstrap.csproj" />

@@ -122,8 +122,9 @@ public sealed partial class WgpuRenderGraphRegistry
         }
         var id = NextRegistrationId();
         AddUnique(_bufferBindings, key, new(id, buffer), "buffer binding");
+        _dirtyBufferBindings.Add(key);
         BindingsChanged();
-        return new(() => Remove(_bufferBindings, key, id, structure: false));
+        return new(() => Remove(_bufferBindings, key, id, structure: false, _dirtyBufferBindings));
     }
 
     public RenderGraphRegistration BindImportedTexture(
@@ -139,8 +140,9 @@ public sealed partial class WgpuRenderGraphRegistry
         }
         var id = NextRegistrationId();
         AddUnique(_textureBindings, key, new(id, texture), "texture binding");
+        _dirtyTextureBindings.Add(key);
         BindingsChanged();
-        return new(() => Remove(_textureBindings, key, id, structure: false));
+        return new(() => Remove(_textureBindings, key, id, structure: false, _dirtyTextureBindings));
     }
 
     public RenderGraphRegistration BindPassHandler(
@@ -152,8 +154,9 @@ public sealed partial class WgpuRenderGraphRegistry
         ArgumentNullException.ThrowIfNull(handler);
         var id = NextRegistrationId();
         AddUnique(_passHandlers, key, new(id, handler), "pass handler");
+        _dirtyPassHandlers.Add(key);
         BindingsChanged();
-        return new(() => Remove(_passHandlers, key, id, structure: false));
+        return new(() => Remove(_passHandlers, key, id, structure: false, _dirtyPassHandlers));
     }
 
     private static void AddUnique<TKey, TValue>(
@@ -197,7 +200,8 @@ public sealed partial class WgpuRenderGraphRegistry
         Dictionary<TKey, Entry<TValue>> entries,
         TKey key,
         long id,
-        bool structure)
+        bool structure,
+        HashSet<TKey>? dirty = null)
         where TKey : notnull
     {
         if (_disposed || !entries.TryGetValue(key, out var entry) || entry.Id != id) {
@@ -208,6 +212,7 @@ public sealed partial class WgpuRenderGraphRegistry
             StructureChanged();
         }
         else {
+            dirty!.Add(key);
             BindingsChanged();
         }
     }
@@ -223,7 +228,6 @@ public sealed partial class WgpuRenderGraphRegistry
     private void BindingsChanged()
     {
         _bindingVersion++;
-        _bindings = null;
         _preparedBindingVersion = -1;
     }
 

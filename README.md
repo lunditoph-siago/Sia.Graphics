@@ -48,28 +48,6 @@ avoid materializing unused channels.
 
 ## Reactive render graphs
 
-For a declaration that depends on component props, pass those dependencies as
-values and use a static callback. All values that change resource access must be
-included in the dependencies. Equal dependencies retain the registered pass;
-changed dependencies rebuild it without changing its declaration order.
-
-```csharp
-hooks.UseRenderGraphPass(
-    registry, draw, "draw", output,
-    static (in RenderGraphTextureKey target, RenderGraphPassDeclarationBuilder pass) =>
-        pass.Write(target, RenderGraphTextureUsage.RenderAttachment));
-```
-
-The original callback overload remains available for stable declarations.
-Capturing a new closure on each expansion changes its identity and re-registers
-the pass. Execution handlers should likewise use stable callbacks or methods on
-the existing resource owner, reading its current frame data.
-
-Replacing an imported resource binding retains the compiled plan and updates
-only changed bindings. Removing a live binding still fails validation; changing
-a resource descriptor or pass declaration rebuilds the plan. Prepared bindings
-are mutable registry-owned execution state, not a snapshot of an earlier frame.
-
 ```csharp
 using Sia.Graphics.Reactive;
 using Sia.Reactive;

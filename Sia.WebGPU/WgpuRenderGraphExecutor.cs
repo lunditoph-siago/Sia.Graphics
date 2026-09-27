@@ -242,12 +242,15 @@ public static class WgpuRenderGraphExecutor
             }
 
             if (resource.IsImported) {
-                if (!bindings.TryGetBuffer(resource.Handle, out var imported)) {
+                if (!bindings.TryGetBuffer(resource.Handle, out var imported, out var validated)) {
                     throw new InvalidOperationException(
                         $"Imported buffer '{resource.Descriptor.Name}' has not been bound.");
                 }
 
-                ValidateImported(resource, item.Usage, imported);
+                if (!validated) {
+                    ValidateImported(resource, item.Usage, imported);
+                    bindings.MarkValidated(resource.Handle);
+                }
                 buffers.Add(resource.Handle, imported);
                 continue;
             }
@@ -277,12 +280,15 @@ public static class WgpuRenderGraphExecutor
             }
 
             if (resource.IsImported) {
-                if (!bindings.TryGetTexture(resource.Handle, out var imported)) {
+                if (!bindings.TryGetTexture(resource.Handle, out var imported, out var validated)) {
                     throw new InvalidOperationException(
                         $"Imported texture '{resource.Descriptor.Name}' has not been bound.");
                 }
 
-                ValidateImported(resource, item, imported);
+                if (!validated) {
+                    ValidateImported(resource, item, imported);
+                    bindings.MarkValidated(resource.Handle);
+                }
                 textures.Add(resource.Handle, imported);
                 continue;
             }

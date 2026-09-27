@@ -4,9 +4,12 @@ namespace Sia.WebGPU;
 
 public sealed class WgpuRenderGraphBindings
 {
-    private readonly Dictionary<RenderGraphBufferHandle, WgpuHandle<WGPUBuffer>> _buffers = [];
-    private readonly Dictionary<RenderGraphTextureHandle, WgpuHandle<WGPUTexture>> _textures = [];
+    private readonly Dictionary<RenderGraphBufferHandle, Binding<WGPUBuffer>> _buffers = [];
+    private readonly Dictionary<RenderGraphTextureHandle, Binding<WGPUTexture>> _textures = [];
     private readonly Dictionary<RenderGraphPassHandle, WgpuRenderGraphPassHandler> _handlers = [];
+
+    private readonly record struct Binding<T>(WgpuHandle<T> Handle, bool Validated = false)
+        where T : unmanaged;
 
     public WgpuRenderGraphBindings(WgpuRenderGraphPlan plan)
     {
@@ -32,7 +35,7 @@ public sealed class WgpuRenderGraphBindings
                 nameof(handle));
         }
 
-        _buffers[buffer] = handle;
+        _buffers[buffer] = new(handle);
     }
 
     public void Bind(
@@ -51,7 +54,7 @@ public sealed class WgpuRenderGraphBindings
                 nameof(handle));
         }
 
-        _textures[texture] = handle;
+        _textures[texture] = new(handle);
     }
 
     public void SetPassHandler(
@@ -65,13 +68,31 @@ public sealed class WgpuRenderGraphBindings
 
     internal bool TryGetBuffer(
         RenderGraphBufferHandle buffer,
-        out WgpuHandle<WGPUBuffer> handle) =>
-        _buffers.TryGetValue(buffer, out handle);
+        out WgpuHandle<WGPUBuffer> handle,
+        out bool validated)
+    {
+        var found = _buffers.TryGetValue(buffer, out var binding);
+        handle = binding.Handle;
+        validated = binding.Validated;
+        return found;
+    }
 
     internal bool TryGetTexture(
         RenderGraphTextureHandle texture,
-        out WgpuHandle<WGPUTexture> handle) =>
-        _textures.TryGetValue(texture, out handle);
+        out WgpuHandle<WGPUTexture> handle,
+        out bool validated)
+    {
+        var found = _textures.TryGetValue(texture, out var binding);
+        handle = binding.Handle;
+        validated = binding.Validated;
+        return found;
+    }
+
+    internal void MarkValidated(RenderGraphBufferHandle buffer) =>
+        _buffers[buffer] = _buffers[buffer] with { Validated = true };
+
+    internal void MarkValidated(RenderGraphTextureHandle texture) =>
+        _textures[texture] = _textures[texture] with { Validated = true };
 
     internal bool TryGetHandler(
         RenderGraphPassHandle pass,

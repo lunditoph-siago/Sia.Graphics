@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>Sia.Rendering.Debug.Tests</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\Sia.Engine\Sia.Rendering.Pbr\Sia.Rendering.Pbr.csproj" />
+    <PackageReference Include="Sia.WebGPU.Native" Version="0.0.20" />
+    <Compile Include="..\..\..\..\skills\sia-gpu-diagnostics\scripts\Runner\Gpu.cs" />
+    <Compile Include="..\..\..\..\skills\sia-gpu-diagnostics\scripts\Runner\Models.cs" />
+    <Compile Include="..\..\..\..\skills\sia-gpu-diagnostics\scripts\Runner\Program.cs" />
+    <Compile Include="..\..\..\..\skills\sia-gpu-diagnostics\scripts\Runner\TestContext.cs" />
+    <Compile Include="..\..\..\..\skills\sia-gpu-diagnostics\scripts\Runner\TestRegistry.cs" />
+    <Compile Include="..\..\..\..\skills\sia-gpu-diagnostics\scripts\Tests\Material\MaterialFixture.cs" />
+    <Compile Include="..\..\..\..\skills\sia-gpu-diagnostics\scripts\Tests\Material\MaterialGpuCase.cs" />
+    <Compile Include="..\..\..\..\skills\sia-gpu-diagnostics\scripts\Tests\Material\MaterialTests.cs" />
+    <Compile Include="..\..\..\..\skills\sia-gpu-diagnostics\scripts\Tests\Skeleton\Skeleton.cs" />
+    <Compile Include="..\..\..\..\skills\sia-gpu-diagnostics\scripts\Tests\Skeleton\SkeletonTests.cs" />
+    <Compile Include="..\..\..\..\skills\sia-gpu-diagnostics\scripts\Tests\Workflow\WorkflowAssertions.cs" />
+    <Compile Include="..\..\..\..\skills\sia-gpu-diagnostics\scripts\Tests\Workflow\WorkflowCapture.cs" />
+    <Compile Include="..\..\..\..\skills\sia-gpu-diagnostics\scripts\Tests\Workflow\WorkflowCase.cs" />
+    <Compile Include="..\..\..\..\skills\sia-gpu-diagnostics\scripts\Tests\Workflow\WorkflowFixture.cs" />
+    <Compile Include="..\..\..\..\skills\sia-gpu-diagnostics\scripts\Tests\Workflow\WorkflowTests.cs" />
+    <Compile Include="..\..\..\..\.work\naga-csharp\gpu-tests\NagaTests.cs" />
+    <EmbeddedResource Include="..\..\..\..\.work\naga-csharp\gpu-tests\half.wgsl">
+      <LogicalName>tests/half.wgsl</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\..\..\.work\naga-csharp\gpu-tests\integer-reference-roundtrip.wgsl">
+      <LogicalName>tests/integer-reference-roundtrip.wgsl</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\..\..\.work\naga-csharp\gpu-tests\integer.wgsl">
+      <LogicalName>tests/integer.wgsl</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+  <Import Project="..\..\..\..\.work\naga-csharp\gpu-tests\Tests.props" />
+</Project>

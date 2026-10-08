@@ -1,0 +1,34 @@
+{
+  "assembly_sha256": "c22ef62a55cbc86718ca8fb3114a1c33eecf871801defe3f4c5a46bf6137ba4a",
+  "maintained_tests": {
+    "total": "1240",
+    "executed": "1240",
+    "passed": "1240",
+    "failed": "0",
+    "error": "0",
+    "timeout": "0",
+    "aborted": "0",
+    "inconclusive": "0",
+    "passedButRunAborted": "0",
+    "notRunnable": "0",
+    "notExecuted": "0",
+    "disconnected": "0",
+    "warning": "0",
+    "completed": "0",
+    "inProgress": "0",
+    "pending": "0"
+  },
+  "positive_fixtures": 108,
+  "native_checks": 223,
+  "native_passed": 223,
+  "baseline_accepted": 42,
+  "gpu_complete_cases": 54,
+  "gpu_checks": 13530,
+  "gpu_passed": 13530,
+  "gpu_dispatches": 4320,
+  "gpu_readbacks": 12960,
+  "devices": [
+    "Intel(R) UHD Graphics"
+  ],
+  "status": "partial GPU verification intentionally stopped when goal paused; no full parity claim"
+}

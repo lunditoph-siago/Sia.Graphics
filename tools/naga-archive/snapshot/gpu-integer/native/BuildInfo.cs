@@ -1,0 +1,1 @@
+namespace SiaGpuDiagnostics; internal static class BuildInfo { public const string RunId = "dc754ece00214f18bfac6d2c5fe940bb"; public const string SourceId = "667D6D05B86F9A7D1ED42A5A27AC745019971634CBA10108FB01E1E9F5ECB3B2"; }

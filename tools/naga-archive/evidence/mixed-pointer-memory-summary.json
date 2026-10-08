@@ -1,0 +1,55 @@
+{
+  "sha256": "87fd69716bf0dfb02a8f1bd485b125b193d1eee46958f9a00cee7b7eb2fa89f5",
+  "corpus_inputs": 197,
+  "corpus_step_changes": [],
+  "reports": {
+    "readonly-pointer-selection": {
+      "total": 864,
+      "passed": 864,
+      "failed": [],
+      "gpu": 384,
+      "bytes": 384
+    },
+    "pointer-selection": {
+      "total": 2704,
+      "passed": 2702,
+      "failed": [
+        {
+          "check": "workgroup-False-False-reference-native",
+          "passed": false,
+          "external": true,
+          "code": 1,
+          "message": "error: line 45: [VUID-StandaloneSpirv-None-10684] Invalid explicit layout decorations on type for operand '20[%_ptr_Workgroup__struct_12]'\n  %19 = OpVariable %_ptr_Workgroup__struct_12 Workgroup\n\n",
+          "command": [
+            ".work/naga-csharp/spirv-tools-local/tools/Release/spirv-val.exe",
+            "--target-env",
+            "vulkan1.2",
+            ".work\\naga-csharp\\pointer-selection\\workgroup-False-False-reference.spv"
+          ]
+        },
+        {
+          "check": "workgroup-True-False-reference-native",
+          "passed": false,
+          "external": true,
+          "code": 1,
+          "message": "error: line 45: [VUID-StandaloneSpirv-None-10684] Invalid explicit layout decorations on type for operand '20[%_ptr_Workgroup__struct_12]'\n  %19 = OpVariable %_ptr_Workgroup__struct_12 Workgroup\n\n",
+          "command": [
+            ".work/naga-csharp/spirv-tools-local/tools/Release/spirv-val.exe",
+            "--target-env",
+            "vulkan1.2",
+            ".work\\naga-csharp\\pointer-selection\\workgroup-True-False-reference.spv"
+          ]
+        }
+      ],
+      "gpu": 1200,
+      "bytes": 1200
+    },
+    "atomic-memory": {
+      "total": 231,
+      "passed": 231,
+      "failed": [],
+      "gpu": 33,
+      "bytes": 0
+    }
+  }
+}

@@ -1,4 +1,7 @@
 using Sia.Spirv.Compiler.Compilation;
+using Sia.Spirv.Compiler.Translation;
+using Sia.Spirv.Compiler.Translation.Front;
+using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Tool;
 
@@ -10,7 +13,7 @@ internal static class SpirvCommandLine
             WriteUsage();
             return args.Count == 0 ? 1 : 0;
         }
-        if (args[0] != "compile") {
+        if (args[0] is not ("compile" or "translate" or "validate")) {
             Console.Error.WriteLine($"Unknown command '{args[0]}'.");
             WriteUsage();
             return 1;
@@ -18,6 +21,23 @@ internal static class SpirvCommandLine
 
         try {
             var values = ParseOptions(args.Skip(1).ToArray());
+            if (args[0] is "translate" or "validate") {
+                var input = GetRequired(values, "input");
+                bool spirv = Path.GetExtension(input).Equals(".spv", StringComparison.OrdinalIgnoreCase);
+                if (!spirv && !Path.GetExtension(input).Equals(".wgsl", StringComparison.OrdinalIgnoreCase))
+                    throw new ArgumentException("Input must be a .spv or .wgsl file.");
+                if (args[0] == "validate") {
+                    ModuleValidator.Validate(spirv ? SpirvReader.Parse(File.ReadAllBytes(input)) : WgslReader.Parse(File.ReadAllText(input)));
+                }
+                else {
+                    var output = GetRequired(values, "output");
+                    if (!Path.GetExtension(output).Equals(spirv ? ".wgsl" : ".spv", StringComparison.OrdinalIgnoreCase))
+                        throw new ArgumentException("Output must use the other supported shader format.");
+                    if (spirv) File.WriteAllText(output, ShaderTranslator.SpirvToWgsl(File.ReadAllBytes(input)));
+                    else File.WriteAllBytes(output, ShaderTranslator.WgslToSpirv(File.ReadAllText(input)));
+                }
+                return 0;
+            }
             var assemblyPath = GetRequired(values, "assembly");
             var outputPath = GetRequired(values, "output");
             var passes = values.GetValueOrDefault("passes");
@@ -78,6 +98,7 @@ internal static class SpirvCommandLine
             FileNotFoundException or
             InvalidDataException or
             IOException or
+            ShaderException or
             SpirvCompilationException) {
             Console.Error.WriteLine(exception.Message);
             return 1;
@@ -124,6 +145,8 @@ internal static class SpirvCommandLine
 
     private static void WriteUsage()
     {
+        Console.WriteLine("Usage: sia-spirv translate --input <file.spv|file.wgsl> --output <file.wgsl|file.spv>");
+        Console.WriteLine("       sia-spirv validate --input <file.spv|file.wgsl>");
         Console.WriteLine(
             "Usage: sia-spirv compile --assembly <path> --output <directory> " +
             "[--toolchain <directory>] [--target vulkan1.2|vulkan1.3] " +

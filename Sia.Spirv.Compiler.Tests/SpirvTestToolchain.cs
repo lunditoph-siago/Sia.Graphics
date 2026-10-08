@@ -80,7 +80,7 @@ internal static class SpirvTestToolchain
     }
 
     private static bool IsComplete(string directory) =>
-        new[] { "llc", "opt", "spirv-dis", "spirv-opt", "spirv-val", "naga" }
+        new[] { "llc", "opt", "spirv-dis", "spirv-opt", "spirv-val" }
             .All(tool => File.Exists(Path.Combine(directory, tool + s_ExecutableSuffix)));
 }
 
@@ -89,7 +89,7 @@ public sealed class SpirvToolchainFactAttribute : FactAttribute
     public SpirvToolchainFactAttribute()
     {
         if (SpirvTestToolchain.Directory == null) {
-            Skip = "The SPIR-V LLVM, SPIRV-Tools, and Naga toolchain is not installed.";
+            Skip = "The SPIR-V LLVM and SPIRV-Tools toolchain is not installed.";
         }
     }
 }

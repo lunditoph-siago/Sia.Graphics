@@ -3,6 +3,11 @@
 `Sia.Graphics` contains the backend-neutral render-graph IR, WebGPU lowering,
 and Sia.NET reactive integration.
 
+The [pipeline and code-boundary map](docs/compiler-architecture.md) covers shader
+compilation, translation, build targets, packages and render-graph execution.
+The [compiler improvement plan](docs/compiler-roadmap.md) proposes a shared
+LLVM-inspired middle end for IL -> WGSL, IL -> SPIR-V and WGSL <-> SPIR-V.
+
 ## Getting started
 
 Install the optional SPIR-V workload:

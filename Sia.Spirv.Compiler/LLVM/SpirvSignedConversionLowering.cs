@@ -1,219 +1,79 @@
-using System.Buffers.Binary;
+using Sia.Spirv.Compiler.Translation.Spirv;
 
 namespace Sia.Spirv.Compiler.LLVM;
 
+// LLVM integers are signless. Make opcode-implied signedness explicit for
+// consumers that select arithmetic from the declared SPIR-V operand type.
 internal static class SpirvSignedConversionLowering
 {
-    private const uint k_SpirvMagic = 0x07230203;
-    private const ushort k_OpTypeInt = 21;
-    private const ushort k_OpTypeVector = 23;
-    private const ushort k_OpFunction = 54;
-    private const ushort k_OpConvertSToF = 111;
-    private const ushort k_OpBitcast = 124;
-
     public static void Rewrite(string path)
     {
-        var words = ReadWords(path);
-        var instructions = EnumerateInstructions(words).ToArray();
-        var integerTypes = new Dictionary<uint, IntegerType>();
-        var vectorTypes = new Dictionary<uint, VectorType>();
-        foreach (var instruction in instructions) {
-            switch (instruction.Opcode) {
-                case k_OpTypeInt:
-                    integerTypes[instruction.Words[1]] = new IntegerType(
-                        instruction.Words[2],
-                        instruction.Words[3] != 0);
-                    break;
-                case k_OpTypeVector:
-                    vectorTypes[instruction.Words[1]] = new VectorType(
-                        instruction.Words[2],
-                        instruction.Words[3]);
-                    break;
-            }
+        var binary = SpirvBinary.Parse(File.ReadAllBytes(path));
+        var integers = new Dictionary<uint, (uint Width, bool Signed)>();
+        var vectors = new Dictionary<uint, (uint Component, uint Size)>();
+        foreach (var instruction in binary.Instructions) {
+            var a = instruction.Operands;
+            if ((Op)instruction.Opcode == Op.TypeInt) integers[a[0]] = (a[1], a[2] != 0);
+            if ((Op)instruction.Opcode == Op.TypeVector) vectors[a[0]] = (a[1], a[2]);
         }
-
-        var valueTypes = GetValueTypes(instructions, integerTypes.Keys.Concat(vectorTypes.Keys));
-        var nextId = words[3];
-        var addedTypes = new List<uint[]>();
-        var replacements = new Dictionary<int, ConversionReplacement>();
-        for (var index = 0; index < instructions.Length; index++) {
-            var instruction = instructions[index];
-            if (instruction.Opcode != k_OpConvertSToF) {
-                continue;
+        var types = integers.Keys.Concat(vectors.Where(pair => integers.ContainsKey(pair.Value.Component)).Select(pair => pair.Key)).ToHashSet();
+        var values = binary.Instructions.Where(i => i.Operands.Length >= 2 && types.Contains(i.Operands[0])
+                && (i.Opcode < 19 || i.Opcode > 39))
+            .ToDictionary(i => i.Operands[1], i => i.Operands[0]);
+        uint nextId = binary.Bound;
+        var addedTypes = new List<SpirvInstruction>();
+        var output = new List<SpirvInstruction>();
+        uint IntegerType(uint type, bool signed) {
+            if (vectors.TryGetValue(type, out var vector)) {
+                uint component = IntegerType(vector.Component, signed);
+                if (component == vector.Component) return type;
+                foreach (var pair in vectors) if (pair.Value == (component, vector.Size)) return pair.Key;
+                uint id = nextId++;
+                vectors.Add(id, (component, vector.Size));
+                addedTypes.Add(new((ushort)Op.TypeVector, [id, component, vector.Size]));
+                return id;
             }
-            var operand = instruction.Words[3];
-            if (!valueTypes.TryGetValue(operand, out var operandType)) {
-                throw new InvalidDataException("Unable to determine the operand type of k_OpConvertSToF.");
-            }
-            var signedType = GetSignedType(
-                operandType,
-                integerTypes,
-                vectorTypes,
-                addedTypes,
-                ref nextId);
-            if (signedType == operandType) {
-                continue;
-            }
-            replacements[index] = new ConversionReplacement(signedType, nextId++);
+            var integer = integers[type];
+            if (integer.Signed == signed) return type;
+            foreach (var pair in integers) if (pair.Value == (integer.Width, signed)) return pair.Key;
+            uint result = nextId++;
+            integers.Add(result, (integer.Width, signed));
+            addedTypes.Add(new((ushort)Op.TypeInt, [result, integer.Width, signed ? 1u : 0u]));
+            return result;
         }
-        if (replacements.Count == 0) {
-            return;
+        uint Cast(uint value, bool signed) {
+            uint type = values[value], target = IntegerType(type, signed);
+            if (type == target) return value;
+            uint id = nextId++;
+            output.Add(new((ushort)Op.Bitcast, [target, id, value]));
+            return id;
         }
-
-        var output = new List<uint>(words.Length + addedTypes.Sum(static type => type.Length) + replacements.Count * 4);
-        output.AddRange(words.AsSpan(0, 5).ToArray());
-        output[3] = nextId;
-        var insertedTypes = false;
-        for (var index = 0; index < instructions.Length; index++) {
-            var instruction = instructions[index];
-            if (!insertedTypes && instruction.Opcode == k_OpFunction) {
-                foreach (var type in addedTypes) {
-                    output.AddRange(type);
-                }
-                insertedTypes = true;
+        foreach (var instruction in binary.Instructions) {
+            var op = (Op)instruction.Opcode;
+            bool? signed = op switch {
+                Op.SNegate or Op.SDiv or Op.SRem or Op.SMod or Op.ShiftRightArithmetic or Op.ConvertSToF
+                    or Op.SLessThan or Op.SLessThanEqual or Op.SGreaterThan or Op.SGreaterThanEqual => true,
+                Op.UDiv or Op.UMod or Op.ShiftRightLogical or Op.ConvertUToF
+                    or Op.ULessThan or Op.ULessThanEqual or Op.UGreaterThan or Op.UGreaterThanEqual => false,
+                _ => null
+            };
+            if (signed is null) { output.Add(instruction); continue; }
+            var a = (uint[])instruction.Operands.Clone();
+            a[2] = Cast(a[2], signed.Value);
+            if (a.Length == 4 && op is not (Op.ShiftRightArithmetic or Op.ShiftRightLogical)) a[3] = Cast(a[3], signed.Value);
+            uint originalType = a[0], originalId = a[1];
+            if (types.Contains(a[0])) {
+                a[0] = IntegerType(a[0], signed.Value);
+                if (a[0] != originalType) a[1] = nextId++;
             }
-            if (!replacements.TryGetValue(index, out var replacement)) {
-                output.AddRange(instruction.Words);
-                continue;
-            }
-
-            output.Add(MakeInstructionHeader(4, k_OpBitcast));
-            output.Add(replacement.SignedType);
-            output.Add(replacement.ResultId);
-            output.Add(instruction.Words[3]);
-            var converted = (uint[])instruction.Words.Clone();
-            converted[3] = replacement.ResultId;
-            output.AddRange(converted);
+            output.Add(new(instruction.Opcode, a));
+            if (a[0] != originalType) output.Add(new((ushort)Op.Bitcast, [originalType, originalId, a[1]]));
         }
-
-        WriteWords(path, output);
+        if (nextId == binary.Bound) return;
+        int firstFunction = output.FindIndex(i => (Op)i.Opcode == Op.Function);
+        output.InsertRange(firstFunction, addedTypes);
+        File.WriteAllBytes(path, new SpirvBinary {
+            Version = binary.Version, Generator = binary.Generator, Bound = nextId, Instructions = output
+        }.ToBytes());
     }
-
-    private static Dictionary<uint, uint> GetValueTypes(
-        IReadOnlyList<Instruction> instructions,
-        IEnumerable<uint> typeIds)
-    {
-        var types = typeIds.ToHashSet();
-        var result = new Dictionary<uint, uint>();
-        foreach (var instruction in instructions) {
-            if (instruction.Opcode is >= 19 and <= 39 ||
-                instruction.Words.Length < 3 ||
-                !types.Contains(instruction.Words[1])) {
-                continue;
-            }
-            result[instruction.Words[2]] = instruction.Words[1];
-        }
-        return result;
-    }
-
-    private static uint GetSignedType(
-        uint typeId,
-        IDictionary<uint, IntegerType> integerTypes,
-        IDictionary<uint, VectorType> vectorTypes,
-        ICollection<uint[]> addedTypes,
-        ref uint nextId)
-    {
-        if (integerTypes.TryGetValue(typeId, out var integer)) {
-            return integer.Signed
-                ? typeId
-                : GetSignedIntegerType(integer.Width, integerTypes, addedTypes, ref nextId);
-        }
-        if (!vectorTypes.TryGetValue(typeId, out var vector) ||
-            !integerTypes.TryGetValue(vector.ComponentType, out integer)) {
-            throw new InvalidDataException("k_OpConvertSToF has a non-integer operand type.");
-        }
-        if (integer.Signed) {
-            return typeId;
-        }
-
-        var signedComponent = GetSignedIntegerType(integer.Width, integerTypes, addedTypes, ref nextId);
-        foreach (var (candidateId, candidate) in vectorTypes) {
-            if (candidate.ComponentType == signedComponent && candidate.Length == vector.Length) {
-                return candidateId;
-            }
-        }
-        var result = nextId++;
-        vectorTypes[result] = new VectorType(signedComponent, vector.Length);
-        addedTypes.Add([
-            MakeInstructionHeader(4, k_OpTypeVector),
-            result,
-            signedComponent,
-            vector.Length
-        ]);
-        return result;
-    }
-
-    private static uint GetSignedIntegerType(
-        uint width,
-        IDictionary<uint, IntegerType> integerTypes,
-        ICollection<uint[]> addedTypes,
-        ref uint nextId)
-    {
-        foreach (var (candidateId, candidate) in integerTypes) {
-            if (candidate.Width == width && candidate.Signed) {
-                return candidateId;
-            }
-        }
-        var result = nextId++;
-        integerTypes[result] = new IntegerType(width, true);
-        addedTypes.Add([
-            MakeInstructionHeader(4, k_OpTypeInt),
-            result,
-            width,
-            1
-        ]);
-        return result;
-    }
-
-    private static uint[] ReadWords(string path)
-    {
-        var bytes = File.ReadAllBytes(path);
-        if (bytes.Length < 20 || bytes.Length % sizeof(uint) != 0) {
-            throw new InvalidDataException("The SPIR-V module has an invalid byte length.");
-        }
-        var words = new uint[bytes.Length / sizeof(uint)];
-        for (var index = 0; index < words.Length; index++) {
-            words[index] = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(index * sizeof(uint)));
-        }
-        if (words[0] != k_SpirvMagic) {
-            throw new InvalidDataException("The SPIR-V module has an invalid magic number.");
-        }
-        return words;
-    }
-
-    private static void WriteWords(string path, IReadOnlyList<uint> words)
-    {
-        var bytes = new byte[words.Count * sizeof(uint)];
-        for (var index = 0; index < words.Count; index++) {
-            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(index * sizeof(uint)), words[index]);
-        }
-        File.WriteAllBytes(path, bytes);
-    }
-
-    private static IEnumerable<Instruction> EnumerateInstructions(uint[] words)
-    {
-        var offset = 5;
-        while (offset < words.Length) {
-            var header = words[offset];
-            var wordCount = checked((int)(header >> 16));
-            if (wordCount <= 0 || offset + wordCount > words.Length) {
-                throw new InvalidDataException($"Invalid SPIR-V instruction at word {offset}.");
-            }
-            yield return new Instruction(
-                (ushort)(header & ushort.MaxValue),
-                words.AsSpan(offset, wordCount).ToArray());
-            offset += wordCount;
-        }
-    }
-
-    private static uint MakeInstructionHeader(uint wordCount, ushort opcode) =>
-        wordCount << 16 | opcode;
-
-    private readonly record struct Instruction(ushort Opcode, uint[] Words);
-
-    private readonly record struct IntegerType(uint Width, bool Signed);
-
-    private readonly record struct VectorType(uint ComponentType, uint Length);
-
-    private readonly record struct ConversionReplacement(uint SignedType, uint ResultId);
 }

@@ -1,0 +1,47 @@
+{
+  "date": "2026-10-08",
+  "baselineRevision": "0b3f9f51e0da745bfb096837f467a9e82786ea87",
+  "scope": "Compiler ownership, dependency/name cleanup and architecture documentation; existing WebGPU backends retained",
+  "sdk": "11.0.100-rc.2.26461.102",
+  "passed": {
+    "solution": { "passed": 1309, "failed": 0, "skipped": 0 },
+    "directCilFixtureExports": 22,
+    "offlineFixtureExports": 22,
+    "independentSpirvValidation": { "passed": 44, "environment": "vulkan1.2" },
+    "sourceHostWasmFixtures": 22,
+    "extractedSdkHostWasmFixtures": 22,
+    "chromiumExtractedSdkHost": { "passed": 22, "nativeRuntimeDownloads": 1 },
+    "browserBindings": { "Dawn": "solution build passed", "Wgpu": "explicit build passed, zero warnings/errors" },
+    "managedPackages": [ "Compiler", "SDK", "Workload.Manifest" ],
+    "packageBoundaries": true,
+    "negativePackageGuard": "Historical check; guard subsequently removed at user request",
+    "newManifestToolchainMetadata": 22,
+    "compilerRuntimeToolSdkSourceNagaReferences": 0,
+    "researchArchiveFilesRemovedFromPr": 195,
+    "mermaidDiagramsParsedAndRendered": 7,
+    "documentationRelativeLinks": true,
+    "powershellJavaScriptSyntax": true,
+    "gitWhitespace": true
+  },
+  "independentTools": {
+    "toolchainPackage": "Sia.Spirv.Toolchain.win-x64/0.0.22",
+    "spirvToolsCommit": "0539c81f69a3daeb706fd3477dca61435b475156"
+  },
+  "resolvedCheckErrors": [
+    "Initial SDK extraction selected an unsupported ZipFile overload; extracting from the package path passed, followed by successful package-host publish and execution."
+  ],
+  "notRun": [ "New GPU execution/pixel comparisons", "Concurrent synchronization ordering", "Linux package execution", "Wasm AOT" ],
+  "limitations": [
+    "Canonical CFG/SSA, shared passes, complete uniformity and unified target configuration are proposed future stages, not implemented by cleanup.",
+    "Independent archive branch remains available.",
+    "Existing third-party wgpu-native implementation dependencies are outside this branch-focused cleanup.",
+    "SpirvToolchainInfo retired positional parameters and LlvmToolchain translation helpers were removed; affected callers must rebuild. Unknown legacy JSON fields remain ignored."
+  ],
+  "cleanup": "Task-only browser/server, diagram tools, packages, exports, logs and fresh consumer build outputs are removed after compact evidence is saved. Shared caches and separate active-task data remain.",
+  "packageCleanupFollowUp": {
+    "date": "2026-10-08",
+    "requestedChange": "Remove Assert-NoRetiredCompilerPayload and the added compiler/SDK third-party license payload and requirements",
+    "passed": [ "Compiler/SDK/manifest pack", "Remaining managed package boundary checks", "Removed license absent from Compiler and SDK packages", "PowerShell/XML/JSON syntax", "Git whitespace and obsolete-reference scan" ],
+    "notRun": "Shader unit/GPU/browser tests were not rerun for this packaging-only follow-up"
+  }
+}

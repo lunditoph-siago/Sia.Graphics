@@ -1,0 +1,45 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Compiler browser validation</title>
+<pre id="result">Running…</pre>
+<script type="module">
+const result = document.getElementById('result');
+const settings = new URLSearchParams(location.search);
+const required = name => {
+    const value = settings.get(name);
+    if (!value) throw new Error('Missing URL parameter: ' + name);
+    return new URL(value, location.href).href;
+};
+try {
+    const { dotnet } = await import(required('runtime'));
+    const host = await dotnet.create();
+    const exports = await host.getAssemblyExports('CompilerHost.dll');
+    const response = async path => {
+        const fetched = await fetch(path);
+        if (!fetched.ok) throw new Error(path + ': HTTP ' + fetched.status);
+        return fetched;
+    };
+    const base64 = async path => {
+        const bytes = new Uint8Array(await (await response(path)).arrayBuffer());
+        let text = '';
+        for (let i = 0; i < bytes.length; i += 8192) text += String.fromCharCode(...bytes.subarray(i, i + 8192));
+        return btoa(text);
+    };
+    const artifacts = required('artifacts').replace(/\/?$/, '/');
+    const entries = await (await response(artifacts + 'entries.json')).json();
+    if (!entries.length) throw new Error('No shader fixtures were exported.');
+    const passed = exports.Sia.Spirv.Compiler.Validation.CompilerHost.Run(JSON.stringify({
+        assembly: await base64(required('assembly')),
+        intrinsics: await base64(required('intrinsics')),
+        entries: await Promise.all(entries.map(async entry => ({ ...entry,
+            wgsl: await (await response(artifacts + entry.name + '.wgsl')).text(),
+            spirv: await base64(artifacts + entry.name + '.spv'),
+        }))),
+    }));
+    if (passed !== entries.length) throw new Error('Host did not validate every fixture.');
+    const runtimes = performance.getEntriesByType('resource')
+        .filter(entry => /\/dotnet\.native\.[^/]+\.wasm(?:\?|$)/.test(entry.name));
+    if (runtimes.length !== 1) throw new Error('Expected one native runtime download, saw ' + runtimes.length);
+    result.textContent = 'PASS ' + passed + ' fixtures; one managed host runtime, one native runtime download.';
+} catch (error) { result.textContent = 'FAIL ' + error.stack; }
+</script>

@@ -1,5 +1,4 @@
 import { dotnet } from './_framework/dotnet.js';
-import { requiresSpirvTranslation } from './shader-profile.js';
 
 const canvas = document.getElementById('canvas');
 
@@ -87,20 +86,11 @@ window.addEventListener('unhandledrejection', (e) => {
 
 try {
     const { runMain, Module, setModuleImports } = await dotnet.create();
-    let translateSpirvToWgsl = () => {
-        throw new Error('This build does not contain the SPIR-V translation asset.');
-    };
-    if (requiresSpirvTranslation) {
-        const { createSpirvPolyfill } = await import('./spirv/sia-spirv-polyfill.js');
-        translateSpirvToWgsl = await createSpirvPolyfill(
-            new URL('./spirv/sia-spirv-naga.wasm', import.meta.url));
-    }
 
     Module.canvas = canvas;
     Module.print = console.log;
     Module.printErr = (line) => console.error('[stderr]', line);
     setModuleImports('main.js', { getCanvasWidth, getCanvasHeight, loadBinaryBase64 });
-    setModuleImports('sia-spirv-polyfill.js', { translateSpirvToWgsl });
 
     await runMain();
 } catch (err) {

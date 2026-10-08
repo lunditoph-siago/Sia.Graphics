@@ -38,5 +38,21 @@ jobs:
       - name: Run tests
         run: dotnet test Sia.Graphics.slnx --configuration Release --blame-hang --blame-hang-timeout 5m
 
-      - name: Run Naga tests
-        run: cargo test --manifest-path Sia.Spirv.Naga/Cargo.toml --locked --release
+      - name: Install compiler WebAssembly workload
+        run: dotnet workload install wasm-tools
+
+      - name: Publish managed compiler consumer
+        run: dotnet publish tools/compiler-validation/browser/CompilerHost.csproj -c Release
+
+      - name: Run compiler WebAssembly
+        shell: bash
+        run: |
+          dotnet run --project tools/compiler-validation/CompilerValidation.csproj -c Release -- \
+            Sia.Spirv.Compiler.Tests/bin/Release/net11.0/Sia.Spirv.Compiler.Tests.dll \
+            Sia.Spirv.Core/bin/Release/net10.0/Sia.Spirv.Core.dll \
+            artifacts/compiler-direct
+          node tools/compiler-validation/wasm-smoke.mjs \
+            tools/compiler-validation/browser/bin/Release/net11.0/publish/wwwroot/_framework/dotnet.js \
+            Sia.Spirv.Compiler.Tests/bin/Release/net11.0/Sia.Spirv.Compiler.Tests.dll \
+            Sia.Spirv.Core/bin/Release/net10.0/Sia.Spirv.Core.dll \
+            artifacts/compiler-direct

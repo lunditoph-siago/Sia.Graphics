@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using Sia.Spirv;
 
 namespace Sia.Spirv.Compiler.LLVM;
@@ -72,8 +71,8 @@ public sealed class LlvmToolchain
 
     private static string GetDefaultPasses(string inputPath, int optimizationLevel) =>
         optimizationLevel == 0 || ContainsNativeAtomics(inputPath)
-            ? "sroa,mem2reg,structurizecfg,simplifycfg"
-            : "sroa,mem2reg,structurizecfg,simplifycfg,early-cse,sccp,adce," +
+            ? "sroa,mem2reg,lower-switch,structurizecfg,simplifycfg"
+            : "sroa,mem2reg,lower-switch,structurizecfg,simplifycfg,early-cse,sccp,adce," +
               "simplifycfg";
 
     private static string ValidatePasses(string passes)
@@ -152,20 +151,6 @@ public sealed class LlvmToolchain
         }
     }
 
-    public void ConvertToWgsl(string spirvPath, string wgslPath)
-    {
-        EnsureToolExists(ToolName("naga"));
-        var temporaryPath = $"{wgslPath}.tmp.wgsl";
-        try {
-            Run(ToolName("naga"), spirvPath, temporaryPath);
-            Run(ToolName("naga"), temporaryPath);
-            File.Move(temporaryPath, wgslPath, true);
-        }
-        finally {
-            File.Delete(temporaryPath);
-        }
-    }
-
     public string GetLlvmVersion()
     {
         var output = Run(ToolName("llc"), "--version");
@@ -176,19 +161,6 @@ public sealed class LlvmToolchain
     }
 
     public string GetSpirvToolsVersion() => FirstLine(Run(ToolName("spirv-val"), "--version"));
-
-    public string GetNagaVersion()
-    {
-        EnsureToolExists(ToolName("naga"));
-        return FirstLine(Run(ToolName("naga"), "--version"));
-    }
-
-    public string GetNagaSha256()
-    {
-        EnsureToolExists(ToolName("naga"));
-        using var stream = File.OpenRead(Path.Combine(Directory, ToolName("naga")));
-        return Convert.ToHexString(SHA256.HashData(stream));
-    }
 
     private string Run(string tool, params string[] arguments)
     {

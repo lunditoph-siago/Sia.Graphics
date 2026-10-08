@@ -10,4 +10,14 @@
       <Private>true</Private>
     </Reference>
   </ItemGroup>
+  <ItemGroup Condition="'$(EnableSpirvRuntimeCompilation)' == 'true'">
+    <Reference Include="Sia.Spirv.Compiler">
+      <HintPath>$(MSBuildThisFileDirectory)..\tools\net11.0\Sia.Spirv.Compiler.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Sia.Spirv.Runtime">
+      <HintPath>$(MSBuildThisFileDirectory)..\tools\net11.0\Sia.Spirv.Runtime.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
 </Project>

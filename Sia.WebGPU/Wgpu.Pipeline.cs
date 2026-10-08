@@ -51,7 +51,8 @@ public static unsafe partial class Wgpu
             throw new ArgumentException("The shader is not a valid SPIR-V binary module.", nameof(spirv));
         }
 #if SIA_WEBGPU_BACKEND_DAWN
-        return CreateWgslShaderModule(device, TranslateSpirvToWgsl(spirv.ToArray()), label);
+        return CreateWgslShaderModule(device,
+            Sia.Spirv.Compiler.Translation.ShaderTranslator.SpirvToWgsl(spirv), label);
 #else
         if (!BitConverter.IsLittleEndian) {
             throw new PlatformNotSupportedException(
@@ -72,7 +73,7 @@ public static unsafe partial class Wgpu
 #if SIA_WEBGPU_BACKEND_DAWN
         return CreateWgslShaderModule(
             device,
-            TranslateSpirvToWgsl(MemoryMarshal.AsBytes(spirv).ToArray()),
+            Sia.Spirv.Compiler.Translation.ShaderTranslator.SpirvToWgsl(MemoryMarshal.AsBytes(spirv)),
             label);
 #else
         using var labelString = WgpuOwnedString.Create(label);

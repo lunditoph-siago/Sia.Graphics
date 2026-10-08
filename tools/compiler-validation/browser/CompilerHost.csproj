@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <EnableSpirvCompilation>false</EnableSpirvCompilation>
+    <EnableSpirvRuntimeCompilation>true</EnableSpirvRuntimeCompilation>
+    <SiaSpirvDisableWorkloadIntegration>true</SiaSpirvDisableWorkloadIntegration>
+  </PropertyGroup>
+  <!-- Exercise either the source project or an extracted SDK's ordinary managed references. -->
+  <Import Project="$(CompilerSdkDirectory)/Sdk/Sia.Spirv.Integration.props"
+          Condition="'$(CompilerSdkDirectory)' != ''" />
+  <ItemGroup Condition="'$(CompilerSdkDirectory)' == ''">
+    <ProjectReference Include="../../../Sia.Spirv.Compiler/Sia.Spirv.Compiler.csproj" />
+  </ItemGroup>
+</Project>

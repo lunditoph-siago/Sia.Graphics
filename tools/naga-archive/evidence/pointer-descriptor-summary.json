@@ -1,0 +1,55 @@
+{
+  "sha256": "197d5f521328beccacb2e838377234c8654e914fef7ce286ac26fe412276935f",
+  "maintained_tests": 1181,
+  "reports": {
+    "pointer-descriptor-array": {
+      "fixtures": 40,
+      "total": 9960,
+      "passed": 9960,
+      "gpu_readbacks": 9600,
+      "dispatches": 3200,
+      "devices": [
+        "Intel(R) UHD Graphics"
+      ]
+    },
+    "pointer-descriptor-array-dynamic": {
+      "fixtures": 16,
+      "total": 3984,
+      "passed": 3984,
+      "gpu_readbacks": 3840,
+      "dispatches": 1280,
+      "devices": [
+        "Intel(R) UHD Graphics"
+      ]
+    }
+  },
+  "diagnostic_checks": 14,
+  "corpus_inputs": 197,
+  "corpus_step_changes": [],
+  "nonuniform_storage_descriptor_feature": {
+    "device": "Intel(R) UHD Graphics",
+    "features": {
+      "shaderInputAttachmentArrayDynamicIndexing": true,
+      "shaderUniformTexelBufferArrayDynamicIndexing": true,
+      "shaderStorageTexelBufferArrayDynamicIndexing": true,
+      "shaderUniformBufferArrayNonUniformIndexing": true,
+      "shaderSampledImageArrayNonUniformIndexing": true,
+      "shaderStorageBufferArrayNonUniformIndexing": true,
+      "shaderStorageImageArrayNonUniformIndexing": true,
+      "shaderInputAttachmentArrayNonUniformIndexing": false,
+      "shaderUniformTexelBufferArrayNonUniformIndexing": true,
+      "shaderStorageTexelBufferArrayNonUniformIndexing": true,
+      "descriptorBindingUniformBufferUpdateAfterBind": true,
+      "descriptorBindingSampledImageUpdateAfterBind": true,
+      "descriptorBindingStorageImageUpdateAfterBind": true,
+      "descriptorBindingStorageBufferUpdateAfterBind": true,
+      "descriptorBindingUniformTexelBufferUpdateAfterBind": true,
+      "descriptorBindingStorageTexelBufferUpdateAfterBind": true,
+      "descriptorBindingUpdateUnusedWhilePending": true,
+      "descriptorBindingPartiallyBound": true,
+      "descriptorBindingVariableDescriptorCount": true,
+      "runtimeDescriptorArray": true
+    }
+  },
+  "older_pointer_null_comparison_and_native_difference_reports": "historical C909 assembly; not rerun against this hash"
+}

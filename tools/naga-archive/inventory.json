@@ -1,0 +1,1076 @@
+[
+  {
+    "path": "abstract-types-const.wgsl",
+    "bytes": 3254,
+    "sha256": "382689e32b5936eecad61904b9a8f129c5791db2bb0890fe0b454b03c403fb01",
+    "adaptations": []
+  },
+  {
+    "path": "abstract-types-function-calls.wgsl",
+    "bytes": 1573,
+    "sha256": "8a81150a732c103e6b491b30b5b1a93355e0454d2b35145b7e1e9b7698e24404",
+    "adaptations": []
+  },
+  {
+    "path": "abstract-types-let.wgsl",
+    "bytes": 5877,
+    "sha256": "cf94adb9fe34000810345d526f82c2239fadf4e9bc2678c8ab8af739f1412350",
+    "adaptations": []
+  },
+  {
+    "path": "abstract-types-operators.wgsl",
+    "bytes": 2823,
+    "sha256": "4370b65a102ed125c2cb72a24f3f48d99e488c3ed4eaf27f2570c9df8109a020",
+    "adaptations": []
+  },
+  {
+    "path": "abstract-types-var.wgsl",
+    "bytes": 19177,
+    "sha256": "265e3edac7f685d86cb5676b4f0d91d3244782c7e0542bcb2a292b742ec6d156",
+    "adaptations": []
+  },
+  {
+    "path": "access-fixtures/access-fixtures.csproj",
+    "bytes": 315,
+    "sha256": "b940f67514dc840859326e0d37e98e238135831bccbec09efb671603fe4a105e",
+    "adaptations": []
+  },
+  {
+    "path": "access-fixtures/Program.cs",
+    "bytes": 4700,
+    "sha256": "1eac233fb216a39aff8514958489bf115e5f16c41fd8f3b4f784dda7ad8697c4",
+    "adaptations": []
+  },
+  {
+    "path": "access-reference.spvasm",
+    "bytes": 32937,
+    "sha256": "ef692e8ce0873b36b0d1a68a971e9bc07b950e2ea236e3d8565b0bfcf01518fb",
+    "adaptations": []
+  },
+  {
+    "path": "atomic-fixtures/atomic-fixtures.csproj",
+    "bytes": 315,
+    "sha256": "b940f67514dc840859326e0d37e98e238135831bccbec09efb671603fe4a105e",
+    "adaptations": []
+  },
+  {
+    "path": "atomic-fixtures/Program.cs",
+    "bytes": 2485,
+    "sha256": "94f8ce86560009a4e86880d35eb87dcfa1a0ea1599dc0f43f1d4c7e1c3860b34",
+    "adaptations": []
+  },
+  {
+    "path": "audit-pointer-comparison-types.py",
+    "bytes": 2102,
+    "sha256": "4b0dcafeccfd009d501eadab02b17b13fdefdaf607707db16780ee540ad399ad",
+    "adaptations": []
+  },
+  {
+    "path": "barrier-fixtures/barrier-fixtures.csproj",
+    "bytes": 315,
+    "sha256": "b940f67514dc840859326e0d37e98e238135831bccbec09efb671603fe4a105e",
+    "adaptations": []
+  },
+  {
+    "path": "barrier-fixtures/Program.cs",
+    "bytes": 2459,
+    "sha256": "dd464dcd75080f97a92bf83c247fa38053305f8d1536438dfd9a0de7e69ae590",
+    "adaptations": []
+  },
+  {
+    "path": "binding-buffer.spv",
+    "bytes": 3844,
+    "sha256": "bb26901ad4fddaedb721457e7c05164785fda79c64a3f1d5b2b848cb81c01905",
+    "adaptations": []
+  },
+  {
+    "path": "binding-buffer.wgsl",
+    "bytes": 4429,
+    "sha256": "90fb362278ee0f13ab3a5ae65d4b1a7e95ce0a768b22a19a7525e1da396755bc",
+    "adaptations": []
+  },
+  {
+    "path": "bindings.spv",
+    "bytes": 9948,
+    "sha256": "86d916da2929f575d80ad039179b845810bafe6ff5fae031e5e6f3e121334b29",
+    "adaptations": []
+  },
+  {
+    "path": "bindings.wgsl",
+    "bytes": 12120,
+    "sha256": "3bc9a761b347d358babb7f55c15a1b377835f30ece7bb32eaa9c5f7a0a38d673",
+    "adaptations": []
+  },
+  {
+    "path": "capture-cross-loop-difference.py",
+    "bytes": 2726,
+    "sha256": "a3f85af29f4b7e7391d8b48e236415f7bf1cd93f9c0a118be892fe223c3cecf2",
+    "adaptations": []
+  },
+  {
+    "path": "check-access-memory.py",
+    "bytes": 3652,
+    "sha256": "b17cf7dd98b7e71c17fb7422c4878e20faa0357489b559d16c3a2faa0c937bd3",
+    "adaptations": []
+  },
+  {
+    "path": "check-atomic-memory.py",
+    "bytes": 6011,
+    "sha256": "6310908aa29be122afcbe057d906cdd57e423ede9851edb176afc9a6d5e5d3d3",
+    "adaptations": []
+  },
+  {
+    "path": "check-barrier-memory.py",
+    "bytes": 4412,
+    "sha256": "b1d90469b64f8d16a65e4891363217284c7bce398a62c339583eca7240ea266b",
+    "adaptations": []
+  },
+  {
+    "path": "check-cooperative-matrix.py",
+    "bytes": 11103,
+    "sha256": "d9a6ab9e6d038f0393d7e80f8a149c259a701ac2e899b82f3b4c1de342eb83be",
+    "adaptations": []
+  },
+  {
+    "path": "check-cross-buffer-noopt-control.py",
+    "bytes": 1646,
+    "sha256": "db33af3b1bd97999dc5626b62a4ae8d03cc8f9edd8f50478cde18a0f1986e1ed",
+    "adaptations": []
+  },
+  {
+    "path": "check-descriptor-identity-native.py",
+    "bytes": 1731,
+    "sha256": "05b618062cfe360192a5c5ea18f61719ab4c6dc7cec2b4cd6f476a4a008f5c62",
+    "adaptations": []
+  },
+  {
+    "path": "check-descriptor-identity.py",
+    "bytes": 5564,
+    "sha256": "46a212e109f3eb2f583951dbd2b40b5db8235d4a1b301a24dd37f1bc17f9af50",
+    "adaptations": []
+  },
+  {
+    "path": "check-diagnostics.py",
+    "bytes": 5495,
+    "sha256": "56a7561d8bc110dfd650ae7ea8eced2f05c9f3330ee7027080a6d1e788c59ae0",
+    "adaptations": []
+  },
+  {
+    "path": "check-dynamic-pointer-descriptor-array.py",
+    "bytes": 306,
+    "sha256": "ffac20dafa59664233a6ca76fb8b459f5b945ef838f765e6536ac04ecfd5d39a",
+    "adaptations": []
+  },
+  {
+    "path": "check-float-atomics.py",
+    "bytes": 2100,
+    "sha256": "1e39a4aa90cc65aa4f8837ac1f6a1f5e2b73dcd9ad82caf54e6b4f64e0acda62",
+    "adaptations": []
+  },
+  {
+    "path": "check-image-atomic-fixtures.py",
+    "bytes": 997,
+    "sha256": "d6142f3c2025cd2630eb76e411b65d6d4e96f2a352561d36aa9d704ace2a9e3f",
+    "adaptations": []
+  },
+  {
+    "path": "check-image-atomic-vulkan.py",
+    "bytes": 3782,
+    "sha256": "80f18e17e260b0ba30f652c53c948f4f4312a927281fc5c0ff79bdfeb36e3755",
+    "adaptations": []
+  },
+  {
+    "path": "check-image-atomics.py",
+    "bytes": 3562,
+    "sha256": "5c307192ae4c28c9392debf492b18929ce73869e98f8f3804de9bd73f0dc41e7",
+    "adaptations": []
+  },
+  {
+    "path": "check-int16.py",
+    "bytes": 3561,
+    "sha256": "b06b0f029c031466339b45820b68e8c2902ad531388b38b8fdc19f8576bd8ea3",
+    "adaptations": []
+  },
+  {
+    "path": "check-local-size-id-vulkan.py",
+    "bytes": 3010,
+    "sha256": "660358f78f85ba473aa46928eb7ea863b6b4c60982e30971eab50bf6209fd0a1",
+    "adaptations": []
+  },
+  {
+    "path": "check-matrix-helpers.py",
+    "bytes": 5481,
+    "sha256": "93485c2fbf574362e4d0a971446d16236d8b698540ea8cc97214586ffce61425",
+    "adaptations": []
+  },
+  {
+    "path": "check-matrix-layout.py",
+    "bytes": 5010,
+    "sha256": "eecf2a6ceeb497c31a0591bb06ce35c768cf6a4c5a0ba98f26725020223f378f",
+    "adaptations": []
+  },
+  {
+    "path": "check-member-memory.py",
+    "bytes": 3309,
+    "sha256": "281241342c0013c14fca0b5ed0076f44ca61e4a8d82940f95215420164c80984",
+    "adaptations": []
+  },
+  {
+    "path": "check-memory-decorations.py",
+    "bytes": 3155,
+    "sha256": "83797eb36eb26fee6795f39ba720d608f28d311f160c7241adcf1f1cef460bc4",
+    "adaptations": []
+  },
+  {
+    "path": "check-mesh-control.py",
+    "bytes": 2439,
+    "sha256": "2323c276cdd046702823d83c14880e73b10e7022fc630651deafeb1670504535",
+    "adaptations": []
+  },
+  {
+    "path": "check-mesh-shader.py",
+    "bytes": 7299,
+    "sha256": "2804b6a16c20e35d010602eb41537fd4094996460d1a77205cc68fcbf5e83de1",
+    "adaptations": []
+  },
+  {
+    "path": "check-must-use.py",
+    "bytes": 3435,
+    "sha256": "e4740a7527e61a88aa7e7a71f81ec3c624b89fd7a1b124a1cc85668223a8db78",
+    "adaptations": []
+  },
+  {
+    "path": "check-override-array-vulkan.py",
+    "bytes": 3807,
+    "sha256": "bd8ddda1ce6da41a3d49641459c6225627a75e5d510844bf02de902bbfc6bd59",
+    "adaptations": []
+  },
+  {
+    "path": "check-override-arrays.py",
+    "bytes": 3987,
+    "sha256": "d8ccf3710294a0cee08d69481cfcf3829f4aa72ecf788d5808311865ba8742a4",
+    "adaptations": []
+  },
+  {
+    "path": "check-per-vertex.py",
+    "bytes": 4090,
+    "sha256": "3d46a20417041a699d3e12a69c5cd4ecbeaa2893956e27a5d1bc1b38aef25bd8",
+    "adaptations": []
+  },
+  {
+    "path": "check-pipeline-constants.py",
+    "bytes": 3684,
+    "sha256": "746732c6632959729ed88a8112846c77a57b3b187e1f12fda56ff9ee37e94d97",
+    "adaptations": []
+  },
+  {
+    "path": "check-pointer-address.py",
+    "bytes": 4515,
+    "sha256": "51d11a3717d14201d61db04157bc46f4594595a3da5a3238b6ce33ff9a9587f4",
+    "adaptations": []
+  },
+  {
+    "path": "check-pointer-arithmetic-native.py",
+    "bytes": 1261,
+    "sha256": "e17e3b3dd70fab1d151f2f3db200b59c2630958ef2a6455f97e8aeffe0d4ed7a",
+    "adaptations": []
+  },
+  {
+    "path": "check-pointer-arithmetic.py",
+    "bytes": 6225,
+    "sha256": "e34f9827838963c9ee4ac8623ee7c9ed85eb352d81291112653e12f237bce987",
+    "adaptations": []
+  },
+  {
+    "path": "check-pointer-comparison-tail-control.py",
+    "bytes": 1930,
+    "sha256": "ee3bae0b75bffdfcd76015d7e74713b05c5b6a3e6d7cb594bf30f6dc2174d2c8",
+    "adaptations": []
+  },
+  {
+    "path": "check-pointer-comparison.py",
+    "bytes": 5039,
+    "sha256": "71702a0b65e697c4ccd542f3be6f6f98f040fb8d52b7cb9950bb60fae943b7a1",
+    "adaptations": []
+  },
+  {
+    "path": "check-pointer-cross-buffer.py",
+    "bytes": 4499,
+    "sha256": "d72c9b5e22b5ca9e92af88e00dd4c22f45d4fd202585092aefc11e1a0f96e15b",
+    "adaptations": []
+  },
+  {
+    "path": "check-pointer-descriptor-array.py",
+    "bytes": 4136,
+    "sha256": "daeec5e93a439a2fbeb1b9a3b062e2351bb5ef2b1ce543440e090a168312098c",
+    "adaptations": []
+  },
+  {
+    "path": "check-pointer-memory.py",
+    "bytes": 5404,
+    "sha256": "049531d9f355917b3bd61d1093fd90b3208c1a4049c2b39225b730edd985c327",
+    "adaptations": []
+  },
+  {
+    "path": "check-pointer-null.py",
+    "bytes": 4166,
+    "sha256": "ee90b8bd1ad8bc1a0148b1eabba9e7bb4d7791d1580d137e26270cf243916648",
+    "adaptations": []
+  },
+  {
+    "path": "check-pointer-phi.py",
+    "bytes": 4914,
+    "sha256": "408077328d2321c60683918f8954520786cfb43efbb746f39644c09aa7c5dc85",
+    "adaptations": []
+  },
+  {
+    "path": "check-pointer-return.py",
+    "bytes": 4808,
+    "sha256": "a8090f2f0e83cb5620d644328555e867964f5ad825f1f797f3c8ad44c4962067",
+    "adaptations": []
+  },
+  {
+    "path": "check-pointer-selection.py",
+    "bytes": 4646,
+    "sha256": "016f1f5f158dd9b92ed5c982dd1a6d2c1a851f653ae2e9ee425ad8da34a6bed7",
+    "adaptations": []
+  },
+  {
+    "path": "check-pointer-slot-transfer.py",
+    "bytes": 5549,
+    "sha256": "e0ca328944df9ef329dfe46202539b1a44a450034e1a9bbaf556243045480e77",
+    "adaptations": []
+  },
+  {
+    "path": "check-private-helpers.py",
+    "bytes": 3479,
+    "sha256": "d792a0dedc5fc051963ebe3726e449c40499889c1f9ef29a441659fcf432e80d",
+    "adaptations": []
+  },
+  {
+    "path": "check-query-helpers.py",
+    "bytes": 6765,
+    "sha256": "993d4210649e2a1ffb1b7e899fd3dbe217d122b8b2233d6a237a6717c374c44f",
+    "adaptations": []
+  },
+  {
+    "path": "check-raw-query-state.py",
+    "bytes": 3119,
+    "sha256": "fa15869fbd98e52b1c1abb6a2f4e69b404f2905a02df125724e969bd4ecc745f",
+    "adaptations": []
+  },
+  {
+    "path": "check-ray-query.py",
+    "bytes": 6877,
+    "sha256": "ec5bb772913c58c6817bb9c2542150590d79e5a95774c4d8b90afbc1438dde75",
+    "adaptations": []
+  },
+  {
+    "path": "check-readonly-pointer-selection.py",
+    "bytes": 3047,
+    "sha256": "e381ca21c5f2ffabd17274469f091ff8d715858f4a6f705159e6c57dc43dbec2",
+    "adaptations": []
+  },
+  {
+    "path": "check-reference-gaps.py",
+    "bytes": 1973,
+    "sha256": "611d486df6e465f21eb8258ef9fed75019ec42bd4d9158aaf2f8112f4fa444eb",
+    "adaptations": []
+  },
+  {
+    "path": "check-runtime-integer-conversion.py",
+    "bytes": 5674,
+    "sha256": "2580fd00876289a3861a39e6646447ab7612c7a2cdb503e1a3ef537795780bc4",
+    "adaptations": []
+  },
+  {
+    "path": "check-special-floats.py",
+    "bytes": 2267,
+    "sha256": "c0448d25182c566089ceb7c798c282df1c0efc08f4b1826e0ff47a6e32826a5b",
+    "adaptations": []
+  },
+  {
+    "path": "check-specialization.py",
+    "bytes": 2418,
+    "sha256": "2495d7121576726f9392fcf02bbd7ed254766157dca70e705aa5e549ace45671",
+    "adaptations": []
+  },
+  {
+    "path": "check-specop-dag-vulkan.py",
+    "bytes": 6141,
+    "sha256": "30364c2ce37bbf97c0abe9b4d6634e010846d561119281953dc2eff7f12383a2",
+    "adaptations": []
+  },
+  {
+    "path": "check-specop-vulkan.py",
+    "bytes": 7342,
+    "sha256": "a1f1492a10af5173e421f2ee1cd30a089e8689266fb35c550a630cb55267662c",
+    "adaptations": []
+  },
+  {
+    "path": "check-spv.ps1",
+    "bytes": 1310,
+    "sha256": "50dc1e580709e22a5dcffb0dcf77e94999c75b47e3e28f02e76162b554dcecb9",
+    "adaptations": []
+  },
+  {
+    "path": "check-storage-formats-vulkan.py",
+    "bytes": 5166,
+    "sha256": "7f5d32c87fcd5ab6a10e5a8930427a0569c7d2148eebe1c4aff029dbf162f9f1",
+    "adaptations": []
+  },
+  {
+    "path": "check-storage-formats.py",
+    "bytes": 1639,
+    "sha256": "d9e72ae8dcdae64b513f376a5a2c31297d4bf6211cf88f1e03aecc346121b91a",
+    "adaptations": []
+  },
+  {
+    "path": "check-uniform-memory.py",
+    "bytes": 5375,
+    "sha256": "0314b00fdff3d1fbe266058813899fde0a0d4ec54f9f2915e242b2c13b5834a9",
+    "adaptations": []
+  },
+  {
+    "path": "check-unresolved-array-vulkan.py",
+    "bytes": 3558,
+    "sha256": "03a097ea17f909ecc17c8cbc2daf7a1a9210314b8911b5ebc24e569976b46943",
+    "adaptations": []
+  },
+  {
+    "path": "check-unresolved-binding-arrays.py",
+    "bytes": 1720,
+    "sha256": "982bb5f4451769fb2dc29d4274048b51268eadd1eeec929e8ad683f200ca9011",
+    "adaptations": []
+  },
+  {
+    "path": "check-vector-vulkan.py",
+    "bytes": 4096,
+    "sha256": "acbac2d6fe1b22cf5b5b3c72ea16fb2b7705b5f76027392fee9efc8e928a777d",
+    "adaptations": []
+  },
+  {
+    "path": "check-vulkan-compute.py",
+    "bytes": 1973,
+    "sha256": "d0a68696d30292e652d32b77b2453f0de1b118131ab649328ab528b54c4fe47e",
+    "adaptations": []
+  },
+  {
+    "path": "check-wgsl-keywords.py",
+    "bytes": 2362,
+    "sha256": "1cb4c66f3aa0bf2ed74615c0a032d6b6821e5dc1a66d5b7d6e76b30623bb7bfd",
+    "adaptations": []
+  },
+  {
+    "path": "check-wgsl.ps1",
+    "bytes": 1142,
+    "sha256": "79f18155a47c23bd6780abad4e4dbb10aff882de72e4bccc1f9d27b52be169e0",
+    "adaptations": []
+  },
+  {
+    "path": "check-wide-vulkan.py",
+    "bytes": 5000,
+    "sha256": "e634d3be5babc55e6ecab360b4e3d3378e9ebabb15b1e250fba8adfe0273543c",
+    "adaptations": []
+  },
+  {
+    "path": "check-workgroup-memory.py",
+    "bytes": 5256,
+    "sha256": "36bea7af02478117900e6000efbd9ea2485b1e2dbb4d871f56dbc9205ce7a6a2",
+    "adaptations": []
+  },
+  {
+    "path": "check-workgroup-specialization-baseline.py",
+    "bytes": 4516,
+    "sha256": "2f86bf18e05b72607b9f1aefd305d4a4eb01d734b9dec3abe60c1eb2d8c84bf2",
+    "adaptations": []
+  },
+  {
+    "path": "check-workgroup-specialization-vulkan.py",
+    "bytes": 4846,
+    "sha256": "bcc06a13a9ed96c037187e9eb98277948c7821b66a9144902a976066e17fc2fa",
+    "adaptations": []
+  },
+  {
+    "path": "check-write.ps1",
+    "bytes": 1457,
+    "sha256": "3a03b8f4d12675d7c65b5d8f4d10d05d5f6658f7a7ca1aadc936fb62cbb1711b",
+    "adaptations": []
+  },
+  {
+    "path": "constructors.wgsl",
+    "bytes": 2652,
+    "sha256": "45aa56ecf6142800449927baded2d94901b007a2c1589e9a0f9f6f12b04781f0",
+    "adaptations": []
+  },
+  {
+    "path": "coop-back.wgsl",
+    "bytes": 967,
+    "sha256": "40a823b3fc8e17165360af935783efdb4fe1928e687e5d88baa4f474ae87f89b",
+    "adaptations": []
+  },
+  {
+    "path": "coop-managed.spv",
+    "bytes": 1188,
+    "sha256": "fabfb4b63dad1dd7424f45f7c18ca486e41de966c1e1f616f75291860bf8171d",
+    "adaptations": []
+  },
+  {
+    "path": "coop-reference.spv",
+    "bytes": 1056,
+    "sha256": "07b9bc81e1f0862b0951bd7a1f8e4fdb6a3eca66f4386dc151ac57919ae3503b",
+    "adaptations": []
+  },
+  {
+    "path": "coop-reference.spvasm",
+    "bytes": 3011,
+    "sha256": "2b977f832fc03fa00170503453adf0731ea68e8d3bc257fb2337774ff60b0a19",
+    "adaptations": []
+  },
+  {
+    "path": "draw-reference.spv",
+    "bytes": 600,
+    "sha256": "658d2ad1ded91975b385bb1800ee3519cd4c53c11b25d5ef43944dace90db600",
+    "adaptations": []
+  },
+  {
+    "path": "f16.spv",
+    "bytes": 40180,
+    "sha256": "8084dc3cc12a9f67aeb318f5d4781ef794f549fe0648e8990268e14ecc90a42b",
+    "adaptations": []
+  },
+  {
+    "path": "gpu-half.spv",
+    "bytes": 1948,
+    "sha256": "4cdee508024430e506674991cedbd25cd15e9d8fb5e02d1b67bba522b0806f86",
+    "adaptations": []
+  },
+  {
+    "path": "gpu-integer/native/BuildInfo.cs",
+    "bytes": 227,
+    "sha256": "5ba69cd68c9a0db5fd85c3e0c082ed35df053a9c65b93d4572499fcfdeabb7be",
+    "adaptations": []
+  },
+  {
+    "path": "gpu-integer/native/Runner.csproj",
+    "bytes": 2773,
+    "sha256": "9fbba4b2167460a37f4b5bbf69483bef957eac00e88fb881ffefb9b5b94f13e7",
+    "adaptations": [
+      "absolute workspace Includes made relative"
+    ]
+  },
+  {
+    "path": "gpu-integer.spv",
+    "bytes": 3796,
+    "sha256": "75da9781711264131d5c03efb7c50cbe42a3a1dc9780558856e4b90aa1cd4593",
+    "adaptations": []
+  },
+  {
+    "path": "gpu-runner/BuildInfo.cs",
+    "bytes": 252,
+    "sha256": "aaf24c886003d5dc53ef6dd872847a44c36d6c878649fa1597d40a29380b6d84",
+    "adaptations": []
+  },
+  {
+    "path": "gpu-runner/Gpu.cs",
+    "bytes": 5753,
+    "sha256": "80e922e3de0be8565d74a44686e4a9a42a3c6c4528b7939682ccf04822f8c256",
+    "adaptations": [
+      "trailing empty lines removed"
+    ]
+  },
+  {
+    "path": "gpu-runner/Runner.csproj",
+    "bytes": 1132,
+    "sha256": "20c821a5d1bbca889b28c6ed1fcb59117f36187170320e46d81eb1fdfbd6cfce",
+    "adaptations": []
+  },
+  {
+    "path": "gpu-tests/GpuResources.cs",
+    "bytes": 3325,
+    "sha256": "b633fcb1007e7f7daa745227cc1c0439630d47b47251de86f39550f66fa0a681",
+    "adaptations": []
+  },
+  {
+    "path": "gpu-tests/half.wgsl",
+    "bytes": 574,
+    "sha256": "e505281fe0a726c53bcb24118ccab41daf271008d23d9b929dcf5de8cd6c60f9",
+    "adaptations": []
+  },
+  {
+    "path": "gpu-tests/integer-reference-roundtrip.wgsl",
+    "bytes": 4804,
+    "sha256": "3d5a0b122809090b2251b44130e46c74415897a5d1bbdf034821de66b2ab4577",
+    "adaptations": []
+  },
+  {
+    "path": "gpu-tests/integer.wgsl",
+    "bytes": 1097,
+    "sha256": "9e01c89e7306f2a6885192da3b46ae98eed2a862fe6a53d28ed5d605f6a4c63c",
+    "adaptations": []
+  },
+  {
+    "path": "gpu-tests/NagaTests.cs",
+    "bytes": 9715,
+    "sha256": "456098d17696a76f5b386d01252d2f5ee59bbc456a6b364a34537cbf359a3714",
+    "adaptations": []
+  },
+  {
+    "path": "gpu-tests/Tests.props",
+    "bytes": 171,
+    "sha256": "c0682cb468940efaf906c4d24e6599541c65b347cb431ee72f8622836b23bf28",
+    "adaptations": []
+  },
+  {
+    "path": "harness/harness.csproj",
+    "bytes": 303,
+    "sha256": "eaf18a72801b244468c0a620b6c677a83f4cfeb3e41e9024ba1ac1c542b85c24",
+    "adaptations": []
+  },
+  {
+    "path": "harness/Program.cs",
+    "bytes": 1635,
+    "sha256": "b4a9aa1550a6ec96dcbdea6508bc9d4f250d899f7802d7e04ae789e25599fc8e",
+    "adaptations": []
+  },
+  {
+    "path": "integer-reference.spv",
+    "bytes": 3628,
+    "sha256": "9968c074f25818c86de728d951dba2b5fddd82a09d961a59ff575939ac3f5ad1",
+    "adaptations": []
+  },
+  {
+    "path": "interface-reference.spv",
+    "bytes": 3196,
+    "sha256": "42136c92b3de264558cccebfe31a50e16083c26fab6161e2e5e1cd009f3ec3c8",
+    "adaptations": []
+  },
+  {
+    "path": "interface-reference.spvasm",
+    "bytes": 9471,
+    "sha256": "c9e9ee7a06f57acfff5d516cc9d7ad9260a4adcc0b3ddb32fb782da039d2889c",
+    "adaptations": []
+  },
+  {
+    "path": "interface.spvasm",
+    "bytes": 12332,
+    "sha256": "1f285b76f66d7a992c71bf3d4092b61c3077cf2fcfe0c928b1b38d2697633850",
+    "adaptations": []
+  },
+  {
+    "path": "investigate-cross-loop-alias.py",
+    "bytes": 4603,
+    "sha256": "6eefa85f50aded994f759c939197b4f42dcf7809a5ffbe9a0fd2a932456d7e56",
+    "adaptations": []
+  },
+  {
+    "path": "math.spv",
+    "bytes": 1956,
+    "sha256": "454a566acadf6c9072bcbfec20b4be91ef81f7e83a69058f2cd3f57d6983401f",
+    "adaptations": []
+  },
+  {
+    "path": "matrix-fixtures/matrix-fixtures.csproj",
+    "bytes": 342,
+    "sha256": "62429eb2464fbea8ee50f86588efe24da0aa5c1c83f6a1fb144270d86c2e8075",
+    "adaptations": []
+  },
+  {
+    "path": "matrix-fixtures/Program.cs",
+    "bytes": 2125,
+    "sha256": "d5ffa1a5e071d88e7956e77e4ce6da8c4874218060cd5ca173c5902f0768c066",
+    "adaptations": []
+  },
+  {
+    "path": "matrix-helper-fixtures/matrix-helper-fixtures.csproj",
+    "bytes": 342,
+    "sha256": "62429eb2464fbea8ee50f86588efe24da0aa5c1c83f6a1fb144270d86c2e8075",
+    "adaptations": []
+  },
+  {
+    "path": "matrix-helper-fixtures/Program.cs",
+    "bytes": 3009,
+    "sha256": "48a30d5b76e863b3abc7249922738cdaaab0119ef2416c4b7ff0b8df30c1abc3",
+    "adaptations": []
+  },
+  {
+    "path": "member-fixtures/member-fixtures.csproj",
+    "bytes": 315,
+    "sha256": "b940f67514dc840859326e0d37e98e238135831bccbec09efb671603fe4a105e",
+    "adaptations": []
+  },
+  {
+    "path": "member-fixtures/Program.cs",
+    "bytes": 4055,
+    "sha256": "7d490067c7971723478e6411c6bfba042a2baac7e9f43a4ddf1e0c3c32380506",
+    "adaptations": []
+  },
+  {
+    "path": "mesh-fixtures/mesh-fixtures.csproj",
+    "bytes": 315,
+    "sha256": "b940f67514dc840859326e0d37e98e238135831bccbec09efb671603fe4a105e",
+    "adaptations": []
+  },
+  {
+    "path": "mesh-fixtures/Program.cs",
+    "bytes": 1768,
+    "sha256": "88f6a352b559cc9582427f7f87bbc7d74f2bea36ec8992fcdf0911a4d97fe826",
+    "adaptations": []
+  },
+  {
+    "path": "minimize-specop-gpu.py",
+    "bytes": 1865,
+    "sha256": "2d0f5152a69b69d4a0e0159158db5083f0e5be42902f0401ab6ac862381bcac7",
+    "adaptations": []
+  },
+  {
+    "path": "operators-valid.spv",
+    "bytes": 15004,
+    "sha256": "afbd53265a9166ae6476df934d76daedbcfcabb84a54b38a098974bd14411c1d",
+    "adaptations": []
+  },
+  {
+    "path": "operators-valid.wgsl",
+    "bytes": 9622,
+    "sha256": "f17e01bbb6c4550b8825a0a6da8a021f1abac02bb258f8727ebd4e53ba1b5f05",
+    "adaptations": [
+      "trailing empty lines removed"
+    ]
+  },
+  {
+    "path": "oracle/Cargo.lock",
+    "bytes": 8042,
+    "sha256": "97ac83e29db638299cf4b63f846f26a9a87968b67a4eba412ac0ba888e0f3332",
+    "adaptations": []
+  },
+  {
+    "path": "oracle/Cargo.toml",
+    "bytes": 216,
+    "sha256": "f868ca8c95c731b1c1487b0a2c66214de9b26af179a8c5bbbdadb34d384ae576",
+    "adaptations": []
+  },
+  {
+    "path": "oracle/src/main.rs",
+    "bytes": 1942,
+    "sha256": "8d5bdcc9e075dd237b51474d54562e9395bd881c853a6b90e69553e1cf58fa20",
+    "adaptations": []
+  },
+  {
+    "path": "pointer-selection-fixtures/pointer-selection-fixtures.csproj",
+    "bytes": 342,
+    "sha256": "62429eb2464fbea8ee50f86588efe24da0aa5c1c83f6a1fb144270d86c2e8075",
+    "adaptations": []
+  },
+  {
+    "path": "pointer-selection-fixtures/Program.cs",
+    "bytes": 32684,
+    "sha256": "8d5b052c3d978576a0b0b15a242cc4ba2044328942bc63f35da1e4f64d807f39",
+    "adaptations": []
+  },
+  {
+    "path": "probe-comparison-cross-loop.py",
+    "bytes": 1712,
+    "sha256": "3a93ae2d691f63c94c86d6d252e278ca6ad3bf62a6dda2974ec045b56827ac23",
+    "adaptations": []
+  },
+  {
+    "path": "probe-float-atomic-device.py",
+    "bytes": 1195,
+    "sha256": "7a2aadedc8ce7463c8a88c3f35d2ab47d476d7750c159a26205b66f46836e45f",
+    "adaptations": []
+  },
+  {
+    "path": "probe-float-atomic.py",
+    "bytes": 990,
+    "sha256": "a00f392faa4379b0f5dcb32410e4ac232110e29898b53b07c7ef3c9cf170dcae",
+    "adaptations": []
+  },
+  {
+    "path": "probe-image-atomic-device.py",
+    "bytes": 950,
+    "sha256": "41407f2b090a3962c089bb9072a63c04b18200b0d558f2df76838a13ca2efde1",
+    "adaptations": []
+  },
+  {
+    "path": "probe-image-atomic-extra.py",
+    "bytes": 1186,
+    "sha256": "2157e7baa20c70c901b0f44acf22a63346aebc19412357b4bd2cfdeeb98b53c8",
+    "adaptations": []
+  },
+  {
+    "path": "probe-image-atomic.py",
+    "bytes": 1187,
+    "sha256": "dd82d761040fcbfd63838418f7ef36a1cb8fdcbd6e447b60a4022fb563b8e68f",
+    "adaptations": []
+  },
+  {
+    "path": "probe-maintenance4.py",
+    "bytes": 540,
+    "sha256": "3c92570bc612cca64ff05a3c30f778ee3762444badb60a810eb7ff637297a5ca",
+    "adaptations": []
+  },
+  {
+    "path": "probe-mesh-device.py",
+    "bytes": 991,
+    "sha256": "a1bcdd5c7a7fcb170b95c03db40445bfbe92d37cb307fbe0f312d1d59f34b6a0",
+    "adaptations": []
+  },
+  {
+    "path": "probe-null-workgroup.py",
+    "bytes": 1819,
+    "sha256": "cf10e91210fad62932b15028aaece7af5aed80895b1b53c79e39ac8fa5c0da5b",
+    "adaptations": []
+  },
+  {
+    "path": "probe-override-arrays.py",
+    "bytes": 2886,
+    "sha256": "37e815801aa3ef41bfae6fcb01692ba0e9bad352426473726b13092932159b5f",
+    "adaptations": []
+  },
+  {
+    "path": "probe-specop-chain.py",
+    "bytes": 1230,
+    "sha256": "4bcf60de9daf1b46e57e17f66d4aef6a3bed871e2b08d6304d0ddfa7a53b9c53",
+    "adaptations": []
+  },
+  {
+    "path": "probe-specop-failures.py",
+    "bytes": 3831,
+    "sha256": "31846f17e1223d24339ca3b4eb2c382fc0345dc0c8979b229b38ad90b0daef2f",
+    "adaptations": []
+  },
+  {
+    "path": "probe-storage-format-device.py",
+    "bytes": 2286,
+    "sha256": "f1c87532d0b043a54849c939dd9480f8a821232301b8dc5cc3e3f09d9e7b6709",
+    "adaptations": []
+  },
+  {
+    "path": "probe-storage-formats.py",
+    "bytes": 1818,
+    "sha256": "32fbe10591c4d0756b909f0d6c8699fbc1c18e97f6088406733c3f7d109bef49",
+    "adaptations": []
+  },
+  {
+    "path": "probe-task-payload.py",
+    "bytes": 1179,
+    "sha256": "f607a3401d1a0d1b9101885c98d4a4c14d23740a1882306599abe3791dd850de",
+    "adaptations": []
+  },
+  {
+    "path": "probe-workgroup-pointer-comparison.py",
+    "bytes": 1426,
+    "sha256": "c4ca9171461ab1b99b4135e76ae0236c42b216c7885d1db1805a1173d81bd13b",
+    "adaptations": []
+  },
+  {
+    "path": "probe-workgroup-pointer-stride.py",
+    "bytes": 1424,
+    "sha256": "a94ada7beeec785d902c05eb41b6a0c4b9cb95a5ad9fb248362e2c806fd8b07c",
+    "adaptations": []
+  },
+  {
+    "path": "query-descriptor-features.py",
+    "bytes": 1561,
+    "sha256": "7c212f45cd30be4dbacb532f8874e7ec9f37558bac42bf91750558b303ff6b26",
+    "adaptations": []
+  },
+  {
+    "path": "raw-state-harness/Program.cs",
+    "bytes": 913,
+    "sha256": "03de7c0f4cb89ae98b477958f89a995bff55ca9c956b6d12b302a67f56b49211",
+    "adaptations": []
+  },
+  {
+    "path": "raw-state-harness/raw-state.csproj",
+    "bytes": 330,
+    "sha256": "09d5b6a6f6045808e9470561d8156ed33730d95becbfd7ec8a707bbd0ea4f867",
+    "adaptations": []
+  },
+  {
+    "path": "ray-query-roundtrip.spv",
+    "bytes": 71808,
+    "sha256": "372803656e3b37a5167a84765a260f1c4f70c049ad686906c8e79de9294d3088",
+    "adaptations": []
+  },
+  {
+    "path": "ray-query-roundtrip.wgsl",
+    "bytes": 21252,
+    "sha256": "f67f1cc725c8699b0afc0ca4b32a44f17e45e2ee648388f0f954f7ff80e371a4",
+    "adaptations": []
+  },
+  {
+    "path": "ray-query.spv",
+    "bytes": 11008,
+    "sha256": "a59c4734ccc81b6a18abbb3a896f819e65a784e246731fc61f67b18c44a66365",
+    "adaptations": []
+  },
+  {
+    "path": "ray-query.wgsl",
+    "bytes": 2169,
+    "sha256": "363b428370d0aaf2c3a6b4d01f9c94446e1affd14b983f7bba4910e403b4a24a",
+    "adaptations": []
+  },
+  {
+    "path": "scan-corpus.py",
+    "bytes": 2953,
+    "sha256": "0c3ed741364d72075fb14f62a0425a04c4fe3edaa1bcc199cb85464febc0189b",
+    "adaptations": []
+  },
+  {
+    "path": "select.wgsl",
+    "bytes": 329,
+    "sha256": "d2ccf42f1cbd55f4dff0d330cc65b6719b2e1c2df106326326c037deb726a3f7",
+    "adaptations": []
+  },
+  {
+    "path": "summarize-matrix-continuation.py",
+    "bytes": 1683,
+    "sha256": "d6ea06ce0aee1e5865b42455b235177a615e6ebb996e39e37646cb9a2ae83b0b",
+    "adaptations": []
+  },
+  {
+    "path": "summarize-mixed-pointer-memory.py",
+    "bytes": 1863,
+    "sha256": "466155f5ee0fbdc0e738a264a4fa3c08e0fb3deea4945417a062da750a6c03a0",
+    "adaptations": []
+  },
+  {
+    "path": "summarize-pointer-arithmetic.py",
+    "bytes": 4007,
+    "sha256": "392ac05761a3302f0a56eb0b1b1ec8f84f75e48cefc21a693829bbaec8b0d9b7",
+    "adaptations": []
+  },
+  {
+    "path": "summarize-pointer-comparison.py",
+    "bytes": 4632,
+    "sha256": "6fd125b8e86d291366fadd26e4a9a6ac7faf74b4b6b9d4965208ea6bfda5abd0",
+    "adaptations": []
+  },
+  {
+    "path": "summarize-pointer-continuation.py",
+    "bytes": 1657,
+    "sha256": "0ac708a921f0b3bc1203f7925ac977ef738666b28be294d929302f609a23d16a",
+    "adaptations": []
+  },
+  {
+    "path": "summarize-pointer-descriptors.py",
+    "bytes": 3082,
+    "sha256": "4f0d637f3dadcaf6c47e718f37c7ea9e99e220fb0798e7d331f5b01392d5a60f",
+    "adaptations": []
+  },
+  {
+    "path": "summarize-pointer-memory.py",
+    "bytes": 2771,
+    "sha256": "7a884ae884449e4013c60fe809bfd2ca0cb46db67158fbfd225aaf5c97c8a197",
+    "adaptations": []
+  },
+  {
+    "path": "summarize-pointer-null.py",
+    "bytes": 3735,
+    "sha256": "345525286c886e9010ac3f130398e46acf09864cd1af8e418d509cc614190ba0",
+    "adaptations": []
+  },
+  {
+    "path": "summarize-pointer-phi.py",
+    "bytes": 2288,
+    "sha256": "a2fac58b8313ab63bba5b92430ee70c4a60067bbd2b2a8b9416bec968d5ef39a",
+    "adaptations": []
+  },
+  {
+    "path": "summarize-pointer-return.py",
+    "bytes": 3446,
+    "sha256": "8624cdd33cb57c5297a23e390b312bd407c61d328d962cf2f87a7038dc73d51e",
+    "adaptations": []
+  },
+  {
+    "path": "summarize-pointer-slot-transfer.py",
+    "bytes": 3499,
+    "sha256": "8b61d0e04af031713103c210b034160c0f1ded75c43d1fdeeaa8e576bec35ee5",
+    "adaptations": []
+  },
+  {
+    "path": "summarize-storage-formats.py",
+    "bytes": 484,
+    "sha256": "57b01400f2f9231283ba23c688ff80fe9a0be225309cc1a7e34428c57a3cc581",
+    "adaptations": []
+  },
+  {
+    "path": "summarize-uniform-continuation.py",
+    "bytes": 1224,
+    "sha256": "cbac0650d07c91660f7605f2a7ed0ccf6ccab87d126b5dec7236cdfaee8b2f4b",
+    "adaptations": []
+  },
+  {
+    "path": "summarize-workgroup-continuation.py",
+    "bytes": 1777,
+    "sha256": "964d8e1380e137df807260c25c9b5d15c091ee57dcf1210a968856b49c2b4a92",
+    "adaptations": []
+  },
+  {
+    "path": "type-inference.wgsl",
+    "bytes": 1579,
+    "sha256": "8d2b04160a815c0baeb1c0143321ef432b6cb60db45471ca16d18f288ffca123",
+    "adaptations": []
+  },
+  {
+    "path": "uniform-fixtures/Program.cs",
+    "bytes": 2797,
+    "sha256": "15b4eafdf0bb60ac6518068db456b52d3dd4dd6088ac999ab3f47abb3f12c3f8",
+    "adaptations": []
+  },
+  {
+    "path": "uniform-fixtures/uniform-fixtures.csproj",
+    "bytes": 315,
+    "sha256": "b940f67514dc840859326e0d37e98e238135831bccbec09efb671603fe4a105e",
+    "adaptations": []
+  },
+  {
+    "path": "validate-pointer-comparison.py",
+    "bytes": 1426,
+    "sha256": "4ba7337cd84826df7b2ccd9429b7cffaf40085ed0a58169d2b7f9b945d4d30b2",
+    "adaptations": []
+  },
+  {
+    "path": "validate-readonly-selection-inputs.py",
+    "bytes": 728,
+    "sha256": "8705e2748aad7e08b8dbf83a8c3ca8d304ca5b755e38dc0d3f862ad2ae9a3393",
+    "adaptations": []
+  },
+  {
+    "path": "verify-descriptor-diagnostics.py",
+    "bytes": 2166,
+    "sha256": "15054bb54db99e4b39a30675ab2c960199c03d9c0956e3c5289e124052627f45",
+    "adaptations": []
+  },
+  {
+    "path": "vulkan_compute.py",
+    "bytes": 15390,
+    "sha256": "baf9dbdeda26032065abf79daec89e4a31f7b7a2c1521eb88f79af3a073f9f41",
+    "adaptations": []
+  },
+  {
+    "path": "vulkan_descriptor_array.py",
+    "bytes": 2431,
+    "sha256": "e52d86196c1f14743ee2c0b4399b4c474cc5a7f6459bb1d278575e9575d3af1d",
+    "adaptations": []
+  },
+  {
+    "path": "vulkan_images.py",
+    "bytes": 7219,
+    "sha256": "445029168f9ac937d6a36b1c51e117bb9d9605ee89a357424c482295e70ca109",
+    "adaptations": []
+  },
+  {
+    "path": "workgroup-fixtures/Program.cs",
+    "bytes": 1814,
+    "sha256": "c866466af480525dce9bbe83c17fa09bbafd5e15d97cf14bf657d92a4959d2f1",
+    "adaptations": []
+  },
+  {
+    "path": "workgroup-fixtures/workgroup-fixtures.csproj",
+    "bytes": 343,
+    "sha256": "2779163e76700ec49c7567a03c9744a52aff3567131db36bc98b6fdaf5f7de8d",
+    "adaptations": []
+  }
+]

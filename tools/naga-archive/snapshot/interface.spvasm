@@ -1,0 +1,267 @@
+; SPIR-V
+; Version: 1.3
+; Generator: Khronos; 0
+; Bound: 155
+; Schema: 0
+               OpCapability Shader
+               OpCapability SampleRateShading
+        %117 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Vertex %76 "vertex" %position %_varying %vertex_index_0 %instance_index_0 %color_0
+               OpEntryPoint Fragment %96 "fragment" %depth %sample_mask_0 %color_1 %position_0 %_varying_0 %front_facing_0 %sample_index_0 %sample_mask_1
+               OpEntryPoint GLCompute %122 "compute" %global_id_0 %local_id_0 %local_index_0 %wg_id_0 %num_wgs_0
+               OpEntryPoint Vertex %142 "vertex_two_structs" %vertex_two_structs_output %index_0 %index_1
+               OpExecutionMode %96 OriginUpperLeft
+               OpExecutionMode %96 DepthReplacing
+               OpExecutionMode %122 LocalSize 1 1 1
+               OpName %output "output"
+               OpName %VertexOutput "VertexOutput"
+               OpName %vertex "vertex"
+               OpName %vertex_index "vertex_index"
+               OpName %instance_index "instance_index"
+               OpName %color "color"
+               OpName %FragmentOutput "FragmentOutput"
+               OpName %fragment "fragment"
+               OpName %in "in"
+               OpName %front_facing "front_facing"
+               OpName %sample_index "sample_index"
+               OpName %sample_mask "sample_mask"
+               OpName %compute "compute"
+               OpName %global_id "global_id"
+               OpName %local_id "local_id"
+               OpName %local_index "local_index"
+               OpName %wg_id "wg_id"
+               OpName %num_wgs "num_wgs"
+               OpName %Input1 "Input1"
+               OpName %Input2 "Input2"
+               OpName %vertex_two_structs "vertex_two_structs"
+               OpName %in1 "in1"
+               OpName %in2 "in2"
+               OpName %index "index"
+               OpName %position "position"
+               OpName %_varying "_varying"
+               OpName %vertex_index_0 "vertex_index"
+               OpName %instance_index_0 "instance_index"
+               OpName %color_0 "color"
+               OpName %depth "depth"
+               OpName %sample_mask_0 "sample_mask"
+               OpName %color_1 "color"
+               OpName %position_0 "position"
+               OpName %_varying_0 "_varying"
+               OpName %front_facing_0 "front_facing"
+               OpName %sample_index_0 "sample_index"
+               OpName %sample_mask_1 "sample_mask"
+               OpName %global_id_0 "global_id"
+               OpName %local_id_0 "local_id"
+               OpName %local_index_0 "local_index"
+               OpName %wg_id_0 "wg_id"
+               OpName %num_wgs_0 "num_wgs"
+               OpName %vertex_two_structs_output "vertex_two_structs_output"
+               OpName %index_0 "index"
+               OpName %index_1 "index"
+               OpDecorate %position BuiltIn Position
+               OpDecorate %position Invariant
+               OpDecorate %_varying Location 1
+               OpDecorate %vertex_index_0 BuiltIn VertexIndex
+               OpDecorate %instance_index_0 BuiltIn InstanceIndex
+               OpDecorate %color_0 Location 10
+               OpDecorate %depth BuiltIn FragDepth
+               OpDecorate %sample_mask_0 BuiltIn SampleMask
+               OpDecorate %color_1 Location 0
+               OpDecorate %position_0 BuiltIn FragCoord
+               OpDecorate %position_0 Invariant
+               OpDecorate %_varying_0 Location 1
+               OpDecorate %front_facing_0 BuiltIn FrontFacing
+               OpDecorate %sample_index_0 BuiltIn SampleId
+               OpDecorate %sample_mask_1 BuiltIn SampleMask
+               OpDecorate %global_id_0 BuiltIn GlobalInvocationId
+               OpDecorate %local_id_0 BuiltIn LocalInvocationId
+               OpDecorate %local_index_0 BuiltIn LocalInvocationIndex
+               OpDecorate %wg_id_0 BuiltIn WorkgroupId
+               OpDecorate %num_wgs_0 BuiltIn NumWorkgroups
+               OpDecorate %vertex_two_structs_output BuiltIn Position
+               OpDecorate %vertex_two_structs_output Invariant
+               OpDecorate %index_0 BuiltIn VertexIndex
+               OpDecorate %index_1 BuiltIn InstanceIndex
+       %uint = OpTypeInt 32 0
+     %uint_1 = OpConstant %uint 1
+%_arr_uint_uint_1 = OpTypeArray %uint %uint_1
+%_ptr_Workgroup__arr_uint_uint_1 = OpTypePointer Workgroup %_arr_uint_uint_1
+     %output = OpVariable %_ptr_Workgroup__arr_uint_uint_1 Workgroup
+      %float = OpTypeFloat 32
+    %v4float = OpTypeVector %float 4
+%VertexOutput = OpTypeStruct %v4float %float
+         %13 = OpTypeFunction %VertexOutput %uint %uint %uint
+    %float_1 = OpConstant %float 1
+         %21 = OpConstantComposite %v4float %float_1 %float_1 %float_1 %float_1
+%FragmentOutput = OpTypeStruct %float %uint %float
+       %bool = OpTypeBool
+         %26 = OpTypeFunction %FragmentOutput %VertexOutput %bool %uint %uint
+    %float_0 = OpConstant %float 0
+       %void = OpTypeVoid
+     %v3uint = OpTypeVector %uint 3
+         %40 = OpTypeFunction %void %v3uint %v3uint %uint %v3uint %v3uint
+        %int = OpTypeInt 32 1
+      %int_0 = OpConstant %int 0
+%_ptr_Workgroup_uint = OpTypePointer Workgroup %uint
+     %uint_0 = OpConstant %uint 0
+     %Input1 = OpTypeStruct %uint
+     %Input2 = OpTypeStruct %uint
+         %62 = OpTypeFunction %v4float %Input1 %Input2
+%_ptr_Function_uint = OpTypePointer Function %uint
+     %uint_2 = OpConstant %uint 2
+         %77 = OpTypeFunction %void
+%_ptr_Output_v4float = OpTypePointer Output %v4float
+   %position = OpVariable %_ptr_Output_v4float Output
+%_ptr_Output_float = OpTypePointer Output %float
+   %_varying = OpVariable %_ptr_Output_float Output
+%_ptr_Input_uint = OpTypePointer Input %uint
+%vertex_index_0 = OpVariable %_ptr_Input_uint Input
+%instance_index_0 = OpVariable %_ptr_Input_uint Input
+    %color_0 = OpVariable %_ptr_Input_uint Input
+      %depth = OpVariable %_ptr_Output_float Output
+%_ptr_Output_uint = OpTypePointer Output %uint
+%sample_mask_0 = OpVariable %_ptr_Output_uint Output
+    %color_1 = OpVariable %_ptr_Output_float Output
+%_ptr_Input_v4float = OpTypePointer Input %v4float
+ %position_0 = OpVariable %_ptr_Input_v4float Input
+%_ptr_Input_float = OpTypePointer Input %float
+ %_varying_0 = OpVariable %_ptr_Input_float Input
+%_ptr_Input_bool = OpTypePointer Input %bool
+%front_facing_0 = OpVariable %_ptr_Input_bool Input
+%sample_index_0 = OpVariable %_ptr_Input_uint Input
+%sample_mask_1 = OpVariable %_ptr_Input_uint Input
+%_ptr_Input_v3uint = OpTypePointer Input %v3uint
+%global_id_0 = OpVariable %_ptr_Input_v3uint Input
+ %local_id_0 = OpVariable %_ptr_Input_v3uint Input
+%local_index_0 = OpVariable %_ptr_Input_uint Input
+    %wg_id_0 = OpVariable %_ptr_Input_v3uint Input
+  %num_wgs_0 = OpVariable %_ptr_Input_v3uint Input
+        %133 = OpConstantNull %_arr_uint_uint_1
+   %uint_264 = OpConstant %uint 264
+%vertex_two_structs_output = OpVariable %_ptr_Output_v4float Output
+    %index_0 = OpVariable %_ptr_Input_uint Input
+    %index_1 = OpVariable %_ptr_Input_uint Input
+     %vertex = OpFunction %VertexOutput None %13
+%vertex_index = OpFunctionParameter %uint
+%instance_index = OpFunctionParameter %uint
+      %color = OpFunctionParameter %uint
+         %17 = OpLabel
+         %18 = OpIAdd %uint %vertex_index %instance_index
+         %19 = OpIAdd %uint %18 %color
+         %22 = OpConvertUToF %float %19
+         %23 = OpCompositeConstruct %VertexOutput %21 %22
+               OpReturnValue %23
+               OpFunctionEnd
+   %fragment = OpFunction %FragmentOutput None %26
+         %in = OpFunctionParameter %VertexOutput
+%front_facing = OpFunctionParameter %bool
+%sample_index = OpFunctionParameter %uint
+%sample_mask = OpFunctionParameter %uint
+         %31 = OpLabel
+         %32 = OpShiftLeftLogical %uint %uint_1 %sample_index
+         %33 = OpBitwiseAnd %uint %sample_mask %32
+         %35 = OpSelect %float %front_facing %float_1 %float_0
+         %36 = OpCompositeExtract %float %in 1
+         %37 = OpCompositeConstruct %FragmentOutput %36 %33 %35
+               OpReturnValue %37
+               OpFunctionEnd
+    %compute = OpFunction %void None %40
+  %global_id = OpFunctionParameter %v3uint
+   %local_id = OpFunctionParameter %v3uint
+%local_index = OpFunctionParameter %uint
+      %wg_id = OpFunctionParameter %v3uint
+    %num_wgs = OpFunctionParameter %v3uint
+         %46 = OpLabel
+         %49 = OpAccessChain %_ptr_Workgroup_uint %output %int_0
+         %52 = OpVectorExtractDynamic %uint %global_id %uint_0
+         %53 = OpVectorExtractDynamic %uint %local_id %uint_0
+         %54 = OpIAdd %uint %52 %53
+         %55 = OpIAdd %uint %54 %local_index
+         %56 = OpVectorExtractDynamic %uint %wg_id %uint_0
+         %57 = OpIAdd %uint %55 %56
+         %58 = OpVectorExtractDynamic %uint %num_wgs %uint_0
+         %59 = OpIAdd %uint %57 %58
+               OpStore %49 %59
+               OpReturn
+               OpFunctionEnd
+%vertex_two_structs = OpFunction %v4float None %62
+        %in1 = OpFunctionParameter %Input1
+        %in2 = OpFunctionParameter %Input2
+         %65 = OpLabel
+      %index = OpVariable %_ptr_Function_uint Function
+               OpStore %index %uint_2
+         %69 = OpLoad %uint %index
+         %70 = OpCompositeExtract %uint %in1 0
+         %71 = OpConvertUToF %float %70
+         %72 = OpCompositeExtract %uint %in2 0
+         %73 = OpConvertUToF %float %72
+         %74 = OpConvertUToF %float %69
+         %75 = OpCompositeConstruct %v4float %71 %73 %74 %float_0
+               OpReturnValue %75
+               OpFunctionEnd
+         %76 = OpFunction %void None %77
+         %95 = OpLabel
+         %86 = OpLoad %uint %vertex_index_0
+         %87 = OpLoad %uint %instance_index_0
+         %88 = OpLoad %uint %color_0
+         %89 = OpFunctionCall %VertexOutput %vertex %86 %87 %88
+         %90 = OpCompositeExtract %v4float %89 0
+         %91 = OpCompositeExtract %float %90 1
+         %92 = OpFNegate %float %91
+         %93 = OpCompositeInsert %v4float %92 %90 1
+               OpStore %position %93
+         %94 = OpCompositeExtract %float %89 1
+               OpStore %_varying %94
+               OpReturn
+               OpFunctionEnd
+         %96 = OpFunction %void None %77
+        %121 = OpLabel
+        %109 = OpLoad %v4float %position_0
+        %110 = OpLoad %float %_varying_0
+        %111 = OpCompositeConstruct %VertexOutput %109 %110
+        %112 = OpLoad %bool %front_facing_0
+        %113 = OpLoad %uint %sample_index_0
+        %114 = OpLoad %uint %sample_mask_1
+        %115 = OpFunctionCall %FragmentOutput %fragment %111 %112 %113 %114
+        %116 = OpCompositeExtract %float %115 0
+        %118 = OpExtInst %float %117 FClamp %116 %float_0 %float_1
+               OpStore %depth %118
+        %119 = OpCompositeExtract %uint %115 1
+               OpStore %sample_mask_0 %119
+        %120 = OpCompositeExtract %float %115 2
+               OpStore %color_1 %120
+               OpReturn
+               OpFunctionEnd
+        %122 = OpFunction %void None %77
+        %141 = OpLabel
+        %129 = OpLoad %uint %local_index_0
+        %130 = OpIEqual %bool %129 %uint_0
+               OpSelectionMerge %132 None
+               OpBranchConditional %130 %131 %132
+        %131 = OpLabel
+               OpStore %output %133
+               OpBranch %132
+        %132 = OpLabel
+               OpControlBarrier %uint_2 %uint_2 %uint_264
+        %135 = OpLoad %v3uint %global_id_0
+        %136 = OpLoad %v3uint %local_id_0
+        %137 = OpLoad %uint %local_index_0
+        %138 = OpLoad %v3uint %wg_id_0
+        %139 = OpLoad %v3uint %num_wgs_0
+        %140 = OpFunctionCall %void %compute %135 %136 %137 %138 %139
+               OpReturn
+               OpFunctionEnd
+        %142 = OpFunction %void None %77
+        %154 = OpLabel
+        %146 = OpLoad %uint %index_0
+        %147 = OpCompositeConstruct %Input1 %146
+        %148 = OpLoad %uint %index_1
+        %149 = OpCompositeConstruct %Input2 %148
+        %150 = OpFunctionCall %v4float %vertex_two_structs %147 %149
+        %151 = OpCompositeExtract %float %150 1
+        %152 = OpFNegate %float %151
+        %153 = OpCompositeInsert %v4float %152 %150 1
+               OpStore %vertex_two_structs_output %153
+               OpReturn
+               OpFunctionEnd

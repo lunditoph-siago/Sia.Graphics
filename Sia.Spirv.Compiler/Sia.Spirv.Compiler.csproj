@@ -3,14 +3,11 @@
     <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <IsPackable>true</IsPackable>
-    <PackageDescription>Managed CIL, SPIR-V and WGSL shader compiler with an optional offline LLVM backend.</PackageDescription>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Sia.Spirv.Core\Sia.Spirv.Core.csproj" />
     <ProjectReference Include="..\Sia.Spirv.Runtime\Sia.Spirv.Runtime.csproj" />
-    <None Remove="Translation\Naga.LICENSE.txt" />
-    <None Include="Translation\Naga.LICENSE.txt" Pack="true" PackagePath="licenses" />
   </ItemGroup>
 </Project>

@@ -62,5 +62,4 @@ internal sealed record SpirvManifestStageIo(
     string? Interpolation,
     string? Sampling);
 
-internal sealed record SpirvManifestToolchain(string Llvm, string SpirvTools, string? Naga, string? NagaSha256,
-    string? Translator = null, string? TranslatorSha256 = null);
+internal sealed record SpirvManifestToolchain(string Llvm, string SpirvTools, string? Naga, string? NagaSha256);

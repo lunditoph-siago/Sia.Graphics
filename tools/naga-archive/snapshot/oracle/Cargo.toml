@@ -1,9 +1,0 @@
-[package]
-name = "sia-naga-reference-oracle"
-version = "0.0.0"
-edition = "2024"
-
-[dependencies]
-naga = { path = "../../../.reference/wgpu/naga", features = ["spv-in", "spv-out", "wgsl-in", "wgsl-out"] }
-
-[workspace]

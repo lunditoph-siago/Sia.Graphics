@@ -35,6 +35,8 @@
            Text="The prebuilt Sia SPIR-V host toolchain was not found. Install the spirv-tools workload or reference $(_SiaSpirvToolchainPackageId)." />
     <Error Condition="!Exists('$(SpirvToolchainDirectory)/spirv-val$(SpirvToolExecutableSuffix)')"
            Text="The SPIR-V validator was not found under '$(SpirvToolchainDirectory)'." />
+    <Error Condition="'$(SpirvEmitWgsl)' == 'true' and !Exists('$(SpirvToolchainDirectory)/naga$(SpirvToolExecutableSuffix)')"
+           Text="The Naga shader translator was not found under '$(SpirvToolchainDirectory)'. Install or update the spirv-tools workload." />
     <Error Condition="'$(SpirvPassesFile)' != '' and !Exists('$(SpirvPassesFile)')"
            Text="The SPIR-V pass configuration was not found at '$(SpirvPassesFile)'." />
     <Error Condition="'$(SpirvTargetProfileFile)' != '' and !Exists('$(SpirvTargetProfileFile)')"
@@ -55,8 +57,8 @@
           DependsOnTargets="CompileSiaSpirvKernels"
           Condition="'$(EnableSpirvCompilation)' == 'true' and '$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true'">
     <Error
-        Condition="'$(TargetPlatformIdentifier)' == 'browser' and !Exists('$(SpirvBrowserPolyfillDirectory)\_framework\dotnet.js')"
-        Text="The browser shader compiler was not found at '$(SpirvBrowserPolyfillDirectory)\_framework\dotnet.js'. Install or update the spirv-tools workload." />
+        Condition="'$(TargetPlatformIdentifier)' == 'browser' and !Exists('$(SpirvBrowserPolyfillDirectory)\sia-spirv-naga.wasm')"
+        Text="The browser Naga Wasm module was not found at '$(SpirvBrowserPolyfillDirectory)\sia-spirv-naga.wasm'. Install or update the spirv-tools workload." />
     <Error
         Condition="'$(TargetPlatformIdentifier)' == 'browser' and !Exists('$(SpirvBrowserPolyfillDirectory)\sia-spirv-polyfill.js')"
         Text="The browser SPIR-V polyfill loader was not found at '$(SpirvBrowserPolyfillDirectory)\sia-spirv-polyfill.js'. Install or update the spirv-tools workload." />
@@ -75,7 +77,7 @@
         <DestinationPath>%(_SiaSpirvPublishFile.Identity)</DestinationPath>
       </_SiaSpirvPublishArtifact>
       <_SiaSpirvPublishArtifact
-          Include="$(SpirvBrowserPolyfillDirectory)\**\*"
+          Include="$(SpirvBrowserPolyfillDirectory)\sia-spirv-naga.wasm;$(SpirvBrowserPolyfillDirectory)\sia-spirv-polyfill.js"
           Condition="'$(TargetPlatformIdentifier)' == 'browser'" />
       <_SiaSpirvPublishArtifact Update="@(_SiaSpirvPublishArtifact)"
                                 Condition="'%(_SiaSpirvPublishArtifact.DestinationPath)' == ''">

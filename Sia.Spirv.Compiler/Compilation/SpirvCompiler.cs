@@ -55,8 +55,8 @@ public sealed partial class SpirvCompiler
         var toolchain = LlvmToolchain.Locate(options.ToolchainDirectory);
         var llvmVersion = toolchain.GetLlvmVersion();
         var spirvToolsVersion = toolchain.GetSpirvToolsVersion();
-        var translatorVersion = options.EmitWgsl ? LlvmToolchain.GetShaderTranslatorVersion() : null;
-        var translatorSha256 = options.EmitWgsl ? LlvmToolchain.GetShaderTranslatorSha256() : null;
+        var nagaVersion = options.EmitWgsl ? toolchain.GetNagaVersion() : null;
+        var nagaSha256 = options.EmitWgsl ? toolchain.GetNagaSha256() : null;
         var assemblyHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(assemblyPath)));
         Directory.CreateDirectory(outputDirectory);
 
@@ -86,8 +86,8 @@ public sealed partial class SpirvCompiler
                 legalizationPlan,
                 llvmVersion,
                 spirvToolsVersion,
-                translatorVersion,
-                translatorSha256);
+                nagaVersion,
+                nagaSha256);
             var cachedSpirvPath = targetName is null ? spirvPath : GetCachedBinaryPath(manifestPath, spirvPath);
             if (IsCacheHit(
                 manifestPath,
@@ -127,9 +127,8 @@ public sealed partial class SpirvCompiler
                 toolchain.Validate(spirvPath, options.TargetEnvironment);
                 if (options.KernelAbi == SpirvKernelAbi.WebGpu) {
                     toolchain.OptimizeForWebGpu(spirvPath);
+                    toolchain.Validate(spirvPath, options.TargetEnvironment);
                 }
-                SpirvResourceAccessLowering.Rewrite(spirvPath, kernel);
-                toolchain.Validate(spirvPath, options.TargetEnvironment);
                 if (options.EmitWgsl) {
                     toolchain.ConvertToWgsl(spirvPath, wgslPath);
                 }
@@ -155,8 +154,8 @@ public sealed partial class SpirvCompiler
                 legalizationPlan,
                 llvmVersion,
                 spirvToolsVersion,
-                translatorVersion,
-                translatorSha256,
+                nagaVersion,
+                nagaSha256,
                 spirvPath,
                 sourceHash,
                 targetName,
@@ -183,8 +182,8 @@ public sealed partial class SpirvCompiler
         SpirvLegalizationPlan legalizationPlan,
         string llvmVersion,
         string spirvToolsVersion,
-        string? translatorVersion,
-        string? translatorSha256,
+        string? nagaVersion,
+        string? nagaSha256,
         string spirvPath,
         string sourceHash,
         string? targetName,
@@ -318,7 +317,7 @@ public sealed partial class SpirvCompiler
             pushConstants,
             stageInputs,
             stageOutputs,
-            new SpirvManifestToolchain(llvmVersion, spirvToolsVersion, null, null, translatorVersion, translatorSha256),
+            new SpirvManifestToolchain(llvmVersion, spirvToolsVersion, nagaVersion, nagaSha256),
             sourceHash,
             options.KernelAbi == SpirvKernelAbi.WebGpu ? "webgpu" : "vulkan",
             kernel.Stage.ToString().ToLowerInvariant(),
@@ -398,8 +397,8 @@ public sealed partial class SpirvCompiler
         SpirvLegalizationPlan legalizationPlan,
         string llvmVersion,
         string spirvToolsVersion,
-        string? translatorVersion,
-        string? translatorSha256)
+        string? nagaVersion,
+        string? nagaSha256)
     {
         var compilerVersion = typeof(SpirvCompiler).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0";
@@ -429,8 +428,8 @@ public sealed partial class SpirvCompiler
             string.Join(',', legalizationPlan.StrategyIds),
             llvmVersion,
             spirvToolsVersion,
-            translatorVersion,
-            translatorSha256);
+            nagaVersion,
+            nagaSha256);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input)));
     }
 

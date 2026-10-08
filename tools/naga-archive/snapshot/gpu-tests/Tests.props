@@ -1,5 +1,0 @@
-<Project>
-  <ItemGroup>
-    <ProjectReference Include="$(MSBuildThisFileDirectory)../../../Sia.Graphics/Sia.Spirv.Naga/Sia.Spirv.Naga.csproj" />
-  </ItemGroup>
-</Project>

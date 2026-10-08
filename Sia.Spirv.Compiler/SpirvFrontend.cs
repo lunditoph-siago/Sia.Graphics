@@ -34,28 +34,13 @@ public sealed class SpirvFrontend
 
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream, PEStreamOptions.PrefetchEntireImage);
-        using var intrinsics = IntrinsicCatalog.Open(assemblyPath);
-        return Analyze(peReader, intrinsics, assemblyPath);
-    }
-
-    /// <summary>Analyze PE/IL bytes and explicit intrinsic metadata without filesystem access.</summary>
-    public SpirvFrontendResult Analyze(ReadOnlyMemory<byte> assemblyImage, ReadOnlyMemory<byte> intrinsicImage = default)
-    {
-        if (assemblyImage.IsEmpty) throw new ArgumentException("Shader assembly image is empty.", nameof(assemblyImage));
-        using var stream = new MemoryStream(assemblyImage.ToArray(), writable: false);
-        using var peReader = new PEReader(stream, PEStreamOptions.PrefetchEntireImage);
-        using var intrinsics = IntrinsicCatalog.Open(intrinsicImage);
-        return Analyze(peReader, intrinsics, "<memory>");
-    }
-
-    private static SpirvFrontendResult Analyze(PEReader peReader, IntrinsicCatalog intrinsics, string assemblyPath)
-    {
         if (!peReader.HasMetadata) {
             throw new BadImageFormatException(
                 $"'{assemblyPath}' does not contain managed metadata.");
         }
 
         var reader = peReader.GetMetadataReader();
+        using var intrinsics = IntrinsicCatalog.Open(assemblyPath);
         var resolver = new CilCallResolver(reader, intrinsics);
         var kernels = new List<SpirvKernel>();
         var diagnostics = new List<SpirvDiagnostic>();

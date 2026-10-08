@@ -1,0 +1,77 @@
+{
+  "date": "2026-10-08",
+  "branch": "refactor/compiler-managed-pipeline",
+  "sourceFiles": 150,
+  "sourceSha256": "078050d9be69844d63f8fdf17a854971f9c5326e8a9e0b3f10cc25c36cc41a6d",
+  "sdk": "11.0.100-rc.2.26461.102",
+  "archiveCommit": "9dc9f21cabe99bd3c3089379abb22ee6d460f246",
+  "tests": {
+    "compiler": {
+      "passed": 1308,
+      "failed": 0,
+      "skipped": 0
+    },
+    "solution": {
+      "passed": 1306,
+      "failed": 0,
+      "skipped": 0,
+      "note": "Full solution before two additional focused compiler regression tests."
+    },
+    "independentDirect": {
+      "passed": 66,
+      "failed": 0
+    },
+    "independentStatic": {
+      "passed": 66,
+      "failed": 0
+    },
+    "gpu": {
+      "passed": 44,
+      "failed": 0,
+      "device": "Intel Corporation; ; Intel(R) UHD Graphics; Vulkan",
+      "variants": [
+        "direct-wgsl",
+        "direct-spirv",
+        "static-wgsl",
+        "static-spirv"
+      ],
+      "compilerAssemblySha256": "DE641D538B5DB0CBF341E80F1616F297C150A8D25F1DB7CFD70E31FA07A4E716"
+    },
+    "wasmNodePackage": {
+      "passed": 22,
+      "failed": 0
+    },
+    "browser": {
+      "passed": 22,
+      "failed": 0,
+      "twoDotNetRuntimes": true
+    },
+    "packageBoundaries": {
+      "windows": true
+    },
+    "browserSdkConsumer": {
+      "compiledShader": true,
+      "publishedRuntimeAssets": true
+    },
+    "cli": {
+      "bidirectionalTranslation": true,
+      "spirvToolsValidation": true
+    },
+    "workflowYaml": "parsed",
+    "packagePowerShell": "parsed"
+  },
+  "independentTools": {
+    "spirvToolsCommit": "0539c81f69a3daeb706fd3477dca61435b475156",
+    "nagaReference": "30.0.0, validation oracle only",
+    "llvmCommit": "10eea834e26333cb0d3e71e75faa536144ecc099"
+  },
+  "limitations": [
+    "General Naga parity remains incomplete; preserve the archive evidence.",
+    "Runtime CIL coverage is bounded by supported shader instructions and intrinsics.",
+    "GPU synchronization fixture checks zero-count dispatch, not concurrent memory ordering.",
+    "Graphics, texture and matrix fixtures have format/Wasm checks, not GPU pixel comparisons.",
+    "Linux packaging and hosted CI have not run on this Windows host.",
+    "Wasm executes the compiler through the .NET interpreter; native Wasm AOT is not verified."
+  ],
+  "evidenceRetention": "Compact findings retained; task raw logs, captures and generated binaries expire after cleanup."
+}

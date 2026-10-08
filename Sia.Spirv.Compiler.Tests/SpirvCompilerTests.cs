@@ -176,10 +176,15 @@ public sealed class SpirvCompilerTests
         }
         if (artifact.Kernel.QualifiedName ==
             $"{typeof(TextureShaders).FullName}.{nameof(TextureShaders.SampleAndLoad)}") {
-            Assert.Contains("textureSampleLevel(texture", wgsl);
-            Assert.Contains("textureSampleLevel(textureArray", wgsl);
-            Assert.Contains("textureLoad(texture", wgsl);
-            Assert.Contains("textureLoad(textureArray", wgsl);
+            var shader = Translation.Front.WgslReader.Parse(wgsl);
+            Translation.Valid.ModuleValidator.Validate(shader);
+            // The managed writer preserves bindings, but assigns different
+            // collision-safe names than the archived Rust writer.
+            foreach (uint binding in new uint[] { 0, 1 }) {
+                var texture = Assert.Single(shader.Globals, global => global.Binding?.Binding == binding);
+                Assert.Contains($"textureSampleLevel({texture.Name},", wgsl);
+                Assert.Contains($"textureLoad({texture.Name},", wgsl);
+            }
         }
         if (artifact.Kernel.QualifiedName ==
             $"{typeof(FullscreenVertexShaders).FullName}.{nameof(FullscreenVertexShaders.Vertex)}") {

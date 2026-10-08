@@ -141,15 +141,6 @@ jobs:
             artifacts/spirv-tools-build-${{ matrix.rid }}
           key: spirv-native-${{ matrix.rid }}-${{ steps.native-build.outputs.fingerprint }}
 
-      - name: Cache Naga
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            Sia.Spirv.Naga/target
-          key: sia-spirv-naga-${{ matrix.rid }}-${{ hashFiles('Sia.Spirv.Naga/Cargo.lock') }}
-
       - name: Normalize source timestamps
         if: steps.native-cache.outputs.cache-hit == 'true'
         shell: pwsh
@@ -195,18 +186,6 @@ jobs:
           ./Sia.Spirv.Toolchain.linux-x64/BuildLLVM.sh
           ./Sia.Spirv.Toolchain.linux-x64/BuildSpirvTools.sh
 
-      - name: Build and stage Windows Naga
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          ./Sia.Spirv.Toolchain.win-x64/BuildNaga.ps1 `
-            -InstallDirectory artifacts/llvm-toolchain
-
-      - name: Build and stage Linux Naga
-        if: runner.os == 'Linux'
-        shell: bash
-        run: ./Sia.Spirv.Toolchain.linux-x64/BuildNaga.sh
-
       - name: Save native cache
         if: steps.native-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -215,6 +194,14 @@ jobs:
             artifacts/llvm-build-${{ matrix.rid }}
             artifacts/spirv-tools-build-${{ matrix.rid }}
           key: ${{ steps.native-cache.outputs.cache-primary-key }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+
+      - name: Build managed shader translator
+        run: dotnet build Sia.Spirv.Tool/Sia.Spirv.Tool.csproj -c Release
 
       - name: Run native shader suite
         shell: pwsh
@@ -320,9 +307,9 @@ jobs:
             & (Join-Path $root "spirv-val$suffix") `
               --target-env vulkan1.2 $spirv
             if ($LASTEXITCODE -ne 0) { throw "$stage optimized validation failed." }
-            & (Join-Path $root "naga$suffix") $spirv $wgsl
+            dotnet Sia.Spirv.Tool/bin/Release/net11.0/Sia.Spirv.Tool.dll translate --input $spirv --output $wgsl
             if ($LASTEXITCODE -ne 0) { throw "$stage WGSL conversion failed." }
-            & (Join-Path $root "naga$suffix") $wgsl
+            dotnet Sia.Spirv.Tool/bin/Release/net11.0/Sia.Spirv.Tool.dll validate --input $wgsl
             if ($LASTEXITCODE -ne 0) { throw "$stage WGSL validation failed." }
             $bytes = [IO.File]::ReadAllBytes($spirv)
             if ($bytes.Length -lt 20 -or ($bytes[0..3] -join ',') -ne '3,2,35,7') {
@@ -332,71 +319,6 @@ jobs:
               throw "$stage WGSL entry point was not preserved."
             }
           }
-          $abiSmoke = Join-Path $smokeDirectory 'verify-native-abi.py'
-          @'
-          import ctypes
-          import pathlib
-          import sys
-
-          class Abi(ctypes.Structure):
-              _fields_ = [
-                  ('version', ctypes.c_uint32),
-                  ('struct_size', ctypes.c_uint32),
-                  ('status', ctypes.c_int32),
-                  ('flags', ctypes.c_uint32),
-                  ('input_pointer', ctypes.POINTER(ctypes.c_uint8)),
-                  ('input_length', ctypes.c_size_t),
-                  ('output_pointer', ctypes.POINTER(ctypes.c_uint8)),
-                  ('output_length', ctypes.c_size_t),
-              ]
-
-          library = ctypes.CDLL(sys.argv[1])
-          library.sia_spirv_abi_version.restype = ctypes.c_uint32
-          library.sia_spirv_context_create.restype = ctypes.c_void_p
-          library.sia_spirv_context_destroy.argtypes = [ctypes.c_void_p]
-          library.sia_spirv_context_abi.argtypes = [ctypes.c_void_p]
-          library.sia_spirv_context_abi.restype = ctypes.POINTER(Abi)
-          library.sia_spirv_context_resize_input.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
-          library.sia_spirv_context_resize_input.restype = ctypes.c_int32
-          library.sia_spirv_context_translate.argtypes = [ctypes.c_void_p]
-          library.sia_spirv_context_translate.restype = ctypes.c_int32
-          if library.sia_spirv_abi_version() != 1:
-              raise RuntimeError('Unexpected Sia SPIR-V ABI version.')
-          spirv = pathlib.Path(sys.argv[2]).read_bytes()
-          context = library.sia_spirv_context_create()
-          try:
-              if library.sia_spirv_context_resize_input(context, len(spirv)) != 0:
-                  raise RuntimeError('Allocating the native ABI input failed.')
-              abi = library.sia_spirv_context_abi(context).contents
-              ctypes.memmove(abi.input_pointer, spirv, len(spirv))
-              if library.sia_spirv_context_translate(context) != 0:
-                  abi = library.sia_spirv_context_abi(context).contents
-                  raise RuntimeError(ctypes.string_at(
-                      abi.output_pointer, abi.output_length).decode())
-              abi = library.sia_spirv_context_abi(context).contents
-              wgsl = ctypes.string_at(abi.output_pointer, abi.output_length).decode()
-              if sys.argv[3] not in wgsl:
-                  raise RuntimeError(f"Native ABI did not preserve '{sys.argv[3]}'.")
-          finally:
-              library.sia_spirv_context_destroy(context)
-          '@ | Set-Content -LiteralPath $abiSmoke -Encoding utf8NoBOM
-          $abiLibrary = Join-Path $root $(if ($IsWindows) {
-            'sia_spirv_naga.dll'
-          } else {
-            'libsia_spirv_naga.so'
-          })
-          foreach ($stage in @('compute', 'vertex', 'fragment')) {
-            python $abiSmoke $abiLibrary `
-              (Join-Path $smokeDirectory "$stage.spv") "@$stage"
-            if ($LASTEXITCODE -ne 0) {
-              throw "$stage native Naga ABI smoke failed."
-            }
-          }
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
       - name: Pack native toolchain
         shell: pwsh
@@ -414,7 +336,7 @@ jobs:
               $package.FullName, [IO.Compression.ZipArchiveMode]::Update)
             try {
               foreach ($tool in @(
-                'llc', 'opt', 'llvm-as', 'llvm-dis', 'libsia_spirv_naga.so', 'naga',
+                'llc', 'opt', 'llvm-as', 'llvm-dis',
                 'spirv-as', 'spirv-dis', 'spirv-link', 'spirv-opt', 'spirv-val')) {
                 $archive.GetEntry("tools/linux-x64/$tool").ExternalAttributes = -2115174400
               }
@@ -446,14 +368,8 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
-      - name: Cache Naga Wasm
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            Sia.Spirv.Naga/target
-          key: sia-spirv-naga-browser-${{ hashFiles('Sia.Spirv.Naga/Cargo.lock') }}
+      - name: Install compiler WebAssembly workload
+        run: dotnet workload install wasm-tools
 
       - name: Cache wgpu browser archive
         id: wgpu-browser-cache
@@ -514,6 +430,7 @@ jobs:
             'Sia.RenderGraph/Sia.RenderGraph.csproj',
             'Sia.Spirv.Core/Sia.Spirv.Core.csproj',
             'Sia.Spirv.Runtime/Sia.Spirv.Runtime.csproj',
+            'Sia.Spirv.Compiler/Sia.Spirv.Compiler.csproj',
             'Sia.Spirv.Sdk/Sia.Spirv.Sdk.csproj',
             'Sia.Spirv.Bootstrap/Sia.Spirv.Bootstrap.csproj',
             'Sia.Spirv.Workload.Manifest/Sia.Spirv.Workload.Manifest.csproj',
@@ -528,8 +445,8 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "Packing '$project' failed." }
           }
           $packages = @(Get-ChildItem artifacts/packages/*.nupkg)
-          if ($packages.Count -ne 10) {
-            throw "Expected ten managed packages, found $($packages.Count)."
+          if ($packages.Count -ne 11) {
+            throw "Expected eleven managed packages, found $($packages.Count)."
           }
 
       - name: Upload managed packages
@@ -616,45 +533,41 @@ jobs:
             'packs/Sia.Spirv.Toolchain.${{ matrix.rid }}/' +
               '${{ needs.prepare.outputs.version }}/tools/${{ matrix.rid }}/spirv-val' +
               $suffix)
-          $naga = Join-Path $env:DOTNET_ROOT (
-            'packs/Sia.Spirv.Toolchain.${{ matrix.rid }}/' +
-            '${{ needs.prepare.outputs.version }}/tools/${{ matrix.rid }}/naga' +
-            $suffix)
+          $translator = Join-Path $env:DOTNET_ROOT (
+            'packs/Sia.Spirv.Sdk/${{ needs.prepare.outputs.version }}/tools/net11.0/Sia.Spirv.Tool.dll')
           foreach ($module in $modules) {
             & $validator --target-env vulkan1.2 $module.FullName
             if ($LASTEXITCODE -ne 0) {
               throw "Packaged spirv-val failed for '$($module.Name)'."
             }
             $wgsl = Join-Path $output "$($module.BaseName).wgsl"
-            & $naga $wgsl
+            dotnet $translator validate --input $wgsl
             if ($LASTEXITCODE -ne 0) {
-              throw "Packaged naga failed for '$([IO.Path]::GetFileName($wgsl))'."
+              throw "Packaged managed validation failed for '$([IO.Path]::GetFileName($wgsl))'."
             }
           }
           $sdkBrowser = Join-Path $env:DOTNET_ROOT (
             'packs/Sia.Spirv.Sdk/${{ needs.prepare.outputs.version }}/tools/browser')
-          $wasm = Join-Path $sdkBrowser 'sia-spirv-naga.wasm'
+          $runtime = Join-Path $sdkBrowser '_framework/dotnet.js'
           $loader = Join-Path $sdkBrowser 'sia-spirv-polyfill.js'
-          if (!(Test-Path -LiteralPath $wasm) -or !(Test-Path -LiteralPath $loader)) {
-            throw 'The packaged Naga browser ABI is incomplete.'
+          if (!(Test-Path -LiteralPath $runtime) -or !(Test-Path -LiteralPath $loader)) {
+            throw 'The packaged compiler browser bundle is incomplete.'
           }
-          $nodeSmoke = Join-Path $env:RUNNER_TEMP 'verify-naga-abi.mjs'
+          $nodeSmoke = Join-Path $env:RUNNER_TEMP 'verify-compiler-wasm.mjs'
           @'
           import { readFile } from 'node:fs/promises';
           import { pathToFileURL } from 'node:url';
 
-          const [loaderPath, wasmPath, spirvPath, expectedStage] = process.argv.slice(2);
-          const [{ createSpirvPolyfill }, wasm, spirv] = await Promise.all([
+          const [loaderPath, runtimePath, spirvPath, expectedStage] = process.argv.slice(2);
+          const [{ createSpirvPolyfill }, spirv] = await Promise.all([
             import(pathToFileURL(loaderPath)),
-            readFile(wasmPath),
             readFile(spirvPath),
           ]);
           const translate = await createSpirvPolyfill(
-            `data:application/wasm;base64,${wasm.toString('base64')}`);
+            pathToFileURL(runtimePath).href);
           const wgsl = translate(spirv);
-          translate.dispose();
           if (!wgsl.includes(expectedStage)) {
-            throw new Error(`Naga Wasm did not preserve '${expectedStage}'.`);
+            throw new Error(`Compiler Wasm did not preserve '${expectedStage}'.`);
           }
           '@ | Set-Content -LiteralPath $nodeSmoke -Encoding utf8NoBOM
           foreach ($module in $modules) {
@@ -665,9 +578,9 @@ jobs:
             } else {
               '@compute'
             }
-            node $nodeSmoke $loader $wasm $module.FullName $expectedStage
+            node $nodeSmoke $loader $runtime $module.FullName $expectedStage
             if ($LASTEXITCODE -ne 0) {
-              throw "The packaged Naga Wasm ABI failed for '$($module.Name)'."
+              throw "The packaged Compiler Wasm ABI failed for '$($module.Name)'."
             }
           }
 
@@ -720,6 +633,7 @@ jobs:
             'Sia.RenderGraph',
             'Sia.Spirv.Core',
             'Sia.Spirv.Runtime',
+            'Sia.Spirv.Compiler',
             'Sia.Spirv.Sdk',
             'Sia.Spirv.Bootstrap',
             'Sia.Spirv.Toolchain.win-x64',

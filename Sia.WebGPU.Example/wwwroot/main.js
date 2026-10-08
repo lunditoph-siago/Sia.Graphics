@@ -93,7 +93,7 @@ try {
     if (requiresSpirvTranslation) {
         const { createSpirvPolyfill } = await import('./spirv/sia-spirv-polyfill.js');
         translateSpirvToWgsl = await createSpirvPolyfill(
-            new URL('./spirv/sia-spirv-naga.wasm', import.meta.url));
+            new URL('./spirv/_framework/dotnet.js', import.meta.url).href);
     }
 
     Module.canvas = canvas;

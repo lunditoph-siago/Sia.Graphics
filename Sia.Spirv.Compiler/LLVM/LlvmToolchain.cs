@@ -72,8 +72,8 @@ public sealed class LlvmToolchain
 
     private static string GetDefaultPasses(string inputPath, int optimizationLevel) =>
         optimizationLevel == 0 || ContainsNativeAtomics(inputPath)
-            ? "sroa,mem2reg,structurizecfg,simplifycfg"
-            : "sroa,mem2reg,structurizecfg,simplifycfg,early-cse,sccp,adce," +
+            ? "sroa,mem2reg,lower-switch,structurizecfg,simplifycfg"
+            : "sroa,mem2reg,lower-switch,structurizecfg,simplifycfg,early-cse,sccp,adce," +
               "simplifycfg";
 
     private static string ValidatePasses(string passes)
@@ -154,12 +154,14 @@ public sealed class LlvmToolchain
 
     public void ConvertToWgsl(string spirvPath, string wgslPath)
     {
-        EnsureToolExists(ToolName("naga"));
         var temporaryPath = $"{wgslPath}.tmp.wgsl";
         try {
-            Run(ToolName("naga"), spirvPath, temporaryPath);
-            Run(ToolName("naga"), temporaryPath);
+            var wgsl = Translation.ShaderTranslator.SpirvToWgsl(File.ReadAllBytes(spirvPath));
+            File.WriteAllText(temporaryPath, wgsl);
             File.Move(temporaryPath, wgslPath, true);
+        }
+        catch (Translation.ShaderException exception) {
+            throw new InvalidDataException($"Managed WGSL translation failed: {exception.Message}", exception);
         }
         finally {
             File.Delete(temporaryPath);
@@ -177,16 +179,12 @@ public sealed class LlvmToolchain
 
     public string GetSpirvToolsVersion() => FirstLine(Run(ToolName("spirv-val"), "--version"));
 
-    public string GetNagaVersion()
-    {
-        EnsureToolExists(ToolName("naga"));
-        return FirstLine(Run(ToolName("naga"), "--version"));
-    }
+    public static string GetShaderTranslatorVersion() =>
+        $"Sia.Spirv.Compiler/{typeof(Translation.ShaderTranslator).Assembly.GetName().Version}";
 
-    public string GetNagaSha256()
+    public static string GetShaderTranslatorSha256()
     {
-        EnsureToolExists(ToolName("naga"));
-        using var stream = File.OpenRead(Path.Combine(Directory, ToolName("naga")));
+        using var stream = File.OpenRead(typeof(Translation.ShaderTranslator).Assembly.Location);
         return Convert.ToHexString(SHA256.HashData(stream));
     }
 

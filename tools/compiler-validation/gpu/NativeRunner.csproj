@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ShaderSourceId Condition="'$(ShaderSourceId)' == ''">unspecified</ShaderSourceId>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Sia.WebGPU" Version="0.0.20" />
+    <PackageReference Include="Sia.WebGPU.Native" Version="0.0.20" />
+    <ProjectReference Include="../../../Sia.Spirv.Compiler/Sia.Spirv.Compiler.csproj" />
+    <Compile Include="$(GpuDiagnosticsRoot)/scripts/Runner/Program.cs;$(GpuDiagnosticsRoot)/scripts/Runner/Models.cs;$(GpuDiagnosticsRoot)/scripts/Runner/TestContext.cs;$(GpuDiagnosticsRoot)/scripts/Runner/TestRegistry.cs" />
+    <Compile Include="$(IntermediateOutputPath)BuildInfo.g.cs" />
+    <EmbeddedResource Include="../../../Sia.Spirv.Compiler.Tests/bin/Release/net11.0/Sia.Spirv.Compiler.Tests.dll" LogicalName="fixtures/shaders.dll" />
+    <EmbeddedResource Include="../../../Sia.Spirv.Core/bin/Release/net10.0/Sia.Spirv.Core.dll" LogicalName="fixtures/intrinsics.dll" />
+    <EmbeddedResource Include="$(SpirvValidationArtifactsDirectory)/*.spv;$(SpirvValidationArtifactsDirectory)/*.wgsl" LogicalName="fixtures/%(Filename)%(Extension)" />
+  </ItemGroup>
+  <Target Name="ValidateRunnerInputs" BeforeTargets="CoreCompile">
+    <Error Condition="'$(GpuDiagnosticsRoot)' == '' or !Exists('$(GpuDiagnosticsRoot)/scripts/Runner/Program.cs')" Text="Pass GpuDiagnosticsRoot pointing to the sia-gpu-diagnostics skill." />
+    <Error Condition="'$(SpirvValidationArtifactsDirectory)' == '' or !Exists('$(SpirvValidationArtifactsDirectory)')" Text="Pass SpirvValidationArtifactsDirectory containing the static shader exports." />
+    <WriteLinesToFile File="$(IntermediateOutputPath)BuildInfo.g.cs" Overwrite="true"
+      Lines="namespace SiaGpuDiagnostics%3B internal static class BuildInfo { public const string RunId = &quot;compiler-managed&quot;%3B public const string SourceId = &quot;$(ShaderSourceId)&quot;%3B }" />
+  </Target>
+</Project>

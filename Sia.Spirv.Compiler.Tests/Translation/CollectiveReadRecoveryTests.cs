@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -39,23 +40,23 @@ public class CollectiveReadRecoveryTests
     public void OrderedNativeLoopsRetainUniformResultsAndBorrowTheirInput(bool raw)
     {
         var binary = raw ? SpirvSynchronizationTests.RawOrderedBinary()
-            : SpirvWriter.Write(WgslReader.Parse(SpirvSynchronizationTests.OrderedSource));
+            : SpirvWriter.Write(WgslReader.Parse(SpirvSynchronizationTests.OrderedSource), SpirvCompilationTarget.Default);
         var input = SpirvReader.Parse(binary);
         var graphs = Graphs(input); var before = Dump(graphs);
         Assert.Empty(UniformityAnalysis.Validate(input,graphs));
-        string wgsl = WgslWriter.Write(input);
+        string wgsl = WgslWriter.Write(input, SpirvCompilationTarget.Default);
         Assert.Contains("workgroupUniformLoad",wgsl);
         Assert.Empty(UniformityAnalysis.Validate(WgslReader.Parse(wgsl)));
         Assert.Equal(before,Dump(graphs));
-        Assert.Equal(wgsl,WgslWriter.Write(input));
+        Assert.Equal(wgsl,WgslWriter.Write(input, SpirvCompilationTarget.Default));
     }
 
     [Fact]
     public void HelperAndLoopRequirementsAreProvedForMultipleInvocations()
     {
-        var input = SpirvReader.Parse(SpirvWriter.Write(WgslReader.Parse(UniformLoop)));
+        var input = SpirvReader.Parse(SpirvWriter.Write(WgslReader.Parse(UniformLoop), SpirvCompilationTarget.Default));
         Assert.Empty(UniformityAnalysis.Validate(input));
-        string wgsl = WgslWriter.Write(input);
+        string wgsl = WgslWriter.Write(input, SpirvCompilationTarget.Default);
         Assert.Contains("workgroupUniformLoad",wgsl);
         Assert.Empty(UniformityAnalysis.Validate(WgslReader.Parse(wgsl)));
     }
@@ -75,8 +76,8 @@ public class CollectiveReadRecoveryTests
         string source = "var<workgroup> data:array<u32,4>;@group(0) @binding(0) var<storage,read_write> output:array<u32>;"
             + "fn read_at(i:u32)->u32{workgroupBarrier();let v=data[i];workgroupBarrier();return v;}"
             + "@compute @workgroup_size(4) fn main(@builtin(local_invocation_index) lane:u32){output[lane]="+calls+";}";
-        var input = SpirvReader.Parse(SpirvWriter.Write(WgslReader.Parse(source)));
-        string wgsl = WgslWriter.Write(input);
+        var input = SpirvReader.Parse(SpirvWriter.Write(WgslReader.Parse(source), SpirvCompilationTarget.Default));
+        string wgsl = WgslWriter.Write(input, SpirvCompilationTarget.Default);
         Assert.DoesNotContain("workgroupUniformLoad",wgsl);
         Assert.Empty(UniformityAnalysis.Validate(WgslReader.Parse(wgsl)));
     }
@@ -84,8 +85,8 @@ public class CollectiveReadRecoveryTests
     [Fact]
     public void RecoveryFailurePropagatesToDependentReadCandidates()
     {
-        var input = SpirvReader.Parse(SpirvWriter.Write(WgslReader.Parse(DivergentRead)));
-        string wgsl = WgslWriter.Write(input);
+        var input = SpirvReader.Parse(SpirvWriter.Write(WgslReader.Parse(DivergentRead), SpirvCompilationTarget.Default));
+        string wgsl = WgslWriter.Write(input, SpirvCompilationTarget.Default);
         Assert.DoesNotContain("workgroupUniformLoad",wgsl);
         Assert.Empty(UniformityAnalysis.Validate(WgslReader.Parse(wgsl)));
     }
@@ -96,7 +97,7 @@ public class CollectiveReadRecoveryTests
         const string source = "var<workgroup> data:array<u32,4>;@group(0) @binding(0) var<storage,read_write> output:array<u32>;"
             + "fn read_at(i:u32)->u32{workgroupBarrier();let v=data[i];workgroupBarrier();return v;}"
             + "@compute @workgroup_size(4) fn main(@builtin(local_invocation_index) lane:u32){output[lane]=read_at(0u);}";
-        string wgsl = ShaderTranslator.SpirvToWgsl(SpirvWriter.Write(WgslReader.Parse(source)));
+        string wgsl = ShaderTranslator.SpirvToWgsl(SpirvWriter.Write(WgslReader.Parse(source), SpirvCompilationTarget.Default), SpirvCompilationTarget.Default);
         Assert.Contains("workgroupUniformLoad",wgsl);
         Assert.Empty(UniformityAnalysis.Validate(WgslReader.Parse(wgsl)));
     }
@@ -112,9 +113,9 @@ public class CollectiveReadRecoveryTests
             + "@group(0) @binding(0) var<storage,read_write> output:array<u32>;fn opaque()->u32{return 7u;}"
             + "@compute @workgroup_size(4) fn main(@builtin(local_invocation_index) lane:u32){workgroupBarrier();let first=data[0];"
             + effect+"workgroupBarrier();output[lane]=first;}";
-        var input = SpirvReader.Parse(SpirvWriter.Write(WgslReader.Parse(source)));
+        var input = SpirvReader.Parse(SpirvWriter.Write(WgslReader.Parse(source), SpirvCompilationTarget.Default));
         Assert.Same(input,CollectiveReadRecovery.Run(input));
-        string wgsl = WgslWriter.Write(input);
+        string wgsl = WgslWriter.Write(input, SpirvCompilationTarget.Default);
         Assert.DoesNotContain("workgroupUniformLoad",wgsl);
     }
 
@@ -123,7 +124,7 @@ public class CollectiveReadRecoveryTests
     public void NativeAccessAndNonDefaultBarrierOperandsPreventRecovery(bool access)
     {
         var input = SpirvReader.Parse(SpirvWriter.Write(WgslReader.Parse(
-            "var<workgroup> data:u32;@group(0) @binding(0) var<storage,read_write> output:u32;@compute @workgroup_size(4) fn main(){output=workgroupUniformLoad(&data);}")));
+            "var<workgroup> data:u32;@group(0) @binding(0) var<storage,read_write> output:u32;@compute @workgroup_size(4) fn main(){output=workgroupUniformLoad(&data);}"), SpirvCompilationTarget.Default));
         var graphs = Graphs(input);
         var graph = graphs.Values.Single(g => g.Blocks.SelectMany(b => b.Instructions).Any(i => i.Operation is ValueOperation.Load { Pointer.Type: ShaderType.Pointer { Space:AddressSpace.Workgroup } }));
         var block = graph.Blocks.Single(b => b.Instructions.Any(i => i.Operation is ValueOperation.Load { Pointer.Type: ShaderType.Pointer { Space:AddressSpace.Workgroup } }));

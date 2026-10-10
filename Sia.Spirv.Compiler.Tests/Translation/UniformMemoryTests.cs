@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -31,7 +32,7 @@ public class UniformMemoryTests
     public void SelectedVolatileUniformComponentReadsOnlyTheSelectedLocation(bool dynamic)
     {
         var module = Fixture(1, dynamic); ModuleValidator.Validate(module);
-        var output = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var output = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         var types = output.Instructions.Where(i => (Op)i.Opcode == Op.TypeFloat).Select(i => i.Operands[0]).ToHashSet();
         var reads = output.Instructions.Where(i => (Op)i.Opcode == Op.Load && i.Operands.Length > 3 && i.Operands[3] == 1).ToArray();
         Assert.Equal(dynamic ? 2 : 1, reads.Length);
@@ -45,7 +46,7 @@ public class UniformMemoryTests
     [InlineData(32u, true)] [InlineData(48u, true)] [InlineData(55u, true)]
     public void DirectUniformLeafRetainsItsNativeMemoryOperands(uint flags, bool vulkan)
     {
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(Fixture(flags, vulkan: vulkan)));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(Fixture(flags, vulkan: vulkan), SpirvCompilationTarget.Default));
         var read = Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.Load);
         Assert.Equal(flags, read.Operands[3]);
         int index = 4;
@@ -72,17 +73,17 @@ public class UniformMemoryTests
     public void UniformPointerAliasesCaptureTheirDynamicIndexAtCreation()
     {
         var module = WgslReader.Parse(AliasSource); ModuleValidator.Validate(module);
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.Switch);
         Assert.DoesNotContain(binary.Instructions, i => (Op)i.Opcode == Op.Capability && i.Operands[0] is 4441 or 4442);
         ModuleValidator.Validate(SpirvReader.Parse(binary.ToBytes()));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(SpirvReader.Parse(binary.ToBytes()))));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(SpirvReader.Parse(binary.ToBytes()), SpirvCompilationTarget.Default)));
     }
 
     internal static SpirvBinary UnsupportedStrideFixture()
     {
         const string source = "struct Data{matrix:mat2x2f,tail:f32,}@group(0) @binding(0) var<storage,read> data:Data;@group(0) @binding(1) var<storage,read_write> output:array<f32>;@compute @workgroup_size(1) fn main(){output[0]=data.matrix[1][1];}";
-        var input = SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(source)));
+        var input = SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(source), SpirvCompilationTarget.Default));
         uint data = input.Instructions.Single(i => (Op)i.Opcode == Op.Name && SpirvBinary.ReadString(i.Operands.AsSpan(1), out _) == "Data").Operands[0];
         var code = input.Instructions.Select(i => (Op)i.Opcode == Op.MemberDecorate && i.Operands[0] == data && i.Operands[2] == 7
             ? new SpirvInstruction(i.Opcode, [i.Operands[0], i.Operands[1], 7, 16])
@@ -96,10 +97,10 @@ public class UniformMemoryTests
     {
         var module = SpirvReader.Parse(UnsupportedStrideFixture().ToBytes());
         ModuleValidator.Validate(module);
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Decorate && i.Operands is [_, 6, 16]);
         ModuleValidator.Validate(SpirvReader.Parse(binary.ToBytes()));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     internal static Module AggregateFixture(string kind, uint flags = 3, bool vulkan = false, MemoryDecorations memberMemory = MemoryDecorations.None)
@@ -127,7 +128,7 @@ public class UniformMemoryTests
     [InlineData("root", 4)] [InlineData("matrix", 2)] [InlineData("array", 4)]
     public void WholeUniformReadsSplitIntoDisjointQualifiedLeaves(string kind, int count)
     {
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(AggregateFixture(kind)));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(AggregateFixture(kind), SpirvCompilationTarget.Default));
         var reads = binary.Instructions.Where(i => (Op)i.Opcode == Op.Load).ToArray();
         Assert.Equal(count, reads.Length); Assert.All(reads, i => Assert.Equal(new uint[] { 1 }, i.Operands[3..]));
         ModuleValidator.Validate(SpirvReader.Parse(binary.ToBytes()));
@@ -137,7 +138,7 @@ public class UniformMemoryTests
     [InlineData(MemoryDecorations.Volatile, 1u)] [InlineData(MemoryDecorations.Coherent, 48u)]
     public void VulkanWholeRootReadQualifiesOnlyItsDecoratedMatrixColumns(MemoryDecorations decoration, uint mask)
     {
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(AggregateFixture("root", 0, true, decoration)));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(AggregateFixture("root", 0, true, decoration), SpirvCompilationTarget.Default));
         Assert.Equal(4, binary.Instructions.Count(i => (Op)i.Opcode == Op.Load));
         Assert.Equal(2, binary.Instructions.Count(i => (Op)i.Opcode == Op.Load && i.Operands.Length > 3 && i.Operands[3] == mask));
         ModuleValidator.Validate(SpirvReader.Parse(binary.ToBytes()));
@@ -167,7 +168,7 @@ public class UniformMemoryTests
     [MemberData(nameof(Shapes))]
     public void UniformDirectReadsCoverEveryConcreteMatrixShape(int columns, int rows, bool half)
     {
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(ShapeFixture(columns, rows, half)));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(ShapeFixture(columns, rows, half), SpirvCompilationTarget.Default));
         var floats = binary.Instructions.Where(i => (Op)i.Opcode == Op.TypeFloat && i.Operands[1] == (half ? 16 : 32)).Select(i => i.Operands[0]).ToHashSet();
         var reads = binary.Instructions.Where(i => (Op)i.Opcode == Op.Load && i.Operands.Length > 3 && i.Operands[3] == 1).ToArray();
         Assert.Equal(half || rows == 2 ? columns : 1, reads.Length); Assert.All(reads, i => Assert.Contains(i.Operands[0], floats));
@@ -190,7 +191,7 @@ public class UniformMemoryTests
     [Fact]
     public void NestedUniformArraysKeepOffsetsAndEvaluateIndexCallsOnce()
     {
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(NestedSource)));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(NestedSource), SpirvCompilationTarget.Default));
         uint column = binary.Instructions.Single(i => (Op)i.Opcode == Op.Name && SpirvBinary.ReadString(i.Operands.AsSpan(1), out _) == "column").Operands[0];
         Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.FunctionCall && i.Operands[2] == column);
         ModuleValidator.Validate(SpirvReader.Parse(binary.ToBytes()));
@@ -203,7 +204,7 @@ public class UniformMemoryTests
         string source = "enable wgpu_binding_array; struct Data{matrix:mat2x2f,tail:f32,}@group(0) @binding(0) var<uniform> data:binding_array<Data,2>;"
             + "@group(0) @binding(1) var<storage,read_write> output:array<f32>;@compute @workgroup_size(1) fn main(){"
             + (dynamic ? "let index=u32(output[0]);" : "const index=1u;") + "output[0]=data[index].matrix[1][1];}";
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(source)));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(source), SpirvCompilationTarget.Default));
         Assert.Equal(dynamic, binary.Instructions.Any(i => (Op)i.Opcode == Op.Capability && i.Operands[0] == 5306));
         uint element = binary.Instructions.Single(i => (Op)i.Opcode == Op.Name
             && SpirvBinary.ReadString(i.Operands.AsSpan(1), out _) == "SpirvUniform_Data").Operands[0];

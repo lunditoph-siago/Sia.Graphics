@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.Spirv;
@@ -115,8 +116,8 @@ public class PointerComparisonTests
     public void FinitePointerComparisonsRetainCapturedCoordinates(string kind, string mode, string relation, int indexWidth, bool privateSlot, int resultWidth)
     {
         var module = SpirvReader.Parse(Fixture(kind, mode, relation, indexWidth, privateSlot, resultWidth).ToBytes());
-        ModuleValidator.Validate(module); ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(module); ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory] [InlineData(false)] [InlineData(true)]

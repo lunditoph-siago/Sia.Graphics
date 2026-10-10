@@ -33,8 +33,8 @@ internal static class SpirvCommandLine
                     var output = GetRequired(values, "output");
                     if (!Path.GetExtension(output).Equals(spirv ? ".wgsl" : ".spv", StringComparison.OrdinalIgnoreCase))
                         throw new ArgumentException("Output must use the other supported shader format.");
-                    if (spirv) File.WriteAllText(output, ShaderTranslator.SpirvToWgsl(File.ReadAllBytes(input)));
-                    else File.WriteAllBytes(output, ShaderTranslator.WgslToSpirv(File.ReadAllText(input)));
+                    if (spirv) File.WriteAllText(output, ShaderTranslator.SpirvToWgsl(File.ReadAllBytes(input), SpirvCompilationTarget.Default));
+                    else File.WriteAllBytes(output, ShaderTranslator.WgslToSpirv(File.ReadAllText(input), SpirvCompilationTarget.Default));
                 }
                 return 0;
             }

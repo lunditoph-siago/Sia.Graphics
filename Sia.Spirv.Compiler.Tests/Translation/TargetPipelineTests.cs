@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -17,13 +18,13 @@ public class TargetPipelineTests
         var functions = input.Functions.ToArray();
         var bodies = functions.Select(f => f.Body).ToArray();
         var enables = input.Enables.Order().ToArray();
-        var native = SpirvWriter.Write(input);
+        var native = SpirvWriter.Write(input, SpirvCompilationTarget.Default);
 
-        var wgsl = WgslWriter.Write(input);
+        var wgsl = WgslWriter.Write(input, SpirvCompilationTarget.Default);
         ModuleValidator.Validate(WgslReader.Parse(wgsl));
-        Assert.Equal(native, SpirvWriter.Write(input));
-        Assert.Equal(SpirvBinary.Parse(native).ToWords(), SpirvWriter.WriteWords(input));
-        Assert.Equal(wgsl, WgslWriter.Write(input));
+        Assert.Equal(native, SpirvWriter.Write(input, SpirvCompilationTarget.Default));
+        Assert.Equal(SpirvBinary.Parse(native).ToWords(), SpirvWriter.WriteWords(input, SpirvCompilationTarget.Default));
+        Assert.Equal(wgsl, WgslWriter.Write(input, SpirvCompilationTarget.Default));
         Assert.Equal(globals, input.Globals);
         Assert.Equal(functions, input.Functions);
         Assert.Equal(enables, input.Enables.Order());
@@ -37,16 +38,16 @@ public class TargetPipelineTests
     {
         var input = WgslReader.Parse(QueryHelperTests.ControlSource);
         var helpers = input.Functions.ToArray();
-        var native = SpirvWriter.Write(input);
-        var wgsl = WgslWriter.Write(input);
+        var native = SpirvWriter.Write(input, SpirvCompilationTarget.Default);
+        var wgsl = WgslWriter.Write(input, SpirvCompilationTarget.Default);
         Assert.DoesNotContain("fn step", wgsl);
         Assert.DoesNotContain("fn truth", wgsl);
         Assert.Equal(helpers, input.Functions);
         Assert.Contains(input.Functions, f => f.Name == "step"
             && f.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.RayQuery }));
-        Assert.Equal(native, SpirvWriter.Write(input));
-        Assert.Equal(SpirvBinary.Parse(native).ToWords(), SpirvWriter.WriteWords(input));
-        Assert.Equal(wgsl, WgslWriter.Write(input));
+        Assert.Equal(native, SpirvWriter.Write(input, SpirvCompilationTarget.Default));
+        Assert.Equal(SpirvBinary.Parse(native).ToWords(), SpirvWriter.WriteWords(input, SpirvCompilationTarget.Default));
+        Assert.Equal(wgsl, WgslWriter.Write(input, SpirvCompilationTarget.Default));
         ModuleValidator.Validate(SpirvReader.Parse(native));
         ModuleValidator.Validate(WgslReader.Parse(wgsl));
     }
@@ -57,19 +58,19 @@ public class TargetPipelineTests
         var input = WgslReader.Parse("@id(7) override size:u32; @compute @workgroup_size(size) fn main(){}");
         var constant = Assert.Single(input.Constants);
         var dimension = input.Functions[0].WorkgroupSize[0];
-        var wgsl = WgslWriter.Write(input);
-        Assert.Throws<ShaderException>(() => SpirvWriter.Write(input,
+        var wgsl = WgslWriter.Write(input, SpirvCompilationTarget.Default);
+        Assert.Throws<ShaderException>(() => SpirvWriter.Write(input, SpirvCompilationTarget.Default,
             new() { PipelineConstants = new Dictionary<string, double> { ["missing"] = 4 } }));
         var options = new SpirvWriteOptions { PipelineConstants = new Dictionary<string, double> { ["7"] = 4 } };
-        var native = SpirvWriter.Write(input, options);
-        Assert.Equal(SpirvBinary.Parse(native).ToWords(), SpirvWriter.WriteWords(input, options));
+        var native = SpirvWriter.Write(input, SpirvCompilationTarget.Default, options);
+        Assert.Equal(SpirvBinary.Parse(native).ToWords(), SpirvWriter.WriteWords(input, SpirvCompilationTarget.Default, options));
         Assert.Contains(SpirvBinary.Parse(native).Instructions,
             i => (Op)i.Opcode == Op.ExecutionMode && i.Operands.Skip(1).SequenceEqual(new uint[] { 17, 4, 1, 1 }));
         Assert.Same(constant, Assert.Single(input.Constants));
         Assert.True(constant.IsOverride);
         Assert.Null(constant.Value);
         Assert.Same(dimension, input.Functions[0].WorkgroupSize[0]);
-        Assert.Equal(wgsl, WgslWriter.Write(input));
+        Assert.Equal(wgsl, WgslWriter.Write(input, SpirvCompilationTarget.Default));
     }
 
     [Fact]

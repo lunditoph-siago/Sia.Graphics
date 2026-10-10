@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -61,17 +62,17 @@ public class MemoryAccessTests
     {
         var module = SpirvReader.Parse(Fixture(loadFlags, storeFlags, vulkan).ToBytes()); ModuleValidator.Validate(module);
         var resolved = PipelineConstantResolver.Resolve(module, new Dictionary<string, double>());
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(resolved));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(resolved, SpirvCompilationTarget.Default));
         Assert.Equal(Operands(loadFlags, 5), Access(binary, Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.Load && i.Operands.Length > 3), 3));
         Assert.Equal(Operands(storeFlags, 5), Access(binary, Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.Store && i.Operands.Length > 2), 2));
         ModuleValidator.Validate(SpirvReader.Parse(binary.ToBytes()));
         if ((loadFlags & (8 | 16)) == 0 && (storeFlags & (8 | 16)) == 0 || vulkan)
         {
-            string text = WgslWriter.Write(module); ModuleValidator.Validate(WgslReader.Parse(text));
+            string text = WgslWriter.Write(module, SpirvCompilationTarget.Default); ModuleValidator.Validate(WgslReader.Parse(text));
             Assert.Equal((loadFlags & 1) != 0 || (storeFlags & 1) != 0, text.Contains("@volatile"));
             Assert.Equal(((loadFlags | storeFlags) & 24) != 0, text.Contains("@coherent"));
         }
-        else Assert.Contains("availability/visibility", Assert.Throws<ShaderException>(() => WgslWriter.Write(module)).Message);
+        else Assert.Contains("availability/visibility", Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default)).Message);
     }
 
     [Theory]
@@ -79,7 +80,7 @@ public class MemoryAccessTests
     public void OneCopyMaskIsSplitBetweenReadAndWrite(uint flags, bool vulkan)
     {
         var module = SpirvReader.Parse(Fixture(flags, flags, vulkan, copy: true).ToBytes());
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Equal(Operands(flags & ~8u, 5), Access(binary, Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.Load && i.Operands.Length > 3), 3));
         Assert.Equal(Operands(flags & ~16u, 5), Access(binary, Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.Store && i.Operands.Length > 2), 2));
     }
@@ -89,7 +90,7 @@ public class MemoryAccessTests
     public void CopyMasksKeepSourceAndTargetRequirementsSeparate(uint loadFlags, uint storeFlags)
     {
         var module = SpirvReader.Parse(Fixture(loadFlags, storeFlags, true, copy: true, separate: true).ToBytes());
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Equal(Operands(loadFlags, 5), Access(binary, Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.Load && i.Operands.Length > 3), 3));
         Assert.Equal(Operands(storeFlags, 5), Access(binary, Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.Store && i.Operands.Length > 2), 2));
     }
@@ -102,27 +103,27 @@ public class MemoryAccessTests
         var code = input.Instructions.Select(i => (Op)i.Opcode is Op.Load or Op.Store or Op.CopyMemory
             ? I((Op)i.Opcode, i.Operands.Concat(new uint[] { 3, 4 }).ToArray()) : i).ToArray();
         var module = SpirvReader.Parse(new SpirvBinary { Bound = input.Bound, Instructions = code }.ToBytes());
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(PipelineConstantResolver.Resolve(module, new Dictionary<string, double>())));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(PipelineConstantResolver.Resolve(module, new Dictionary<string, double>()), SpirvCompilationTarget.Default));
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.AtomicIAdd);
         Assert.DoesNotContain(binary.Instructions, i => (Op)i.Opcode is Op.AtomicLoad or Op.AtomicStore);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Load && i.Operands.Length > 3 && i.Operands[3] == 1);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Store && i.Operands.Length > 2 && i.Operands[2] == 1);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory]
     [InlineData(0u)] [InlineData(1u)] [InlineData(7u)] [InlineData(32u)] [InlineData(48u)]
     public void CooperativeAccessesKeepTheirNativeOperands(uint flags)
     {
-        var input = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(CooperativeMatrixTests.Source));
+        var input = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(CooperativeMatrixTests.Source, SpirvCompilationTarget.Default));
         uint scopeId = input.Instructions.First(i => (Op)i.Opcode == Op.Constant && i.Operands[2] == 3).Operands[1];
         var code = input.Instructions.Select(i => (Op)i.Opcode == Op.CooperativeMatrixLoadKHR ? I((Op)i.Opcode, i.Operands.Concat(Operands(flags, scopeId)).ToArray())
             : (Op)i.Opcode == Op.CooperativeMatrixStoreKHR ? I((Op)i.Opcode, i.Operands.Concat(Operands((flags & ~16u) | ((flags & 16) != 0 ? 8u : 0u), scopeId)).ToArray()) : i).ToArray();
         var module = SpirvReader.Parse(new SpirvBinary { Version = input.Version, Bound = input.Bound, Instructions = code }.ToBytes());
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(PipelineConstantResolver.Resolve(module, new Dictionary<string, double>())));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(PipelineConstantResolver.Resolve(module, new Dictionary<string, double>()), SpirvCompilationTarget.Default));
         Assert.All(binary.Instructions.Where(i => (Op)i.Opcode == Op.CooperativeMatrixLoadKHR), i => Assert.Equal(Operands(flags, 3), Access(binary, i, 5)));
-        if ((flags & 16) != 0) Assert.Contains("availability/visibility", Assert.Throws<ShaderException>(() => WgslWriter.Write(module)).Message);
-        else ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        if ((flags & 16) != 0) Assert.Contains("availability/visibility", Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default)).Message);
+        else ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -139,8 +140,8 @@ public class MemoryAccessTests
         var module = WgslReader.Parse("var<workgroup> x:u32; @compute @workgroup_size(1) fn main(){x=1u;}");
         var store = Assert.IsType<Statement.Store>(module.Functions[0].Body.Statements[0]);
         module.Functions[0].Body.Statements[0] = store with { MemoryAccess = new(1) };
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        Assert.Contains("proven WGSL storage-buffer root", Assert.Throws<ShaderException>(() => WgslWriter.Write(module)).Message);
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        Assert.Contains("proven WGSL storage-buffer root", Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default)).Message);
     }
 
     [Theory]
@@ -152,7 +153,7 @@ public class MemoryAccessTests
         if (alias) source = atomic ? source.Replace("fn main(){", "fn main(){let p=&x;").Replace("atomicAdd(&x,", "atomicAdd(p,").Replace("atomicCompareExchangeWeak(&x,", "atomicCompareExchangeWeak(p,")
             : source.Replace("fn main(){x=x+1u;}", "fn main(){let p=&x;*p=*p+1u;}");
         var module = WgslReader.Parse(source); module.VulkanMemoryModel = true;
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.DoesNotContain(binary.Instructions, i => (Op)i.Opcode == Op.Decorate && i.Operands[1] == 21);
         if (atomic)
         {
@@ -167,10 +168,10 @@ public class MemoryAccessTests
             Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Store && i.Operands.Length > 2 && i.Operands[2] == 1);
         }
         var back = SpirvReader.Parse(binary.ToBytes());
-        if (atomic) Assert.Contains("volatile strong compare/exchange", Assert.Throws<ShaderException>(() => WgslWriter.Write(back)).Message);
+        if (atomic) Assert.Contains("volatile strong compare/exchange", Assert.Throws<ShaderException>(() => WgslWriter.Write(back, SpirvCompilationTarget.Default)).Message);
         else
         {
-            var text = WgslWriter.Write(back); Assert.Contains("@volatile", text);
+            var text = WgslWriter.Write(back, SpirvCompilationTarget.Default); Assert.Contains("@volatile", text);
             ModuleValidator.Validate(WgslReader.Parse(text));
         }
     }
@@ -209,7 +210,7 @@ public class MemoryAccessTests
         var global = new Expression.Reference("backing", pointer);
         module.Functions[0].Body.Statements.Add(new Statement.Evaluate(new Expression.Call("helper", [new Expression.Unary("&", global, pointer)], new ShaderType.Void())));
         ModuleValidator.Validate(module);
-        Assert.Contains("proven WGSL storage-buffer root", Assert.Throws<ShaderException>(() => WgslWriter.Write(module)).Message);
+        Assert.Contains("proven WGSL storage-buffer root", Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default)).Message);
         Assert.Equal(MemoryDecorations.None, module.Globals[0].MemoryDecorations);
     }
 
@@ -221,9 +222,9 @@ public class MemoryAccessTests
         var code = input.Instructions.ToList();
         if (!vulkan) code.Insert(code.FindIndex(i => (Op)i.Opcode == Op.TypeVoid), I(Op.Decorate, 20, 21));
         var module = SpirvReader.Parse(new SpirvBinary { Bound = input.Bound, Instructions = code }.ToBytes());
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.AtomicCompareExchange);
-        Assert.Contains("cannot be duplicated", Assert.Throws<ShaderException>(() => WgslWriter.Write(module)).Message);
+        Assert.Contains("cannot be duplicated", Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default)).Message);
     }
 
     [Theory]

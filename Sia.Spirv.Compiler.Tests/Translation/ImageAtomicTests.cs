@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -27,7 +28,7 @@ public class ImageAtomicTests
     public void StorageImageOperationsPreserveTypeAndAccess(string format, string value, string operation, object expected)
     {
         string source = $"@group(0) @binding(0) var image: texture_storage_2d<{format}, atomic>; @compute @workgroup_size(1) fn main() {{ {operation}(image, vec2i(0), {value}); }}";
-        byte[] bytes = ShaderTranslator.WgslToSpirv(source); var binary = SpirvBinary.Parse(bytes);
+        byte[] bytes = ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default); var binary = SpirvBinary.Parse(bytes);
         var pointer = binary.Instructions.Single(i => (Op)i.Opcode == Op.ImageTexelPointer);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.TypePointer && i.Operands[0] == pointer.Operands[0] && i.Operands[1] == 11);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == (Op)expected && i.Operands[2] == pointer.Operands[1]);
@@ -39,8 +40,8 @@ public class ImageAtomicTests
         }
         var module = SpirvReader.Parse(bytes); ModuleValidator.Validate(module);
         Assert.Equal(StorageAccess.ReadWrite | StorageAccess.Atomic, Assert.IsType<ShaderType.Image>(Assert.Single(module.Globals).Type).Access);
-        string wgsl = WgslWriter.Write(module); Assert.Contains(operation + "(", wgsl); Assert.Contains(format + ", atomic>", wgsl);
-        ModuleValidator.Validate(SpirvReader.Parse(ShaderTranslator.WgslToSpirv(wgsl)));
+        string wgsl = WgslWriter.Write(module, SpirvCompilationTarget.Default); Assert.Contains(operation + "(", wgsl); Assert.Contains(format + ", atomic>", wgsl);
+        ModuleValidator.Validate(SpirvReader.Parse(ShaderTranslator.WgslToSpirv(wgsl, SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -49,8 +50,8 @@ public class ImageAtomicTests
     public void DimensionsAndMixedWidthArrayIndicesRoundtrip(string dimension, string coordinates)
     {
         string source = $"@group(0) @binding(0) var image: texture_storage_{dimension}<r32uint, atomic>; @compute @workgroup_size(1) fn main() {{ textureAtomicAdd(image, {coordinates}, 1u); }}";
-        byte[] bytes = ShaderTranslator.WgslToSpirv(source);
-        string wgsl = ShaderTranslator.SpirvToWgsl(bytes);
+        byte[] bytes = ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default);
+        string wgsl = ShaderTranslator.SpirvToWgsl(bytes, SpirvCompilationTarget.Default);
         ModuleValidator.Validate(WgslReader.Parse(wgsl));
         if (dimension == "2d_array")
         {
@@ -63,12 +64,12 @@ public class ImageAtomicTests
     public void BindingArrayIndexIsPreservedInTexelPointer()
     {
         const string source = "enable wgpu_binding_array; @group(0) @binding(0) var images: binding_array<texture_storage_2d<r32uint, atomic>, 2>; @compute @workgroup_size(1) fn main(@builtin(local_invocation_index) index: u32) { textureAtomicAdd(images[index], vec2i(0), 1u); }";
-        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(source));
+        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default));
         var texel = binary.Instructions.Single(i => (Op)i.Opcode == Op.ImageTexelPointer);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.AccessChain && i.Operands[1] == texel.Operands[2]);
         var module = SpirvReader.Parse(binary.ToBytes()); ModuleValidator.Validate(module);
         Assert.Equal(StorageAccess.ReadWrite | StorageAccess.Atomic, Assert.IsType<ShaderType.Image>(Assert.IsType<ShaderType.BindingArray>(Assert.Single(module.Globals, g => g.Space == AddressSpace.Handle).Type).Element).Access);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -86,15 +87,15 @@ public class ImageAtomicTests
     [InlineData("r32sint", "atomic", "textureAtomicAdd", "vec2i(0), 1")]
     public void UnsupportedImageAtomicsAreRejected(string format, string access, string operation, string arguments)
     {
-        Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv($"@group(0) @binding(0) var image: texture_storage_2d<{format}, {access}>; @compute @workgroup_size(1) fn main() {{ {operation}(image, {arguments}); }}"));
+        Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv($"@group(0) @binding(0) var image: texture_storage_2d<{format}, {access}>; @compute @workgroup_size(1) fn main() {{ {operation}(image, {arguments}); }}", SpirvCompilationTarget.Default));
     }
 
     [Fact]
     public void AtomicAccessAlsoSupportsBufferAtomicsAndTextureLoadStore()
     {
         const string source = "@group(0) @binding(0) var<storage, atomic> data: atomic<u32>; @group(0) @binding(1) var image: texture_storage_2d<r32uint, atomic>; @compute @workgroup_size(1) fn main() { atomicAdd(&data, 1u); let v = textureLoad(image, vec2i(0)); textureStore(image, vec2i(0), v); }";
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(WgslReader.Parse(source))));
-        ModuleValidator.Validate(WgslReader.Parse(ShaderTranslator.SpirvToWgsl(ShaderTranslator.WgslToSpirv(source))));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(WgslReader.Parse(source), SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(ShaderTranslator.SpirvToWgsl(ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default), SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -102,7 +103,7 @@ public class ImageAtomicTests
     [InlineData("@compute @workgroup_size(1) fn main() { let value = textureAtomicAdd(image, vec2i(0), 1u); }")]
     public void TextureParametersAndValueReturningCallsAreRejected(string function)
     {
-        Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv("@group(0) @binding(0) var image: texture_storage_2d<r32uint, atomic>; " + function));
+        Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv("@group(0) @binding(0) var image: texture_storage_2d<r32uint, atomic>; " + function, SpirvCompilationTarget.Default));
     }
 
     [Theory]
@@ -112,7 +113,7 @@ public class ImageAtomicTests
         var module = new Module(); var function = new ShaderFunction("convert") { ReturnType = ShaderType.U32 };
         function.Body.Statements.Add(new Statement.Return(new Expression.Convert(ShaderType.U32, new Expression.Literal(input, new ShaderType.Scalar(ScalarKind.Uint, 8)))));
         module.Functions.Add(function);
-        string wgsl = WgslWriter.Write(module); Assert.Contains($"return {expected}u;", wgsl);
+        string wgsl = WgslWriter.Write(module, SpirvCompilationTarget.Default); Assert.Contains($"return {expected}u;", wgsl);
         var parsed = WgslReader.Parse(wgsl); ModuleValidator.Validate(parsed);
         Assert.Equal(expected, Assert.IsType<Expression.Literal>(Assert.IsType<Statement.Return>(Assert.Single(Assert.Single(parsed.Functions).Body.Statements)).Value).Value);
     }
@@ -131,7 +132,7 @@ public class ImageAtomicTests
     public void IndependentSpirvInputAndCopiedTexelPointersAreAccepted()
     {
         var input = Input(I(Op.CopyObject, 6, 23, 22), I(Op.AtomicUMax, 2, 24, 23, 12, 11, 12));
-        string wgsl = ShaderTranslator.SpirvToWgsl(input.ToBytes()); Assert.Contains("textureAtomicMax", wgsl);
+        string wgsl = ShaderTranslator.SpirvToWgsl(input.ToBytes(), SpirvCompilationTarget.Default); Assert.Contains("textureAtomicMax", wgsl);
         ModuleValidator.Validate(WgslReader.Parse(wgsl));
     }
 
@@ -155,27 +156,27 @@ public class ImageAtomicTests
     public void ImageAtomicScopeAndOrderingAreRetained(uint scope, uint semantics, bool vulkan)
     {
         var module = SpirvReader.Parse(MemoryFixture(scope, semantics, vulkan).ToBytes()); ModuleValidator.Validate(module);
-        var native = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var native = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         var operation = Assert.Single(native.Instructions, i => (Op)i.Opcode == Op.AtomicUMax);
         var constants = native.Instructions.Where(i => (Op)i.Opcode == Op.Constant).ToDictionary(i => i.Operands[1], i => i.Operands[2]);
         Assert.Equal(scope, constants[operation.Operands[3]]); Assert.Equal(semantics, constants[operation.Operands[4]]);
         Assert.Equal(vulkan, SpirvReader.Parse(native.ToBytes()).VulkanMemoryModel);
-        if (semantics == 0) ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
-        else Assert.Contains("no equivalent WGSL relaxed builtin", Assert.Throws<ShaderException>(() => WgslWriter.Write(module)).Message);
+        if (semantics == 0) ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
+        else Assert.Contains("no equivalent WGSL relaxed builtin", Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default)).Message);
     }
 
     [Theory]
     [InlineData(Op.AtomicISub)][InlineData(Op.AtomicExchange)][InlineData(Op.AtomicSMin)]
     public void UnsupportedOrMistypedSpirvAtomicOpcodesAreRejected(object operation)
     {
-        Assert.Throws<ShaderException>(() => ShaderTranslator.SpirvToWgsl(Input(I((Op)operation, 2, 24, 22, 12, 11, 12)).ToBytes()));
+        Assert.Throws<ShaderException>(() => ShaderTranslator.SpirvToWgsl(Input(I((Op)operation, 2, 24, 22, 12, 11, 12)).ToBytes(), SpirvCompilationTarget.Default));
     }
 
     [Fact]
     public void ConsumedSpirvOldValueIsRejectedInsteadOfBeingDiscarded()
     {
         var input = Input(I(Op.AtomicUMax, 2, 24, 22, 12, 11, 12), I(Op.IAdd, 2, 25, 24, 12));
-        var error = Assert.Throws<ShaderException>(() => ShaderTranslator.SpirvToWgsl(input.ToBytes()));
+        var error = Assert.Throws<ShaderException>(() => ShaderTranslator.SpirvToWgsl(input.ToBytes(), SpirvCompilationTarget.Default));
         Assert.Contains("result is used", error.Message);
     }
 }

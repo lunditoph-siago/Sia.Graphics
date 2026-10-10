@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -77,7 +78,7 @@ public class CanonicalResourceHandleTests
         var module = new Module(); module.Enables.UnionWith(canonical.Declarations.Enables);
         module.Globals.AddRange(canonical.Declarations.Globals); module.Structures.AddRange(canonical.Declarations.Structures);
         module.Functions.Add(adapted); ModuleValidator.Validate(module);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Fact]

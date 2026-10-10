@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -45,6 +46,6 @@ public class PointerAliasTests
     {
         var input = WgslReader.Parse(source); PointerAliasAnalysis.Validate(input);
         var output = CanonicalShaderPipeline.Run(input); PointerAliasAnalysis.Validate(output);
-        _ = WgslReader.Parse(WgslWriter.Write(output)); _ = SpirvReader.Parse(SpirvWriter.Write(output));
+        _ = WgslReader.Parse(WgslWriter.Write(output, SpirvCompilationTarget.Default)); _ = SpirvReader.Parse(SpirvWriter.Write(output, SpirvCompilationTarget.Default));
     }
 }

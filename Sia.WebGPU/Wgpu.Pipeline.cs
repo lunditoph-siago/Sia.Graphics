@@ -52,7 +52,7 @@ public static unsafe partial class Wgpu
         }
 #if SIA_WEBGPU_BACKEND_DAWN
         return CreateWgslShaderModule(device,
-            Sia.Spirv.Compiler.Translation.ShaderTranslator.SpirvToWgsl(spirv), label);
+            Sia.Spirv.Compiler.Translation.ShaderTranslator.SpirvToWgsl(spirv, Sia.Spirv.Compiler.Compilation.SpirvCompilationTarget.Default), label);
 #else
         if (!BitConverter.IsLittleEndian) {
             throw new PlatformNotSupportedException(
@@ -73,7 +73,7 @@ public static unsafe partial class Wgpu
 #if SIA_WEBGPU_BACKEND_DAWN
         return CreateWgslShaderModule(
             device,
-            Sia.Spirv.Compiler.Translation.ShaderTranslator.SpirvToWgsl(MemoryMarshal.AsBytes(spirv)),
+            Sia.Spirv.Compiler.Translation.ShaderTranslator.SpirvToWgsl(MemoryMarshal.AsBytes(spirv), Sia.Spirv.Compiler.Compilation.SpirvCompilationTarget.Default),
             label);
 #else
         using var labelString = WgpuOwnedString.Create(label);

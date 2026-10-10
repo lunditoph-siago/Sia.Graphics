@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -100,7 +101,7 @@ public class WorkgroupMemoryTests
     public void InitializationAndBodyKeepWorkgroupMemoryRequirements(string kind, MemoryDecorations decoration)
     {
         var module = Fixture(kind, decoration); ModuleValidator.Validate(module);
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module)); var pointers = Pointers(binary, 4).ToHashSet();
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)); var pointers = Pointers(binary, 4).ToHashSet();
         var constants = binary.Instructions.Where(i => (Op)i.Opcode == Op.Constant).ToDictionary(i => i.Operands[1], i => i.Operands[2]);
         var loads = binary.Instructions.Where(i => (Op)i.Opcode == Op.Load && pointers.Contains(i.Operands[2])).ToArray();
         var stores = binary.Instructions.Where(i => (Op)i.Opcode == Op.Store && pointers.Contains(i.Operands[0])).ToArray();
@@ -122,10 +123,10 @@ public class WorkgroupMemoryTests
     public void NativeRoundtripCannotInsertAnotherVolatileInitialization()
     {
         var module = Fixture("scalar", MemoryDecorations.Volatile); module.VulkanMemoryModel = false;
-        var original = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var original = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         var imported = PipelineConstantResolver.Resolve(SpirvReader.Parse(original.ToBytes()), new Dictionary<string, double>());
         imported.VulkanMemoryModel = true;
-        var output = SpirvBinary.Parse(SpirvWriter.Write(imported));
+        var output = SpirvBinary.Parse(SpirvWriter.Write(imported, SpirvCompilationTarget.Default));
         int Stores(SpirvBinary binary) { var pointers = Pointers(binary, 4).ToHashSet(); return binary.Instructions.Count(i => (Op)i.Opcode == Op.Store && pointers.Contains(i.Operands[0])); }
         Assert.Equal(Stores(original), Stores(output));
     }
@@ -133,9 +134,9 @@ public class WorkgroupMemoryTests
     [Fact]
     public void SpecializedInitializationUsesThePipelineLengthWithoutAnArrayZeroConstructor()
     {
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(Fixture("specialized", MemoryDecorations.None)));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(Fixture("specialized", MemoryDecorations.None), SpirvCompilationTarget.Default));
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.LoopMerge);
-        var parsed = WgslReader.Parse(WgslWriter.Write(SpirvReader.Parse(binary.ToBytes())));
+        var parsed = WgslReader.Parse(WgslWriter.Write(SpirvReader.Parse(binary.ToBytes()), SpirvCompilationTarget.Default));
         ModuleValidator.Validate(parsed);
     }
 
@@ -144,7 +145,7 @@ public class WorkgroupMemoryTests
     public void ImplicitPlaceReadsAlsoRetainSelectedWorkgroupRequirements(bool array)
     {
         var module = ImplicitFixture(array, MemoryDecorations.Volatile);
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         var pointers = Pointers(binary, 4).ToHashSet();
         var loads = binary.Instructions.Where(i => (Op)i.Opcode == Op.Load && pointers.Contains(i.Operands[2]) && i.Operands.Length > 3 && i.Operands[3] == 49).ToArray();
         Assert.Equal(3, loads.Length);
@@ -163,7 +164,7 @@ public class WorkgroupMemoryTests
         main.Body.Statements.Add(new Statement.Store(new Expression.Reference("output", new ShaderType.Pointer(ShaderType.U32, AddressSpace.Storage)),
             new Expression.Load(shared) { MemoryAccess = new(48, VisibleScope: scope) }));
         module.Functions.Add(main);
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         var constants = binary.Instructions.Where(i => (Op)i.Opcode == Op.Constant).ToDictionary(i => i.Operands[1], i => i.Operands[2]);
         Assert.Equal(scope, constants[Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.Load).Operands[4]]);
         Assert.Equal(scope, constants[Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.Store && i.Operands.Length > 3).Operands[3]]);
@@ -175,7 +176,7 @@ public class WorkgroupMemoryTests
     [InlineData(false)] [InlineData(true)]
     public void TaskPayloadVolatileMembersUseLegalOrdinaryOrAtomicFlags(bool atomic)
     {
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(TaskFixture(atomic, MemoryDecorations.Volatile)));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(TaskFixture(atomic, MemoryDecorations.Volatile), SpirvCompilationTarget.Default));
         if (atomic)
         {
             var constants = binary.Instructions.Where(i => (Op)i.Opcode == Op.Constant).ToDictionary(i => i.Operands[1], i => i.Operands[2]);
@@ -194,14 +195,14 @@ public class WorkgroupMemoryTests
     [Fact]
     public void TaskPayloadCoherenceCannotDisappearUnderTheVulkanModel()
     {
-        Assert.Contains("non-private lowering", Assert.Throws<ShaderException>(() => SpirvWriter.Write(TaskFixture(false, MemoryDecorations.Coherent))).Message);
+        Assert.Contains("non-private lowering", Assert.Throws<ShaderException>(() => SpirvWriter.Write(TaskFixture(false, MemoryDecorations.Coherent), SpirvCompilationTarget.Default)).Message);
     }
 
     [Theory]
     [InlineData(MemoryDecorations.None)] [InlineData(MemoryDecorations.Volatile)] [InlineData(MemoryDecorations.Coherent)]
     public void MeshPublishingReadsKeepSelectedWorkgroupRequirements(MemoryDecorations decoration)
     {
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(MeshFixture(decoration))); var pointers = Pointers(binary, 4).ToHashSet();
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(MeshFixture(decoration), SpirvCompilationTarget.Default)); var pointers = Pointers(binary, 4).ToHashSet();
         var loads = binary.Instructions.Where(i => (Op)i.Opcode == Op.Load && pointers.Contains(i.Operands[2])).ToArray();
         Assert.Equal(4, loads.Length);
         Assert.All(loads, i => Assert.Equal(48u, i.Operands[3] & ~1u));

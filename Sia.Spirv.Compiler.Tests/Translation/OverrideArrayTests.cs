@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -21,13 +22,13 @@ public class OverrideArrayTests
         var original = Assert.IsType<ShaderType.Array>(module.Globals[0].Type);
         Assert.Null(original.Length); Assert.NotNull(original.OverrideLength);
         Assert.Throws<ShaderException>(() => TypeLayout.Of(original));
-        var back = WgslReader.Parse(WgslWriter.Write(module)); ModuleValidator.Validate(back);
+        var back = WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)); ModuleValidator.Validate(back);
         var resolved = PipelineConstantResolver.Resolve(back, new Dictionary<string, double> { ["n"] = 3 });
         var array = Assert.IsType<ShaderType.Array>(resolved.Globals[0].Type);
         Assert.Equal(expected, array.Length); Assert.Null(array.OverrideLength);
         Assert.Equal(expected * 4, TypeLayout.Of(array).Size);
-        Assert.NotEmpty(SpirvWriter.Write(resolved));
-        Assert.NotEmpty(ShaderTranslator.WgslToSpirv(WgslWriter.Write(resolved)));
+        Assert.NotEmpty(SpirvWriter.Write(resolved, SpirvCompilationTarget.Default));
+        Assert.NotEmpty(ShaderTranslator.WgslToSpirv(WgslWriter.Write(resolved, SpirvCompilationTarget.Default), SpirvCompilationTarget.Default));
         Assert.NotNull(original.OverrideLength); Assert.Null(original.Length);
     }
 
@@ -41,13 +42,13 @@ public class OverrideArrayTests
         string body = pointer ? "data[0]=1u;" : "_=fetch(data);";
         var module = WgslReader.Parse($"override n=4u; var<workgroup> data:array<u32,n>; fn fetch(p:{argument})->u32 {{ return {access}; }} @compute @workgroup_size(1) fn main() {{ {body} }}");
         ModuleValidator.Validate(module);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
         var resolved = PipelineConstantResolver.Resolve(module, new Dictionary<string, double> { ["n"] = 3 });
         ShaderType parameter = resolved.Functions[0].Arguments[0].Type;
         if (parameter is ShaderType.Pointer p) parameter = p.Base;
         Assert.Equal(3u, Assert.IsType<ShaderType.Array>(parameter).Length);
-        Assert.NotEmpty(SpirvWriter.Write(resolved));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(resolved)));
+        Assert.NotEmpty(SpirvWriter.Write(resolved, SpirvCompilationTarget.Default));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(resolved, SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -56,11 +57,11 @@ public class OverrideArrayTests
     public void BindingArrayLengthsResolve(string element, string expression)
     {
         var module = WgslReader.Parse($"enable wgpu_binding_array; override n:u32; @group(0) @binding(0) var data:binding_array<{element},n>; @compute @workgroup_size(1) fn main() {{ _={expression}; }}");
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
         var resolved = PipelineConstantResolver.Resolve(module, new Dictionary<string, double> { ["n"] = 5 });
         var array = Assert.IsType<ShaderType.BindingArray>(resolved.Globals[0].Type);
         Assert.Equal(5u, array.Length); Assert.Null(array.OverrideLength);
-        Assert.NotEmpty(SpirvWriter.Write(resolved));
+        Assert.NotEmpty(SpirvWriter.Write(resolved, SpirvCompilationTarget.Default));
     }
 
     [Fact]
@@ -69,9 +70,9 @@ public class OverrideArrayTests
         var module = WgslReader.Parse("@id(7) override n:u32; var<workgroup> data:array<u32,n>; @compute @workgroup_size(1) fn main() { let n=9u; data[0]=n; }");
         var resolved = PipelineConstantResolver.Resolve(module, new Dictionary<string, double> { ["7"] = 3 });
         Assert.Equal(3u, Assert.IsType<ShaderType.Array>(resolved.Globals[0].Type).Length);
-        Assert.NotEmpty(SpirvWriter.Write(module, new() { PipelineConstants = new Dictionary<string, double> { ["7"] = 3 } }));
+        Assert.NotEmpty(SpirvWriter.Write(module, SpirvCompilationTarget.Default, new() { PipelineConstants = new Dictionary<string, double> { ["7"] = 3 } }));
         Assert.Throws<ShaderException>(() => PipelineConstantResolver.Resolve(module, new Dictionary<string, double>()));
-        Assert.Throws<ShaderException>(() => SpirvWriter.Write(module));
+        Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, SpirvCompilationTarget.Default));
     }
 
     [Theory]
@@ -81,7 +82,7 @@ public class OverrideArrayTests
     {
         var module = WgslReader.Parse($"override n={defaultValue}; var<workgroup> data:array<u32,n>; @compute @workgroup_size(1) fn main() {{}} ");
         ModuleValidator.Validate(module);
-        Assert.Throws<ShaderException>(() => SpirvWriter.Write(module));
+        Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Throws<ShaderException>(() => PipelineConstantResolver.Resolve(module, new Dictionary<string, double>()));
         Assert.Throws<ShaderException>(() => PipelineConstantResolver.Resolve(module, new Dictionary<string, double> { ["n"] = invalid }));
         Assert.Equal(3u, Assert.IsType<ShaderType.Array>(PipelineConstantResolver.Resolve(module, new Dictionary<string, double> { ["n"] = 3 }).Globals[0].Type).Length);
@@ -101,13 +102,13 @@ public class OverrideArrayTests
     [InlineData("override n=4u; fn helper(p:ptr<workgroup,array<u32,n>>) {}")]
     public void InvalidArrayLengthUsesAreRejectedBeforeResolution(string source)
     {
-        Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv(source, new() { PipelineConstants = new Dictionary<string, double> { ["n"] = 3 } }));
+        Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default, new() { PipelineConstants = new Dictionary<string, double> { ["n"] = 3 } }));
     }
 
     [Fact]
     public void SpirvSpecializedArrayLengthIsNotCollapsedIntoRuntimeOrDefaultLength()
     {
-        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv("var<workgroup> data:array<u32,3>; @compute @workgroup_size(1) fn main() { data[0]=1u; }"));
+        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv("var<workgroup> data:array<u32,3>; @compute @workgroup_size(1) fn main() { data[0]=1u; }", SpirvCompilationTarget.Default));
         uint lengthId = binary.Instructions.First(i => (Op)i.Opcode == Op.TypeArray).Operands[2];
         var instructions = binary.Instructions.Select(i => (Op)i.Opcode == Op.Constant && i.Operands[1] == lengthId ? i with { Opcode = (ushort)Op.SpecConstant } : i).ToList();
         int firstType = instructions.FindIndex(i => (Op)i.Opcode == Op.TypeVoid || (Op)i.Opcode == Op.TypeInt);
@@ -118,7 +119,7 @@ public class OverrideArrayTests
         Assert.Null(array.Length); Assert.NotNull(array.OverrideLength);
         var resolved = PipelineConstantResolver.Resolve(module, new Dictionary<string, double> { ["7"] = 5 });
         Assert.Equal(5u, Assert.IsType<ShaderType.Array>(resolved.Globals.Single(g => g.Space == AddressSpace.Workgroup).Type).Length);
-        Assert.NotEmpty(SpirvWriter.Write(resolved));
+        Assert.NotEmpty(SpirvWriter.Write(resolved, SpirvCompilationTarget.Default));
     }
 
     [Fact]
@@ -132,8 +133,8 @@ public class OverrideArrayTests
         body.Add(new Statement.Store(new Expression.Access(place, Expression.U32(0), new ShaderType.Pointer(ShaderType.U32, AddressSpace.Workgroup)), Expression.U32(7)));
         body.Add(new Statement.Declare("result", ShaderType.U32, new Expression.Call("fetch", [new Expression.Reference("saved", array)], ShaderType.U32), false));
         ModuleValidator.Validate(module);
-        Assert.Throws<ShaderException>(() => WgslWriter.Write(module));
-        Assert.NotEmpty(SpirvWriter.Write(PipelineConstantResolver.Resolve(module, new Dictionary<string, double>())));
+        Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default));
+        Assert.NotEmpty(SpirvWriter.Write(PipelineConstantResolver.Resolve(module, new Dictionary<string, double>()), SpirvCompilationTarget.Default));
     }
 
     [Theory]
@@ -162,7 +163,7 @@ public class OverrideArrayTests
         var module = WgslReader.Parse($"@id(7) override n=3u; var<workgroup> data:array<{element},n+1u>; @compute @workgroup_size(1) fn main() {{ {store} }}");
         var length = Assert.Single(module.Constants, c => c.IsSpecialization);
         Assert.Throws<ShaderException>(() => PipelineConstantResolver.Resolve(module, new Dictionary<string, double> { [length.Name] = 9 }));
-        byte[] bytes = SpirvWriter.Write(module);
+        byte[] bytes = SpirvWriter.Write(module, SpirvCompilationTarget.Default);
         var binary = SpirvBinary.Parse(bytes);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.SpecConstantOp);
         Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.Decorate && i.Operands[1] == 1);
@@ -170,7 +171,7 @@ public class OverrideArrayTests
         var reread = SpirvReader.Parse(bytes); ModuleValidator.Validate(reread);
         var resolved = PipelineConstantResolver.Resolve(reread, new Dictionary<string, double> { ["7"] = 8 });
         Assert.Equal(9u, Assert.IsType<ShaderType.Array>(resolved.Globals.Single(g => g.Space == AddressSpace.Workgroup).Type).Length);
-        Assert.NotEmpty(SpirvWriter.Write(resolved));
+        Assert.NotEmpty(SpirvWriter.Write(resolved, SpirvCompilationTarget.Default));
     }
 
     [Theory]
@@ -179,7 +180,7 @@ public class OverrideArrayTests
     public void UnresolvedBindingArrayCountUsesItsSpecializationId(string element)
     {
         var module = WgslReader.Parse($"enable wgpu_binding_array; @id(7) override n=3u; @group(0) @binding(0) var data:binding_array<{element},n>; @compute @workgroup_size(1) fn main() {{}} ");
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         uint countId = Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.TypeArray).Operands[2];
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.SpecConstant && i.Operands[1] == countId);
         var reread = SpirvReader.Parse(binary.ToBytes()); ModuleValidator.Validate(reread);
@@ -191,11 +192,11 @@ public class OverrideArrayTests
     public void SpirvPendingArrayTemporariesRoundtripButWgslLocalsStillRequireResolution()
     {
         var module = WgslReader.Parse("@id(7) override n=3u; var<workgroup> data:array<u32,n>; fn fetch(p:array<u32,n>)->u32 { return p[0]; } @compute @workgroup_size(1) fn main() { _=fetch(data); }");
-        var reread = SpirvReader.Parse(SpirvWriter.Write(module)); ModuleValidator.Validate(reread);
-        Assert.NotEmpty(SpirvWriter.Write(reread));
-        Assert.Throws<ShaderException>(() => WgslWriter.Write(reread));
+        var reread = SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)); ModuleValidator.Validate(reread);
+        Assert.NotEmpty(SpirvWriter.Write(reread, SpirvCompilationTarget.Default));
+        Assert.Throws<ShaderException>(() => WgslWriter.Write(reread, SpirvCompilationTarget.Default));
         var resolved = PipelineConstantResolver.Resolve(reread, new Dictionary<string, double> { ["7"] = 5 });
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(resolved)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(resolved, SpirvCompilationTarget.Default)));
         Assert.Throws<ShaderException>(() => WgslReader.Parse("override n=3u; @compute @workgroup_size(1) fn main() { var local:array<u32,n>; }"));
     }
 }

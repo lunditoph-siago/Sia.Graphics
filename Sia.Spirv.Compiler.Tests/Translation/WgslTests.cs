@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -75,7 +76,7 @@ public class WgslTests
     [Fact]
     public void PointerIndexUsesAutomaticDereference()
     {
-        string output = WgslWriter.Write(WgslReader.Parse("fn f() -> i32 { var a = array<i32, 1>(42); let p = &a; return p[0]; }"));
+        string output = WgslWriter.Write(WgslReader.Parse("fn f() -> i32 { var a = array<i32, 1>(42); let p = &a; return p[0]; }"), SpirvCompilationTarget.Default);
         Assert.Contains("(*p)[0i]", output);
     }
 
@@ -106,7 +107,7 @@ public class WgslTests
         var place = new Expression.Reference("data", new ShaderType.Pointer(array, AddressSpace.Private));
         function.Body.Statements.Add(new Statement.Store(new Expression.Access(place, Expression.U32(1), new ShaderType.Pointer(ShaderType.U32, AddressSpace.Private)), Expression.U32(7)));
         module.Functions.Add(function);
-        string output = WgslWriter.Write(module);
+        string output = WgslWriter.Write(module, SpirvCompilationTarget.Default);
         Assert.Contains("@size(16) value: u32", output);
         Assert.Contains("data[1u].value = 7u", output);
         Assert.Equal((uint)64, TypeLayout.Of(array).Size);

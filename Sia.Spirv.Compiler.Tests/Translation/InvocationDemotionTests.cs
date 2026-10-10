@@ -54,7 +54,7 @@ public class InvocationDemotionTests
     [Theory] [InlineData(0u, 19u, 99u, false)] [InlineData(1u, 43u, 23u, true)]
     public void DiscardKeepsLocalComputationAndHelperReturns(uint input, uint first, uint second, bool demoted)
     {
-        var module = WgslReader.Parse(Source); byte[] binary = SpirvWriter.Write(module); string text = WgslWriter.Write(module);
+        var module = WgslReader.Parse(Source); byte[] binary = SpirvWriter.Write(module, SpirvCompilationTarget.Default); string text = WgslWriter.Write(module, SpirvCompilationTarget.Default);
         Assert.Contains(SpirvBinary.Parse(binary).Instructions, i => i.Opcode == 5380);
         Assert.DoesNotContain(SpirvBinary.Parse(binary).Instructions, i => (Op)i.Opcode == Op.Kill);
         foreach (var candidate in new[] { module, WgslReader.Parse(text), SpirvReader.Parse(binary) }) {
@@ -83,7 +83,7 @@ public class InvocationDemotionTests
         var module = SpirvReader.ReadBinary(source, traces: traces);
         Assert.Contains(traces, t => t.Pass == "native-cfg-import" && t.Before.Contains("helper-demote effects="));
         Assert.Equal(before, source.ToBytes());
-        foreach (var candidate in new[] { module, WgslReader.Parse(WgslWriter.Write(module)), SpirvReader.Parse(SpirvWriter.Write(module)) }) {
+        foreach (var candidate in new[] { module, WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)), SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)) }) {
             var machine = new CanonicalExecution(candidate, [input]); Assert.Equal(new[] { first, second }, machine.Run().Output);
             Assert.Equal(demoted, machine.InvocationKilled);
         }
@@ -93,9 +93,9 @@ public class InvocationDemotionTests
     public void ExplicitTerminationRetainsNativeOpcodeAndTypedWgslReturn(bool pointer)
     {
         var source = TerminateFixture(pointer); byte[] before = source.ToBytes(); var module = SpirvReader.Parse(before);
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module)); Assert.Contains(binary.Instructions, i => i.Opcode == 4416);
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)); Assert.Contains(binary.Instructions, i => i.Opcode == 4416);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Extension && SpirvBinary.ReadString(i.Operands, out _) == "SPV_KHR_terminate_invocation");
-        _ = WgslReader.Parse(WgslWriter.Write(module)); Assert.Equal(before, source.ToBytes());
+        _ = WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)); Assert.Equal(before, source.ToBytes());
     }
 
     [Theory] [InlineData(false)] [InlineData(true)]
@@ -114,9 +114,7 @@ public class InvocationDemotionTests
     public void DemotionOutputRespectsExplicitCapabilityPolicy()
     {
         var module = WgslReader.Parse(Source);
-        var error = Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, new() {
-            Target = SpirvCompilationTarget.Default with { AllowedCapabilities = ImmutableHashSet.Create(1u) }
-        }));
+        var error = Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, SpirvCompilationTarget.Default with { AllowedCapabilities = ImmutableHashSet.Create(1u) }));
         Assert.Contains("5379", error.Message);
         var early = Assert.Throws<ShaderException>(() => ShaderTargetValidator.ValidateModule(module,
             SpirvCompilationTarget.Default with { AllowedCapabilities = ImmutableHashSet.Create(1u) }, resources: false));
@@ -144,17 +142,15 @@ public class InvocationDemotionTests
         var target = SpirvCompilationTarget.Default with { AllowedExtensions = ImmutableHashSet<string>.Empty };
         var early = Assert.Throws<ShaderException>(() => ShaderTargetValidator.ValidateModule(module, target, resources: false));
         Assert.Equal(DiagnosticStage.SpirvWrite, early.Diagnostic.Stage); Assert.Contains("extension", early.Message);
-        Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, new() { Target = target }));
-        _ = SpirvWriter.Write(module, new() { Target = target with { Version = 0x10600, Environment = "vulkan1.3" } });
+        Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, target));
+        _ = SpirvWriter.Write(module, target with { Version = 0x10600, Environment = "vulkan1.3" });
     }
 
     [Theory] [InlineData(false)] [InlineData(true)]
     public void Spirv16OutputUsesCoreInvocationInstructionsWithoutExtensions(bool terminate)
     {
         var module = terminate ? SpirvReader.Parse(TerminateFixture().ToBytes()) : WgslReader.Parse(Source);
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, new() {
-            Target = SpirvCompilationTarget.Default with { Version = 0x10600, Environment = "vulkan1.3" }
-        }));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default with { Version = 0x10600, Environment = "vulkan1.3" }));
         Assert.Equal(0x10600u, binary.Version);
         Assert.Contains(binary.Instructions, i => i.Opcode == (terminate ? 4416 : 5380));
         Assert.DoesNotContain(binary.Instructions, i => (Op)i.Opcode == Op.Extension &&

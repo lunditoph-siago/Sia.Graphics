@@ -6,9 +6,6 @@ namespace Sia.Spirv.Compiler.Translation.Back;
 
 public static partial class WgslWriter
 {
-    /// <summary>Legalize and emit WGSL without modifying the caller's module.</summary>
-    public static string Write(Module module) => Emit(ShaderTargetLowering.ForWgsl(module));
-
     /// <summary>Prepare WGSL using an explicit ABI/stage/resource target contract.</summary>
     public static string Write(Module module, SpirvCompilationTarget target)
     {

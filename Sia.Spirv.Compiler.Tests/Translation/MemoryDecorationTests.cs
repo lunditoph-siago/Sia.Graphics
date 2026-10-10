@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -22,12 +23,12 @@ public class MemoryDecorationTests
         Assert.Equal(expected, Assert.Single(module.Globals).MemoryDecorations);
         var resolved = PipelineConstantResolver.Resolve(module, new Dictionary<string, double> { ["value"] = 4 });
         Assert.Equal(expected, Assert.Single(resolved.Globals).MemoryDecorations);
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(resolved));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(resolved, SpirvCompilationTarget.Default));
         Assert.Equal((expected & MemoryDecorations.Coherent) != 0, binary.Instructions.Any(i => (Op)i.Opcode == Op.Decorate && i.Operands[1] == 23));
         Assert.Equal((expected & MemoryDecorations.Volatile) != 0, binary.Instructions.Any(i => (Op)i.Opcode == Op.Decorate && i.Operands[1] == 21));
         var back = SpirvReader.Parse(binary.ToBytes()); ModuleValidator.Validate(back);
         Assert.Equal(expected, back.Globals.Single(g => g.Space == AddressSpace.Storage).MemoryDecorations);
-        var wgsl = WgslReader.Parse(WgslWriter.Write(back)); ModuleValidator.Validate(wgsl);
+        var wgsl = WgslReader.Parse(WgslWriter.Write(back, SpirvCompilationTarget.Default)); ModuleValidator.Validate(wgsl);
         Assert.Equal(expected, wgsl.Globals.Single(g => g.Space == AddressSpace.Storage).MemoryDecorations);
     }
 
@@ -42,7 +43,7 @@ public class MemoryDecorationTests
     [InlineData("fn main() { @volatile var value = 1; }")]
     public void MisplacedAndArgumentBearingMemoryAttributesAreRejected(string source)
     {
-        Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv(source));
+        Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default));
     }
 
     [Fact]

@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -94,7 +95,7 @@ public class CanonicalWgslTargetTests
     [Fact]
     public void CollectiveReadRecoveryUsesOwnedHelperEffectsAndPreservesSsa()
     {
-        var input = SpirvReader.Parse(SpirvWriter.Write(WgslReader.Parse(Collective)));
+        var input = SpirvReader.Parse(SpirvWriter.Write(WgslReader.Parse(Collective), SpirvCompilationTarget.Default));
         var canonical = CanonicalShaderPipeline.Prepare(input); Poison(canonical);
         var before = canonical.Functions.ToDictionary(p => p.Key, p => ControlFlowPrinter.Write(p.Value));
         var helper = Assert.Single(canonical.Functions.Values, g => g.Signature.Stage is null && g.Signature.ReturnType == ShaderType.U32);

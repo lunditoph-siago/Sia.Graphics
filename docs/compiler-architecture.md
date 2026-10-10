@@ -29,8 +29,10 @@ migration. No new public interface or dependency is introduced.
 
 The user approved removal of public legacy APIs on 2026-10-10, allowing breaking
 changes. Public CIL/file/options adapters and request forwarding properties are removed.
-Writer overloads with implicit legacy target defaults currently remain;
-their removal and maintained consumer migration are the next architecture scope.
+Writer and translator entry points now require an explicit target, and writer
+options no longer duplicate that target. The implicit-target paths are removed,
+and maintained consumers have migrated. Internal frontend/target deferrals and
+full consumer/research convergence remain the next architecture scope.
 
 WGSL invocation termination now lowers on owned CFGs before structured
 reconstruction. Shared CFG relocation handles terminating continuing constructs;
@@ -369,8 +371,15 @@ binding allocation still require separate proof. These checks do not replace
 external environment validation, complete uniformity or device feature negotiation.
 Output format remains selected by the writer/file output flag; coordinate/depth,
 workgroup initialization and instruction policies still reside in writer options.
-Omitting `SpirvWriteOptions.Target` or using the original WGSL writer preserves
-legacy writer behavior, so full CLI/SDK/translator cutover remains pending.
+`SpirvWriter.Write(module, target, options)` and `WriteWords` require a target;
+`WgslWriter.Write(module, target)` has no target-free overload. Both translator
+directions also require the target before optional reader/writer options. Null or
+invalid translator targets fail before parsing input. There is no implicit writer
+version selection: callers explicitly choose `SpirvCompilationTarget.Default`
+(1.5) or another valid version. LocalSizeId callers select Vulkan 1.3 or universal
+explicitly. CLI translation and Dawn's managed fallback choose the shared default.
+Maintained tests/exporters and native/browser consumers have migrated; external
+source/binary consumers must update and recompile.
 
 `ShaderTargetLowering` composes the existing passes as fixed internal functions;
 each boundary runs `ModuleValidator`. WGSL memory and layout transformations
@@ -384,7 +393,7 @@ this does not make the public mutable IR safe for concurrent caller mutation.
 | Requested route | Existing composition | Current limit |
 | --- | --- | --- |
 | IL -> WGSL | `CompileModule` -> `WgslWriter.Write` | Supported CIL/intrinsics and WGSL-representable shader features |
-| IL -> SPIR-V | `CompileModule` -> `SpirvWriter.Write` with request target; offline route above also exists | Explicit target constrains version/stage/capability policy; legacy writer retains automatic version behavior |
+| IL -> SPIR-V | `CompileModule` -> `SpirvWriter.Write` with required request target; offline route above also exists | Target constrains version/stage/capability policy on every public route |
 | WGSL -> SPIR-V | `ShaderTranslator.WgslToSpirv` -> WGSL reader -> IR -> SPIR-V writer | Overrides may need `SpirvWriteOptions.PipelineConstants`; optional LocalSizeId needs matching target support |
 | SPIR-V -> WGSL | `ShaderTranslator.SpirvToWgsl` -> SPIR-V reader -> IR -> WGSL writer | Native capability/memory/pointer features without equivalent WGSL produce diagnostics |
 

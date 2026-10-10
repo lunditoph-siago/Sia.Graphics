@@ -11,7 +11,7 @@ if (args.Length > 3 && args[3] == "static") {
     foreach (var kernel in entries) File.WriteAllText(Path.Combine(args[2],kernel.QualifiedName+".diagnostic.ll"),new Sia.Spirv.Compiler.LLVM.LlvmIrEmitter().Emit(args[0],kernel,SpirvKernelAbi.WebGpu).Text);
     compiler.CompileAssembly(new SpirvFileCompilationRequest(args[0], args[2]) { EmitWgsl = false, OptimizationLevel = 3 });
     foreach (var path in Directory.GetFiles(args[2], "*.spv")) {
-        File.WriteAllText(Path.ChangeExtension(path,".wgsl"), Sia.Spirv.Compiler.Translation.ShaderTranslator.SpirvToWgsl(File.ReadAllBytes(path)));
+        File.WriteAllText(Path.ChangeExtension(path,".wgsl"), Sia.Spirv.Compiler.Translation.ShaderTranslator.SpirvToWgsl(File.ReadAllBytes(path), SpirvCompilationTarget.Default));
     }
     return;
 }
@@ -19,7 +19,7 @@ foreach (var kernel in entries) {
     var name = kernel.DeclaringType.Split('.').Last()+"-"+kernel.Name;
     var request = new SpirvModuleCompilationRequest(input, kernel.MetadataToken, core);
     var module = compiler.CompileModule(request);
-    File.WriteAllBytes(Path.Combine(args[2], name+".spv"), SpirvWriter.Write(module, new() { Target = request.Target }));
+    File.WriteAllBytes(Path.Combine(args[2], name+".spv"), SpirvWriter.Write(module, request.Target));
     File.WriteAllText(Path.Combine(args[2], name+".wgsl"), WgslWriter.Write(module, request.Target));
     Console.WriteLine(name);
 }

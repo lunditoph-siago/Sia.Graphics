@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -95,7 +96,7 @@ public class SpirvIntegerLegalizationTests
         Assert.Equal(2, prepared.Functions.Count(f => f.Name.StartsWith("sia_spv_integer_", StringComparison.Ordinal)));
         var bytes = SpirvWriter.Emit(SpirvPhysicalLayoutLowering.Prepare(prepared)).ToBytes();
         ModuleValidator.Validate(SpirvReader.Parse(bytes));
-        Assert.Equal(SpirvBinary.Parse(SpirvWriter.Write(module)).ToWords(), SpirvWriter.WriteWords(module));
+        Assert.Equal(SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)).ToWords(), SpirvWriter.WriteWords(module, SpirvCompilationTarget.Default));
     }
 
     [Fact]
@@ -107,8 +108,8 @@ public class SpirvIntegerLegalizationTests
         var helper = Assert.Single(signed.Functions, f => f.Name.StartsWith("sia_spv_integer_", StringComparison.Ordinal));
         Assert.DoesNotContain(helper.Body.Statements, s => s is Statement.Declare { Name: "safe_divisor" });
         Assert.DoesNotContain(SpirvWriter.Emit(SpirvPhysicalLayoutLowering.Prepare(signed)).Instructions, i => (Op)i.Opcode == Op.SRem);
-        var prepared = ShaderTargetLowering.ForSpirv(WgslReader.Parse(Unsigned), null, false, true, true);
-        var bytes = SpirvWriter.Write(WgslReader.Parse(Unsigned), new(EmitIntegerDivisionChecks: false));
+        var prepared = ShaderTargetLowering.ForSpirv(WgslReader.Parse(Unsigned), null, false, true, true, version: SpirvCompilationTarget.Default.Version);
+        var bytes = SpirvWriter.Write(WgslReader.Parse(Unsigned), SpirvCompilationTarget.Default, new(EmitIntegerDivisionChecks: false));
         Assert.Equal(SpirvWriter.Emit(prepared).ToBytes(), bytes);
         foreach (var candidate in new[] { unsigned, SpirvReader.Parse(bytes) })
             Assert.Equal(new uint[] { 7, 3 }, new CanonicalExecution(candidate, [31, 4]).Run().Output);
@@ -131,6 +132,6 @@ public class SpirvIntegerLegalizationTests
         var prepared = ShaderTargetLowering.ForSpirv(module, null);
         Assert.Equal(prepared.Functions.Count, prepared.Functions.Select(f => f.Name).Distinct().Count());
         Assert.Equal(original, WgslWriter.Emit(module));
-        Assert.Equal(SpirvWriter.Write(module), SpirvWriter.Write(module));
+        Assert.Equal(SpirvWriter.Write(module, SpirvCompilationTarget.Default), SpirvWriter.Write(module, SpirvCompilationTarget.Default));
     }
 }

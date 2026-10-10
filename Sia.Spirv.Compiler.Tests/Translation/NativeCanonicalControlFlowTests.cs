@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Legalization;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
@@ -99,7 +100,7 @@ public class NativeCanonicalControlFlowTests
 
     private static void CheckRoutes(Module module, uint[] input, uint[] expected, int[]? reads = null)
     {
-        foreach (var candidate in new[] { module, WgslReader.Parse(WgslWriter.Write(module)), SpirvReader.Parse(SpirvWriter.Write(module)) }) {
+        foreach (var candidate in new[] { module, WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)), SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)) }) {
             var actual = new CanonicalExecution(candidate, input).Run(); Assert.Equal(expected, actual.Output);
             if (reads is not null) Assert.Equal(reads, actual.Reads);
         }
@@ -127,14 +128,14 @@ public class NativeCanonicalControlFlowTests
             "continuing" => CanonicalControlFlowTests.ContinuingBreakIf, "scope" => CanonicalControlFlowTests.BodyContinuingScope,
             _ => CanonicalControlFlowTests.SignedShift
         };
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(source)));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(source), SpirvCompilationTarget.Default));
         CheckRoutes(ReadNative(binary), [input], [first, second], family is "or" or "and" ? [0] : null);
     }
 
     [Fact]
     public void CapturedIndexRemainsAReadAtItsOriginalPosition()
     {
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(CanonicalControlFlowTests.CapturedIndex)));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(CanonicalControlFlowTests.CapturedIndex), SpirvCompilationTarget.Default));
         CheckRoutes(ReadNative(binary), [1, 5], [6, 0], [0, 1, 0]);
     }
 
@@ -160,7 +161,7 @@ public class NativeCanonicalControlFlowTests
     public void PendingSpecializationArrayRecordsItsMigrationDeferralWithoutResolvingDefaults()
     {
         var binary = SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(
-            "@id(7) override n=3u;var<workgroup> data:array<u32,n>;@compute @workgroup_size(1) fn main(){data[0]=1u;}")));
+            "@id(7) override n=3u;var<workgroup> data:array<u32,n>;@compute @workgroup_size(1) fn main(){data[0]=1u;}"), SpirvCompilationTarget.Default));
         var traces = new List<CanonicalPassTrace>(); var deferrals = new List<CanonicalDeferral>();
         var module = SpirvReader.ReadBinary(binary, traces: traces, deferrals: deferrals);
         Assert.Contains(deferrals, d => d.Function == "<SPIR-V>" && d.Feature.Contains("specialization-sized arrays", StringComparison.Ordinal));

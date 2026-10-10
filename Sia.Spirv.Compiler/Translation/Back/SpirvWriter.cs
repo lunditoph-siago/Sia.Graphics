@@ -8,8 +8,6 @@ namespace Sia.Spirv.Compiler.Translation.Back;
 public sealed record SpirvWriteOptions(bool AdjustCoordinateSpace = true, bool ClampFragmentDepth = true,
     bool ZeroInitializeWorkgroupMemory = true, bool EmitIntegerDivisionChecks = true)
 {
-    /// <summary>Explicit target contract. Null retains the legacy writer's automatic version/unrestricted feature policy.</summary>
-    public SpirvCompilationTarget? Target { get; init; }
     /// <summary>Resolve WGSL overrides before writing. Keys are explicit decimal IDs or names for overrides without IDs.</summary>
     public IReadOnlyDictionary<string, double>? PipelineConstants { get; init; }
     /// <summary>Emit unresolved workgroup sizes with LocalSizeId. Vulkan targets require maintenance4 (Vulkan 1.3), or equivalent target support.</summary>

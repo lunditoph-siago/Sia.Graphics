@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.Spirv;
@@ -84,8 +85,8 @@ public class PointerNullTests
     {
         var module = SpirvReader.Parse(Fixture(kind, mode, allNull, equality, privateSlot).ToBytes());
         ModuleValidator.Validate(module);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory] [InlineData(false)] [InlineData(true)]
@@ -118,7 +119,7 @@ public class PointerNullTests
         int comparison = code.FindIndex(i => (Op)i.Opcode == Op.PtrNotEqual);
         code[comparison] = code[comparison] with { Operands = [.. code[comparison].Operands[..3], code[comparison].Operands[2]] };
         var module = SpirvReader.Parse(new SpirvBinary { Version = binary.Version, Bound = binary.Bound, Instructions = code }.ToBytes());
-        ModuleValidator.Validate(module); ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(module); ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Fact]
@@ -136,6 +137,6 @@ public class PointerNullTests
             I(Op.FunctionParameter, boolType, condition), I(Op.Label, label), I(Op.Select, choice[0], selected, condition, p, q),
             I(Op.Load, dataType, loaded, selected), I(Op.Return), I(Op.FunctionEnd)]);
         var module = SpirvReader.Parse(new SpirvBinary { Version = binary.Version, Bound = next, Instructions = code }.ToBytes());
-        ModuleValidator.Validate(module); ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(module); ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 }

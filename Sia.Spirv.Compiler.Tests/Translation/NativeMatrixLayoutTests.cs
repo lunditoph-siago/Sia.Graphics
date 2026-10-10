@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -47,7 +48,7 @@ public class NativeMatrixLayoutTests
                 output[{{columns * rows * 2 + 2}}]=data.tail;
             }
             """;
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(source)));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(source), SpirvCompilationTarget.Default));
         uint data = binary.Instructions.Single(i => (Op)i.Opcode == Op.Name && SpirvBinary.ReadString(i.Operands.AsSpan(1), out _) == "Data").Operands[0];
         uint owner = kind == "nested" ? binary.Instructions.Single(i => (Op)i.Opcode == Op.Name && SpirvBinary.ReadString(i.Operands.AsSpan(1), out _) == "Inner").Operands[0] : data;
         uint field = kind == "nested" ? 0u : 1u;
@@ -109,8 +110,8 @@ public class NativeMatrixLayoutTests
     {
         var module = SpirvReader.Parse(Fixture(3, 2, 32, rowMajor, operation).ToBytes());
         ModuleValidator.Validate(module);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -122,8 +123,8 @@ public class NativeMatrixLayoutTests
     {
         var module = SpirvReader.Parse(Fixture(2, 3, 32, rowMajor, "root", kind, uniform).ToBytes());
         ModuleValidator.Validate(module);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     public static IEnumerable<object[]> Shapes() => from c in Enumerable.Range(2, 3) from r in Enumerable.Range(2, 3)
@@ -135,8 +136,8 @@ public class NativeMatrixLayoutTests
     {
         var module = SpirvReader.Parse(Fixture(columns, rows, 32, rowMajor, "matrix", half: half).ToBytes());
         ModuleValidator.Validate(module);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -144,11 +145,11 @@ public class NativeMatrixLayoutTests
     public void SplitMatrixOperationsRetainVolatileCacheHintsAndDiscardBaseAlignment(bool rowMajor)
     {
         var module = SpirvReader.Parse(Fixture(3, 2, 32, rowMajor, "matrix", memoryFlags: 7).ToBytes());
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Load && i.Operands.Length > 3 && i.Operands[3] == 5);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Store && i.Operands.Length > 2 && i.Operands[2] == 5);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Load && i.Operands.Length > 4 && i.Operands[3] == 7 && i.Operands[4] == 4);
         ModuleValidator.Validate(SpirvReader.Parse(binary.ToBytes()));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 }

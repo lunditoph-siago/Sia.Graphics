@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.Spirv;
@@ -34,7 +35,7 @@ public class PointerDescriptorIdentityTests
     {
         var module = SpirvReader.Parse(StorageClassCollisionFixture().ToBytes());
         ModuleValidator.Validate(module);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     internal static SpirvBinary Fixture(string kind, string mode, string index = "shared", bool full = false, bool comparison = true, bool privateSlot = false)
@@ -109,8 +110,8 @@ public class PointerDescriptorIdentityTests
     public void OneDescriptorSnapshotAllowsComparisonAndLimitedSelection(string kind, string mode, string index, bool full)
     {
         var module = SpirvReader.Parse(Fixture(kind, mode, index, full).ToBytes());
-        ModuleValidator.Validate(module); ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(module); ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory] [InlineData("select")] [InlineData("phi")] [InlineData("loop")] [InlineData("nested")]
@@ -124,14 +125,14 @@ public class PointerDescriptorIdentityTests
     public void DynamicSingleBufferSelectionDoesNotRequirePointerComparisons(string mode)
     {
         var module = SpirvReader.Parse(Fixture("descriptor", mode, "copy", false, false).ToBytes()); ModuleValidator.Validate(module);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory] [InlineData("slot")] [InlineData("loop")]
     public void PrivateSlotsRetainInvariantSpecializationDescriptorIdentity(string mode)
     {
         var module = SpirvReader.Parse(Fixture("descriptor", mode, "spec-derived", false, true, true).ToBytes());
-        ModuleValidator.Validate(module); ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(module); ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -142,7 +143,7 @@ public class PointerDescriptorIdentityTests
     public void DerivedDescriptorDependenciesResolveAfterWgslRoundtrip(string mode, uint value)
     {
         var native = SpirvReader.Parse(Fixture("descriptor", mode, "spec-derived").ToBytes());
-        var wgsl = WgslReader.Parse(WgslWriter.Write(native));
+        var wgsl = WgslReader.Parse(WgslWriter.Write(native, SpirvCompilationTarget.Default));
         var values = new Dictionary<string, double> { ["191"] = value };
         var resolved = Proc.PipelineConstantResolver.Resolve(wgsl, values);
         Assert.All(resolved.Constants, c => { Assert.False(c.IsOverride); Assert.False(c.IsSpecialization); });
@@ -152,14 +153,14 @@ public class PointerDescriptorIdentityTests
         string derived = native.Constants.Single(c => c.IsSpecialization).Name;
         Assert.Equal(value, Assert.IsType<IR.Expression.Literal>(resolved.Constants.Single(c => c.Name == root).Value).Value);
         Assert.Equal(value, Assert.IsType<IR.Expression.Literal>(resolved.Constants.Single(c => c.Name == derived).Value).Value);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(wgsl, new() { PipelineConstants = values })));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(wgsl, SpirvCompilationTarget.Default, new() { PipelineConstants = values })));
     }
 
     [Theory] [InlineData("descriptor", "slot")] [InlineData("descriptor", "loop")] [InlineData("descriptor-atomic", "loop")]
     public void DominatingPrivateSlotWritesRetainThisActivationDescriptorSnapshot(string kind, string mode)
     {
         var module = SpirvReader.Parse(Fixture(kind, mode, "shared", false, true, true).ToBytes());
-        ModuleValidator.Validate(module); ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(module); ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     internal static SpirvBinary TemporalFixture(bool privateSlot)

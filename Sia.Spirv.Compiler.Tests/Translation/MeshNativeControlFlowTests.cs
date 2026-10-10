@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -18,12 +19,12 @@ public class MeshNativeControlFlowTests
     public void TaskHelperTerminationUnwindsCallersAndPreservesEarlierEffects(bool payload, uint selector, bool continuing)
     {
         var module = SpirvReader.Parse(TaskFixture(payload, selector, continuing).ToBytes()); ModuleValidator.Validate(module);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
         var machine = new TaskMachine(module);
         var result = Assert.IsType<object[]>(machine.Run());
         Assert.Equal(new object[] { selector == 0 ? 1u : 2u, 1u, 1u }, result);
         if (payload) Assert.Equal(selector == 0 ? 55u : 77u, machine.Globals["g12"]);
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.EmitMeshTasksEXT);
         var again = SpirvReader.Parse(binary.ToBytes()); ModuleValidator.Validate(again);
         var machineAgain = new TaskMachine(again);
@@ -66,8 +67,8 @@ public class MeshNativeControlFlowTests
         var helper = module.Functions.Single(f => f.Name == "sia_fn60");
         var guard = Assert.IsType<Statement.If>(Assert.Single(helper.Body.Statements.Take(1)));
         Assert.Equal(shared ? 2 : 4, guard.Accept.Statements.Count);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
-        Assert.Equal(2, SpirvBinary.Parse(SpirvWriter.Write(module)).Instructions.Count(i => (Op)i.Opcode == Op.SetMeshOutputsEXT));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
+        Assert.Equal(2, SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)).Instructions.Count(i => (Op)i.Opcode == Op.SetMeshOutputsEXT));
     }
 
     internal static SpirvBinary MeshFixture(bool shared)

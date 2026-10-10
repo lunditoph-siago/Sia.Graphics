@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Legalization;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
@@ -133,8 +134,8 @@ public class PointerSelectionTests
             Assert.Equal(1, AtomicLeaves(module.Globals.Single(g => g.Binding == new ResourceBinding(0, 0)).Type));
         }
         ModuleValidator.Validate(module);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory]

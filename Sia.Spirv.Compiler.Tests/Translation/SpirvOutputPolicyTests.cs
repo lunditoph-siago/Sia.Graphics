@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -90,11 +91,11 @@ public class SpirvOutputPolicyTests
     public void EachOptionSelectsOnlyItsOwnPolicy(string source, bool coordinate, bool depth, bool converted)
     {
         var input = WgslReader.Parse(source);
-        var prepared = ShaderTargetLowering.ForSpirv(input, null, true, coordinate, depth);
+        var prepared = ShaderTargetLowering.ForSpirv(input, null, true, coordinate, depth, version: SpirvCompilationTarget.Default.Version);
         Assert.Equal(converted ? 1 : 0, prepared.OutputFunctions.Count);
         var options = new SpirvWriteOptions(AdjustCoordinateSpace: coordinate, ClampFragmentDepth: depth);
-        Assert.Equal(SpirvWriter.Emit(prepared).ToBytes(), SpirvWriter.Write(input, options));
-        Assert.Equal(SpirvBinary.Parse(SpirvWriter.Write(input, options)).ToWords(), SpirvWriter.WriteWords(input, options));
+        Assert.Equal(SpirvWriter.Emit(prepared).ToBytes(), SpirvWriter.Write(input, SpirvCompilationTarget.Default, options));
+        Assert.Equal(SpirvBinary.Parse(SpirvWriter.Write(input, SpirvCompilationTarget.Default, options)).ToWords(), SpirvWriter.WriteWords(input, SpirvCompilationTarget.Default, options));
     }
 
     [Theory]
@@ -145,7 +146,7 @@ public class SpirvOutputPolicyTests
         Assert.Equal("sia_spv_output_depth_1", prepared.OutputFunctions[("main", null)].Name);
         foreach (var function in input.Functions) Assert.Same(function, prepared.Module.Functions.Single(f => f.Name == function.Name));
         Assert.Equal(original, WgslWriter.Emit(input));
-        Assert.Equal(SpirvWriter.Write(input), SpirvWriter.Write(input));
+        Assert.Equal(SpirvWriter.Write(input, SpirvCompilationTarget.Default), SpirvWriter.Write(input, SpirvCompilationTarget.Default));
     }
 
     // Execute the exact prepared pure conversion as compute, so fixed-function depth clamping cannot mask a shader defect.
@@ -170,8 +171,8 @@ public class SpirvOutputPolicyTests
     public void PreparedConversionsRemainValidWhenExecutedOutsideTheRasterPipeline(bool depth)
     {
         var probe = PolicyProbe(depth);
-        var binary = SpirvWriter.Write(probe); ModuleValidator.Validate(SpirvReader.Parse(binary));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(probe)));
+        var binary = SpirvWriter.Write(probe, SpirvCompilationTarget.Default); ModuleValidator.Validate(SpirvReader.Parse(binary));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(probe, SpirvCompilationTarget.Default)));
     }
 
     [Fact]

@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -39,8 +40,8 @@ public class UniformityTests
         var module = WgslReader.Parse(Entry + "{" + body + "}");
         Assert.Empty(UniformityAnalysis.Validate(module));
         var output = CanonicalShaderPipeline.Run(module); Assert.Empty(UniformityAnalysis.Validate(output));
-        Assert.Empty(UniformityAnalysis.Validate(WgslReader.Parse(WgslWriter.Write(module))));
-        Assert.Empty(UniformityAnalysis.Validate(SpirvReader.Parse(SpirvWriter.Write(module))));
+        Assert.Empty(UniformityAnalysis.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default))));
+        Assert.Empty(UniformityAnalysis.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default))));
     }
     [Theory]
     [InlineData("fn fence(x:u32){if x==0u{workgroupBarrier();}}", "fence(lane);", false)]
@@ -117,9 +118,9 @@ public class UniformityTests
         var main = module.Functions.Single(); var accept = new Block(); accept.Statements.Add(main.Body.Statements.Single());
         main.Body.Statements.Clear(); main.Body.Statements.Add(new Statement.If(
             new Expression.Binary("==", new Expression.Reference("lane", ShaderType.U32), Expression.U32(0), ShaderType.Bool), accept, new Block()));
-        var error = Assert.Throws<ShaderException>(() => WgslWriter.Write(module));
+        var error = Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Equal(DiagnosticStage.WgslWrite, error.Diagnostic.Stage); Assert.Contains("Uniformity violation", error.Message);
-        Assert.NotEmpty(SpirvWriter.Write(module)); // Native SPIR-V legality is not the WGSL source-language contract.
+        Assert.NotEmpty(SpirvWriter.Write(module, SpirvCompilationTarget.Default)); // Native SPIR-V legality is not the WGSL source-language contract.
     }
     [Theory]
     [InlineData("1", true)] [InlineData("2", false)] [InlineData("size", false)]
@@ -145,7 +146,7 @@ public class UniformityTests
         module.Functions[0].Body.Statements.Clear(); module.Functions[0].Body.Statements.Add(new Statement.If(new Expression.Binary("==", value, Expression.U32(0), ShaderType.Bool), accept, new Block()));
         ModuleValidator.Validate(module);
         Assert.Throws<ShaderException>(() => UniformityAnalysis.Validate(module));
-        Assert.Throws<ShaderException>(() => WgslWriter.Write(module));
+        Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default));
     }
     [Theory]
     [InlineData("slot=0u;o[0]=slot;", true)]
@@ -163,13 +164,13 @@ public class UniformityTests
     public void SharedUniformityFixturesActuallyMigrateBothReaderRoutes(string source)
     {
         var input = WgslReader.Parse(source);
-        foreach (var module in new[] { input, SpirvReader.Parse(SpirvWriter.Write(input)) }) {
+        foreach (var module in new[] { input, SpirvReader.Parse(SpirvWriter.Write(input, SpirvCompilationTarget.Default)) }) {
             var deferrals = new List<CanonicalDeferral>(); var traces = new List<CanonicalPassTrace>();
             var result = CanonicalShaderPipeline.Run(module, traces, deferrals);
             Assert.Empty(deferrals); Assert.Equal(module.Functions.Count * 3, traces.Count);
             Assert.All(module.Functions, f => Assert.NotSame(f, result.Functions.Single(r => r.Name == f.Name)));
-            Assert.Empty(UniformityAnalysis.Validate(WgslReader.Parse(WgslWriter.Write(result))));
-            ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(result)));
+            Assert.Empty(UniformityAnalysis.Validate(WgslReader.Parse(WgslWriter.Write(result, SpirvCompilationTarget.Default))));
+            ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(result, SpirvCompilationTarget.Default)));
         }
     }
 }

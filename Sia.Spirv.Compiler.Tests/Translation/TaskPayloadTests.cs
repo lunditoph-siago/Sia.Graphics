@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -27,12 +28,12 @@ public class TaskPayloadTests
     public void PayloadAtomicsAndUnusedSmallVariablesTranslate(bool mesh)
     {
         var module = WgslReader.Parse(mesh ? MeshAtomicSource : AtomicSource); ModuleValidator.Validate(module);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         var constants = binary.Instructions.Where(i => (Op)i.Opcode == Op.Constant).ToDictionary(i => i.Operands[1], i => i.Operands[2]);
         Assert.All(binary.Instructions.Where(i => (Op)i.Opcode is Op.AtomicLoad or Op.AtomicStore or Op.AtomicIAdd), i => Assert.Equal(2u, constants[i.Operands[(Op)i.Opcode == Op.AtomicStore ? 1 : 3]]));
         var imported = SpirvReader.Parse(binary.ToBytes()); ModuleValidator.Validate(imported);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(imported)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(imported, SpirvCompilationTarget.Default)));
     }
 
     [Theory]

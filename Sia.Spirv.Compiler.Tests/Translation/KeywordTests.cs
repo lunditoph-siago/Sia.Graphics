@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Valid;
@@ -27,7 +28,7 @@ public class KeywordTests
     public void AttributeKeywordsRemainValidInTheirOwnGrammar()
     {
         const string source="diagnostic(off,derivative_uniformity); @coherent @volatile @group(0) @binding(0) var<storage,read_write> values:array<u32>; @compute @workgroup_size(1) @diagnostic(off,derivative_uniformity) fn main(){values[0]=1u;}";
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(WgslReader.Parse(source))));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(WgslReader.Parse(source), SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -35,12 +36,12 @@ public class KeywordTests
     [InlineData("class")]
     public void SpirvEntryNamesAreMadeLegalForWgsl(string name)
     {
-        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv("@compute @workgroup_size(1) fn main(){}"));
+        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv("@compute @workgroup_size(1) fn main(){}", SpirvCompilationTarget.Default));
         var instructions = binary.Instructions.Select(entry => (Op)entry.Opcode == Op.EntryPoint
             ? new SpirvInstruction(entry.Opcode, entry.Operands.Take(2).Concat(SpirvBinary.StringWords(name)).ToArray()) : entry).ToArray();
         var renamed = new SpirvBinary { Bound = binary.Bound, Version = binary.Version, Instructions = instructions };
         var module = SpirvReader.Parse(renamed.ToBytes());
         Assert.Equal("n_" + name, module.Functions.Single(f => f.Stage is not null).Name);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 }

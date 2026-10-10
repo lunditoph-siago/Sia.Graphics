@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -62,9 +63,9 @@ public class QueryHelperTests
         var output = HelperInliner.RunQueries(input); ModuleValidator.Validate(output);
         Assert.DoesNotContain(output.Functions, f => f.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.RayQuery }));
         Assert.Equal(5, input.Functions.Count); // The pass does not mutate its input.
-        string wgsl = WgslWriter.Write(input); ModuleValidator.Validate(WgslReader.Parse(wgsl));
+        string wgsl = WgslWriter.Write(input, SpirvCompilationTarget.Default); ModuleValidator.Validate(WgslReader.Parse(wgsl));
         Assert.DoesNotContain("fn step", wgsl); Assert.DoesNotContain("fn truth", wgsl);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(input)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(input, SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -76,8 +77,8 @@ public class QueryHelperTests
     {
         string source = "enable wgpu_ray_query; fn helper(q:ptr<function,ray_query>,n:u32)->u32 {"+body+"} @compute @workgroup_size(1) fn main(){var q:ray_query; _=helper(&q,1u);}";
         var input = WgslReader.Parse(source); ModuleValidator.Validate(input);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(input)));
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(input)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(input, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(input, SpirvCompilationTarget.Default)));
     }
 
     [Fact]
@@ -87,9 +88,9 @@ public class QueryHelperTests
         var expanded = HelperInliner.RunQueries(module);
         Assert.Contains(AllStatements(expanded.Functions.Single(f => f.Stage is not null).Body),
             s => s is Statement.Nested n && n.Body.DiagnosticFilters.Contains(new(DiagnosticSeverity.Off, "derivative_uniformity")));
-        Assert.Contains("@diagnostic(off, derivative_uniformity)", WgslWriter.Write(module));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
+        Assert.Contains("@diagnostic(off, derivative_uniformity)", WgslWriter.Write(module, SpirvCompilationTarget.Default));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
         Assert.Single(module.Functions[0].DiagnosticFilters);
     }
 
@@ -98,15 +99,15 @@ public class QueryHelperTests
     {
         const string source = "enable wgpu_ray_query; fn helper(q:ptr<function,ray_query>,n:u32)->u32 {if n>1u{return n+1u;}return 0u;} @compute @workgroup_size(1) fn main(){var query:ray_query;var n=0u;loop{n++;continuing{_=helper(&query,n);break if n>=3u;}}}";
         var module = WgslReader.Parse(source); ModuleValidator.Validate(module);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Fact]
     public void NestedSwitchBreakDoesNotDuplicateTheFollowingCall()
     {
         var module = WgslReader.Parse("fn effect(){} @compute @workgroup_size(1) fn main(@builtin(global_invocation_id) id:vec3u){switch id.x{default:{if id.x==0u{break;}}}effect();}");
-        var back = SpirvReader.Parse(SpirvWriter.Write(module)); ModuleValidator.Validate(back);
+        var back = SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)); ModuleValidator.Validate(back);
         string effect = back.Functions.Single(f => f.Name.StartsWith("n_effect_", StringComparison.Ordinal)).Name;
         Assert.Single(back.Functions.SelectMany(f => AllStatements(f.Body)).OfType<Statement.Evaluate>(),
             s => s.Value is Expression.Call c && c.Function == effect);
@@ -120,18 +121,18 @@ public class QueryHelperTests
         module.Functions[0].Body.Statements.Add(new Statement.Declare("flags", ShaderType.U32,
             new Expression.Call("spirvRayQueryGetRayFlagsKHR", [initialize.Arguments[0]], ShaderType.U32), false));
         ModuleValidator.Validate(module);
-        var error = Assert.Throws<ShaderException>(() => WgslWriter.Write(module));
+        var error = Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Equal(DiagnosticStage.WgslWrite, error.Diagnostic.Stage); Assert.Contains("guarded state tracking", error.Message);
         // Native writing retains the original raw getter and guarded initialization.
-        Assert.Contains(SpirvBinary.Parse(SpirvWriter.Write(module)).Instructions, i => (Op)i.Opcode == Op.RayQueryGetRayFlagsKHR);
+        Assert.Contains(SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)).Instructions, i => (Op)i.Opcode == Op.RayQueryGetRayFlagsKHR);
     }
 
     [Fact]
     public void RawDescriptorStateTracksAliasesAndRepeatedInitialization()
     {
         var module = RawDescriptorModule(); ModuleValidator.Validate(module);
-        var binary = SpirvWriter.Write(module);
-        string wgsl = WgslWriter.Write(SpirvReader.Parse(binary));
+        var binary = SpirvWriter.Write(module, SpirvCompilationTarget.Default);
+        string wgsl = WgslWriter.Write(SpirvReader.Parse(binary), SpirvCompilationTarget.Default);
         Assert.DoesNotContain("spirvRayQuery", wgsl);
         ModuleValidator.Validate(WgslReader.Parse(wgsl));
         var lowered = QueryStateLowering.Run(HelperInliner.RunQueries(module));
@@ -154,7 +155,7 @@ public class QueryHelperTests
         var output = QueryStateLowering.Run(HelperInliner.RunQueries(module));
         Assert.DoesNotContain(AllStatements(output.Functions.Single(f => f.Name == "main").Body),
             s => s is Statement.Declare { Name: "sia_query_state_0" });
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     internal static Module RawDescriptorModule()

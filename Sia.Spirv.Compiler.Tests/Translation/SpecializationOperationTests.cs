@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using System.Numerics;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
@@ -73,8 +74,8 @@ public class SpecializationOperationTests
             else Assert.Equal(Expected(x, y), Number(actual));
         }
         var boundary = Arithmetic(Op.IMul, bits, signed, vector, max, max);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(boundary)));
-        Assert.NotEmpty(SpirvWriter.Write(boundary));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(boundary, SpirvCompilationTarget.Default)));
+        Assert.NotEmpty(SpirvWriter.Write(boundary, SpirvCompilationTarget.Default));
     }
 
     [Theory]
@@ -91,7 +92,7 @@ public class SpecializationOperationTests
             var actual = ConstantEvaluator.Evaluate(module.Globals[0].Initializer!);
             if (vector) actual = Assert.IsType<Expression.Construct>(actual).Components[0];
             Assert.Equal(new BigInteger(op == Op.SRem ? remainder : modulo), Number(actual));
-            ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+            ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
         }
     }
 
@@ -103,7 +104,7 @@ public class SpecializationOperationTests
     {
         var module = Arithmetic((Op)opcode, 32, false, false, x, y);
         Assert.Equal(new BigInteger(expected), Number(ConstantEvaluator.Evaluate(module.Globals[0].Initializer!)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Fact]
@@ -113,15 +114,15 @@ public class SpecializationOperationTests
         var resolved = PipelineConstantResolver.Resolve(module, new Dictionary<string, double> { ["7"] = uint.MaxValue - 1 });
         var actual = Assert.IsType<Expression.Construct>(resolved.Globals[0].Initializer).Components;
         Assert.All(actual, e => Assert.Equal(new BigInteger(0xfffffffau), Number(e)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
-        Assert.NotEmpty(SpirvWriter.Write(resolved));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
+        Assert.NotEmpty(SpirvWriter.Write(resolved, SpirvCompilationTarget.Default));
     }
 
     [Fact]
     public void MinimumSigned64BitValueUsesARepresentableLiteral()
     {
         var module = Arithmetic(Op.IAdd, 64, true, false, long.MinValue, 0);
-        string text = WgslWriter.Write(module);
+        string text = WgslWriter.Write(module, SpirvCompilationTarget.Default);
         Assert.Contains("i64(9223372036854775808lu)", text);
         var reread = WgslReader.Parse(text); ModuleValidator.Validate(reread);
         Assert.Equal(new BigInteger(long.MinValue), Number(ConstantEvaluator.Evaluate(reread.Globals[0].Initializer!)));
@@ -133,10 +134,10 @@ public class SpecializationOperationTests
         Assert.Throws<ShaderException>(() => WgslReader.Parse("override value=1lu;"));
         Assert.Throws<ShaderException>(() => WgslReader.Parse("override value=1li;"));
         var module = Arithmetic(Op.IAdd, 64, false, false, ulong.MaxValue, 1, true);
-        Assert.Throws<ShaderException>(() => WgslWriter.Write(module));
+        Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default));
         var resolved = PipelineConstantResolver.Resolve(module, new Dictionary<string, double>());
         Assert.Equal(BigInteger.Zero, Number(resolved.Globals[0].Initializer!));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(resolved)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(resolved, SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -155,10 +156,10 @@ public class SpecializationOperationTests
             Assert.Null(array.Length); Assert.NotNull(array.OverrideLength); Assert.Equal(2, module.Constants.Count);
             var resolved = PipelineConstantResolver.Resolve(module, new Dictionary<string, double> { ["7"] = 8 });
             Assert.Equal(9u, Assert.IsType<ShaderType.Array>(resolved.Globals[0].Type).Length);
-            Assert.NotEmpty(SpirvWriter.Write(resolved));
+            Assert.NotEmpty(SpirvWriter.Write(resolved, SpirvCompilationTarget.Default));
         }
         else Assert.Equal(4u, array.Length);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Fact]
@@ -176,7 +177,7 @@ public class SpecializationOperationTests
         Assert.Equal(new BigInteger(9), Number(value.Components[1]));
         var vector = Assert.IsType<Expression.Construct>(value.Components[0]);
         Assert.Equal(new BigInteger(9), Number(vector.Components[0])); Assert.Equal(new BigInteger(7), Number(vector.Components[1]));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -202,8 +203,8 @@ public class SpecializationOperationTests
                 Assert.Equal(Expected(y, x), Assert.IsType<Expression.Literal>(parts[1]).Value);
             }
             else Assert.Equal(Expected(x, y), Assert.IsType<Expression.Literal>(value).Value);
-            ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
-            Assert.NotEmpty(SpirvWriter.Write(module));
+            ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
+            Assert.NotEmpty(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         }
     }
 
@@ -224,7 +225,7 @@ public class SpecializationOperationTests
             var value = ConstantEvaluator.Evaluate(module.Globals[0].Initializer!);
             if (vector) value = Assert.IsType<Expression.Construct>(value).Components[0];
             Assert.Equal(Wrap(op == Op.SConvert ? -1 : (BigInteger.One << from) - 1, to, false), Number(value));
-            ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+            ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
         }
     }
 
@@ -242,7 +243,7 @@ public class SpecializationOperationTests
         var value = ConstantEvaluator.Evaluate(module.Globals[0].Initializer!);
         if (vector) value = Assert.IsType<Expression.Construct>(value).Components[0];
         Assert.Equal((float)(Half)2.003f, Assert.IsType<Expression.Literal>(value).Value);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -283,10 +284,10 @@ public class SpecializationOperationTests
         var module = Chain(count, vector); ModuleValidator.Validate(module);
         Assert.Single(module.Constants, c => c.IsOverride);
         Assert.Equal(count * (vector ? 2 : 1), module.Constants.Count(c => c.IsSpecialization));
-        string text = WgslWriter.Write(module);
+        string text = WgslWriter.Write(module, SpirvCompilationTarget.Default);
         Assert.True(text.Length < count * (vector ? 1200 : 500), $"Specialization dependency expansion: {text.Length} characters.");
         ModuleValidator.Validate(WgslReader.Parse(text));
-        byte[] bytes = SpirvWriter.Write(module);
+        byte[] bytes = SpirvWriter.Write(module, SpirvCompilationTarget.Default);
         var binary = SpirvBinary.Parse(bytes);
         Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.Decorate && i.Operands[1] == 1);
         Assert.True(binary.Instructions.Count < count * (vector ? 100 : 30));
@@ -304,7 +305,7 @@ public class SpecializationOperationTests
         var module = Chain(3, false);
         string name = module.Constants.First(c => c.IsSpecialization).Name;
         Assert.Throws<ShaderException>(() => PipelineConstantResolver.Resolve(module, new Dictionary<string, double> { [name] = 9 }));
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.SpecConstantOp);
         var reread = SpirvReader.Parse(binary.ToBytes()); ModuleValidator.Validate(reread);
         var resolved = PipelineConstantResolver.Resolve(reread, new Dictionary<string, double> { ["7"] = 8 });

@@ -29,13 +29,13 @@ public class CanonicalEffectTests
     public void EffectsAndResourcesActuallyMigrateThroughBothFrontendRoutes(string source)
     {
         var input = WgslReader.Parse(source);
-        foreach (var module in new[] { input, SpirvReader.Parse(SpirvWriter.Write(input)) }) {
+        foreach (var module in new[] { input, SpirvReader.Parse(SpirvWriter.Write(input, SpirvCompilationTarget.Default)) }) {
             var traces = new List<CanonicalPassTrace>(); var deferrals = new List<CanonicalDeferral>();
             var output = CanonicalShaderPipeline.Run(module, traces, deferrals);
             Assert.Empty(deferrals); Assert.Equal(module.Functions.Count * 3, traces.Count);
             Assert.All(module.Functions, f => Assert.NotSame(f, output.Functions.Single(p => p.Name == f.Name)));
-            ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(output)));
-            ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(output)));
+            ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(output, SpirvCompilationTarget.Default)));
+            ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(output, SpirvCompilationTarget.Default)));
         }
     }
     [Theory]
@@ -63,7 +63,7 @@ public class CanonicalEffectTests
         Assert.Equal(control, (instruction.Effects & ShaderEffects.Convergent) != 0);
         Assert.NotEqual(ShaderEffects.None, instruction.Effects & ShaderEffects.MemoryOrdering);
         var deferrals = new List<CanonicalDeferral>(); _ = CanonicalShaderPipeline.Run(module, deferrals: deferrals); Assert.Empty(deferrals);
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         var emitted = Assert.Single(binary.Instructions, i => (Op)i.Opcode == (control ? Op.ControlBarrier : Op.MemoryBarrier));
         var constants = binary.Instructions.Where(i => (Op)i.Opcode == Op.Constant).ToDictionary(i => i.Operands[1], i => i.Operands[2]);
         Assert.Equal(control ? new[] { execution, scope, semantics } : new[] { scope, semantics }, emitted.Operands.Select(id => constants[id]));
@@ -79,7 +79,7 @@ public class CanonicalEffectTests
         Assert.Equal(new(1, semantics, unequal), ((ValueOperation.Builtin)instruction.Operation).AtomicMemory);
         Assert.NotEqual(ShaderEffects.None, instruction.Effects & ShaderEffects.MemoryOrdering);
         Assert.Contains("UnequalSemantics", ControlFlowPrinter.Write(graph));
-        var output = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var output = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         var emitted = Assert.Single(output.Instructions, i => (Op)i.Opcode == Op.AtomicCompareExchange);
         var constants = output.Instructions.Where(i => (Op)i.Opcode == Op.Constant).ToDictionary(i => i.Operands[1], i => i.Operands[2]);
         Assert.Equal(new[] { 1u, semantics, unequal }, emitted.Operands.Skip(3).Take(3).Select(id => constants[id]));

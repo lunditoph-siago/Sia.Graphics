@@ -65,7 +65,7 @@ public class CanonicalPipelineConstantTests
     public void NativeInlineSpecializationAndConcreteCompositeRetainTypedSsaChildren(bool namedComposite)
     {
         var bytes = SpirvWriter.Write(WgslReader.Parse("@id(7) override first=1u; @id(8) override second=2u;" + Resources
-            + "@compute @workgroup_size(1) fn main(){let pair=vec2u(first,second);outputs[0]=pair.x;outputs[1]=pair.y;}"));
+            + "@compute @workgroup_size(1) fn main(){let pair=vec2u(first,second);outputs[0]=pair.x;outputs[1]=pair.y;}"), SpirvCompilationTarget.Default);
         var binary = SpirvBinary.Parse(bytes); var composite = Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.CompositeConstruct);
         var instructions = binary.Instructions.ToList(); instructions.Remove(composite);
         instructions.Insert(instructions.FindIndex(i => (Op)i.Opcode == Op.Function), new((ushort)Op.SpecConstantComposite, composite.Operands));

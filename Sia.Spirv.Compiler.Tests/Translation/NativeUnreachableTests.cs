@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -19,7 +20,7 @@ public class NativeUnreachableTests
             "fn choose(condition:bool)->u32{if condition{return 7u;}return 9u;}"
             + "@group(0) @binding(0) var<storage,read> inputs:array<u32>;"
             + "@group(0) @binding(1) var<storage,read_write> outputs:array<u32>;"
-            + "@compute @workgroup_size(1) fn main(){outputs[0]=choose((inputs[0]&1u)!=0u);outputs[1]=99u;}"))), pointer: false);
+            + "@compute @workgroup_size(1) fn main(){outputs[0]=choose((inputs[0]&1u)!=0u);outputs[1]=99u;}"), SpirvCompilationTarget.Default)), pointer: false);
 
     internal static SpirvBinary ContinuingFixture()
     {
@@ -28,7 +29,7 @@ public class NativeUnreachableTests
             + "@group(0) @binding(1) var<storage,read_write> outputs:array<u32>;"
             + "fn abort(){outputs[0]=100u;return;}"
             + "@compute @workgroup_size(1) fn main(){outputs[0]=inputs[0];outputs[1]=10u;var counter=0u;"
-            + "loop{if counter>=1u{break;}counter++;continuing{if (inputs[0]&1u)!=0u{abort();}outputs[1]+=3u;}}outputs[0]+=7u;}")));
+            + "loop{if counter>=1u{break;}counter++;continuing{if (inputs[0]&1u)!=0u{abort();}outputs[1]+=3u;}}outputs[0]+=7u;}"), SpirvCompilationTarget.Default));
         var code = binary.Instructions.ToList();
         uint hundred = code.First(i => (Op)i.Opcode == Op.Constant && i.Operands.Length == 3 && i.Operands[2] == 100).Operands[1];
         int store = code.FindIndex(i => (Op)i.Opcode == Op.Store && i.Operands[1] == hundred);
@@ -72,10 +73,10 @@ public class NativeUnreachableTests
         Assert.DoesNotContain(deferrals, d => d.Function == "<SPIR-V>");
         Assert.Equal(original, binary.ToBytes()); ModuleValidator.Validate(module);
         Assert.Equal(new[] { first, second }, new CanonicalExecution(module, [input]).Run().Output);
-        var output = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var output = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Contains(output.Instructions, i => (Op)i.Opcode == Op.Unreachable);
         Assert.Equal(new[] { first, second }, new CanonicalExecution(SpirvReader.Parse(output.ToBytes()), [input]).Run().Output);
-        Assert.Equal(new[] { first, second }, new CanonicalExecution(WgslReader.Parse(WgslWriter.Write(module)), [input]).Run().Output);
+        Assert.Equal(new[] { first, second }, new CanonicalExecution(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)), [input]).Run().Output);
     }
 
     [Fact]
@@ -83,8 +84,8 @@ public class NativeUnreachableTests
     {
         var module = SpirvReader.Parse(ScalarFixture().ToBytes()); ModuleValidator.Validate(module);
         Assert.Equal(new[] { 9u, 99u }, new CanonicalExecution(module, [0u]).Run().Output);
-        Assert.Contains(SpirvBinary.Parse(SpirvWriter.Write(module)).Instructions, i => (Op)i.Opcode == Op.Unreachable);
-        Assert.Equal(new[] { 9u, 99u }, new CanonicalExecution(WgslReader.Parse(WgslWriter.Write(module)), [0u]).Run().Output);
+        Assert.Contains(SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)).Instructions, i => (Op)i.Opcode == Op.Unreachable);
+        Assert.Equal(new[] { 9u, 99u }, new CanonicalExecution(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)), [0u]).Run().Output);
     }
 
     [Theory] [InlineData(0u, 7u)] [InlineData(2u, 9u)]
@@ -93,10 +94,10 @@ public class NativeUnreachableTests
         var module = SpirvReader.Parse(ContinuingFixture().ToBytes()); ModuleValidator.Validate(module);
         uint[] expected = [first, 13u];
         Assert.Equal(expected, new CanonicalExecution(module, [input]).Run().Output);
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Unreachable);
         Assert.Equal(expected, new CanonicalExecution(SpirvReader.Parse(binary.ToBytes()), [input]).Run().Output);
-        Assert.Equal(expected, new CanonicalExecution(WgslReader.Parse(WgslWriter.Write(module)), [input]).Run().Output);
+        Assert.Equal(expected, new CanonicalExecution(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)), [input]).Run().Output);
     }
 
     [Fact]
@@ -114,7 +115,7 @@ public class NativeUnreachableTests
         Assert.Single(loweredBranch.Accept.Statements);
         Assert.IsType<Statement.Store>(loweredBranch.Accept.Statements[0]);
         Assert.IsType<Statement.Unreachable>(branch.Accept.Statements.Last());
-        _ = WgslReader.Parse(WgslWriter.Write(module));
+        _ = WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default));
     }
 
     [Fact]
@@ -144,8 +145,8 @@ public class NativeUnreachableTests
     [Fact]
     public void WgslTerminationLegalizationBorrowsItsInputAndDoesNotAffectSpirvOrder()
     {
-        var module = SpirvReader.Parse(ScalarFixture().ToBytes()); byte[] before = SpirvWriter.Write(module);
-        string wgsl = WgslWriter.Write(module); Assert.Equal(before, SpirvWriter.Write(module));
+        var module = SpirvReader.Parse(ScalarFixture().ToBytes()); byte[] before = SpirvWriter.Write(module, SpirvCompilationTarget.Default);
+        string wgsl = WgslWriter.Write(module, SpirvCompilationTarget.Default); Assert.Equal(before, SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         var lowered = WgslTerminationLowering.Run(module); ModuleValidator.Validate(lowered);
         Assert.NotSame(module, lowered);
         Assert.Equal(new[] { 9u, 99u }, new CanonicalExecution(WgslReader.Parse(wgsl), [0u]).Run().Output);

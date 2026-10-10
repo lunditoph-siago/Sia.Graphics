@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Legalization;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
@@ -85,8 +86,8 @@ public class NativeCanonicalPointerReturnTests
         Assert.DoesNotContain(module.Functions, f => f.ReturnType is ShaderType.Pointer);
         Assert.Equal(before, binary.ToBytes()); uint[] expected = [first, second];
         Assert.Equal(expected, new CanonicalExecution(module, [input]).Run().Output);
-        Assert.Equal(expected, new CanonicalExecution(WgslReader.Parse(WgslWriter.Write(module)), [input]).Run().Output);
-        Assert.Equal(expected, new CanonicalExecution(SpirvReader.Parse(SpirvWriter.Write(module)), [input]).Run().Output);
+        Assert.Equal(expected, new CanonicalExecution(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)), [input]).Run().Output);
+        Assert.Equal(expected, new CanonicalExecution(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)), [input]).Run().Output);
     }
 
     [Theory] [InlineData("array")] [InlineData("workgroup")] [InlineData("cross")]
@@ -96,7 +97,7 @@ public class NativeCanonicalPointerReturnTests
         var module = SpirvReader.ReadBinary(PointerReturnTests.Fixture(kind, "select", false, true, true), traces: traces, deferrals: deferrals);
         Assert.Contains(traces, t => t.Pass == "pointer-return-helper-expansion" && t.Before.Contains("ptr<", StringComparison.Ordinal));
         Assert.DoesNotContain(deferrals, d => d.Function == "<SPIR-V>");
-        ModuleValidator.Validate(module); Assert.NotEmpty(SpirvWriter.Write(module));
+        ModuleValidator.Validate(module); Assert.NotEmpty(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
     }
 
     [Theory] [InlineData("scalar", false)] [InlineData("atomic", true)]
@@ -111,17 +112,17 @@ public class NativeCanonicalPointerReturnTests
             Assert.Contains(traces, t => t.Pass == "native-slot-helper-expansion");
             Assert.Contains(traces, t => t.Pass == "native-cfg-import");
         }
-        ModuleValidator.Validate(module); Assert.NotEmpty(SpirvWriter.Write(module));
+        ModuleValidator.Validate(module); Assert.NotEmpty(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
     }
 
     [Fact]
     public void NativeQualifiedAccessesRetainTheirCountAfterHelperExpansion()
     {
         var module = SpirvReader.ReadBinary(Fixture(nested: true, qualified: true));
-        var output = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var output = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Equal(2, output.Instructions.Count(i => (Op)i.Opcode == Op.Store && i.Operands.Length > 2 && (i.Operands[2] & 1) != 0));
         Assert.Equal(2, output.Instructions.Count(i => (Op)i.Opcode == Op.Load && i.Operands.Length > 3 && (i.Operands[3] & 1) != 0));
-        var wgsl = WgslReader.Parse(WgslWriter.Write(module));
+        var wgsl = WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Equal(MemoryDecorations.Volatile, wgsl.Globals.Single(g => g.Binding?.Binding == 1).MemoryDecorations);
         Assert.Equal(MemoryDecorations.None, wgsl.Globals.Single(g => g.Binding?.Binding == 0).MemoryDecorations);
     }

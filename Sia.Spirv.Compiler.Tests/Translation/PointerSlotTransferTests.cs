@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.Spirv;
@@ -109,8 +110,8 @@ public class PointerSlotTransferTests
     {
         var module = SpirvReader.Parse(Fixture(kind, mode, transfer, privateSlot, qualified).ToBytes());
         ModuleValidator.Validate(module);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory] [InlineData(false)] [InlineData(true)]
@@ -118,10 +119,10 @@ public class PointerSlotTransferTests
     {
         var module = SpirvReader.Parse(Fixture("scalar", "local", "copy", privateSlot, true, 1, 0x10400, true).ToBytes());
         ModuleValidator.Validate(module);
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Load && i.Operands.Length == 5 && i.Operands[3] == 2);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Store && i.Operands.Length == 4 && i.Operands[2] == 6);
-        ModuleValidator.Validate(SpirvReader.Parse(binary.ToBytes())); ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(binary.ToBytes())); ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     internal static SpirvBinary StoreOnlyFixture(bool privateSlot)
@@ -144,8 +145,8 @@ public class PointerSlotTransferTests
     public void WriteOnlyAndSelfCopiedSlotsDoNotRequireALoadToNormalize(bool privateSlot)
     {
         var module = SpirvReader.Parse(StoreOnlyFixture(privateSlot).ToBytes()); ModuleValidator.Validate(module);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory] [InlineData(false)] [InlineData(true)]

@@ -35,7 +35,7 @@ internal static partial class CompilerGpuTests
         if (variant.StartsWith("direct", StringComparison.Ordinal)) {
             var request = new SpirvModuleCompilationRequest(assembly, kernel.MetadataToken, core);
             var module = new SpirvCompiler().CompileModule(request);
-            source = WgslWriter.Write(module, request.Target); spirv = variant.EndsWith("spirv", StringComparison.Ordinal) ? SpirvWriter.Write(module, new() { Target = request.Target }) : null;
+            source = WgslWriter.Write(module, request.Target); spirv = variant.EndsWith("spirv", StringComparison.Ordinal) ? SpirvWriter.Write(module, request.Target) : null;
         } else {
             string file = kernel.QualifiedName;
             source = Encoding.UTF8.GetString(Asset(file+".wgsl"));

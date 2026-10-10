@@ -25,13 +25,13 @@ public class CanonicalDataTests
     public void DataAndNumericBuiltinsActuallyMigrateThroughBothFrontendRoutes(string fixture)
     {
         var input = WgslReader.Parse(Source(fixture));
-        foreach (var module in new[] { input, SpirvReader.Parse(SpirvWriter.Write(input)) }) {
+        foreach (var module in new[] { input, SpirvReader.Parse(SpirvWriter.Write(input, SpirvCompilationTarget.Default)) }) {
             var traces = new List<CanonicalPassTrace>(); var deferrals = new List<CanonicalDeferral>();
             var prepared = CanonicalShaderPipeline.Run(module, traces, deferrals);
             Assert.Empty(deferrals); Assert.Equal(module.Functions.Count * 3, traces.Count);
             Assert.All(module.Functions, f => Assert.NotSame(f, prepared.Functions.Single(p => p.Name == f.Name)));
-            ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
-            ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
+            ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
+            ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
         }
     }
     private static string Source(string fixture) => fixture switch {
@@ -101,7 +101,7 @@ public class CanonicalDataTests
     public void RasterDataRetainsEntryStageAndIoAcrossBothAdapters(string source, ShaderStage stage)
     {
         var input = WgslReader.Parse(source);
-        foreach (var module in new[] { input, SpirvReader.Parse(SpirvWriter.Write(input)) }) {
+        foreach (var module in new[] { input, SpirvReader.Parse(SpirvWriter.Write(input, SpirvCompilationTarget.Default)) }) {
             var traces = new List<CanonicalPassTrace>(); var deferrals = new List<CanonicalDeferral>();
             var output = CanonicalShaderPipeline.Run(module, traces, deferrals);
             Assert.Empty(deferrals); Assert.Equal(module.Functions.Count * 3, traces.Count);
@@ -109,8 +109,8 @@ public class CanonicalDataTests
             var original = Assert.Single(module.Functions, f => f.Stage is not null);
             Assert.Equal(stage, entry.Stage); Assert.Equal(original.ReturnBinding, entry.ReturnBinding);
             Assert.Equal(original.Arguments, entry.Arguments);
-            ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(output)));
-            ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(output)));
+            ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(output, SpirvCompilationTarget.Default)));
+            ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(output, SpirvCompilationTarget.Default)));
         }
     }
 }

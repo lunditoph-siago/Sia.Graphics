@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.Spirv;
@@ -107,8 +108,8 @@ public class PointerArithmeticTests
     public void ArithmeticStepsAggregateElementsBeforeApplyingTrailingIndices(string offset, int width)
     {
         var module = SpirvReader.Parse(AggregateFixture(offset, width).ToBytes());
-        ModuleValidator.Validate(module); ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(module); ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     internal static SpirvBinary DirectFixture()
@@ -128,7 +129,7 @@ public class PointerArithmeticTests
     public void ArithmeticWithoutComparisonsOrMergedPointersStillNormalizes()
     {
         var module = SpirvReader.Parse(DirectFixture().ToBytes()); ModuleValidator.Validate(module);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     internal static SpirvBinary ConstantSourcesFixture()
@@ -149,8 +150,8 @@ public class PointerArithmeticTests
     public void ArithmeticMergesDistinctConstantSourcePathsWithoutDuplicateScalarDefinitions()
     {
         var module = SpirvReader.Parse(ConstantSourcesFixture().ToBytes()); ModuleValidator.Validate(module);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -164,8 +165,8 @@ public class PointerArithmeticTests
     public void ArrayElementArithmeticRetainsAddressSnapshots(string kind, string mode, string offset, int width, bool privateSlot)
     {
         var module = SpirvReader.Parse(Fixture(kind, mode, offset, width, privateSlot).ToBytes());
-        ModuleValidator.Validate(module); ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(module); ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory] [InlineData("stride")] [InlineData("capability")]

@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -24,7 +25,7 @@ public class ValidationTests
     [InlineData("@compute @workgroup_size(0) fn f() { }")]
     public void InvalidShaderIsRejectedBeforeWriting(string source)
     {
-        var exception = Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv(source));
+        var exception = Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default));
         Assert.Equal(DiagnosticStage.Validation, exception.Diagnostic.Stage);
     }
 
@@ -46,7 +47,7 @@ public class ValidationTests
     public void WriterDeduplicatesFunctionTypesAndBlockDecorations()
     {
         var module = WgslReader.Parse("struct S { values: array<u32>, } @group(0) @binding(0) var<storage, read> a: S; @group(0) @binding(1) var<storage, read> b: S; fn one() {} fn two() {} @compute @workgroup_size(1) fn main() { one(); two(); }");
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.TypeFunction);
         Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.Decorate && i.Operands[1] == 2);
     }
@@ -55,7 +56,7 @@ public class ValidationTests
     public void PublicTranslatorRoundtripKeepsComputeEntryAndResourceBinding()
     {
         const string source = "@group(1) @binding(3) var<storage, read_write> data: array<u32>; @compute @workgroup_size(8) fn main(@builtin(global_invocation_id) id: vec3u) { data[id.x] = id.x * 2u; }";
-        string translated = ShaderTranslator.SpirvToWgsl(ShaderTranslator.WgslToSpirv(source));
+        string translated = ShaderTranslator.SpirvToWgsl(ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default), SpirvCompilationTarget.Default);
         var module = WgslReader.Parse(translated); ModuleValidator.Validate(module);
         Assert.Equal(new ResourceBinding(1, 3), Assert.Single(module.Globals, g => g.Binding is not null).Binding);
         Assert.Equal(ShaderStage.Compute, Assert.Single(module.Functions, f => f.Stage is not null).Stage);

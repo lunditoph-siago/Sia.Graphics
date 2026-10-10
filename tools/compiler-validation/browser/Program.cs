@@ -27,11 +27,11 @@ public static partial class CompilerHost
             var request = new SpirvModuleCompilationRequest(assembly, entry.GetProperty("token").GetInt32(), intrinsics);
             var module = compiler.CompileModule(request);
             var wgsl = WgslWriter.Write(module, request.Target);
-            var spirv = SpirvWriter.Write(module, new() { Target = request.Target });
+            var spirv = SpirvWriter.Write(module, request.Target);
             if (wgsl != entry.GetProperty("wgsl").GetString()
                 || !spirv.AsSpan().SequenceEqual(entry.GetProperty("spirv").GetBytesFromBase64()))
                 throw new InvalidOperationException(entry.GetProperty("name").GetString() + ": host/native mismatch");
-            if (ShaderTranslator.WgslToSpirv(ShaderTranslator.SpirvToWgsl(spirv)).Length == 0)
+            if (ShaderTranslator.WgslToSpirv(ShaderTranslator.SpirvToWgsl(spirv, SpirvCompilationTarget.Default), SpirvCompilationTarget.Default).Length == 0)
                 throw new InvalidOperationException("Empty shader translation roundtrip.");
             passed++;
         }

@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -111,7 +112,7 @@ public class CanonicalRayQueryTests
     [Fact]
     public void NativeQueryOperationsKeepTheirGraphAndHaveNoAdditionalGuards()
     {
-        var input = CanonicalShaderPipeline.Prepare(SpirvReader.Parse(SpirvWriter.Write(WgslReader.Parse(RayQueryTests.Source))));
+        var input = CanonicalShaderPipeline.Prepare(SpirvReader.Parse(SpirvWriter.Write(WgslReader.Parse(RayQueryTests.Source), SpirvCompilationTarget.Default)));
         var before = input.Functions.ToDictionary(p => p.Key, p => ControlFlowPrinter.Write(p.Value));
         var lowered = SpirvRayQueryLowering.Run(input);
         Assert.All(input.Functions, p => { Assert.Same(p.Value, lowered.Functions[p.Key]); Assert.Equal(before[p.Key], ControlFlowPrinter.Write(p.Value)); });

@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -28,11 +29,11 @@ public class Int16Tests
     public void ScalarVectorStorageAndSubgroupOperationsRoundtrip()
     {
         const string source = "enable wgpu_int16; struct Data { signed: i16, unsigned: u16, vector: vec2<u16>, } @group(0) @binding(0) var<storage, read_write> data: Data; @compute @workgroup_size(1) fn main(@builtin(subgroup_invocation_id) lane: u32) { var s = i16(lane); s = s / i16(-1); s = subgroupAdd(s); data.signed = s; data.unsigned = u16(lane); data.vector = vec2<u16>(u16(1), u16(65535)); }";
-        byte[] bytes = ShaderTranslator.WgslToSpirv(source);
+        byte[] bytes = ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default);
         var binary = SpirvBinary.Parse(bytes);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Capability && i.Operands[0] == 22);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Constant && i.Operands[^1] == 0xffff8000u);
-        string output = ShaderTranslator.SpirvToWgsl(bytes);
+        string output = ShaderTranslator.SpirvToWgsl(bytes, SpirvCompilationTarget.Default);
         Assert.Contains("enable wgpu_int16;", output);
         ModuleValidator.Validate(WgslReader.Parse(output));
     }
@@ -63,20 +64,20 @@ public class Int16Tests
     {
         string enable = type.EndsWith("16", StringComparison.Ordinal) ? "enable wgpu_int16;" : "";
         string source = $"{enable} @compute @workgroup_size(1) fn main(@builtin(local_invocation_index) index: u32) {{ let value = vec2<{type}>({type}(index)); let a = countLeadingZeros(value); let b = countTrailingZeros(value); let c = firstLeadingBit(value); let d = firstTrailingBit(value); let e = countOneBits(value); let f = reverseBits(value); }}";
-        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(source));
+        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default));
         Assert.DoesNotContain(binary.Instructions, i => (Op)i.Opcode == Op.ExtInst && i.Operands[3] is 73 or 74 or 75);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.ShiftRightLogical);
         var wordTypes = binary.Instructions.Where(i => (Op)i.Opcode == Op.TypeInt && i.Operands[1] == 32).Select(i => i.Operands[0]).ToHashSet();
         wordTypes.UnionWith(binary.Instructions.Where(i => (Op)i.Opcode == Op.TypeVector && wordTypes.Contains(i.Operands[1])).Select(i => i.Operands[0]).ToArray());
         Assert.All(binary.Instructions.Where(i => (Op)i.Opcode is Op.BitCount or Op.BitReverse), i => Assert.Contains(i.Operands[0], wordTypes));
-        ModuleValidator.Validate(WgslReader.Parse(ShaderTranslator.SpirvToWgsl(binary.ToBytes())));
+        ModuleValidator.Validate(WgslReader.Parse(ShaderTranslator.SpirvToWgsl(binary.ToBytes(), SpirvCompilationTarget.Default)));
     }
 
     [Fact]
     public void WgslRepackingHelpersPreserveSingleArgumentEvaluationAndAvoidNames()
     {
         const string source = "enable wgpu_int16; var<private> counter: u32; fn next() -> vec2<u16> { counter++; return vec2<u16>(u16(counter)); } fn sia_bitcast_0() {} @compute @workgroup_size(1) fn main() { let packed = bitcast<u32>(next()); let pair = bitcast<vec2<u16>>(packed); }";
-        string output = WgslWriter.Write(WgslReader.Parse(source));
+        string output = WgslWriter.Write(WgslReader.Parse(source), SpirvCompilationTarget.Default);
         Assert.Contains("fn sia_bitcast_1(", output);
         Assert.Equal(1, output.Split("= next();", StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("bitcast<vec2<u16>>", output);
@@ -108,8 +109,8 @@ public class Int16Tests
     {
         string enable = type.EndsWith("16", StringComparison.Ordinal) ? "enable wgpu_int16;" : "";
         string source = $"{enable} @compute @workgroup_size(1) fn main(@builtin(local_invocation_index) i: u32) {{ let v = vec2<{type}>({type}(i)); let a = extractBits(v, i, i); let b = insertBits(v, v, i, i); }}";
-        byte[] bytes = ShaderTranslator.WgslToSpirv(source);
-        ModuleValidator.Validate(WgslReader.Parse(ShaderTranslator.SpirvToWgsl(bytes)));
+        byte[] bytes = ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default);
+        ModuleValidator.Validate(WgslReader.Parse(ShaderTranslator.SpirvToWgsl(bytes, SpirvCompilationTarget.Default)));
         if (type.EndsWith("64", StringComparison.Ordinal)) Assert.DoesNotContain(SpirvBinary.Parse(bytes).Instructions, i => (Op)i.Opcode is Op.BitFieldUExtract or Op.BitFieldSExtract or Op.BitFieldInsert);
     }
 
@@ -119,7 +120,7 @@ public class Int16Tests
         var module = new Module();
         module.Globals.Add(new("value", new ShaderType.Vector(2, ShaderType.I16), AddressSpace.Private));
         module.Structures.Add(new("HalfData", [new("value", ShaderType.F16)]));
-        string output = WgslWriter.Write(module);
+        string output = WgslWriter.Write(module, SpirvCompilationTarget.Default);
         Assert.Contains("enable wgpu_int16;", output); Assert.Contains("enable f16;", output);
         Assert.Empty(module.Enables);
         ModuleValidator.Validate(WgslReader.Parse(output));
@@ -128,11 +129,11 @@ public class Int16Tests
     [Fact]
     public void NarrowStageIoDeclaresItsStorageCapabilityAndFlatInterpolation()
     {
-        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv("enable wgpu_int16; enable f16; @fragment fn main(@location(0) @interpolate(flat) value: u16, @location(1) half: f16) -> @location(0) vec4f { return vec4f(f32(value) + f32(half)); }"));
+        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv("enable wgpu_int16; enable f16; @fragment fn main(@location(0) @interpolate(flat) value: u16, @location(1) half: f16) -> @location(0) vec4f { return vec4f(f32(value) + f32(half)); }", SpirvCompilationTarget.Default));
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Capability && i.Operands[0] == 4436);
         uint input = Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.Decorate && i.Operands[1] == 30 && i.Operands[2] == 0 && binary.Instructions.Any(v => (Op)v.Opcode == Op.Variable && v.Operands[1] == i.Operands[0] && v.Operands[2] == 1)).Operands[0];
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Decorate && i.Operands[0] == input && i.Operands[1] == 14);
-        ModuleValidator.Validate(WgslReader.Parse(ShaderTranslator.SpirvToWgsl(binary.ToBytes())));
+        ModuleValidator.Validate(WgslReader.Parse(ShaderTranslator.SpirvToWgsl(binary.ToBytes(), SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -144,7 +145,7 @@ public class Int16Tests
     [InlineData("enable wgpu_int16; @fragment fn main(@location(0) @interpolate(linear) value: u16) -> @location(0) vec4f { return vec4f(f32(value)); }")]
     [InlineData("enable wgpu_int16; @fragment fn main(@location(0) value: u16) -> @location(0) vec4f { return vec4f(f32(value)); }")]
     public void RejectsMissingExtensionUnsupportedAtomicsAndOutOfRangeAbstractValues(string source) =>
-        Assert.Throws<ShaderException>(() => WgslWriter.Write(WgslReader.Parse(source)));
+        Assert.Throws<ShaderException>(() => WgslWriter.Write(WgslReader.Parse(source), SpirvCompilationTarget.Default));
 
     [Theory]
     [InlineData("var<private> value: i16; enable wgpu_int16;")]

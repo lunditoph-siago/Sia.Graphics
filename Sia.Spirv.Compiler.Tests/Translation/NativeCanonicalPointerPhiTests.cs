@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -58,15 +59,15 @@ public class NativeCanonicalPointerPhiTests
         Assert.DoesNotContain(deferrals, d => d.Function == "<SPIR-V>");
         Assert.Equal(original, binary.ToBytes()); uint[] expected = [first, second];
         Assert.Equal(expected, new CanonicalExecution(module, [input]).Run().Output);
-        Assert.Equal(expected, new CanonicalExecution(WgslReader.Parse(WgslWriter.Write(module)), [input]).Run().Output);
-        Assert.Equal(expected, new CanonicalExecution(SpirvReader.Parse(SpirvWriter.Write(module)), [input]).Run().Output);
+        Assert.Equal(expected, new CanonicalExecution(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)), [input]).Run().Output);
+        Assert.Equal(expected, new CanonicalExecution(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)), [input]).Run().Output);
     }
 
     [Theory] [InlineData(false)] [InlineData(true)]
     public void NativePhiQualifiersKeepExactLoadAndStoreCounts(bool loop)
     {
         var module = SpirvReader.ReadBinary(Fixture(loop, 1, qualified: true));
-        var output = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var output = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Equal(2, output.Instructions.Count(i => (Op)i.Opcode == Op.Store && i.Operands.Length > 2 && (i.Operands[2] & 1) != 0));
         Assert.Equal(2, output.Instructions.Count(i => (Op)i.Opcode == Op.Load && i.Operands.Length > 3 && (i.Operands[3] & 1) != 0));
     }

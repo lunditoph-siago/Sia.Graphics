@@ -54,7 +54,7 @@ public class RuntimeCompilerTests
         var wgsl = WgslWriter.Write(module, request.Target);
         Assert.Contains("@" + SpirvTestAssembly.GetKernel(declaringType, name).Stage.ToString().ToLowerInvariant(), wgsl);
         ModuleValidator.Validate(WgslReader.Parse(wgsl));
-        var binary = SpirvWriter.Write(module, new() { Target = request.Target });
+        var binary = SpirvWriter.Write(module, request.Target);
         ModuleValidator.Validate(SpirvReader.Parse(binary));
         Assert.Equal(request.Target.Version, SpirvBinary.Parse(binary).Version);
     }
@@ -73,7 +73,7 @@ public class RuntimeCompilerTests
         var parameters = Assert.Single(module.Globals, g => g.Name == "sia_parameters");
         Assert.Equal(abi == SpirvKernelAbi.WebGpu ? AddressSpace.Uniform : AddressSpace.Immediate, parameters.Space);
         Assert.Equal(abi == SpirvKernelAbi.WebGpu, parameters.Binding is not null);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, new() { Target = request.Target })));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, request.Target)));
     }
 
     [Fact]

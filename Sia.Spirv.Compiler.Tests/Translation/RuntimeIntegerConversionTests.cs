@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using System.Numerics;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
@@ -74,7 +75,7 @@ public class RuntimeIntegerConversionTests
         var module = SpirvReader.Parse(code.ToBytes());
         ModuleValidator.Validate(module);
         Assert.Equal(new BigInteger(expected), Evaluate(module, input));
-        var roundtrip = WgslReader.Parse(WgslWriter.Write(module));
+        var roundtrip = WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default));
         ModuleValidator.Validate(roundtrip);
         Assert.Equal(new BigInteger(expected), Evaluate(roundtrip, input));
     }
@@ -97,8 +98,8 @@ public class RuntimeIntegerConversionTests
                 I(Op.Function, resultType, 10, 0, 5), I(Op.FunctionParameter, inputType, 11), I(Op.Label, 12),
                 I(op, resultType, 13, 11), I(Op.ReturnValue, 13), I(Op.FunctionEnd));
             var module = SpirvReader.Parse(code.ToBytes()); ModuleValidator.Validate(module);
-            var back = SpirvReader.Parse(SpirvWriter.Write(module)); ModuleValidator.Validate(back);
-            var wgsl = WgslReader.Parse(WgslWriter.Write(module)); ModuleValidator.Validate(wgsl);
+            var back = SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)); ModuleValidator.Validate(back);
+            var wgsl = WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)); ModuleValidator.Validate(wgsl);
             foreach (BigInteger raw in new[] { (BigInteger.One << from) - 1, (BigInteger.One << (from - 1)) + 3 })
             {
                 BigInteger expected = Wrap(Wrap(raw, from, op == Op.SConvert), to, resultSigned);
@@ -125,7 +126,7 @@ public class RuntimeIntegerConversionTests
             function.Arguments.Add(new("input", source));
             function.Body.Statements.Add(new Statement.Return(new Expression.Convert(destination, new Expression.Reference("input", source))));
             module.Functions.Add(function); ModuleValidator.Validate(module);
-            var back = SpirvReader.Parse(SpirvWriter.Write(module)); ModuleValidator.Validate(back);
+            var back = SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)); ModuleValidator.Validate(back);
             foreach (BigInteger raw in new[] { (BigInteger.One << from) - 1, (BigInteger.One << (from - 1)) + 3 })
                 Assert.Equal(Wrap(Wrap(raw, from, sourceSigned), to, !sourceSigned), Evaluate(back, raw));
         }

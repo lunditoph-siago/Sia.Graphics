@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -99,13 +100,13 @@ public class SpirvPhysicalLayoutTests
     [Fact]
     public void LayoutPreparationPreservesBorrowedInputAndBothWriterOrders()
     {
-        var input = WgslReader.Parse(SharedSource); string before = WgslWriter.Write(input);
+        var input = WgslReader.Parse(SharedSource); string before = WgslWriter.Write(input, SpirvCompilationTarget.Default);
         var globals = input.Globals.ToArray(); var members = input.Structures[0].Members.ToArray();
-        var prepared = ShaderTargetLowering.ForSpirv(input, null, true, true, true);
+        var prepared = ShaderTargetLowering.ForSpirv(input, null, true, true, true, version: SpirvCompilationTarget.Default.Version);
         byte[] first = SpirvWriter.Emit(prepared).ToBytes();
-        Assert.Equal(before, WgslWriter.Write(input));
-        Assert.Equal(first, SpirvWriter.Write(input));
+        Assert.Equal(before, WgslWriter.Write(input, SpirvCompilationTarget.Default));
+        Assert.Equal(first, SpirvWriter.Write(input, SpirvCompilationTarget.Default));
         Assert.Equal(globals, input.Globals); Assert.Equal(members, input.Structures[0].Members);
-        Assert.Equal(SpirvBinary.Parse(first).ToWords(), SpirvWriter.WriteWords(input));
+        Assert.Equal(SpirvBinary.Parse(first).ToWords(), SpirvWriter.WriteWords(input, SpirvCompilationTarget.Default));
     }
 }

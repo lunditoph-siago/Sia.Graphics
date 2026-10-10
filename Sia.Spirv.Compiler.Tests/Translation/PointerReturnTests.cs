@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -65,8 +66,8 @@ public class PointerReturnTests
     {
         var module = SpirvReader.Parse(Fixture(kind, mode, slot, nested, early, privateSlot).ToBytes()); ModuleValidator.Validate(module);
         Assert.DoesNotContain(module.Functions, f => f.ReturnType is ShaderType.Pointer);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory] [InlineData("scalar", 0u, "variable-pointer capability")] [InlineData("workgroup", 4441u, "full VariablePointers")]

@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using System.Buffers.Binary;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
@@ -53,7 +54,7 @@ public class SpirvTests
             I(Op.Variable, 8, 4, 12), I(Op.Function, 5, 1, 0, 6), I(Op.Label, 9), I(Op.Return), I(Op.FunctionEnd));
         var module = SpirvReader.Parse(binary.ToBytes());
         Assert.Equal(StorageAccess.Read, Assert.Single(module.Globals).Access);
-        string wgsl = WgslWriter.Write(module);
+        string wgsl = WgslWriter.Write(module, SpirvCompilationTarget.Default);
         Assert.Contains("var<storage, read>", wgsl);
         Assert.DoesNotContain("read_write", wgsl);
         Assert.Contains("@compute", wgsl);
@@ -91,12 +92,12 @@ public class SpirvTests
         Assert.Single(main.Arguments);
         var deferrals = new List<CanonicalDeferral>(); _ = CanonicalShaderPipeline.Run(module, deferrals: deferrals);
         Assert.Empty(deferrals);
-        string canonical = WgslWriter.Write(module);
+        string canonical = WgslWriter.Write(module, SpirvCompilationTarget.Default);
         Assert.Contains("@builtin(global_invocation_id)", canonical);
         Assert.Contains("@group(2) @binding(3)", canonical);
         Assert.Contains("@workgroup_size(64u, 1u, 1u)", canonical);
         ModuleValidator.Validate(WgslReader.Parse(canonical));
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     internal static SpirvBinary ComputeStore() => Binary(
@@ -141,7 +142,7 @@ public class SpirvTests
         Assert.Contains("break;", wgsl);
         var deferrals = new List<CanonicalDeferral>();
         _ = CanonicalShaderPipeline.Run(module, deferrals: deferrals); Assert.Empty(deferrals);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Fact]

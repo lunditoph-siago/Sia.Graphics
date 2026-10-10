@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -16,12 +17,12 @@ public class GraphicsIoTests
     public void GraphicsInputsDeclareCapabilitiesAndRoundtrip(string builtin, string type, string enable, string stage, uint capability, uint decoration, string extension)
     {
         string result = stage == "vertex" ? "-> @builtin(position) vec4f { return vec4f(f32(value), 0.0, 0.0, 1.0); }" : "{}";
-        byte[] bytes = ShaderTranslator.WgslToSpirv($"{enable} @{stage} fn main(@builtin({builtin}) value: {type}) {result}");
+        byte[] bytes = ShaderTranslator.WgslToSpirv($"{enable} @{stage} fn main(@builtin({builtin}) value: {type}) {result}", SpirvCompilationTarget.Default);
         var binary = SpirvBinary.Parse(bytes);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Capability && i.Operands[0] == capability);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Decorate && i.Operands[1] == 11 && i.Operands[2] == decoration);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Extension && SpirvBinary.ReadString(i.Operands, out _) == extension);
-        string output = ShaderTranslator.SpirvToWgsl(bytes);
+        string output = ShaderTranslator.SpirvToWgsl(bytes, SpirvCompilationTarget.Default);
         Assert.Contains($"@builtin({builtin})", output);
         ModuleValidator.Validate(WgslReader.Parse(output));
     }
@@ -31,12 +32,12 @@ public class GraphicsIoTests
     public void ClipDistanceArraysKeepTheirLengthAndEnable(int length)
     {
         string source = $"enable clip_distances; struct Out {{ @builtin(position) position: vec4f, @builtin(clip_distances) clip: array<f32, {length}>, }} @vertex fn main() -> Out {{ var value: Out; value.clip[0] = 0.5; return value; }}";
-        byte[] bytes = ShaderTranslator.WgslToSpirv(source);
+        byte[] bytes = ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default);
         Assert.Contains(SpirvBinary.Parse(bytes).Instructions, i => (Op)i.Opcode == Op.Capability && i.Operands[0] == 32);
         var module = SpirvReader.Parse(bytes); ModuleValidator.Validate(module);
         var result = Assert.IsType<ShaderType.Structure>(module.Functions.Single(f => f.Stage == ShaderStage.Vertex).ReturnType);
         Assert.Equal((uint)length, Assert.IsType<ShaderType.Array>(result.Members.Single(m => m.Binding?.Builtin == "clip_distances").Type).Length);
-        string output = WgslWriter.Write(module);
+        string output = WgslWriter.Write(module, SpirvCompilationTarget.Default);
         Assert.Contains("enable clip_distances;", output);
         ModuleValidator.Validate(WgslReader.Parse(output));
     }
@@ -57,7 +58,7 @@ public class GraphicsIoTests
     [InlineData("enable clip_distances; struct Out { @builtin(position) position: vec4f, @builtin(clip_distances) clip: array<u32, 1>, } @vertex fn main() -> Out { return Out(); }")]
     public void WrongGraphicsBuiltinTypesStagesAndDirectionsAreRejected(string source)
     {
-        Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv(source));
+        Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default));
     }
 
     [Theory]
@@ -78,7 +79,7 @@ public class GraphicsIoTests
             Value: Expression.Reference value } && type == ShaderType.I32 && value.Name == conversion.Name);
         var result = Assert.IsType<ShaderType.Structure>(entry.ReturnType);
         Assert.Equal(useClip || wholeStore, result.Members.Any(m => m.Binding?.Builtin == "clip_distances"));
-        string output = WgslWriter.Write(module);
+        string output = WgslWriter.Write(module, SpirvCompilationTarget.Default);
         Assert.Equal(useClip || wholeStore, output.Contains("enable clip_distances;", StringComparison.Ordinal));
         ModuleValidator.Validate(WgslReader.Parse(output));
     }

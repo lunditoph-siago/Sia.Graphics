@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -52,7 +53,7 @@ public class BarrierMemoryTests
     {
         var module = SpirvReader.Parse(Fixture(control, execution, scope, semantics, vulkan).ToBytes()); ModuleValidator.Validate(module);
         var resolved = PipelineConstantResolver.Resolve(module, new Dictionary<string, double>());
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(resolved));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(resolved, SpirvCompilationTarget.Default));
         var instruction = Assert.Single(binary.Instructions, i => (Op)i.Opcode == (control ? Op.ControlBarrier : Op.MemoryBarrier));
         Assert.DoesNotContain(binary.Instructions, i => (Op)i.Opcode == (control ? Op.MemoryBarrier : Op.ControlBarrier));
         var constants = binary.Instructions.Where(i => (Op)i.Opcode == Op.Constant).ToDictionary(i => i.Operands[1], i => i.Operands[2]);
@@ -69,7 +70,7 @@ public class BarrierMemoryTests
     public void EquivalentControlBarriersProduceValidWgsl(uint execution, uint scope, uint semantics, bool vulkan)
     {
         var module = SpirvReader.Parse(Fixture(true, execution, scope, semantics, vulkan).ToBytes());
-        string source = WgslWriter.Write(module); ModuleValidator.Validate(WgslReader.Parse(source));
+        string source = WgslWriter.Write(module, SpirvCompilationTarget.Default); ModuleValidator.Validate(WgslReader.Parse(source));
         if (execution == 3) { Assert.Contains("subgroupBarrier();", source); Assert.DoesNotContain("workgroupBarrier();", source); }
         else Assert.DoesNotContain("subgroupBarrier();", source);
     }
@@ -80,8 +81,8 @@ public class BarrierMemoryTests
     public void WgslCannotNarrowNativeBarrierRequirements(uint execution, uint scope, uint semantics, bool vulkan)
     {
         var module = SpirvReader.Parse(Fixture(true, execution, scope, semantics, vulkan).ToBytes());
-        Assert.Throws<ShaderException>(() => WgslWriter.Write(module));
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
+        Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -101,11 +102,11 @@ public class BarrierMemoryTests
     public void ConditionalMemoryFenceDoesNotIntroduceAnUnprovenCollectiveWait(uint size)
     {
         var module = SpirvReader.Parse(Fixture(false, 0, 2, 264, size: size, conditional: true).ToBytes());
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.MemoryBarrier);
         Assert.DoesNotContain(binary.Instructions, i => (Op)i.Opcode == Op.ControlBarrier);
-        if (size == 1) ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
-        else Assert.Contains("uniformity-proven", Assert.Throws<ShaderException>(() => WgslWriter.Write(module)).Message);
+        if (size == 1) ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
+        else Assert.Contains("uniformity-proven", Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default)).Message);
     }
 
     [Theory]
@@ -115,8 +116,8 @@ public class BarrierMemoryTests
         var module = WgslReader.Parse("fn fence()->u32 {workgroupBarrier();return 1u;} @compute @workgroup_size(1) fn one(){_=fence();} @compute @workgroup_size(4) fn many(){" + (shared ? "_=fence();" : "") + "}");
         var helper = module.Functions.Single(f => f.Name == "fence");
         helper.Body.Statements[0] = new Statement.MemoryBarrier(false, true) { NativeMemory = new(2, 264) };
-        if (shared) Assert.Contains("uniformity-proven", Assert.Throws<ShaderException>(() => WgslWriter.Write(module)).Message);
-        else ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        if (shared) Assert.Contains("uniformity-proven", Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default)).Message);
+        else ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
         Assert.IsType<Statement.MemoryBarrier>(helper.Body.Statements[0]);
     }
 
@@ -126,10 +127,10 @@ public class BarrierMemoryTests
     {
         var module = WgslReader.Parse("override n=1u; @compute @workgroup_size(n) fn main(){workgroupBarrier();}");
         module.Functions[0].Body.Statements[0] = new Statement.MemoryBarrier(false, true) { NativeMemory = new(2, 264) };
-        Assert.Throws<ShaderException>(() => WgslWriter.Write(module));
+        Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default));
         var resolved = PipelineConstantResolver.Resolve(module, new Dictionary<string, double> { ["n"] = size });
-        if (size == 1) ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(resolved)));
-        else Assert.Throws<ShaderException>(() => WgslWriter.Write(resolved));
+        if (size == 1) ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(resolved, SpirvCompilationTarget.Default)));
+        else Assert.Throws<ShaderException>(() => WgslWriter.Write(resolved, SpirvCompilationTarget.Default));
     }
 
     [Theory]
@@ -137,10 +138,10 @@ public class BarrierMemoryTests
     [InlineData("textureBarrier", 2u, 2056u)] [InlineData("subgroupBarrier", 3u, 264u)]
     public void WgslBarriersUseTheirSpecifiedMemoryScope(string operation, uint scope, uint semantics)
     {
-        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv("@compute @workgroup_size(4) fn main(){" + operation + "();}"));
+        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv("@compute @workgroup_size(4) fn main(){" + operation + "();}", SpirvCompilationTarget.Default));
         var constants = binary.Instructions.Where(i => (Op)i.Opcode == Op.Constant).ToDictionary(i => i.Operands[1], i => i.Operands[2]);
         Assert.Equal(new[] { scope, scope, semantics }, Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.ControlBarrier).Operands.Select(id => constants[id]));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(SpirvReader.Parse(binary.ToBytes()))));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(SpirvReader.Parse(binary.ToBytes()), SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -152,11 +153,11 @@ public class BarrierMemoryTests
         if (scope == 2) Assert.Throws<ShaderException>(() => ModuleValidator.Validate(module));
         else
         {
-            var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+            var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
             Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.MemoryBarrier);
             Assert.DoesNotContain(binary.Instructions, i => (Op)i.Opcode == Op.ControlBarrier);
             ModuleValidator.Validate(SpirvReader.Parse(binary.ToBytes()));
-            Assert.Contains("uniformity-proven", Assert.Throws<ShaderException>(() => WgslWriter.Write(module)).Message);
+            Assert.Contains("uniformity-proven", Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default)).Message);
         }
     }
 

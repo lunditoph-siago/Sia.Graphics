@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -35,7 +36,7 @@ public class SpirvControlFlowTests
         Assert.Equal(prepared.Module.Functions.Count, prepared.PhysicalLayout.ControlFlow.Count);
         var before = SpirvWriter.Emit(prepared).ToBytes();
         var read = SpirvReader.Parse(before); ModuleValidator.ValidateNative(read);
-        WgslReader.Parse(WgslWriter.Write(read));
+        WgslReader.Parse(WgslWriter.Write(read, SpirvCompilationTarget.Default));
         foreach (var function in prepared.Module.Functions) {
             function.Body.Statements.Clear(); function.Body.Statements.Add(new Statement.Unreachable());
         }

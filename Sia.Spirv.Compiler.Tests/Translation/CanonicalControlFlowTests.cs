@@ -92,7 +92,7 @@ public class CanonicalControlFlowTests
     {
         string source = fixture switch { "SwapLoop" => SwapLoop, "EarlyExit" => EarlyExit, "ShortCircuitOr" => ShortCircuitOr, "ScalarHelpers" => ScalarHelpers, _ => NestedLoops };
         var module = WgslReader.Parse(source);
-        foreach (var input in new[] { module, SpirvReader.Parse(SpirvWriter.Write(module)) }) {
+        foreach (var input in new[] { module, SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)) }) {
             var deferrals = new List<CanonicalDeferral>(); var prepared = CanonicalShaderPipeline.Run(input, deferrals: deferrals);
             Assert.Empty(deferrals);
             IEnumerable<Statement> Walk(Block block) {
@@ -159,11 +159,11 @@ public class CanonicalControlFlowTests
     {
         yield return module;
         yield return CanonicalShaderPipeline.Run(module);
-        yield return WgslReader.Parse(WgslWriter.Write(module));
-        var native = SpirvReader.Parse(SpirvWriter.Write(module));
+        yield return WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default));
+        var native = SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         yield return native;
         yield return CanonicalShaderPipeline.Run(native);
-        yield return WgslReader.Parse(WgslWriter.Write(native));
+        yield return WgslReader.Parse(WgslWriter.Write(native, SpirvCompilationTarget.Default));
     }
     private static void CheckRoutes(Module module, uint[] input, uint[] expected)
     {
@@ -182,8 +182,8 @@ public class CanonicalControlFlowTests
         Assert.Contains(graph.Blocks, b => b.Parameters.Count != 0);
         var prepared = CanonicalShaderPipeline.Run(module);
         Assert.NotSame(module.Functions[0], prepared.Functions[0]);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
     }
     [Fact]
     public void IrDumpIsDeterministicAndIndependentOfNumericCulture()
@@ -237,7 +237,7 @@ public class CanonicalControlFlowTests
             nameof(SignedShift) => SignedShift, nameof(ShortCircuitOr) => ShortCircuitOr, nameof(ShortCircuitAnd) => ShortCircuitAnd,
             _ => ScalarHelpers
         };
-        var native = SpirvReader.Parse(SpirvWriter.Write(WgslReader.Parse(source)));
+        var native = SpirvReader.Parse(SpirvWriter.Write(WgslReader.Parse(source), SpirvCompilationTarget.Default));
         var deferrals = new List<CanonicalDeferral>(); var traces = new List<CanonicalPassTrace>();
         var prepared = CanonicalShaderPipeline.Run(native, traces, deferrals);
         Assert.Empty(deferrals); Assert.Equal(native.Functions.Count * 3, traces.Count);

@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -68,11 +69,11 @@ public class AtomicMemoryTests
         Assert.Equal(vulkan, module.VulkanMemoryModel);
         Assert.Equal(new SpirvAtomicMemory(scope, 0), Assert.Single(Calls(module), c => c.Function == "atomicAdd").AtomicMemory);
         var resolved = PipelineConstantResolver.Resolve(module, new Dictionary<string, double>());
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(resolved));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(resolved, SpirvCompilationTarget.Default));
         AssertAtomic(binary, Op.AtomicIAdd, scope, 0);
         Assert.Equal(vulkan ? 3u : 1u, Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.MemoryModel).Operands[1]);
         Assert.Equal(vulkan && scope == 1, binary.Instructions.Any(i => (Op)i.Opcode == Op.Capability && i.Operands[0] == 5346));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -88,8 +89,8 @@ public class AtomicMemoryTests
         uint unequal = (semantics & 32768) | (operation == Op.AtomicCompareExchange ? (semantics & 16384) | 66u : 0u);
         var module = SpirvReader.Parse(Fixture(operation, 1, semantics, unequal, vulkan).ToBytes());
         ModuleValidator.Validate(module);
-        Assert.Contains("no equivalent WGSL relaxed builtin", Assert.Throws<ShaderException>(() => WgslWriter.Write(module)).Message);
-        var native = SpirvBinary.Parse(SpirvWriter.Write(module));
+        Assert.Contains("no equivalent WGSL relaxed builtin", Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default)).Message);
+        var native = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Op emitted = operation == Op.AtomicIIncrement ? Op.AtomicIAdd : operation == Op.AtomicIDecrement ? Op.AtomicISub : operation;
         AssertAtomic(native, emitted, 1, semantics, operation == Op.AtomicCompareExchange ? unequal : null);
         var roundtrip = SpirvReader.Parse(native.ToBytes());
@@ -122,15 +123,15 @@ public class AtomicMemoryTests
     public void RelaxedMemoryClassBitsCanUseWgslAddressSpaceScope(uint scope)
     {
         var module = SpirvReader.Parse(Fixture(Op.AtomicIAdd, scope, 256, vulkan: scope == 5).ToBytes());
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
-        AssertAtomic(SpirvBinary.Parse(SpirvWriter.Write(module)), Op.AtomicIAdd, scope, 256);
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
+        AssertAtomic(SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)), Op.AtomicIAdd, scope, 256);
     }
 
     [Fact]
     public void CrossDeviceScopeCannotBeSilentlyNarrowedToWgsl()
     {
         var module = SpirvReader.Parse(Fixture(Op.AtomicIAdd, 0, 0).ToBytes());
-        Assert.Contains("no equivalent WGSL builtin scope", Assert.Throws<ShaderException>(() => WgslWriter.Write(module)).Message);
+        Assert.Contains("no equivalent WGSL builtin scope", Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default)).Message);
     }
 
     [Theory]
@@ -138,13 +139,13 @@ public class AtomicMemoryTests
     public void StrongCompareRetriesSpuriousFailureAndReturnsObservedValue(uint initial, int spurious, uint expectedOld, uint expectedMemory, int attempts)
     {
         var module = SpirvReader.Parse(Fixture(Op.AtomicCompareExchange, 1, 0).ToBytes());
-        string wgsl = WgslWriter.Write(module); var lowered = WgslReader.Parse(wgsl); ModuleValidator.Validate(lowered);
+        string wgsl = WgslWriter.Write(module, SpirvCompilationTarget.Default); var lowered = WgslReader.Parse(wgsl); ModuleValidator.Validate(lowered);
         var helper = Assert.Single(lowered.Functions, f => f.Name.StartsWith("sia_atomic_", StringComparison.Ordinal));
         var invocation = Assert.Single(Calls(lowered), c => c.Function == helper.Name);
         var machine = new WeakMachine(helper, invocation, initial, spurious);
         Assert.Equal(expectedOld, machine.Run()); Assert.Equal(expectedMemory, machine.Memory); Assert.Equal(attempts, machine.Attempts);
         Assert.Equal("spirvAtomicCompareExchange", Assert.Single(Calls(module), c => c.AtomicMemory is not null).Function);
-        AssertAtomic(SpirvBinary.Parse(SpirvWriter.Write(module)), Op.AtomicCompareExchange, 1, 0, 0);
+        AssertAtomic(SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)), Op.AtomicCompareExchange, 1, 0, 0);
     }
 
     [Fact]
@@ -162,7 +163,7 @@ public class AtomicMemoryTests
         int position = main.Body.Statements.IndexOf(declaration);
         main.Body.Statements.RemoveRange(position, main.Body.Statements.Count - position);
         main.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("spirvAtomicCompareExchange", weak.Arguments, ShaderType.U32) { AtomicMemory = new(1, 0, 0) }));
-        var lowered = WgslReader.Parse(WgslWriter.Write(module)); ModuleValidator.Validate(lowered);
+        var lowered = WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)); ModuleValidator.Validate(lowered);
         var helper = Assert.Single(lowered.Functions, f => f.Name.StartsWith("sia_atomic_", StringComparison.Ordinal));
         Assert.Equal(3, helper.Arguments.Count);
         Assert.DoesNotContain(Calls(helper.Body), c => c.Function == "next");
@@ -176,11 +177,11 @@ public class AtomicMemoryTests
         string operation = "let r=atomicCompareExchangeWeak(&value,9u,7u);output=r.old_value;";
         string body = continuing ? "var n=0u;loop {n++;continuing {" + operation + "break if n==1u;}}" : operation;
         string source = "var<workgroup> value:atomic<u32>; @group(0) @binding(0) var<storage,read_write> output:u32; @compute @workgroup_size(1) fn main(){" + body + "}";
-        var module = SpirvReader.Parse(ShaderTranslator.WgslToSpirv(source));
-        var lowered = WgslReader.Parse(WgslWriter.Write(module)); ModuleValidator.Validate(lowered);
+        var module = SpirvReader.Parse(ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default));
+        var lowered = WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)); ModuleValidator.Validate(lowered);
         Assert.Single(lowered.Functions, f => f.Name.StartsWith("sia_atomic_", StringComparison.Ordinal));
         Assert.Single(Calls(lowered), c => c.Function == "atomicCompareExchangeWeak");
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(lowered)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(lowered, SpirvCompilationTarget.Default)));
     }
 
     [Fact]
@@ -192,11 +193,11 @@ public class AtomicMemoryTests
         function.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("atomicAdd",
             [new Expression.Unary("&", new Expression.Reference("value", pointer), pointer), new Expression.Literal(2f, ShaderType.F32)], ShaderType.F32)
             { AtomicMemory = new(1, 72) })); module.Functions.Add(function);
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module)); AssertAtomic(binary, Op.AtomicFAddEXT, 1, 72);
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)); AssertAtomic(binary, Op.AtomicFAddEXT, 1, 72);
         var imported = SpirvReader.Parse(binary.ToBytes());
         Assert.Equal(new SpirvAtomicMemory(1, 72), Assert.Single(Calls(imported), c => c.Function == "atomicAdd").AtomicMemory);
-        AssertAtomic(SpirvBinary.Parse(SpirvWriter.Write(imported)), Op.AtomicFAddEXT, 1, 72);
-        Assert.Throws<ShaderException>(() => WgslWriter.Write(imported));
+        AssertAtomic(SpirvBinary.Parse(SpirvWriter.Write(imported, SpirvCompilationTarget.Default)), Op.AtomicFAddEXT, 1, 72);
+        Assert.Throws<ShaderException>(() => WgslWriter.Write(imported, SpirvCompilationTarget.Default));
     }
 
     [Theory]
@@ -208,9 +209,9 @@ public class AtomicMemoryTests
         Assert.IsType<ShaderType.Atomic>(Assert.IsType<ShaderType.Array>(structure.Members[0].Type).Element);
         Assert.Equal(ShaderType.U32, structure.Members[1].Type);
         var calls = Calls(module).ToArray(); Assert.Contains(calls, c => c.Function == "atomicStore"); Assert.Contains(calls, c => c.Function == "atomicLoad");
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
-        var imported = SpirvReader.Parse(SpirvWriter.Write(module)); ModuleValidator.Validate(imported);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(imported)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
+        var imported = SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)); ModuleValidator.Validate(imported);
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(imported, SpirvCompilationTarget.Default)));
     }
 
     [Fact]
@@ -218,7 +219,7 @@ public class AtomicMemoryTests
     {
         var module = SpirvReader.Parse(Fixture(Op.AtomicIAdd, 1, 80).ToBytes());
         module.Globals.Add(new("matrix", new ShaderType.CooperativeMatrix(8, 8, ShaderType.F32, CooperativeRole.A), AddressSpace.Private));
-        Assert.Contains("required Vulkan memory model", Assert.Throws<ShaderException>(() => SpirvWriter.Write(module)).Message);
+        Assert.Contains("required Vulkan memory model", Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, SpirvCompilationTarget.Default)).Message);
     }
 
     private static void AssertAtomic(SpirvBinary binary, Op operation, uint scope, uint semantics, uint? unequal = null)

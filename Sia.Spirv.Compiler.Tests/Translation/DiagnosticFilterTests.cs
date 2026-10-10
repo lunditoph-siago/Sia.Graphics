@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -20,10 +21,10 @@ public class DiagnosticFilterTests
         Assert.Equal(new DiagnosticFilter(expected, "derivative_uniformity"), module.DiagnosticFilters[0]);
         Assert.Equal(new DiagnosticFilter(DiagnosticSeverity.Info, "rule", "vendor"), module.DiagnosticFilters[1]);
         var resolved = PipelineConstantResolver.Resolve(module, new Dictionary<string, double> { ["size"] = 2 });
-        var back = WgslReader.Parse(WgslWriter.Write(resolved)); ModuleValidator.Validate(back);
+        var back = WgslReader.Parse(WgslWriter.Write(resolved, SpirvCompilationTarget.Default)); ModuleValidator.Validate(back);
         Assert.Equal(module.DiagnosticFilters, back.DiagnosticFilters);
         Assert.Equal(module.Functions[0].DiagnosticFilters, back.Functions[0].DiagnosticFilters);
-        Assert.NotEmpty(SpirvWriter.Write(back));
+        Assert.NotEmpty(SpirvWriter.Write(back, SpirvCompilationTarget.Default));
         Assert.Equal(2, module.DiagnosticFilters.Count);
         Assert.Equal(2, module.Functions[0].DiagnosticFilters.Count);
     }
@@ -35,14 +36,14 @@ public class DiagnosticFilterTests
         ModuleValidator.Validate(module);
         Assert.Equal(3, module.DiagnosticFilters.Count);
         Assert.Equal(2, module.Functions[0].DiagnosticFilters.Count);
-        Assert.Equal(module.DiagnosticFilters, WgslReader.Parse(WgslWriter.Write(module)).DiagnosticFilters);
+        Assert.Equal(module.DiagnosticFilters, WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)).DiagnosticFilters);
     }
 
     [Fact]
     public void UnknownAndUnicodeRulesAreRetained()
     {
         var module = WgslReader.Parse("diagnostic(info, unknown_rule); diagnostic(off, 供应商.规则); fn helper() {}");
-        var back = WgslReader.Parse(WgslWriter.Write(module));
+        var back = WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Equal(module.DiagnosticFilters, back.DiagnosticFilters);
     }
 
@@ -67,7 +68,7 @@ public class DiagnosticFilterTests
     [InlineData("fn main() @diagnostic(off, derivative_uniformity) @diagnostic(error, derivative_uniformity) {}")]
     public void InvalidConflictingAndMisplacedSettingsAreRejected(string source)
     {
-        Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv(source));
+        Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default));
     }
 
     [Theory]
@@ -81,10 +82,10 @@ public class DiagnosticFilterTests
     {
         var module = WgslReader.Parse(source);
         string before = WgslWriter.Emit(module);
-        string emitted = WgslWriter.Write(module);
+        string emitted = WgslWriter.Write(module, SpirvCompilationTarget.Default);
         Assert.Contains("@diagnostic(", emitted);
         ModuleValidator.Validate(WgslReader.Parse(emitted));
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
         Assert.Equal(before, WgslWriter.Emit(module));
     }
 
@@ -93,7 +94,7 @@ public class DiagnosticFilterTests
     {
         const string valid = "@diagnostic(error,derivative_uniformity) @fragment fn main(@builtin(position) p:vec4f)->@location(0) f32{var v=0.0;@diagnostic(off,derivative_uniformity) if p.x>0.0{v=dpdx(p.y);}return v;}";
         var input = WgslReader.Parse(valid);
-        _ = WgslReader.Parse(WgslWriter.Write(input));
+        _ = WgslReader.Parse(WgslWriter.Write(input, SpirvCompilationTarget.Default));
         var error = Assert.Throws<ShaderException>(() => WgslReader.Parse(valid.Replace("return v;", "if p.x>0.0{v=dpdx(p.y);}return v;", StringComparison.Ordinal)));
         Assert.Contains("Uniformity violation", error.Message);
     }
@@ -114,7 +115,7 @@ public class DiagnosticFilterTests
         var canonical = CanonicalShaderPipeline.Run(input, traces, deferrals);
         Assert.Empty(deferrals); Assert.Equal(3, traces.Count);
         Assert.Contains(traces, trace => trace.After.Contains("subgroup_uniformity:Off", StringComparison.Ordinal));
-        _ = WgslReader.Parse(WgslWriter.Write(canonical));
+        _ = WgslReader.Parse(WgslWriter.Write(canonical, SpirvCompilationTarget.Default));
         Assert.Contains("Uniformity violation", Assert.Throws<ShaderException>(() => WgslReader.Parse(source.Replace("@diagnostic(off,subgroup_uniformity)", "", StringComparison.Ordinal))).Message);
     }
 
@@ -129,7 +130,7 @@ public class DiagnosticFilterTests
     public void InvalidIrSettingsCannotProduceMalformedWgsl(DiagnosticSeverity severity, string rule, string? ns)
     {
         var module = new Module(); module.DiagnosticFilters.Add(new(severity, rule, ns));
-        Assert.Throws<ShaderException>(() => WgslWriter.Write(module));
+        Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default));
     }
 
     [Fact]

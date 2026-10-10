@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -106,13 +107,13 @@ public class SpirvWorkgroupAccessTests
     [Fact]
     public void CapturedAliasEvaluatesItsIndexOnceAndPreservesLexicalShadowing()
     {
-        var input = WgslReader.Parse(AliasSource); string before = WgslWriter.Write(input);
+        var input = WgslReader.Parse(AliasSource); string before = WgslWriter.Write(input, SpirvCompilationTarget.Default);
         var prepared = ShaderTargetLowering.ForSpirv(input, null, true, true, true);
         var main = prepared.Module.Functions.Single(f => f.Stage == ShaderStage.Compute);
         var graph = prepared.PhysicalLayout.ControlFlow[main.Name].Graph;
         ControlFlowVerifier.Validate(graph!, prepared.Module);
         Assert.Single(graph!.Blocks.SelectMany(b => b.Instructions), i => i.Operation is ValueOperation.Call { Function: "get_index" });
-        Assert.Equal(before, WgslWriter.Write(input));
+        Assert.Equal(before, WgslWriter.Write(input, SpirvCompilationTarget.Default));
         ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Emit(prepared).ToBytes()));
     }
 
@@ -120,7 +121,7 @@ public class SpirvWorkgroupAccessTests
     public void WorkgroupGlobalAndOrderedAccessesHavePhysicalTypesBeforeSerialization()
     {
         var input = WgslReader.Parse(SpirvWorkgroupConversionTests.NestedSource);
-        string before = WgslWriter.Write(input);
+        string before = WgslWriter.Write(input, SpirvCompilationTarget.Default);
         var prepared = ShaderTargetLowering.ForSpirv(input, null, true, true, true);
         var logical = input.Globals.Single(g => g.Name == "group_data").Type;
         var physical = prepared.PhysicalLayout.WorkgroupTypes[logical];
@@ -134,7 +135,7 @@ public class SpirvWorkgroupAccessTests
         Assert.Equal(2, calls.Length);
         Assert.Contains(instructions, i => i.Operation is ValueOperation.Store s && s.Pointer.Type is ShaderType.Pointer { Space: AddressSpace.Workgroup } p && p.Base == physical && s.Value.Type == physical);
         Assert.Contains(instructions, i => i.Operation is ValueOperation.Load l && l.Pointer.Type is ShaderType.Pointer { Space: AddressSpace.Workgroup } p && p.Base == physical && i.Result!.Value.Type == physical);
-        Assert.Equal(before, WgslWriter.Write(input));
+        Assert.Equal(before, WgslWriter.Write(input, SpirvCompilationTarget.Default));
         Assert.Equal(logical, input.Globals.Single(g => g.Name == "group_data").Type);
         ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Emit(prepared).ToBytes()));
     }

@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -31,9 +32,9 @@ public class SpirvEntryMetadataTests
     [Theory] [InlineData(false)] [InlineData(true)]
     public void PreparedWorkgroupPolicySurvivesSourceChanges(bool ids)
     {
-        var module = WgslReader.Parse(Workgroup); string borrowed = WgslWriter.Write(module);
+        var module = WgslReader.Parse(Workgroup); string borrowed = WgslWriter.Write(module, SpirvCompilationTarget.Default);
         var prepared = ShaderTargetLowering.ForSpirv(module, null, true, true, true, useLocalSizeId: ids, version: 0x10400);
-        Assert.Equal(borrowed, WgslWriter.Write(module));
+        Assert.Equal(borrowed, WgslWriter.Write(module, SpirvCompilationTarget.Default));
         var metadata = prepared.PhysicalLayout.EntryAbi!.Entries["main"];
         var mode = Assert.Single(metadata.Modes);
         Assert.Equal(ids ? 38u : 17u, mode.Mode);

@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -53,7 +54,7 @@ public class SpirvOutputBuiltinIdentityTests
         Assert.Empty(ControlFlowAnalysis.Calls(rebuilt.Body));
         Assert.Equal(ShaderEffects.None, ShaderEffectAnalysis.Compute(lowered)[helper.Name]);
         Assert.True((ShaderEffectAnalysis.Compute(lowered)["clamp"] & ShaderEffects.WriteMemory) != 0);
-        Assert.Contains(SpirvBinary.Parse(SpirvWriter.Write(lowered)).Instructions, i => (Op)i.Opcode == Op.ExtInst && i.Operands[3] == 43);
+        Assert.Contains(SpirvBinary.Parse(SpirvWriter.Write(lowered, SpirvCompilationTarget.Default)).Instructions, i => (Op)i.Opcode == Op.ExtInst && i.Operands[3] == 43);
     }
 
     [Fact]
@@ -70,12 +71,12 @@ public class SpirvOutputBuiltinIdentityTests
     public void WgslDisambiguatesOrdinaryFunctionsWithoutChangingEntryOrBorrowedInput()
     {
         var module = OrderedProbe(); string borrowed = WgslWriter.Emit(module);
-        string text = WgslWriter.Write(module);
+        string text = WgslWriter.Write(module, SpirvCompilationTarget.Default);
         Assert.Contains("fn main", text); Assert.DoesNotContain("fn clamp(", text);
         Assert.Contains("clamp(", text); Assert.Contains("fn sia_wgsl_clamp_", text);
         ModuleValidator.Validate(WgslReader.Parse(text));
         Assert.Equal(borrowed, WgslWriter.Emit(module));
-        Assert.Equal(SpirvWriter.Write(module), SpirvWriter.Write(module));
+        Assert.Equal(SpirvWriter.Write(module, SpirvCompilationTarget.Default), SpirvWriter.Write(module, SpirvCompilationTarget.Default));
     }
 
     [Fact]
@@ -95,7 +96,7 @@ public class SpirvOutputBuiltinIdentityTests
         var prepared = ShaderTargetLowering.ForSpirv(input, null, true, true, true);
         Assert.Equal("clamp", prepared.Module.Functions.Single(f => f.Stage is not null).Name);
         var adapted = StructuredControlFlowLowering.Run(prepared.PhysicalLayout.Canonical);
-        Assert.Contains("Entry name 'clamp'", Assert.Throws<ShaderException>(() => WgslWriter.Write(adapted)).Message);
+        Assert.Contains("Entry name 'clamp'", Assert.Throws<ShaderException>(() => WgslWriter.Write(adapted, SpirvCompilationTarget.Default)).Message);
         ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Emit(prepared).ToBytes()));
     }
 
@@ -110,7 +111,7 @@ public class SpirvOutputBuiltinIdentityTests
         Assert.StartsWith("sia_wgsl_clamp_", Assert.IsType<Statement.Declare>(renamed.Body.Statements[0]).Name);
         var builtin = Assert.IsType<Expression.Call>(Assert.Single(renamed.Body.Statements.OfType<Statement.Declare>(), d => d.Initializer is Expression.Call).Initializer);
         Assert.Equal("clamp", builtin.Function); Assert.Equal(CallBinding.Builtin, builtin.Binding);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
         Assert.Equal("clamp", Assert.IsType<Statement.Declare>(helper.Body.Statements[0]).Name);
     }
 
@@ -121,13 +122,13 @@ public class SpirvOutputBuiltinIdentityTests
         var module = SpirvOutputPolicyTests.PolicyProbe(true);
         module.Constants.Add(new("clamp", ShaderType.F32, new Expression.Literal(0f, ShaderType.F32), true, numbered ? 7u : null));
         if (!numbered) {
-            Assert.Contains("pipeline constant contract", Assert.Throws<ShaderException>(() => WgslWriter.Write(module)).Message);
+            Assert.Contains("pipeline constant contract", Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default)).Message);
             Assert.Equal("clamp", Assert.Single(module.Constants).Name); return;
         }
         var prepared = WgslBuiltinNameLowering.Run(module);
         Assert.Equal(7u, Assert.Single(prepared.Constants).OverrideId);
         Assert.NotEqual("clamp", Assert.Single(prepared.Constants).Name);
-        Assert.Contains("@id(7)", WgslWriter.Write(module));
+        Assert.Contains("@id(7)", WgslWriter.Write(module, SpirvCompilationTarget.Default));
     }
 
     [Fact]
@@ -145,11 +146,11 @@ public class SpirvOutputBuiltinIdentityTests
     [Fact]
     public void NativeRoundtripRetainsTheIndependentBuiltinAndUserEffects()
     {
-        var module = SpirvReader.Parse(SpirvWriter.Write(OrderedProbe()));
+        var module = SpirvReader.Parse(SpirvWriter.Write(OrderedProbe(), SpirvCompilationTarget.Default));
         ModuleValidator.Validate(module);
-        var rewritten = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var rewritten = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Contains(rewritten.Instructions, i => (Op)i.Opcode == Op.ExtInst && i.Operands[3] == 43);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -158,9 +159,9 @@ public class SpirvOutputBuiltinIdentityTests
     {
         var module = WgslReader.Parse("@group(0) @binding(0) var<storage,read> inputs:array<u32>;@group(0) @binding(1) var<storage,read_write> outputs:array<u32>;"
             + "fn " + name + "(value:u32)->u32{return value;}@compute @workgroup_size(1) fn main(){outputs[0]=" + name + "(inputs[0]);}");
-        string text = WgslWriter.Write(module);
+        string text = WgslWriter.Write(module, SpirvCompilationTarget.Default);
         Assert.Contains("fn " + name + "(", text);
         ModuleValidator.Validate(WgslReader.Parse(text));
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 }

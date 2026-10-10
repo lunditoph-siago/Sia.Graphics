@@ -125,7 +125,7 @@ public class SpirvSynchronizationTests
     public void RawOrderedExpansionKeepsCapturedOperandsAndContinuingScope()
     {
         var module = RawOrderedFixture(); ModuleValidator.Validate(module);
-        string before = WgslWriter.Write(module);
+        string before = WgslWriter.Write(module, SpirvCompilationTarget.Default);
         var prepared = SpirvPhysicalLayoutLowering.Prepare(module);
         ModuleValidator.Validate(prepared.Module);
         var graph = prepared.ControlFlow["main"].Graph;
@@ -139,7 +139,7 @@ public class SpirvSynchronizationTests
         string once = ControlFlowPrinter.Write(graph);
         SpirvSynchronizationLowering.Run(graph,prepared.Module);
         Assert.Equal(once,ControlFlowPrinter.Write(graph));
-        Assert.Equal(before,WgslWriter.Write(module));
+        Assert.Equal(before,WgslWriter.Write(module, SpirvCompilationTarget.Default));
         var binary = RawOrderedBinary();
         var words = SpirvBinary.Parse(binary);
         Assert.Equal(SpirvCompilationTarget.Default.Version, words.Version);

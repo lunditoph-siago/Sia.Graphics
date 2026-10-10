@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.Spirv;
@@ -62,8 +63,8 @@ public class NativeCanonicalSlotHelperTests
         Assert.DoesNotContain(deferrals, d => d.Function == "<SPIR-V>");
         Assert.Equal(original, binary.ToBytes()); ModuleValidator.ValidateNative(module);
         Assert.Equal(new[] { first, second }, new CanonicalExecution(module, [input]).Run().Output);
-        Assert.Equal(new[] { first, second }, new CanonicalExecution(WgslReader.Parse(WgslWriter.Write(module)), [input]).Run().Output);
-        Assert.Equal(new[] { first, second }, new CanonicalExecution(SpirvReader.Parse(SpirvWriter.Write(module)), [input]).Run().Output);
+        Assert.Equal(new[] { first, second }, new CanonicalExecution(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)), [input]).Run().Output);
+        Assert.Equal(new[] { first, second }, new CanonicalExecution(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)), [input]).Run().Output);
     }
 
     [Theory] [InlineData(false)] [InlineData(true)]
@@ -73,7 +74,7 @@ public class NativeCanonicalSlotHelperTests
         var module = SpirvReader.ReadBinary(Fixture(nested, qualified: true), traces: traces, deferrals: deferrals);
         Assert.Contains(deferrals, d => d.Function == "<SPIR-V>" && d.Feature.Contains("qualified", StringComparison.Ordinal));
         Assert.DoesNotContain(traces, t => t.Pass == "native-cfg-import");
-        var output = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var output = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Contains(output.Instructions, i => (Op)i.Opcode == Op.Store && i.Operands.Length > 2 && (i.Operands[2] & 1) != 0);
     }
 }

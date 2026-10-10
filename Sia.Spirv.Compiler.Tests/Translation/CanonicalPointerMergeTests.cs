@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -95,7 +96,7 @@ public class CanonicalPointerMergeTests
     private static void Verify(Module module, uint input, uint[] expected)
     {
         Assert.Equal(expected, new CanonicalExecution(module, [input]).Run().Output);
-        string wgsl = WgslWriter.Write(module); var binary = SpirvWriter.Write(module);
+        string wgsl = WgslWriter.Write(module, SpirvCompilationTarget.Default); var binary = SpirvWriter.Write(module, SpirvCompilationTarget.Default);
         Assert.Equal(expected, new CanonicalExecution(WgslReader.Parse(wgsl), [input]).Run().Output);
         Assert.Equal(expected, new CanonicalExecution(SpirvReader.Parse(binary), [input]).Run().Output);
     }
@@ -113,7 +114,7 @@ public class CanonicalPointerMergeTests
         left.Terminator = new ControlFlowTerminator.Branch(new(merge.Id, [a])); right.Terminator = new ControlFlowTerminator.Branch(new(merge.Id, [b]));
         merge.Instructions.Add(new(null, new ValueOperation.Call("touch", [pointer], new ShaderType.Void(), CalleeEffects: ShaderEffectAnalysis.Compute(module)["touch"])));
         merge.Terminator = new ControlFlowTerminator.Return(); graph.SelectionMerges.Add(entry.Id, merge.Id);
-        var output = Lower(module, graph); Assert.Empty(UniformityAnalysis.Validate(output)); Assert.NotEmpty(WgslWriter.Write(output));
+        var output = Lower(module, graph); Assert.Empty(UniformityAnalysis.Validate(output)); Assert.NotEmpty(WgslWriter.Write(output, SpirvCompilationTarget.Default));
     }
 
     [Fact]

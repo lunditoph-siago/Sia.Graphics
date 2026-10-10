@@ -13,6 +13,47 @@ public class TargetContractTests
 {
     internal const string DescriptorArray = "enable wgpu_binding_array; @id(7) override n:u32; struct Data { value:u32 } @group(0) @binding(0) var<storage,read_write> data:binding_array<Data,n>; @compute @workgroup_size(1) fn main(){data[0].value=9u;}";
     [Fact]
+    public void WritersAndTranslatorsRequireOneExplicitTarget()
+    {
+        foreach (var (type, name) in new[] { (typeof(SpirvWriter), "Write"), (typeof(SpirvWriter), "WriteWords"),
+            (typeof(WgslWriter), "Write"), (typeof(ShaderTranslator), "WgslToSpirv"), (typeof(ShaderTranslator), "SpirvToWgsl") }) {
+            var method = Assert.Single(type.GetMethods(), m => m.Name == name);
+            var target = method.GetParameters()[1];
+            Assert.Equal(typeof(SpirvCompilationTarget), target.ParameterType); Assert.False(target.IsOptional);
+        }
+        Assert.Null(typeof(SpirvWriteOptions).GetProperty("Target"));
+    }
+
+    [Theory] [InlineData("bytes")] [InlineData("words")] [InlineData("wgsl")]
+    [InlineData("wgslToSpirv")] [InlineData("spirvToWgsl")]
+    public void NullTargetFailsBeforeMalformedInput(string route)
+    {
+        Assert.Throws<ArgumentNullException>(() => {
+            switch (route) {
+                case "bytes": SpirvWriter.Write(null!, null!); break;
+                case "words": SpirvWriter.WriteWords(null!, null!); break;
+                case "wgsl": WgslWriter.Write(null!, null!); break;
+                case "wgslToSpirv": ShaderTranslator.WgslToSpirv("malformed", null!); break;
+                default: ShaderTranslator.SpirvToWgsl([1], null!); break;
+            }
+        });
+    }
+
+    [Fact]
+    public void TranslatorsEnforceSelectedVersionAndOutputPolicy()
+    {
+        const string source = "@compute @workgroup_size(1) fn main(){}";
+        var target = SpirvCompilationTarget.Default with { Environment = "vulkan1.3", Version = 0x00010600 };
+        var bytes = ShaderTranslator.WgslToSpirv(source, target);
+        Assert.Equal(target.Version, SpirvBinary.Parse(bytes).Version);
+        Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv(source, target with { AllowedCapabilities = [] }));
+        Assert.Throws<ShaderException>(() => ShaderTranslator.SpirvToWgsl(bytes, target with { AllowedStages = [] }));
+        var invalid = target with { Environment = "invalid" };
+        Assert.Throws<ArgumentException>(() => ShaderTranslator.WgslToSpirv("malformed", invalid));
+        Assert.Throws<ArgumentException>(() => ShaderTranslator.SpirvToWgsl([1], invalid));
+    }
+
+    [Fact]
     public void FileAndMemoryRequestsShareOneImmutableTargetDefault()
     {
         var memory = new SpirvModuleCompilationRequest(default, 0); var file = new SpirvFileCompilationRequest("shader.dll", "output");
@@ -77,8 +118,8 @@ public class TargetContractTests
     {
         var module = WgslReader.Parse(CanonicalControlFlowTests.CapturedIndex);
         var target = SpirvCompilationTarget.Default with { Version = version, Environment = "vulkan1.3" };
-        var options = new SpirvWriteOptions { Target = target };
-        var bytes = SpirvWriter.Write(module, options); Assert.Equal(SpirvWriter.WriteWords(module, options), SpirvBinary.Parse(bytes).ToWords());
+        var options = new SpirvWriteOptions();
+        var bytes = SpirvWriter.Write(module, target, options); Assert.Equal(SpirvWriter.WriteWords(module, target, options), SpirvBinary.Parse(bytes).ToWords());
         var binary = SpirvBinary.Parse(bytes); Assert.Equal(version, binary.Version);
         var storage = binary.Instructions.Where(i => (Op)i.Opcode == Op.Variable && i.Operands[2] == 12).Select(i => i.Operands[1]).ToArray();
         var entry = binary.Instructions.Single(i => (Op)i.Opcode == Op.EntryPoint);
@@ -94,9 +135,9 @@ public class TargetContractTests
     {
         var module = WgslReader.Parse("@compute @workgroup_size(1) fn main(){}");
         var target = SpirvCompilationTarget.Default with { AllowedCapabilities = [] };
-        Assert.Contains("capability 1", Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, new() { Target = target })).Message);
+        Assert.Contains("capability 1", Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, target)).Message);
         Assert.NotEqual(target.Identity, SpirvCompilationTarget.Default.Identity);
-        _ = SpirvWriter.Write(module, new() { Target = target with { AllowedCapabilities = [1] } });
+        _ = SpirvWriter.Write(module, target with { AllowedCapabilities = [1] });
     }
 
     [Fact]
@@ -111,16 +152,16 @@ public class TargetContractTests
         Assert.Contains("primitive_index", Assert.Throws<ShaderException>(() => WgslWriter.Write(generated, target)).Message);
         var declared = new Module { VulkanMemoryModel = true }; declared.Functions.Add(new("main") { Stage = ShaderStage.Compute });
         Assert.Contains("SPV_KHR_vulkan_memory_model", Assert.Throws<ShaderException>(() => SpirvWriter.Write(declared,
-            new() { Target = target with { AllowedExtensions = [] } })).Message);
-        _ = SpirvWriter.Write(declared, new() { Target = target with { AllowedExtensions = ["SPV_KHR_vulkan_memory_model"] } });
+            target with { AllowedExtensions = [] })).Message);
+        _ = SpirvWriter.Write(declared, target with { AllowedExtensions = ["SPV_KHR_vulkan_memory_model"] });
     }
 
     [Fact]
     public void LocalSizeIdAndOfflineWgslRejectIncompatibleTargetsBeforeLowering()
     {
         var module = WgslReader.Parse("override n:u32; @compute @workgroup_size(n) fn main(){}");
-        Assert.Contains("LocalSizeId", Assert.Throws<ShaderException>(() => SpirvWriter.Write(module,
-            new() { Target = SpirvCompilationTarget.Default, UseLocalSizeId = true })).Message);
+        Assert.Contains("LocalSizeId", Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, SpirvCompilationTarget.Default,
+            new() { UseLocalSizeId = true })).Message);
         var compiler = new SpirvCompiler();
         Assert.Throws<ArgumentException>(() => compiler.CompileAssembly(new SpirvFileCompilationRequest("missing.dll", "missing-output") {
             Target = SpirvCompilationTarget.Default with { KernelAbi = SpirvKernelAbi.Vulkan }, EmitWgsl = true
@@ -142,7 +183,7 @@ public class TargetContractTests
             "size" => target with { ResourceLimits = target.ResourceLimits with { MaxStorageBufferBindingSize = 3 } },
             _ => target with { ResourceLimits = target.ResourceLimits with { SupportsStorageBuffers = false } }
         };
-        Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, new() { Target = target }));
+        Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, target));
         Assert.Throws<ShaderException>(() => WgslWriter.Write(module, target));
     }
 
@@ -152,7 +193,7 @@ public class TargetContractTests
         const string source = "@group(0) @binding(0) var<storage,read> unused:array<u32>; @group(0) @binding(1) var<storage,read_write> used:array<u32>; fn helper(){used[0]=9u;} @compute @workgroup_size(1) fn main(){let unused=1u; _=unused; helper();}";
         var module = WgslReader.Parse(source);
         var target = SpirvCompilationTarget.Default with { ResourceLimits = SpirvTargetProfile.Default with { MaxStorageBuffersPerShaderStage = 1 } };
-        _ = WgslWriter.Write(module, target); _ = SpirvWriter.Write(module, new() { Target = target });
+        _ = WgslWriter.Write(module, target); _ = SpirvWriter.Write(module, target);
         target = target with { ResourceLimits = target.ResourceLimits with { MaxStorageBuffersPerShaderStage = 0 } };
         Assert.Throws<ShaderException>(() => WgslWriter.Write(module, target));
     }
@@ -162,7 +203,7 @@ public class TargetContractTests
     {
         var module = WgslReader.Parse("@group(0) @binding(0) var<storage,read> unused:array<u32>; @compute @workgroup_size(1) fn main(){loop{continuing{let unused=true;break if unused;}}}");
         var target = SpirvCompilationTarget.Default with { ResourceLimits = SpirvTargetProfile.Default with { SupportsStorageBuffers = false } };
-        _ = WgslWriter.Write(module, target); _ = SpirvWriter.Write(module, new() { Target = target });
+        _ = WgslWriter.Write(module, target); _ = SpirvWriter.Write(module, target);
     }
 
     [Fact]
@@ -171,9 +212,9 @@ public class TargetContractTests
         var module = WgslReader.Parse(DescriptorArray);
         var original = Assert.IsType<ShaderType.BindingArray>(module.Globals[0].Type);
         var target = SpirvCompilationTarget.Default with { ResourceLimits = SpirvTargetProfile.Default with { MaxStorageBuffersPerShaderStage = 2 } };
-        _ = SpirvWriter.Write(module, new() { Target = target, PipelineConstants = new Dictionary<string, double> { ["7"] = 2 } });
-        Assert.Contains("binding limit", Assert.Throws<ShaderException>(() => SpirvWriter.Write(module,
-            new() { Target = target, PipelineConstants = new Dictionary<string, double> { ["7"] = 3 } })).Message);
+        _ = SpirvWriter.Write(module, target, new() { PipelineConstants = new Dictionary<string, double> { ["7"] = 2 } });
+        Assert.Contains("binding limit", Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, target,
+            new() { PipelineConstants = new Dictionary<string, double> { ["7"] = 3 } })).Message);
         Assert.Null(original.Length); Assert.NotNull(original.OverrideLength); Assert.True(module.Constants[0].IsOverride);
     }
 
@@ -205,8 +246,8 @@ public class TargetContractTests
         var custom = SpirvCompilationTarget.Default with { AllowedCapabilities = ImmutableHashSet.Create(new EqualNumbers(), 42u) };
         var standard = custom with { AllowedCapabilities = [42] };
         Assert.Equal(standard.Identity, custom.Identity);
-        Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, new() { Target = standard }));
-        Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, new() { Target = custom }));
+        Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, standard));
+        Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, custom));
     }
 
     private sealed class EqualNumbers : IEqualityComparer<uint>

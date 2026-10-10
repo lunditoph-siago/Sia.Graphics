@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Legalization;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
@@ -126,7 +127,7 @@ public class MatrixHelperTests
                 output[1]=data.matrix[inputs[2]][inputs[0]][inputs[1]];output[2]=data.tail;
             }
             """;
-        var binary = Layout(SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(source))), rowMajor);
+        var binary = Layout(SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(source), SpirvCompilationTarget.Default)), rowMajor);
         uint data = binary.Instructions.Single(i => (Op)i.Opcode == Op.Name && SpirvBinary.ReadString(i.Operands.AsSpan(1), out _) == "Data").Operands[0];
         uint array = binary.Instructions.Single(i => (Op)i.Opcode == Op.TypeStruct && i.Operands[0] == data).Operands[2];
         var code = binary.Instructions.Select(i => (Op)i.Opcode == Op.Decorate && i.Operands is [var id, 6, _] && id == array
@@ -152,7 +153,7 @@ public class MatrixHelperTests
                 output[2]=data.second[inputs[0]][inputs[1]];output[3]=data.tail;
             }
             """;
-        var binary = Layout(SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(source))), rowMajor);
+        var binary = Layout(SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(source), SpirvCompilationTarget.Default)), rowMajor);
         uint data = binary.Instructions.Single(i => (Op)i.Opcode == Op.Name && SpirvBinary.ReadString(i.Operands.AsSpan(1), out _) == "Data").Operands[0];
         var code = binary.Instructions.ToList(); int firstType = code.FindIndex(i => i.Opcode is >= 19 and <= 39);
         code.Insert(firstType, new((ushort)Op.MemberDecorate, [data, 2, rowMajor ? 5u : 4u]));
@@ -217,7 +218,7 @@ public class MatrixHelperTests
                 output[1]=data.matrix[inputs[0]][inputs[1]];output[2]=data.tail;
             }
             """;
-        return Layout(SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(source))), rowMajor);
+        return Layout(SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(source), SpirvCompilationTarget.Default)), rowMajor);
     }
 
     [Theory] [InlineData(false)] [InlineData(true)]
@@ -226,8 +227,8 @@ public class MatrixHelperTests
         var module = SpirvReader.Parse(HelperFixture(rowMajor).ToBytes());
         ModuleValidator.Validate(module);
         Assert.DoesNotContain(module.Functions, f => f.Arguments.Any(a => a.Type is ShaderType.Pointer { Space: AddressSpace.Storage }));
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory] [InlineData(false, false)] [InlineData(true, false)] [InlineData(false, true)] [InlineData(true, true)]
@@ -236,8 +237,8 @@ public class MatrixHelperTests
         var module = SpirvReader.Parse(InitializerFixture(rowMajor, zero).ToBytes());
         ModuleValidator.Validate(module);
         Assert.Contains(module.Globals, g => g.Space == AddressSpace.Private && g.Initializer is not null);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory] [InlineData(false, false)] [InlineData(true, false)] [InlineData(false, true)] [InlineData(true, true)]
@@ -246,8 +247,8 @@ public class MatrixHelperTests
         var module = SpirvReader.Parse(WholeHelperFixture(rowMajor, workgroup).ToBytes());
         ModuleValidator.Validate(module);
         Assert.DoesNotContain(module.Functions, f => f.Arguments.Any(a => a.Type is ShaderType.Pointer { Space: AddressSpace.Storage or AddressSpace.Workgroup }));
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory] [InlineData(false, false)] [InlineData(true, false)] [InlineData(false, true)] [InlineData(true, true)]
@@ -255,8 +256,8 @@ public class MatrixHelperTests
     {
         var module = SpirvReader.Parse(ArrayInitializerFixture(rowMajor, zero).ToBytes());
         ModuleValidator.Validate(module);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory] [InlineData(false)] [InlineData(true)]
@@ -266,14 +267,14 @@ public class MatrixHelperTests
         ModuleValidator.Validate(module);
         var data = Assert.IsType<ShaderType.Structure>(module.Globals.Single(g => g.Space == AddressSpace.Private).Type);
         Assert.NotEqual(data.Members[1].Type, data.Members[2].Type);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Fact]
     public void PrivateDerivedPointerCallsExpandBeforeNativeEmission()
     {
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(PrivateSource)));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(WgslReader.Parse(PrivateSource), SpirvCompilationTarget.Default));
         Assert.DoesNotContain(binary.Instructions, i => (Op)i.Opcode == Op.FunctionParameter);
         ModuleValidator.Validate(SpirvReader.Parse(binary.ToBytes()));
     }
@@ -296,16 +297,16 @@ public class MatrixHelperTests
     {
         var module = SpirvReader.Parse(EvaluationFixture(rowMajor).ToBytes());
         ModuleValidator.Validate(module);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Fact]
     public void ReturnedStoragePointersRetainTheirFiniteProvenance()
     {
         var module = SpirvReader.Parse(PointerProducerFixture("return").ToBytes()); ModuleValidator.Validate(module);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory] [InlineData("select")] [InlineData("phi")] [InlineData("load")]
@@ -313,7 +314,7 @@ public class MatrixHelperTests
     {
         var module = SpirvReader.Parse(PointerProducerFixture(kind).ToBytes());
         ModuleValidator.Validate(module);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 }

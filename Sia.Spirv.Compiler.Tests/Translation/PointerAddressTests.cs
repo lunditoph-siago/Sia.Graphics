@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -51,8 +52,8 @@ public class PointerAddressTests
     {
         var module = WgslReader.Parse("struct S{value:vec2f,scalar:f32,} @compute @workgroup_size(1) fn main(){" + declarations + "let q=&" + operand + ";}");
         ModuleValidator.Validate(module);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Fact]
@@ -60,7 +61,7 @@ public class PointerAddressTests
     {
         var module = WgslReader.Parse("@compute @workgroup_size(1) fn main(){var v=vec2u();v.x=7u;v[1]+=v.x;v.y++;}");
         ModuleValidator.Validate(module);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Fact]
@@ -72,8 +73,8 @@ public class PointerAddressTests
         var component = new Expression.Access(new Expression.Reference("v", vector), Expression.U32(0), scalar);
         module.Functions[0].Body.Statements.Add(new Statement.Declare("p", scalar, new Expression.Unary("&", component, scalar), false));
         ModuleValidator.Validate(module);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        var error = Assert.Throws<ShaderException>(() => WgslWriter.Write(module));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        var error = Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Equal(DiagnosticStage.WgslWrite, error.Diagnostic.Stage); Assert.Contains("vector component", error.Message);
     }
 
@@ -81,7 +82,7 @@ public class PointerAddressTests
     public void HelperExpansionCapturesTheVectorAndIndexInsteadOfItsComponentAddress()
     {
         var module = WgslReader.Parse(ControlSource); ModuleValidator.Validate(module);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 }

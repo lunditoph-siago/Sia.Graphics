@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -51,11 +52,11 @@ public class SpirvWorkgroupConversionTests
     public void RawPreparationOwnsConversionFunctionsAndPreservesBorrowedModule()
     {
         var input = WgslReader.Parse(SpirvPhysicalLayoutTests.SharedSource);
-        var functions = input.Functions.ToArray(); string before = WgslWriter.Write(input);
+        var functions = input.Functions.ToArray(); string before = WgslWriter.Write(input, SpirvCompilationTarget.Default);
         var prepared = SpirvPhysicalLayoutLowering.Prepare(input);
         Assert.NotSame(input, prepared.Module);
         Assert.Equal(functions, input.Functions);
-        Assert.Equal(before, WgslWriter.Write(input));
+        Assert.Equal(before, WgslWriter.Write(input, SpirvCompilationTarget.Default));
         // Uniform legalization can also add reader functions to this module.
         Assert.Equal(2, prepared.WorkgroupConversions.Count);
         Assert.All(prepared.WorkgroupConversions.Values, helper => Assert.Contains(prepared.Module.Functions,

@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -23,16 +24,16 @@ public class PerVertexTests
         string source = enable + "enable wgpu_per_vertex; " + (structure
             ? $"struct Inputs {{ {input} }} @fragment fn main(input:Inputs) -> @location(0) vec4f {{ _ = input.value[1]; return vec4f(1); }}"
             : $"@fragment fn main({input}) -> @location(0) vec4f {{ _ = value[1]; return vec4f(1); }}");
-        byte[] bytes = ShaderTranslator.WgslToSpirv(source);
+        byte[] bytes = ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default);
         var binary = SpirvBinary.Parse(bytes);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Capability && i.Operands[0] == 5284);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Decorate && i.Operands[1] == 5285);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Extension && SpirvBinary.ReadString(i.Operands, out _) == "SPV_KHR_fragment_shader_barycentric");
-        string output = ShaderTranslator.SpirvToWgsl(bytes);
+        string output = ShaderTranslator.SpirvToWgsl(bytes, SpirvCompilationTarget.Default);
         Assert.Contains("enable wgpu_per_vertex;", output);
         Assert.Contains("@interpolate(per_vertex)", output);
         ModuleValidator.Validate(WgslReader.Parse(output));
-        Assert.NotEmpty(ShaderTranslator.WgslToSpirv(output));
+        Assert.NotEmpty(ShaderTranslator.WgslToSpirv(output, SpirvCompilationTarget.Default));
     }
 
     [Theory]
@@ -48,7 +49,7 @@ public class PerVertexTests
     [InlineData("enable wgpu_per_vertex; @fragment fn main(@location(0) @interpolate(per_vertex,center) value:array<f32,3>) {}")]
     public void InvalidPerVertexInterfacesAreRejected(string source)
     {
-        Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv(source));
+        Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default));
     }
 
     [Fact]
@@ -58,6 +59,6 @@ public class PerVertexTests
         var function = new ShaderFunction("main") { Stage = ShaderStage.Fragment };
         function.Arguments.Add(new("value", new ShaderType.Array(ShaderType.F32, 3), new(Location: 0, Interpolation: "per_vertex")));
         module.Functions.Add(function);
-        Assert.Contains("enable wgpu_per_vertex;", WgslWriter.Write(module));
+        Assert.Contains("enable wgpu_per_vertex;", WgslWriter.Write(module, SpirvCompilationTarget.Default));
     }
 }

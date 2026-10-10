@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -33,10 +34,10 @@ public class SpirvEntryWrapperTests
     [Theory] [InlineData(true)] [InlineData(false)]
     public void InitializationAndInputAssemblyArePreparedInEvaluationOrder(bool initialize)
     {
-        var input = WgslReader.Parse(InputStruct); string before = WgslWriter.Write(input);
+        var input = WgslReader.Parse(InputStruct); string before = WgslWriter.Write(input, SpirvCompilationTarget.Default);
         var prepared = ShaderTargetLowering.ForSpirv(input, null, true, true, true, initialize);
         var wrapper = prepared.PhysicalLayout.EntryWrappers["main"];
-        Assert.Equal(before, WgslWriter.Write(input));
+        Assert.Equal(before, WgslWriter.Write(input, SpirvCompilationTarget.Default));
         Assert.Single(wrapper.Interfaces, f => f.Binding.Builtin == "local_invocation_index");
         var operations = wrapper.Function.Graph.Blocks.Single().Instructions.Select(i => i.Operation).ToArray();
         var calls = operations.OfType<ValueOperation.Call>().Select(c => c.Function).ToArray();

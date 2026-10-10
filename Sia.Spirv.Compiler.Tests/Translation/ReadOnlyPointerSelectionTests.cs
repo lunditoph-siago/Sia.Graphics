@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Legalization;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
@@ -71,12 +72,12 @@ public class ReadOnlyPointerSelectionTests
         };
         Assert.False(HasAtomic(readOnly.Type));
         ModuleValidator.Validate(module);
-        byte[] native = SpirvWriter.Write(module);
+        byte[] native = SpirvWriter.Write(module, SpirvCompilationTarget.Default);
         var instructions = SpirvBinary.Parse(native).Instructions;
         Assert.Single(instructions, i => (Op)i.Opcode == Op.AtomicIAdd);
         Assert.DoesNotContain(instructions, i => (Op)i.Opcode is Op.AtomicLoad or Op.AtomicStore);
         ModuleValidator.Validate(SpirvReader.Parse(native));
-        string wgsl = WgslWriter.Write(module); ModuleValidator.Validate(WgslReader.Parse(wgsl));
+        string wgsl = WgslWriter.Write(module, SpirvCompilationTarget.Default); ModuleValidator.Validate(WgslReader.Parse(wgsl));
         Assert.Contains("var<storage, read> " + readOnly.Name, wgsl);
     }
 }

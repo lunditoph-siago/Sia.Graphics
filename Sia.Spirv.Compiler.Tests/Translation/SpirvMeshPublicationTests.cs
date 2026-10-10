@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -86,7 +87,7 @@ public class SpirvMeshPublicationTests
     public void MeshPublicationBarrierAndDistributedCopiesExistBeforeSerialization()
     {
         var input = WgslReader.Parse(MeshShaderTests.Source);
-        string before = WgslWriter.Write(input);
+        string before = WgslWriter.Write(input, SpirvCompilationTarget.Default);
         var prepared = ShaderTargetLowering.ForSpirv(input, null, true, true, true);
         var finish = Assert.Single(prepared.Module.Functions,
             f => f.Name.StartsWith("sia_spv_mesh_finish_mesh_main", StringComparison.Ordinal));
@@ -99,7 +100,7 @@ public class SpirvMeshPublicationTests
         Assert.Equal(ShaderEffects.WriteMemory | ShaderEffects.Convergent,
             Assert.Single(graph.Blocks.SelectMany(b => b.Instructions), i => i.Operation is ValueOperation.MeshSetOutputs).Effects);
         LocalValuePromotion.Run(graph); ControlFlowVerifier.Validate(graph, prepared.Module);
-        Assert.Equal(before, WgslWriter.Write(input));
+        Assert.Equal(before, WgslWriter.Write(input, SpirvCompilationTarget.Default));
         ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Emit(prepared).ToBytes()));
     }
 
@@ -126,12 +127,12 @@ public class SpirvMeshPublicationTests
             .Replace("@mesh(output)", "@mesh(vertex_count)").Replace("output.", "vertex_count.");
         var input = WgslReader.Parse(source);
         input.Functions.Add(new ShaderFunction("sia_spv_mesh_finish_mesh_main"));
-        string before = WgslWriter.Write(input);
+        string before = WgslWriter.Write(input, SpirvCompilationTarget.Default);
         var prepared = ShaderTargetLowering.ForSpirv(input, null, true, true, true);
         var finish = prepared.MeshPublications["mesh_main"].Function;
         Assert.NotEqual("sia_spv_mesh_finish_mesh_main", finish.Name);
         Assert.DoesNotContain(finish.Body.Statements.OfType<Statement.Declare>(), d => d.Name == "vertex_count");
-        Assert.Equal(before, WgslWriter.Write(input));
+        Assert.Equal(before, WgslWriter.Write(input, SpirvCompilationTarget.Default));
         ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Emit(prepared).ToBytes()));
     }
 

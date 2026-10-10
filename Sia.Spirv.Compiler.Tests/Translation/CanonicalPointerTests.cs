@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -24,15 +25,15 @@ public class CanonicalPointerTests
     public void PointerHelpersActuallyMigrateThroughBothFrontendRoutes(string source)
     {
         var input = WgslReader.Parse(source);
-        foreach (var module in new[] { input, SpirvReader.Parse(SpirvWriter.Write(input)) }) {
+        foreach (var module in new[] { input, SpirvReader.Parse(SpirvWriter.Write(input, SpirvCompilationTarget.Default)) }) {
             string before = WgslWriter.Emit(module);
             var traces = new List<CanonicalPassTrace>(); var deferrals = new List<CanonicalDeferral>();
             var output = CanonicalShaderPipeline.Run(module, traces, deferrals);
             Assert.Empty(deferrals); Assert.Equal(module.Functions.Count * 3, traces.Count);
             Assert.All(module.Functions, f => Assert.NotSame(f, output.Functions.Single(p => p.Name == f.Name)));
             ModuleValidator.Validate(output);
-            ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(output)));
-            ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(output)));
+            ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(output, SpirvCompilationTarget.Default)));
+            ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(output, SpirvCompilationTarget.Default)));
             Assert.Equal(before, WgslWriter.Emit(module));
         }
     }
@@ -53,8 +54,8 @@ public class CanonicalPointerTests
         Assert.Contains(instructions, i => i.Operation is ValueOperation.Store s && s.Pointer == call.Arguments[0]);
         Assert.Contains(instructions, i => i.Operation is ValueOperation.Load l && l.Pointer == call.Arguments[0]);
         var deferrals = new List<CanonicalDeferral>(); var output = CanonicalShaderPipeline.Run(module, deferrals: deferrals);
-        Assert.Empty(deferrals); ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(output)));
-        var wgsl = WgslReader.Parse(WgslWriter.Write(output)); ModuleValidator.Validate(wgsl);
+        Assert.Empty(deferrals); ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(output, SpirvCompilationTarget.Default)));
+        var wgsl = WgslReader.Parse(WgslWriter.Write(output, SpirvCompilationTarget.Default)); ModuleValidator.Validate(wgsl);
         Assert.DoesNotContain(wgsl.Functions, f => f.Arguments.Any(a => a.Type is ShaderType.Pointer));
     }
 

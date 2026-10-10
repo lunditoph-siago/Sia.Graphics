@@ -5,6 +5,23 @@ See the [current pipeline/target map](../../docs/compiler-architecture.md) and
 records the original PR baseline, not verification of later source changes;
 `renewal-evidence.json` records the cleanup follow-up.
 
+Latest writer/translator migration: source F53E737A…, Compiler EEBD8F39….
+All public writer and translator calls require an explicit target; writer options
+contain only emission policies. Maintained consumers choose their target directly,
+including explicit versions for mesh and Vulkan 1.3 LocalSizeId fixtures. Seven
+new contracts cover required API shape, null-target ordering and translator policy.
+Initial regression found 14 caller omissions (LocalSizeId environment and implicit
+version assumptions); callers now select the same target for preparation/output,
+and original behavior assertions remain. No tests were removed or disabled.
+
+Passed: maintenance 2266/2266, formats 233/233 plus 22/22 query/handle,
+41/41 frozen native replays plus 82/82 independent input/output formats, four
+direct CIL WGSL/SPIR-V GPU cases, CLI build and translation/format validation,
+Dawn WebGPU browser-library build. Evidence is in
+`.work/compiler-architecture-first/writer-api-*`. The browser executable build
+still fails NU1102 for exact rc.2 packages; actual browser, SDK/Linux/AOT and
+full research parity are unverified. Previous batch records below are historical.
+
 Latest public compiler API migration: source B4DEEE64…, Compiler 18E1514D….
 Public PE/token/options and file/path/options adapters, the options type and
 memory forwarding properties are removed. CLI and maintained tests use requests;
@@ -576,11 +593,11 @@ reference or the SDK opt-in above. Native and browser hosts call the same API:
 ```csharp
 var request = new SpirvModuleCompilationRequest(shaderPe, token, intrinsicPe);
 var module = new SpirvCompiler().CompileModule(request);
-var wgsl = WgslWriter.Write(module);
-var spirv = SpirvWriter.Write(module);
+var wgsl = WgslWriter.Write(module, request.Target);
+var spirv = SpirvWriter.Write(module, request.Target);
 ```
 
-Use `ShaderTranslator.SpirvToWgsl(spirv)` or `WgslToSpirv(wgsl)` for existing
+Use `ShaderTranslator.SpirvToWgsl(spirv, target)` or `WgslToSpirv(wgsl, target)` for existing
 shader data. Browser Dawn bindings call the managed translator directly when
 creating a SPIR-V shader module; no JS imports, compiler runtime startup or
 inter-runtime buffer copies are required. Native/Wgpu backends accept SPIR-V
@@ -597,8 +614,8 @@ New memory/file requests share `SpirvCompilationTarget.Default`: WebGPU ABI,
 Vulkan 1.2, SPIR-V 1.5 and default resource limits. Maintained direct exporters,
 browser inputs and direct native GPU cases pass the request target to both writers.
 File/tool options stay on `SpirvFileCompilationRequest`; writer-specific policies
-stay on `SpirvWriteOptions`. Legacy memory/file/writer overloads preserve their
-previous defaults through adapters. `TargetContractTests` cover early invalid
+stay on `SpirvWriteOptions`; its former Target property is removed. Legacy
+memory/file/writer/translator adapters are removed. `TargetContractTests` cover early invalid
 target rejection, explicit 1.3-1.6 headers/resource interfaces, feature/stage denial,
 used-resource limits after override resolution, helper/global use and target identity.
 These are partial target contract checks, not full environment/device validation.

@@ -11,7 +11,15 @@ compatibility, including public legacy APIs; breaking changes are allowed.
 This supersedes the earlier staged requirement to retain old overload adapters.
 Migrate maintained consumers to explicit requests/targets and record the remaining
 external consumer impact. Public CIL/file/options adapters and memory forwarding
-properties are removed; writer overloads with implicit targets remain pending.
+properties are removed. Writers/translators also require explicit targets; the
+implicit-target overloads and duplicate writer-options Target are removed.
+
+Writer/translator migration (source F53E737A…, Compiler EEBD8F39…) passes
+maintenance 2266/2266, 233 maintained formats, 22 query/handle formats, 41 frozen
+native replays and 82 independent replay input/output formats. Four direct CIL
+WGSL/SPIR-V GPU cases, CLI translation/independent validation, and Dawn WebGPU
+browser-library builds pass. Browser executable build remains blocked by missing
+exact rc.2 packages; real browser, SDK/Linux/AOT and full research parity remain open.
 
 Public compiler API migration (source B4DEEE64…, Compiler 18E1514D…) passes
 maintenance 2259/2259, CLI build and both default/variants compilation (22/44
@@ -26,8 +34,8 @@ target graphs and removes the writer's old query-state/guard implementation.
 Forty-one new contracts, maintenance 2253/2253, independent formats 233/233 plus
 22/22 query/handle outputs, frozen replay 41/41 and input/output formats 82/82
 pass. Guard tests use a deterministic raw-query stub, not GPU traversal. Current
-GPU and full consumer/research checks have not run; other deferrals/adapters and
-the approved public legacy API removal remain open.
+GPU and full consumer/research checks had not run for that query source; other
+deferrals remain open. Public API removal is recorded in the newer batches above.
 
 WGSL termination migration (source 91017049…, Compiler E9538038…) retains
 owned CFG/SSA for continuing relocation and demotion/typed returns, retiring the

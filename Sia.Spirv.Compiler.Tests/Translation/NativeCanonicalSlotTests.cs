@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.Spirv;
@@ -52,8 +53,8 @@ public class NativeCanonicalSlotTests
         Assert.DoesNotContain(deferrals, d => d.Function == "<SPIR-V>");
         Assert.Equal(original, binary.ToBytes()); uint[] expected = [first, second];
         Assert.Equal(expected, new CanonicalExecution(module, [input]).Run().Output);
-        Assert.Equal(expected, new CanonicalExecution(WgslReader.Parse(WgslWriter.Write(module)), [input]).Run().Output);
-        Assert.Equal(expected, new CanonicalExecution(SpirvReader.Parse(SpirvWriter.Write(module)), [input]).Run().Output);
+        Assert.Equal(expected, new CanonicalExecution(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)), [input]).Run().Output);
+        Assert.Equal(expected, new CanonicalExecution(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)), [input]).Run().Output);
     }
 
     [Theory] [InlineData(0u, 0u, 34u)] [InlineData(5u, 12u, 24u)]
@@ -65,7 +66,7 @@ public class NativeCanonicalSlotTests
         var module = SpirvReader.ReadBinary(binary, traces: traces, deferrals: deferrals);
         Assert.Contains(traces, t => t.Pass == "native-slot-promotion"); Assert.Contains(traces, t => t.Pass == "native-cfg-import");
         Assert.DoesNotContain(deferrals, d => d.Function == "<SPIR-V>");
-        foreach (var candidate in new[] { module, WgslReader.Parse(WgslWriter.Write(module)), SpirvReader.Parse(SpirvWriter.Write(module)) })
+        foreach (var candidate in new[] { module, WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)), SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)) })
             Assert.Equal(new uint[] { first, second }, new CanonicalExecution(candidate, [input]).Run().Output);
     }
 
@@ -78,13 +79,13 @@ public class NativeCanonicalSlotTests
         var module = SpirvReader.ReadBinary(binary, traces: traces, deferrals: deferrals);
         Assert.Contains(deferrals, d => d.Function == "<SPIR-V>" && d.Feature.Contains(privateSlot ? "Private/global" : "qualified", StringComparison.Ordinal));
         Assert.DoesNotContain(traces, t => t.Pass == "native-cfg-import"); ModuleValidator.Validate(module);
-        var native = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var native = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         if (volatileSlot) {
             Assert.Contains(native.Instructions, i => (Op)i.Opcode == Op.Load && i.Operands.Length > 3 && (i.Operands[3] & 1) != 0);
             Assert.Contains(native.Instructions, i => (Op)i.Opcode == Op.Store && i.Operands.Length > 2 && (i.Operands[2] & 1) != 0);
-            Assert.Contains("volatile memory access", Assert.Throws<ShaderException>(() => WgslWriter.Write(module)).Message);
+            Assert.Contains("volatile memory access", Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default)).Message);
         }
-        else Assert.NotEmpty(WgslWriter.Write(module));
+        else Assert.NotEmpty(WgslWriter.Write(module, SpirvCompilationTarget.Default));
     }
 
     [Theory] [InlineData("undefined")] [InlineData("type")] [InlineData("operand-count")]

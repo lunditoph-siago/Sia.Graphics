@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -27,7 +28,7 @@ public class SpirvUniformLegalizationTests
     [Fact]
     public void UniformAliasIndexCapturesAreExplicitAndBorrowedInputIsPreserved()
     {
-        var input = WgslReader.Parse(UniformMemoryTests.AliasSource); string before = WgslWriter.Write(input);
+        var input = WgslReader.Parse(UniformMemoryTests.AliasSource); string before = WgslWriter.Write(input, SpirvCompilationTarget.Default);
         var prepared = ShaderTargetLowering.ForSpirv(input, null, true, true, true);
         var main = prepared.Module.Functions.Single(f => f.Name == "main");
         var instructions = prepared.PhysicalLayout.ControlFlow[main.Name].Graph.Blocks.SelectMany(b => b.Instructions).ToArray();
@@ -39,7 +40,7 @@ public class SpirvUniformLegalizationTests
         Assert.IsType<ValueOperation.Call>(definitions[captured.Id].Operation);
         Assert.Equal(ShaderType.U32, captured.Type);
         Assert.Single(instructions, i => i.Operation is ValueOperation.Call { ReturnType: ShaderType.Scalar { Kind: ScalarKind.Uint } });
-        Assert.Equal(before, WgslWriter.Write(input));
+        Assert.Equal(before, WgslWriter.Write(input, SpirvCompilationTarget.Default));
         Assert.Equal(3, Assert.IsType<ShaderType.Structure>(input.Globals[0].Type).Members.Count);
         ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Emit(prepared).ToBytes()));
     }

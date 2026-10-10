@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -43,11 +44,11 @@ public class MeshShaderTests
     {
         string source = Source.Replace("triangle_indices", builtin).Replace("indices:vec3u", "indices:" + type).Replace("vec3u(0,1,2)", indices);
         var module = WgslReader.Parse(source); ModuleValidator.Validate(module);
-        string canonical = WgslWriter.Write(module); var back = WgslReader.Parse(canonical); ModuleValidator.Validate(back);
+        string canonical = WgslWriter.Write(module, SpirvCompilationTarget.Default); var back = WgslReader.Parse(canonical); ModuleValidator.Validate(back);
         Assert.Equal("payload", back.Functions.Single(f => f.Stage == ShaderStage.Task).TaskPayload);
         Assert.Equal("output", back.Functions.Single(f => f.Stage == ShaderStage.Mesh).MeshOutput);
         Assert.Contains("@per_primitive", canonical); Assert.Contains("@builtin(vertices)", canonical);
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default with { Version = 0x00010400 }));
         Assert.Equal(0x00010400u, binary.Version);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Capability && i.Operands is [5283]);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Variable && i.Operands[2] == 5402);
@@ -61,10 +62,10 @@ public class MeshShaderTests
             uint[] interfaces = i.Operands[(2 + length)..]; Assert.Equal(interfaces.Distinct().Count(), interfaces.Length);
         });
         var imported = SpirvReader.Parse(binary.ToBytes()); ModuleValidator.Validate(imported);
-        string reverse = WgslWriter.Write(imported); ModuleValidator.Validate(WgslReader.Parse(reverse));
+        string reverse = WgslWriter.Write(imported, SpirvCompilationTarget.Default); ModuleValidator.Validate(WgslReader.Parse(reverse));
         Assert.Contains(imported.Functions, f => f.Stage == ShaderStage.Task && f.TaskPayload is not null);
         Assert.Contains(imported.Functions, f => f.Stage == ShaderStage.Mesh && f.MeshOutput is not null);
-        var reemitted = SpirvBinary.Parse(SpirvWriter.Write(imported));
+        var reemitted = SpirvBinary.Parse(SpirvWriter.Write(imported, SpirvCompilationTarget.Default));
         Assert.Contains(reemitted.Instructions, i => (Op)i.Opcode == Op.SetMeshOutputsEXT);
         Assert.Contains(reemitted.Instructions, i => (Op)i.Opcode == Op.EmitMeshTasksEXT);
     }
@@ -92,10 +93,10 @@ public class MeshShaderTests
     {
         var module = WgslReader.Parse(Source.Replace("struct Payload", "@id(3) override size=2u; struct Payload").Replace("@workgroup_size(2)", "@workgroup_size(size)"));
         var resolved = PipelineConstantResolver.Resolve(module, new Dictionary<string, double> { ["3"] = 4 });
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(resolved)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(resolved, SpirvCompilationTarget.Default)));
         Assert.Equal("payload", resolved.Functions.Single(f => f.Stage == ShaderStage.Task).TaskPayload);
         Assert.Equal("output", resolved.Functions.Single(f => f.Stage == ShaderStage.Mesh).MeshOutput);
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(resolved));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(resolved, SpirvCompilationTarget.Default));
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.ExecutionMode && i.Operands is [_, 17, 4, 1, 1]);
     }
 
@@ -105,8 +106,8 @@ public class MeshShaderTests
     {
         var module = SpirvReader.Parse(AggregateFixture(mode).ToBytes()); ModuleValidator.Validate(module);
         Assert.DoesNotContain(module.Globals, g => g.Type is ShaderType.BindingArray);
-        string source = WgslWriter.Write(module); ModuleValidator.Validate(WgslReader.Parse(source));
-        var output = SpirvBinary.Parse(SpirvWriter.Write(module));
+        string source = WgslWriter.Write(module, SpirvCompilationTarget.Default); ModuleValidator.Validate(WgslReader.Parse(source));
+        var output = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Contains(output.Instructions, i => (Op)i.Opcode == Op.SetMeshOutputsEXT);
     }
 
@@ -142,7 +143,7 @@ public class MeshShaderTests
         var input = new ShaderType.Structure("Input", [new("color", ShaderType.F32, Binding: new(Location: 0, PerPrimitive: true))]);
         var entry = new ShaderFunction("main") { Stage = ShaderStage.Fragment };
         entry.Arguments.Add(new("input", input)); module.Functions.Add(entry);
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module)); Assert.Equal(0x00010400u, binary.Version);
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default with { Version = 0x00010400 })); Assert.Equal(0x00010400u, binary.Version);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Decorate && i.Operands is [_, 5271]);
     }
 
@@ -151,7 +152,7 @@ public class MeshShaderTests
     {
         var module = SpirvReader.Parse(FragmentBlockFixture().ToBytes()); ModuleValidator.Validate(module);
         Assert.True(module.Functions.Single(f => f.Stage == ShaderStage.Fragment).Arguments.Single().Binding?.PerPrimitive);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     internal static SpirvBinary FragmentBlockFixture()

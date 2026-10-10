@@ -35,8 +35,8 @@ public class SpirvWorkgroupInitializationTests
     public void PublicPolicyRemainsEnabledByDefaultAndCanBeDisabled()
     {
         var module = WgslReader.Parse(Source);
-        var enabled = SpirvBinary.Parse(SpirvWriter.Write(module));
-        var disabled = SpirvBinary.Parse(SpirvWriter.Write(module, new(ZeroInitializeWorkgroupMemory: false)));
+        var enabled = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
+        var disabled = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default, new(ZeroInitializeWorkgroupMemory: false)));
         Assert.Single(enabled.Instructions, i => (Op)i.Opcode == Op.ControlBarrier);
         Assert.DoesNotContain(disabled.Instructions, i => (Op)i.Opcode == Op.ControlBarrier);
     }
@@ -107,7 +107,7 @@ public class SpirvWorkgroupInitializationTests
         Assert.Equal("sia_spv_workgroup_initialize_1", prepared.WorkgroupInitializers["main"].Name);
         Assert.Equal("sia_local_invocation_index_1", Assert.Single(prepared.WorkgroupInitializers["main"].Arguments).Name);
         Assert.Equal(bodies, input.Functions.Select(f => f.Body));
-        Assert.Equal(SpirvWriter.Write(input), SpirvWriter.Write(input));
+        Assert.Equal(SpirvWriter.Write(input, SpirvCompilationTarget.Default), SpirvWriter.Write(input, SpirvCompilationTarget.Default));
     }
 
     [Fact]
@@ -115,10 +115,10 @@ public class SpirvWorkgroupInitializationTests
     {
         var input = WgslReader.Parse(Source);
         Assert.Empty(ShaderTargetLowering.ForSpirv(input, null, true, true, true, false).WorkgroupInitializers);
-        var imported = SpirvReader.Parse(SpirvWriter.Write(input));
+        var imported = SpirvReader.Parse(SpirvWriter.Write(input, SpirvCompilationTarget.Default));
         Assert.False(imported.WorkgroupInitializationRequired);
         Assert.Empty(ShaderTargetLowering.ForSpirv(imported, null, true, true, true).WorkgroupInitializers);
-        Assert.Single(SpirvBinary.Parse(SpirvWriter.Write(imported)).Instructions, i => (Op)i.Opcode == Op.ControlBarrier);
+        Assert.Single(SpirvBinary.Parse(SpirvWriter.Write(imported, SpirvCompilationTarget.Default)).Instructions, i => (Op)i.Opcode == Op.ControlBarrier);
     }
 
     [Theory]
@@ -133,7 +133,7 @@ public class SpirvWorkgroupInitializationTests
     {
         var input = WgslReader.Parse("@id(7) override count:" + kind + "=3;var<workgroup> group_data:array<u32,count>;@compute @workgroup_size(1) fn main(){}");
         var options = new SpirvWriteOptions { PipelineConstants = resolve ? new Dictionary<string, double> { ["7"] = 5 } : null };
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(input, options));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(input, SpirvCompilationTarget.Default, options));
         Assert.Equal(!resolve, binary.Instructions.Any(i => (Op)i.Opcode == Op.LoopMerge));
         Assert.Equal(!resolve, binary.Instructions.Any(i => (Op)i.Opcode == Op.Decorate && i.Operands.Length == 3 && i.Operands[1] == 1 && i.Operands[2] == 7));
         ModuleValidator.Validate(SpirvReader.Parse(binary.ToBytes()));

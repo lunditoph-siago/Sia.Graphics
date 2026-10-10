@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.Spirv;
@@ -100,8 +101,8 @@ public class PointerMemoryTests
     {
         var module = SpirvReader.Parse(Fixture(kind, mode, qualified, privateSlot).ToBytes());
         ModuleValidator.Validate(module);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory] [InlineData("scalar", 0u)] [InlineData("workgroup", 4441u)]
@@ -120,11 +121,11 @@ public class PointerMemoryTests
     {
         var module = SpirvReader.Parse(Fixture("scalar", "local", false, privateSlot, 1, true).ToBytes());
         ModuleValidator.Validate(module);
-        var native = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var native = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Contains(native.Instructions, i => (Op)i.Opcode == Op.Load && i.Operands.Length == 5 && i.Operands[3] == 7);
         Assert.Contains(native.Instructions, i => (Op)i.Opcode == Op.Store && i.Operands.Length == 4 && i.Operands[2] == 7);
         ModuleValidator.Validate(SpirvReader.Parse(native.ToBytes()));
-        Assert.Contains("volatile memory access", Assert.Throws<ShaderException>(() => WgslWriter.Write(module)).Message);
+        Assert.Contains("volatile memory access", Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default)).Message);
     }
 
     [Fact]
@@ -151,7 +152,7 @@ public class PointerMemoryTests
             foreach (uint global in globals) Assert.Contains(global, entry.Operands[(2 + words)..]);
         }
         var module = SpirvReader.Parse(binary.ToBytes()); ModuleValidator.Validate(module);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 }

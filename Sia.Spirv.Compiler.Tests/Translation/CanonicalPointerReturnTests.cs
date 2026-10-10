@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -69,7 +70,7 @@ public class CanonicalPointerReturnTests
     [Fact]
     public void DefaultDiagnosticScopesDoNotIntroduceCompoundAttributes()
     {
-        string wgsl = WgslWriter.Write(Create(nested: true));
+        string wgsl = WgslWriter.Write(Create(nested: true), SpirvCompilationTarget.Default);
         Assert.DoesNotContain("@diagnostic(", wgsl);
     }
 
@@ -127,7 +128,7 @@ public class CanonicalPointerReturnTests
     {
         var module = Create(nested, loop); uint[] expected = [first, second];
         Assert.Equal(expected, new CanonicalExecution(module, [input]).Run().Output);
-        string wgsl = WgslWriter.Write(module); var binary = SpirvWriter.Write(module);
+        string wgsl = WgslWriter.Write(module, SpirvCompilationTarget.Default); var binary = SpirvWriter.Write(module, SpirvCompilationTarget.Default);
         Assert.Equal(expected, new CanonicalExecution(WgslReader.Parse(wgsl), [input]).Run().Output);
         Assert.Equal(expected, new CanonicalExecution(SpirvReader.Parse(binary), [input]).Run().Output);
     }
@@ -138,7 +139,7 @@ public class CanonicalPointerReturnTests
     {
         var module = Create(nested: true, earlyLoop: true); uint[] expected = [first, second];
         Assert.Equal(expected, new CanonicalExecution(module, [input]).Run().Output);
-        string wgsl = WgslWriter.Write(module); var binary = SpirvWriter.Write(module);
+        string wgsl = WgslWriter.Write(module, SpirvCompilationTarget.Default); var binary = SpirvWriter.Write(module, SpirvCompilationTarget.Default);
         Assert.Equal(expected, new CanonicalExecution(WgslReader.Parse(wgsl), [input]).Run().Output);
         Assert.Equal(expected, new CanonicalExecution(SpirvReader.Parse(binary), [input]).Run().Output);
     }
@@ -150,8 +151,8 @@ public class CanonicalPointerReturnTests
     {
         var module = Create(nested: true, earlyLoop: earlyLoop, repeat: true); uint[] expected = [first, second];
         Assert.Equal(expected, new CanonicalExecution(module, [input]).Run().Output);
-        Assert.Equal(expected, new CanonicalExecution(WgslReader.Parse(WgslWriter.Write(module)), [input]).Run().Output);
-        Assert.Equal(expected, new CanonicalExecution(SpirvReader.Parse(SpirvWriter.Write(module)), [input]).Run().Output);
+        Assert.Equal(expected, new CanonicalExecution(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)), [input]).Run().Output);
+        Assert.Equal(expected, new CanonicalExecution(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)), [input]).Run().Output);
     }
 
     [Fact]
@@ -187,8 +188,8 @@ public class CanonicalPointerReturnTests
     {
         var module = Create(nested: true, repeat: true, escapeLocal: true); uint[] expected = [first, second];
         Assert.Equal(expected, new CanonicalExecution(module, [input]).Run().Output);
-        Assert.Equal(expected, new CanonicalExecution(WgslReader.Parse(WgslWriter.Write(module)), [input]).Run().Output);
-        Assert.Equal(expected, new CanonicalExecution(SpirvReader.Parse(SpirvWriter.Write(module)), [input]).Run().Output);
+        Assert.Equal(expected, new CanonicalExecution(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)), [input]).Run().Output);
+        Assert.Equal(expected, new CanonicalExecution(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)), [input]).Run().Output);
     }
 
     [Fact]

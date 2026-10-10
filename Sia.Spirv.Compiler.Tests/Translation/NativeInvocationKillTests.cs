@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Legalization;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
@@ -43,8 +44,8 @@ public class NativeInvocationKillTests
     public void ContinuingKillKeepsContinueBreakScopeAndRepeatedEntry(bool repeat, uint input, uint first, uint second, bool killed)
     {
         var binary = ContinuingFixture(repeat); byte[] original = binary.ToBytes(); var module = SpirvReader.Parse(original);
-        byte[] native = SpirvWriter.Write(module); string wgsl = WgslWriter.Write(module);
-        Assert.Equal(native, SpirvWriter.Write(module)); Assert.Equal(original, binary.ToBytes());
+        byte[] native = SpirvWriter.Write(module, SpirvCompilationTarget.Default); string wgsl = WgslWriter.Write(module, SpirvCompilationTarget.Default);
+        Assert.Equal(native, SpirvWriter.Write(module, SpirvCompilationTarget.Default)); Assert.Equal(original, binary.ToBytes());
         Assert.Contains(SpirvBinary.Parse(native).Instructions, i => (Op)i.Opcode == Op.Kill);
         foreach (var candidate in new[] { module, SpirvReader.Parse(native), WgslReader.Parse(wgsl) }) {
             var machine = new CanonicalExecution(candidate, [input]);
@@ -59,7 +60,7 @@ public class NativeInvocationKillTests
             + "@group(0) @binding(0) var<storage,read> inputs:array<u32>;"
             + "@group(0) @binding(1) var<storage,read_write> outputs:array<u32>;"
             + "@fragment fn main()->@location(0) u32{outputs[0]=43u;outputs[1]=23u;"
-            + "let value=choose((inputs[0]&1u)!=0u);outputs[0]=value;outputs[1]=99u;return value+100u;}")));
+            + "let value=choose((inputs[0]&1u)!=0u);outputs[0]=value;outputs[1]=99u;return value+100u;}"), SpirvCompilationTarget.Default));
         uint entry = binary.Instructions.Single(i => (Op)i.Opcode == Op.EntryPoint).Operands[1];
         var code = binary.Instructions.ToList(); bool helper = false, replaced = false;
         for (int index = 0; index < code.Count; index++) {
@@ -78,7 +79,7 @@ public class NativeInvocationKillTests
     public void FragmentKillPreservesEarlierStoresAndStopsCallerStores(uint input, uint first, uint second, bool killed)
     {
         var binary = ColorFixture(); byte[] before = binary.ToBytes(); var module = SpirvReader.Parse(before);
-        foreach (var candidate in new[] { module, SpirvReader.Parse(SpirvWriter.Write(module)), WgslReader.Parse(WgslWriter.Write(module)) }) {
+        foreach (var candidate in new[] { module, SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)), WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)) }) {
             var machine = new CanonicalExecution(candidate, [input]);
             Assert.Equal(new[] { first, second }, machine.Run().Output); Assert.Equal(killed, machine.InvocationKilled);
         }
@@ -106,20 +107,20 @@ public class NativeInvocationKillTests
         Assert.Contains(traces, t => t.Pass == "native-cfg-import" && t.Before.Contains("invocation-kill span="));
         Assert.DoesNotContain(deferrals, d => d.Function == "<SPIR-V>"); Assert.Equal(original, binary.ToBytes());
         ModuleValidator.Validate(module);
-        Assert.Contains(SpirvBinary.Parse(SpirvWriter.Write(module)).Instructions, i => (Op)i.Opcode == Op.Kill);
-        _ = WgslReader.Parse(WgslWriter.Write(module));
+        Assert.Contains(SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)).Instructions, i => (Op)i.Opcode == Op.Kill);
+        _ = WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default));
     }
 
     [Theory] [InlineData(false)] [InlineData(true)]
     public void ScalarKillHelpersHaveLegalWgslReturnsAndPreserveNativeTermination(bool repeatedOrder)
     {
         var module = SpirvReader.Parse(Fixture(scalar: true).ToBytes());
-        byte[] before = SpirvWriter.Write(module); string wgsl = WgslWriter.Write(module);
-        Assert.Equal(before, SpirvWriter.Write(module));
+        byte[] before = SpirvWriter.Write(module, SpirvCompilationTarget.Default); string wgsl = WgslWriter.Write(module, SpirvCompilationTarget.Default);
+        Assert.Equal(before, SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Contains(SpirvBinary.Parse(before).Instructions, i => (Op)i.Opcode == Op.Kill);
         var parsed = WgslReader.Parse(wgsl); ModuleValidator.Validate(parsed);
         Assert.Contains("discard;", wgsl);
-        if (repeatedOrder) Assert.Equal(wgsl, WgslWriter.Write(module));
+        if (repeatedOrder) Assert.Equal(wgsl, WgslWriter.Write(module, SpirvCompilationTarget.Default));
     }
 
     [Fact]
@@ -139,7 +140,7 @@ public class NativeInvocationKillTests
     public void KillingAHigherLevelInvocationNeverReturnsToCallerStores(bool nested, bool repeat, uint input, uint first, uint second, bool killed)
     {
         var module = SpirvReader.Parse(Fixture(nested, repeat).ToBytes());
-        foreach (var candidate in new[] { module, SpirvReader.Parse(SpirvWriter.Write(module)), WgslReader.Parse(WgslWriter.Write(module)) }) {
+        foreach (var candidate in new[] { module, SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)), WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)) }) {
             var machine = new CanonicalExecution(candidate, [input]); var result = machine.Run();
             Assert.Equal(new[] { first, second }, result.Output); Assert.Equal(killed, machine.InvocationKilled);
         }

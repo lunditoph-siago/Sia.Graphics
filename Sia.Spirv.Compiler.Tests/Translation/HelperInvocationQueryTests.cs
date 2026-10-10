@@ -61,7 +61,7 @@ public class HelperInvocationQueryTests
     public void QuerySnapshotsSurviveHelperExpansionAndDemotion(uint input, uint first, uint second, uint result, bool demoted)
     {
         var source = Fixture(); byte[] before = source.ToBytes(); var module = SpirvReader.Parse(before);
-        byte[] output = SpirvWriter.Write(module);
+        byte[] output = SpirvWriter.Write(module, SpirvCompilationTarget.Default);
         Assert.Contains(SpirvBinary.Parse(output).Instructions, i => i.Opcode == 5381);
         foreach (var candidate in new[] { module, SpirvReader.Parse(output) }) {
             var machine = new CanonicalExecution(candidate, [input, 0]);
@@ -69,14 +69,14 @@ public class HelperInvocationQueryTests
             Assert.Equal(demoted, machine.InvocationKilled);
             Assert.Equal(new[] { false, demoted, demoted }, machine.HelperQueryValues);
         }
-        Assert.Equal(before, source.ToBytes()); Assert.Equal(output, SpirvWriter.Write(module));
+        Assert.Equal(before, source.ToBytes()); Assert.Equal(output, SpirvWriter.Write(module, SpirvCompilationTarget.Default));
     }
 
     [Theory] [InlineData(0u)] [InlineData(1u)]
     public void InitiallyHelperQueryRemainsTrueAndSuppressesStores(uint input)
     {
         var module = SpirvReader.Parse(Fixture().ToBytes());
-        foreach (var candidate in new[] { module, SpirvReader.Parse(SpirvWriter.Write(module)) }) {
+        foreach (var candidate in new[] { module, SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)) }) {
             var machine = new CanonicalExecution(candidate, [input, 0], initiallyHelper: true);
             Assert.Equal(new uint[] { 0, 0 }, machine.Run().Output); Assert.Equal(103u, machine.EntryResult);
             Assert.Equal(new[] { true, true, true }, machine.HelperQueryValues);
@@ -129,7 +129,7 @@ public class HelperInvocationQueryTests
         var traces = new List<CanonicalPassTrace>(); var binary = PointerFixture(); byte[] before = binary.ToBytes();
         var module = SpirvReader.ReadBinary(binary, traces: traces);
         Assert.Contains(traces, t => t.Pass == "native-cfg-import" && t.Before.Contains("helper-query effects="));
-        var output = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var output = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         // Two reads in the pointer helper are copied into each of its two call sites.
         Assert.Equal(4, output.Instructions.Count(i => i.Opcode == 5381));
         int demote = output.Instructions.ToList().FindIndex(i => i.Opcode == 5380);
@@ -145,10 +145,10 @@ public class HelperInvocationQueryTests
     [Fact]
     public void WgslRejectsDynamicQueryWithoutChangingNativeModule()
     {
-        var module = SpirvReader.Parse(Fixture().ToBytes()); byte[] before = SpirvWriter.Write(module);
-        var error = Assert.Throws<ShaderException>(() => WgslWriter.Write(module));
+        var module = SpirvReader.Parse(Fixture().ToBytes()); byte[] before = SpirvWriter.Write(module, SpirvCompilationTarget.Default);
+        var error = Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Equal(DiagnosticStage.WgslWrite, error.Diagnostic.Stage); Assert.Contains("helper", error.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(before, SpirvWriter.Write(module));
+        Assert.Equal(before, SpirvWriter.Write(module, SpirvCompilationTarget.Default));
     }
 
     [Theory] [InlineData(false)] [InlineData(true)]
@@ -197,9 +197,9 @@ public class HelperInvocationQueryTests
     {
         var module = SpirvReader.Parse(Fixture().ToBytes());
         var target = SpirvCompilationTarget.Default with { Version = 0x10600, Environment = "vulkan1.3", AllowedExtensions = ImmutableHashSet<string>.Empty };
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, new() { Target = target, PipelineConstants = new Dictionary<string, double>() }));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, target, new() { PipelineConstants = new Dictionary<string, double>() }));
         Assert.Contains(binary.Instructions, i => i.Opcode == 5381);
         Assert.DoesNotContain(binary.Instructions, i => (Op)i.Opcode == Op.Extension);
-        Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, new() { Target = target with { AllowedCapabilities = ImmutableHashSet.Create(1u) } }));
+        Assert.Throws<ShaderException>(() => SpirvWriter.Write(module, target with { AllowedCapabilities = ImmutableHashSet.Create(1u) }));
     }
 }

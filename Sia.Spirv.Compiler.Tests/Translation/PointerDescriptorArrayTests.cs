@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.Spirv;
@@ -33,24 +34,24 @@ public class PointerDescriptorArrayTests
     public void DescriptorElementAddressesRetainSelectionAndCapturedIndices(string kind, string mode, bool privateSlot)
     {
         var module = SpirvReader.Parse(Fixture(kind, mode, privateSlot).ToBytes()); ModuleValidator.Validate(module);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory] [InlineData("select")] [InlineData("loop")] [InlineData("nested")]
     public void OneDescriptorElementAllowsFiniteAddressComparison(string mode)
     {
         var module = SpirvReader.Parse(PointerComparisonTests.Fixture("descriptor-same", mode).ToBytes());
-        ModuleValidator.Validate(module); ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(module); ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory] [InlineData("select")] [InlineData("loop")] [InlineData("nested")]
     public void ARepeatedDescriptorPointerValueComparesReflexively(string mode)
     {
         var module = SpirvReader.Parse(PointerComparisonTests.Fixture("descriptor", mode, "self").ToBytes());
-        ModuleValidator.Validate(module); ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(module); ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory] [InlineData("select")] [InlineData("loop")] [InlineData("nested")]

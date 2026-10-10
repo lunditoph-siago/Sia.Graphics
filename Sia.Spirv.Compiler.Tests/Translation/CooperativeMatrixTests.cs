@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -37,8 +38,8 @@ public class CooperativeMatrixTests
         string source = Source.Replace("8x8", $"{size}x{size}");
         if (half) source = "enable f16;" + source.Replace("f32", "f16");
         var module = WgslReader.Parse(source); ModuleValidator.Validate(module);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Capability && i.Operands is [6022]);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Capability && i.Operands is [5345]);
         Assert.DoesNotContain(binary.Instructions, i => (Op)i.Opcode == Op.Capability && i.Operands is [5346]);
@@ -46,8 +47,8 @@ public class CooperativeMatrixTests
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.CooperativeMatrixMulAddKHR);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.MatrixTimesScalar);
         var back = SpirvReader.Parse(binary.ToBytes()); ModuleValidator.Validate(back);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(back)));
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(back)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(back, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(back, SpirvCompilationTarget.Default)));
     }
 
     [Fact]
@@ -59,14 +60,14 @@ public class CooperativeMatrixTests
         var helper = module.Functions.Single(f => f.Name == "multiply");
         Assert.Equal(ShaderType.F16, ((ShaderType.CooperativeMatrix)helper.Arguments[0].Type).Component);
         Assert.Equal(ShaderType.F32, ((ShaderType.CooperativeMatrix)helper.ReturnType).Component);
-        var back = SpirvReader.Parse(SpirvWriter.Write(module));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(back)));
+        var back = SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(back, SpirvCompilationTarget.Default)));
     }
 
     [Fact]
     public void TypeRoleLayoutAndDefaultStrideHaveExactNativeOperands()
     {
-        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(Source));
+        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(Source, SpirvCompilationTarget.Default));
         uint Value(uint id) => binary.Instructions.Single(i => (Op)i.Opcode == Op.Constant && i.Operands[1] == id).Operands[2];
         var types = binary.Instructions.Where(i => (Op)i.Opcode == Op.TypeCooperativeMatrixKHR).ToArray();
         Assert.Equal(new uint[] { 0, 1, 2 }, types.Select(i => Value(i.Operands[5])).Order().ToArray());
@@ -86,7 +87,7 @@ public class CooperativeMatrixTests
         var module = WgslReader.Parse(source); ModuleValidator.Validate(module);
         var value = (Statement.Declare)module.Functions[0].Body.Statements[0];
         Assert.Equal(ShaderType.F16, ((ShaderType.CooperativeMatrix)value.Type).Component);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Fact]
@@ -94,10 +95,10 @@ public class CooperativeMatrixTests
     {
         string source = Source.Replace("fn multiply(", "@group(0) @binding(2) var<storage,read_write> count:atomic<u32>; fn multiply(")
             .Replace("var c=", "_=atomicAdd(&count,1u); storageBarrier(); var c=");
-        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(source));
+        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default));
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Capability && i.Operands is [5346]);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(SpirvReader.Parse(binary.ToBytes()))));
-        var ordinary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv("enable wgpu_cooperative_matrix; @compute @workgroup_size(1) fn main(){}"));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(SpirvReader.Parse(binary.ToBytes()), SpirvCompilationTarget.Default)));
+        var ordinary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv("enable wgpu_cooperative_matrix; @compute @workgroup_size(1) fn main(){}", SpirvCompilationTarget.Default));
         Assert.Contains(ordinary.Instructions, i => (Op)i.Opcode == Op.MemoryModel && i.Operands is [0, 1]);
     }
 
@@ -144,8 +145,8 @@ public class CooperativeMatrixTests
     {
         string source="enable wgpu_cooperative_matrix; alias M=coop_mat16x16<f32,C>; struct S{value:M} var<private> values:array<S,2>; @compute @workgroup_size(32) fn main(){var x:M; values[0].value=x;}";
         var module=WgslReader.Parse(source); ModuleValidator.Validate(module);
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(SpirvReader.Parse(SpirvWriter.Write(module)))));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)), SpirvCompilationTarget.Default)));
         Assert.Equal(new TypeLayout(64,1024),TypeLayout.Of(new ShaderType.CooperativeMatrix(16,16,ShaderType.F32,CooperativeRole.C)));
     }
 
@@ -156,9 +157,9 @@ public class CooperativeMatrixTests
         int index = body.Statements.FindLastIndex(s => s is Statement.Store { Value.Type: ShaderType.CooperativeMatrix });
         var store = (Statement.Store)body.Statements[index];
         body.Statements[index] = store with { Value = new Expression.Unary("-", store.Value, store.Value.Type) };
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.FNegate);
-        string wgsl = WgslWriter.Write(SpirvReader.Parse(binary.ToBytes()));
+        string wgsl = WgslWriter.Write(SpirvReader.Parse(binary.ToBytes()), SpirvCompilationTarget.Default);
         Assert.Contains("-1f *", wgsl); ModuleValidator.Validate(WgslReader.Parse(wgsl));
     }
 
@@ -169,21 +170,21 @@ public class CooperativeMatrixTests
         int index = body.Statements.FindIndex(s => s is Statement.Declare { Name: "c" });
         var declaration = (Statement.Declare)body.Statements[index];
         body.Statements[index] = declaration with { Initializer = new Expression.Construct(declaration.Type, [new Expression.Literal(2f, ShaderType.F32)]) };
-        var back = SpirvReader.Parse(SpirvWriter.Write(module)); ModuleValidator.Validate(back);
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(back));
+        var back = SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)); ModuleValidator.Validate(back);
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(back, SpirvCompilationTarget.Default));
         var cooperativeTypes = binary.Instructions.Where(i => (Op)i.Opcode == Op.TypeCooperativeMatrixKHR).Select(i => i.Operands[0]).ToHashSet();
         var splat = Assert.Single(binary.Instructions, i => (Op)i.Opcode is Op.CompositeConstruct or Op.ConstantComposite
             && i.Operands.Length == 3 && cooperativeTypes.Contains(i.Operands[0]));
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Constant && i.Operands[1] == splat.Operands[2]
             && i.Operands[2] == BitConverter.SingleToUInt32Bits(2f));
-        var error = Assert.Throws<ShaderException>(() => WgslWriter.Write(back));
+        var error = Assert.Throws<ShaderException>(() => WgslWriter.Write(back, SpirvCompilationTarget.Default));
         Assert.Equal(DiagnosticStage.WgslWrite, error.Diagnostic.Stage); Assert.Contains("scalar splat", error.Message);
     }
 
     [Fact]
     public void NativeMemoryReinterpretationIsNotSilentlyChangedToWgslConversion()
     {
-        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(Source));
+        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(Source, SpirvCompilationTarget.Default));
         var scalar = binary.Instructions.Single(i => (Op)i.Opcode == Op.TypeFloat && i.Operands[1] == 32);
         var integer = binary.Instructions.Single(i => (Op)i.Opcode == Op.TypeInt && i.Operands is [_, 32, 0]);
         var instructions = new List<SpirvInstruction>(); bool inserted = false;
@@ -200,25 +201,25 @@ public class CooperativeMatrixTests
             else instructions.Add(instruction);
         }
         var back = SpirvReader.Parse(new SpirvBinary { Version = binary.Version, Bound = binary.Bound, Instructions = instructions }.ToBytes());
-        ModuleValidator.Validate(back); ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(back)));
-        var error = Assert.Throws<ShaderException>(() => WgslWriter.Write(back));
+        ModuleValidator.Validate(back); ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(back, SpirvCompilationTarget.Default)));
+        var error = Assert.Throws<ShaderException>(() => WgslWriter.Write(back, SpirvCompilationTarget.Default));
         Assert.Equal(DiagnosticStage.WgslWrite, error.Diagnostic.Stage); Assert.Contains("reinterpretation", error.Message);
     }
 
     [Fact]
     public void ExplicitNoneMemoryOperandsDoNotChangeCooperativeOperations()
     {
-        var input=SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(Source));
+        var input=SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(Source, SpirvCompilationTarget.Default));
         var instructions=input.Instructions.Select(i=>(Op)i.Opcode is Op.CooperativeMatrixLoadKHR or Op.CooperativeMatrixStoreKHR
             ? new SpirvInstruction(i.Opcode,[..i.Operands,0u]) : i).ToArray();
         var binary=new SpirvBinary{Version=input.Version,Bound=input.Bound,Instructions=instructions};
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(SpirvReader.Parse(binary.ToBytes()))));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(SpirvReader.Parse(binary.ToBytes()), SpirvCompilationTarget.Default)));
         var aligned=instructions.Select(i=>(Op)i.Opcode==Op.CooperativeMatrixLoadKHR
             ? new SpirvInstruction(i.Opcode,[..i.Operands.Take(5),2u,4u]) : i).ToArray();
         var back=SpirvReader.Parse(new SpirvBinary{Version=input.Version,Bound=input.Bound,Instructions=aligned}.ToBytes());
-        var emitted=SpirvBinary.Parse(SpirvWriter.Write(back));
+        var emitted=SpirvBinary.Parse(SpirvWriter.Write(back, SpirvCompilationTarget.Default));
         Assert.All(emitted.Instructions.Where(i=>(Op)i.Opcode==Op.CooperativeMatrixLoadKHR),i=>Assert.Equal(new uint[]{2,4},i.Operands[5..]));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(back)));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(back, SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -227,23 +228,23 @@ public class CooperativeMatrixTests
     public void VulkanMemoryModelDoesNotSilentlyDropBufferDecorations(string attribute)
     {
         var module=WgslReader.Parse(Source.Replace("@group(0) @binding(0)","@"+attribute+" @group(0) @binding(0)"));
-        ModuleValidator.Validate(module); ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(module); ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
         if(attribute=="coherent")
         {
-            var binary=SpirvBinary.Parse(SpirvWriter.Write(module));
+            var binary=SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
             Assert.DoesNotContain(binary.Instructions,i=>(Op)i.Opcode==Op.Decorate&&i.Operands[1]==23);
             var constants=binary.Instructions.Where(i=>(Op)i.Opcode==Op.Constant).ToDictionary(i=>i.Operands[1],i=>i.Operands[2]);
             Assert.All(binary.Instructions.Where(i=>(Op)i.Opcode==Op.CooperativeMatrixLoadKHR),i=>
             { Assert.Equal(48u,i.Operands[5]); Assert.Equal(5u,constants[i.Operands[6]]); });
-            string source=WgslWriter.Write(SpirvReader.Parse(binary.ToBytes())); Assert.Contains("@coherent",source);
+            string source=WgslWriter.Write(SpirvReader.Parse(binary.ToBytes()), SpirvCompilationTarget.Default); Assert.Contains("@coherent",source);
             ModuleValidator.Validate(WgslReader.Parse(source));
         }
         else
         {
-            var binary=SpirvBinary.Parse(SpirvWriter.Write(module));
+            var binary=SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
             Assert.DoesNotContain(binary.Instructions,i=>(Op)i.Opcode==Op.Decorate&&i.Operands[1]==21);
             Assert.All(binary.Instructions.Where(i=>(Op)i.Opcode==Op.CooperativeMatrixLoadKHR),i=>Assert.Equal(1u,i.Operands[5]));
-            ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(SpirvReader.Parse(binary.ToBytes()))));
+            ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(SpirvReader.Parse(binary.ToBytes()), SpirvCompilationTarget.Default)));
         }
     }
 }

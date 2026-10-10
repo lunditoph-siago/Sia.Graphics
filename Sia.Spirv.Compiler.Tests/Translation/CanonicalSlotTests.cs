@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -40,7 +41,7 @@ public class CanonicalSlotTests
     }
     private static void Check(Module module, uint input, uint[] expected)
     {
-        var candidates = new[] { module, WgslReader.Parse(WgslWriter.Write(module)), SpirvReader.Parse(SpirvWriter.Write(module)) };
+        var candidates = new[] { module, WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)), SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)) };
         foreach (var candidate in candidates) Assert.Equal(expected, new CanonicalExecution(candidate, [input]).Run().Output);
     }
 

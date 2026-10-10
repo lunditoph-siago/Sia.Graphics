@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -35,18 +36,18 @@ public class RayQueryTests
     public void QueryHandlesAndOperationsSurviveWgslAndSpirvWriting()
     {
         var source = WgslReader.Parse(Source); ModuleValidator.Validate(source);
-        string wgsl = WgslWriter.Write(source); ModuleValidator.Validate(WgslReader.Parse(wgsl));
+        string wgsl = WgslWriter.Write(source, SpirvCompilationTarget.Default); ModuleValidator.Validate(WgslReader.Parse(wgsl));
         Assert.Contains("RayIntersection", wgsl); Assert.DoesNotContain("struct RayIntersection", wgsl);
-        var bytes = SpirvWriter.Write(source, new() { PipelineConstants = new Dictionary<string, double> { ["7"] = 0.25 } });
+        var bytes = SpirvWriter.Write(source, SpirvCompilationTarget.Default, new() { PipelineConstants = new Dictionary<string, double> { ["7"] = 0.25 } });
         var binary = SpirvBinary.Parse(bytes);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.RayQueryInitializeKHR);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.RayQueryGenerateIntersectionKHR);
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.RayQueryConfirmIntersectionKHR);
         var back = SpirvReader.Parse(bytes); ModuleValidator.Validate(back);
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(back)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(back, SpirvCompilationTarget.Default)));
         // Raw committed getters can run during traversal in SPIR-V. WGSL's
         // getter has stronger restrictions, so refuse an unproven conversion.
-        var error = Assert.Throws<ShaderException>(() => WgslWriter.Write(back));
+        var error = Assert.Throws<ShaderException>(() => WgslWriter.Write(back, SpirvCompilationTarget.Default));
         Assert.Equal(DiagnosticStage.WgslWrite, error.Diagnostic.Stage);
         Assert.Contains("traversal", error.Message);
     }
@@ -56,8 +57,8 @@ public class RayQueryTests
     {
         string source = Source.Replace("return rayQueryGetCommittedIntersection(handle);", "return rayQueryGetCandidateIntersection(handle);")
             .Replace("rayQueryGenerateIntersection(handle, 0.5);", "rayQueryConfirmIntersection(handle);");
-        var module = SpirvReader.Parse(ShaderTranslator.WgslToSpirv(source));
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        var module = SpirvReader.Parse(ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -67,7 +68,7 @@ public class RayQueryTests
     {
         string source = "enable wgpu_ray_query; enable wgpu_ray_query_vertex_return; @group(0) @binding(0) var scene: acceleration_structure<vertex_return>; @compute @workgroup_size(1) fn main(){ var query:ray_query<vertex_return>; rayQueryInitialize(&query,scene,RayDesc(0u,255u,0.0,1.0,vec3f(0),vec3f(1))); while(rayQueryProceed(&query)){} _="+getter+"(&query); }";
         var module = WgslReader.Parse(source); ModuleValidator.Validate(module);
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Capability && i.Operands is [5391]);
         ModuleValidator.Validate(SpirvReader.Parse(binary.ToBytes()));
         Assert.Throws<ShaderException>(() => ModuleValidator.Validate(WgslReader.Parse(source.Replace("var query:ray_query<vertex_return>", "var query:ray_query"))));
@@ -99,7 +100,7 @@ public class RayQueryTests
     [Fact]
     public void RayHandlesAreNeverLoadedStoredOrZeroInitialized()
     {
-        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(Source));
+        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(Source, SpirvCompilationTarget.Default));
         uint queryType = Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.TypeRayQueryKHR).Operands[0];
         var pointers = binary.Instructions.Where(i => (Op)i.Opcode == Op.TypePointer && i.Operands[2] == queryType).Select(i => i.Operands[0]).ToHashSet();
         var variables = binary.Instructions.Where(i => (Op)i.Opcode == Op.Variable && pointers.Contains(i.Operands[0])).Select(i => i.Operands[1]).ToHashSet();
@@ -112,7 +113,7 @@ public class RayQueryTests
     public void DescriptorMembersMatchReferenceNames()
     {
         string source = "enable wgpu_ray_query; @compute @workgroup_size(1) fn main(){let d=RayDesc(0u,255u,0.0,1.0,vec3f(0),vec3f(1)); _=d.tmin; _=d.tmax;}";
-        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(WgslReader.Parse(source))));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(WgslReader.Parse(source), SpirvCompilationTarget.Default)));
     }
 
     [Theory]
@@ -124,12 +125,12 @@ public class RayQueryTests
             .Replace("var scene: acceleration_structure;", "var scene: binding_array<acceleration_structure,4>;")
             .Replace("fn main()", "fn main(@builtin(global_invocation_id) id:vec3u)")
             .Replace("trace(scene)", nonuniform ? "trace(scene[id.x%4u])" : "trace(scene[0])");
-        var module = WgslReader.Parse(source); ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
-        var binary = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var module = WgslReader.Parse(source); ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
+        var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         if(nonuniform) Assert.Contains(binary.Instructions,i=>(Op)i.Opcode==Op.Decorate && i.Operands is [_,5300]);
         var back = SpirvReader.Parse(binary.ToBytes()); ModuleValidator.Validate(back);
         Assert.Contains(back.Globals,g=>g.Type is ShaderType.BindingArray { Element:ShaderType.AccelerationStructure, Length:4 });
-        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(back)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(back, SpirvCompilationTarget.Default)));
     }
 
     [Fact]
@@ -151,11 +152,11 @@ public class RayQueryTests
             I(Op.Function,1,40,0,10), I(Op.Label,41), I(Op.Variable,8,42,7), I(Op.FunctionCall,1,43,30,42,20), I(Op.Return), I(Op.FunctionEnd)] };
         var module = SpirvReader.Parse(binary.ToBytes()); ModuleValidator.Validate(module);
         Assert.IsType<ShaderType.AccelerationStructure>(module.Functions.Single(f=>f.Name=="sia_fn30").Arguments[1].Type);
-        var output = SpirvBinary.Parse(SpirvWriter.Write(module));
+        var output = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Contains(output.Instructions,i=>(Op)i.Opcode==Op.RayQueryGetRayTMinKHR);
         Assert.Contains(output.Instructions,i=>(Op)i.Opcode==Op.RayQueryGetRayFlagsKHR);
         ModuleValidator.Validate(SpirvReader.Parse(output.ToBytes()));
-        string wgsl = WgslWriter.Write(module);
+        string wgsl = WgslWriter.Write(module, SpirvCompilationTarget.Default);
         ModuleValidator.Validate(WgslReader.Parse(wgsl));
         Assert.DoesNotContain("spirvRayQueryGetRay", wgsl);
     }

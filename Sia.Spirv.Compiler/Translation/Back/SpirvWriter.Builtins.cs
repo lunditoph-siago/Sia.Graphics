@@ -35,7 +35,8 @@ public static partial class SpirvWriter
                     if (call.Type is not ShaderType.Void) return Result(operation, call.Type, raw);
                     Add(operation, raw); return 0;
                 }
-                if (name.StartsWith("rayQuery", StringComparison.Ordinal) || name is "getCommittedHitVertexPositions" or "getCandidateHitVertexPositions") return RayQuery(call);
+                if (name.StartsWith("rayQuery", StringComparison.Ordinal) || name is "getCommittedHitVertexPositions" or "getCandidateHitVertexPositions")
+                    throw owner.Error("Ray query guards were not legalized before serialization.", call.Span);
                 if (name.StartsWith("texture", StringComparison.Ordinal) && name != "textureBarrier") return Texture(call);
                 if (name.StartsWith("atomic", StringComparison.Ordinal) || name == "spirvAtomicCompareExchange") return Atomic(call);
                 if (name == "arrayLength") return ArrayLength(call);

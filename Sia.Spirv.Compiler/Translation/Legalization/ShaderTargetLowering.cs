@@ -54,6 +54,7 @@ internal static class ShaderTargetLowering
         if (pipelineConstants is { } values) canonical = PipelineConstantResolver.Resolve(canonical, values);
         canonical = CanonicalHelperInliner.RunPointers(canonical);
         canonical = InvocationTerminationControlFlow.PrepareSpirv(canonical, DiagnosticStage.SpirvWrite);
+        canonical = SpirvRayQueryLowering.Run(canonical);
         return SpirvIntegerArithmeticLowering.Run(canonical, integerDivisionChecks);
     }
 

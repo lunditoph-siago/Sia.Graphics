@@ -15,7 +15,7 @@ internal static class SpirvEntryPointLowering
         IReadOnlyDictionary<string, SpirvMeshPublication> MeshPublications);
 
     public static Result Run(Module input, bool adjustCoordinateSpace, bool clampFragmentDepth, bool zeroInitializeWorkgroupMemory = true, bool useLocalSizeId = false, uint? version = null)
-        => Run(SpirvControlFlowLowering.Capture(input), adjustCoordinateSpace, clampFragmentDepth, zeroInitializeWorkgroupMemory, useLocalSizeId, version);
+        => Run(SpirvRayQueryLowering.Run(SpirvControlFlowLowering.Capture(input)), adjustCoordinateSpace, clampFragmentDepth, zeroInitializeWorkgroupMemory, useLocalSizeId, version);
 
     internal static Result Run(CanonicalModule canonical, bool adjustCoordinateSpace, bool clampFragmentDepth, bool zeroInitializeWorkgroupMemory = true, bool useLocalSizeId = false, uint? version = null)
     {

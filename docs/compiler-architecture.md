@@ -17,6 +17,20 @@ functions retain the legacy serializer, and operation/type feature policy and
 structured frontend adapters still need migration. This does not establish full
 frontend convergence.
 
+SPIR-V high-level ray-query guards now lower on canonical graphs. Companion
+state resets at each original query allocation; descriptor validity, traversal,
+candidate type, generated-hit range and intersection/vertex reads become verified
+control flow with ordered effects. Raw native query operations retain their graphs.
+Owned Bodies are never re-read; only readable explicit deferrals are imported.
+The former writer query-state/guard implementation is removed. Serialization
+diagnoses any unlegalized high-level query operation; it no longer synthesizes
+query semantics. Unreadable deferrals and remaining target adapters still require
+migration. No new public interface or dependency is introduced.
+
+The user approved removal of public legacy APIs on 2026-10-10, allowing breaking
+changes. Those overloads and implicit legacy target defaults currently remain;
+their removal and maintained consumer migration are the next architecture scope.
+
 WGSL invocation termination now lowers on owned CFGs before structured
 reconstruction. Shared CFG relocation handles terminating continuing constructs;
 WGSL introduces demotion and typed returns while SPIR-V retains native termination.

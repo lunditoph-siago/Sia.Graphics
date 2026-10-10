@@ -6,6 +6,21 @@ passes and target legalization. This document does not claim that the existing
 translation IR has already been replaced. The [current architecture](compiler-architecture.md)
 is the implementation baseline.
 
+Execution amendment, approved by the user on 2026-10-10: remove backward
+compatibility, including public legacy APIs; breaking changes are allowed.
+This supersedes the earlier staged requirement to retain old overload adapters.
+Migrate maintained consumers to explicit requests/targets and record the remaining
+external consumer impact. Public legacy API removal is still pending.
+
+SPIR-V query guard migration (source 2F3A9B12…, Compiler BED9439A…) moves
+high-level query state, validation and conditional reads/updates into canonical
+target graphs and removes the writer's old query-state/guard implementation.
+Forty-one new contracts, maintenance 2253/2253, independent formats 233/233 plus
+22/22 query/handle outputs, frozen replay 41/41 and input/output formats 82/82
+pass. Guard tests use a deterministic raw-query stub, not GPU traversal. Current
+GPU and full consumer/research checks have not run; other deferrals/adapters and
+the approved public legacy API removal remain open.
+
 WGSL termination migration (source 91017049…, Compiler E9538038…) retains
 owned CFG/SSA for continuing relocation and demotion/typed returns, retiring the
 old structured relocation path. Uniformity verifies original non-returning control

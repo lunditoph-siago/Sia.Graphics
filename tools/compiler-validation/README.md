@@ -5,6 +5,27 @@ See the [current pipeline/target map](../../docs/compiler-architecture.md) and
 records the original PR baseline, not verification of later source changes;
 `renewal-evidence.json` records the cleanup follow-up.
 
+Latest SPIR-V query guard migration: source 2F3A9B12…, Compiler BED9439A….
+High-level query state/descriptor/traversal/candidate/range/getter guards are
+canonical target control flow. The writer query-state/guard implementation is
+removed; unlegalized high-level calls diagnose instead of synthesizing semantics.
+Native raw-query graphs are unchanged. Forty-one new contracts cover malformed
+descriptors, exhausted/uninitialized queries, candidate/committed kinds, distance
+bounds, allocation resets, origins/filters and poisoned owned Bodies. The query
+stub observes guard decisions; it does not simulate or verify GPU traversal.
+
+Passed: maintenance 2253/2253, formats 233/233 maintained plus 22/22 query/handle
+outputs and native replays, frozen original replay 41/41 plus independent
+input/output formats 82/82. Five Compiler DLL copies match. Actual scripts,
+manifests, TRX, raw format reports and hashes are in
+`.work/compiler-architecture-first/canonical-ray-query-*`.
+Failures retained: 22 test-stub failures before select support, a test diagnostic
+severity compile error, and the temporary replay-validator directory suffix.
+Not run: current-source GPU, repeated-export determinism, WASM/real browser,
+SDK/Linux/AOT and full research consumers. Other target adapters remain open.
+The user authorized breaking public legacy API removal on 2026-10-10; that
+consumer migration is the next architecture batch and is not yet complete.
+
 Latest WGSL termination migration: source 91017049…, Compiler E9538038….
 Owned graphs retain continuing relocation, demotion and typed returns; uniformity
 checks original non-returning control first. Structured relocation is retired.

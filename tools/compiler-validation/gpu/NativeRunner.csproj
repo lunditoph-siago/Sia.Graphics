@@ -16,7 +16,7 @@
     <Compile Include="$(IntermediateOutputPath)BuildInfo.g.cs" />
     <EmbeddedResource Include="../../../Sia.Spirv.Compiler.Tests/bin/Release/net11.0/Sia.Spirv.Compiler.Tests.dll" LogicalName="fixtures/shaders.dll" />
     <EmbeddedResource Include="../../../Sia.Spirv.Core/bin/Release/net10.0/Sia.Spirv.Core.dll" LogicalName="fixtures/intrinsics.dll" />
-    <EmbeddedResource Include="../fixtures/bin/Release/net10.0/CilResources.dll" LogicalName="fixtures/resources.dll" />
+    <EmbeddedResource Include="../../../Sia.Spirv.Compiler.Tests/bin/Release/net11.0/CilResources.dll" LogicalName="fixtures/resources.dll" />
     <EmbeddedResource Include="$(SpirvValidationArtifactsDirectory)/*.spv;$(SpirvValidationArtifactsDirectory)/*.wgsl" LogicalName="fixtures/%(Filename)%(Extension)" />
   </ItemGroup>
   <Target Name="ValidateRunnerInputs" BeforeTargets="CoreCompile">

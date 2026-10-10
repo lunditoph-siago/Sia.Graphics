@@ -1,5 +1,12 @@
 # Integrated compiler checks
 
+The resource fixture project is registered in `Sia.Graphics.slnx` so solution
+configuration applies to it. GPU and WASM consumers read `CilResources.dll` from
+the test output directory, using the same PE as the managed regression tests.
+CI on 6b2c2e5 passed 2312 tests and WASM publication but failed before resource
+execution: the unregistered referenced project built in Debug while the consumer
+looked in Release. That failure is retained in the workspace evidence.
+
 CIL resource SSA migration, 2026-10-11: source 45EB20A7…, Compiler CF823739….
 Real Texture2D, Texture2DArray and Sampler PE locals, assignments, helper returns
 and parallel loop swaps now enter owned resource SSA. Shared definite-assignment

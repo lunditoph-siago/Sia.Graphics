@@ -98,10 +98,10 @@ public class CanonicalAliasTests
     }
 
     [Fact]
-    public void UnsupportedCanonicalFamiliesHaveAnExplicitAnalysisDeferral()
+    public void QueryHandlesHaveCanonicalAliasAnalysisWithoutDeferral()
     {
         var module = WgslReader.Parse("enable wgpu_ray_query;fn handle(q:ptr<function,ray_query>){}@compute @workgroup_size(1) fn main(){var q:ray_query;handle(&q);}");
         var deferrals = new List<CanonicalDeferral>(); PointerAliasAnalysis.Validate(module, deferrals: deferrals);
-        var deferral = Assert.Single(deferrals); Assert.Equal("main", deferral.Function); Assert.Contains("Declare", deferral.Feature);
+        Assert.Empty(deferrals);
     }
 }

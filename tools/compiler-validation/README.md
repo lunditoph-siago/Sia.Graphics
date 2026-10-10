@@ -5,7 +5,28 @@ See the [current pipeline/target map](../../docs/compiler-architecture.md) and
 records the original PR baseline, not verification of later source changes;
 `renewal-evidence.json` records the cleanup follow-up.
 
-Latest invocation-termination migration: source
+Latest resource-handle admission: source
+`A01D1F090CEE7312BB35A157BB6FA85A6E2764EB550FBA75C13CC9D873B0FCB9`,
+Compiler `7FA706E849B928D31AD626CAFF5363D04E339E990727D4F5BB1D98C65B9F96F4`.
+Image/sampler/acceleration helper arguments and opaque query locals now enter
+canonical graphs. Query allocation retains identity and vertex-return type;
+the structured adapter resets state at the allocation inside each loop iteration.
+Query updates/getters have shared effects and remain conservatively nonuniform.
+Ten new contracts cover borrowed graph preservation with stale bodies, handles,
+allocation position, effects and uniform barrier rejection. Three existing
+analysis/trace contracts now expect canonical query admission.
+
+Passed: compiler maintenance 2159/2159; independent spirv-val checks 14/14
+(seven source outputs and seven native replays), export build without warnings
+or errors. Failure history retains reserved-keyword fixture errors, overly broad
+alias assertions, the two uniformity regressions and obsolete deferral
+expectations; none is silently skipped. Actual manifests, commands and results
+are under `.work/compiler-architecture-first/canonical-resource-handles-*`.
+Not run for this source: GPU, full fixture/replay/determinism matrix, WASM,
+real browser, SDK/Linux/AOT and remaining research consumers. Deferred helpers,
+query guard/state legalization and the complete roadmap remain open.
+
+Previous invocation-termination migration: source
 `CCFE45DE6B2F10EF22056ABFE85399FD27610B5496D578DAFE849ADC5DD646D0`,
 Compiler `A4B234CB580CF527F7A8FBF1E0D49300AA566DA800EBB179D2D702857E8FF8B4`.
 Owned CFG termination no longer forces a whole-module SPIR-V adapter. Distinct

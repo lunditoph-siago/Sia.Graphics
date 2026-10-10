@@ -188,10 +188,10 @@ public class CanonicalUniformityTests
     }
 
     [Fact]
-    public void UnsupportedCanonicalFamiliesRetainAnExplicitDeferral()
+    public void QueryHandlesHaveCanonicalUniformityAnalysisWithoutDeferral()
     {
         var module = WgslReader.Parse("enable wgpu_ray_query;fn handle(q:ptr<function,ray_query>){}@compute @workgroup_size(1) fn main(){var q:ray_query;handle(&q);}");
         var deferrals = new List<CanonicalDeferral>(); Assert.Empty(UniformityAnalysis.Validate(module, deferrals: deferrals));
-        Assert.Equal("main", Assert.Single(deferrals).Function);
+        Assert.Empty(deferrals);
     }
 }

@@ -69,7 +69,9 @@ internal static class StructuredControlFlowLowering
         foreach (var value in function.Blocks.SelectMany(b => b.Parameters.Concat(b.Instructions.Where(i => i.Result is not null).Select(i => i.Result!.Value)))) {
             if (value.Type is ShaderType.Pointer && definitions.TryGetValue(value.Id, out var instruction) && instruction.Operation is ValueOperation.Local) {
                 var type = ((ShaderType.Pointer)value.Type).Base; string name = Fresh();
-                output.Body.Statements.Add(new Statement.Declare(name, type, null) { Initialize = false }); expressions.Add(value.Id, Place(name, type));
+                if (type is not ShaderType.RayQuery)
+                    output.Body.Statements.Add(new Statement.Declare(name, type, null) { Initialize = false });
+                expressions.Add(value.Id, Place(name, type));
             }
             else if (CanonicalTypes.Data(value.Type)) {
                 bool parameter = !definitions.TryGetValue(value.Id, out var definition);
@@ -125,7 +127,13 @@ internal static class StructuredControlFlowLowering
             var body = new Block();
             for (int instructionIndex = 0; instructionIndex < block.Instructions.Count; instructionIndex++) {
                 var instruction = block.Instructions[instructionIndex];
-                if (instruction.Operation is ValueOperation.Local) continue;
+                if (instruction.Operation is ValueOperation.Local) {
+                    if (instruction.Result is { Type: ShaderType.Pointer { Base: ShaderType.RayQuery query } } handle)
+                        // Query state starts fresh at the original allocation,
+                        // including each loop iteration. Never hoist that reset.
+                        body.Statements.Add(new Statement.Declare(((Expression.Reference)Use(handle)).Name, query, null) { Span = instruction.Span });
+                    continue;
+                }
                 var emission = body;
                 if (instruction.DiagnosticFilters.Count != 0 && instruction.Operation is not (ValueOperation.Literal or ValueOperation.Symbol)) {
                     emission = new Block(); emission.DiagnosticFilters.AddRange(instruction.DiagnosticFilters);

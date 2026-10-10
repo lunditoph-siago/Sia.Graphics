@@ -196,7 +196,7 @@ public class CanonicalControlFlowTests
         Assert.DoesNotContain("local ", original);
     }
     [Fact]
-    public void PassTracesAndDeferredFamiliesAreExplicitPerCompilation()
+    public void PassTracesIncludeQueryAllocationPerCompilation()
     {
         var module = WgslReader.Parse(SwapLoop); var traces = new List<CanonicalPassTrace>(); var deferrals = new List<CanonicalDeferral>();
         _ = CanonicalShaderPipeline.Run(module, traces, deferrals);
@@ -205,9 +205,9 @@ public class CanonicalControlFlowTests
         Assert.Contains("value dominance", traces[1].InvalidatedAnalyses);
         var advanced = WgslReader.Parse("enable wgpu_ray_query;fn helper(p:ptr<function,ray_query>){var query:ray_query;} @compute @workgroup_size(1) fn main(){var query:ray_query;helper(&query);}");
         traces.Clear(); deferrals.Clear(); var prepared = CanonicalShaderPipeline.Run(advanced, traces, deferrals);
-        Assert.Same(advanced.Functions[1], prepared.Functions[1]); Assert.Empty(traces);
-        Assert.Contains(deferrals, d => d.Function == "main" && d.Feature == "Declare");
-        Assert.Contains(deferrals, d => d.Function == "helper" && d.Feature == "Declare");
+        Assert.NotSame(advanced.Functions[1], prepared.Functions[1]); Assert.Empty(deferrals);
+        Assert.Contains(traces, t => t.Function == "main" && t.Pass == "local-value-promotion");
+        Assert.Contains(traces, t => t.Function == "helper" && t.Pass == "local-value-promotion");
     }
     [Theory]
     [InlineData(0u, 14u)] [InlineData(2u, 6u)]

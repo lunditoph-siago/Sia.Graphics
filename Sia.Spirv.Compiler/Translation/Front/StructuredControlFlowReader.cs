@@ -23,7 +23,8 @@ internal sealed class StructuredControlFlowReader
         function = new(signature); current = function.Block(); function.Entry = current.Id;
         calleeEffects = ShaderEffectAnalysis.Compute(module);
         callees = module.Functions.Where(f => (f.ReturnType is ShaderType.Void or ShaderType.Pointer || CanonicalTypes.Data(f.ReturnType))
-            && f.Arguments.All(a => CanonicalTypes.Data(a.Type) || a.Type is ShaderType.Pointer))
+            && f.Arguments.All(a => CanonicalTypes.Data(a.Type)
+                || a.Type is ShaderType.Pointer or ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure))
             .Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
         symbols = module.Globals.ToDictionary(g => g.Name, g => g.Space == AddressSpace.Handle ? g.Type
             : (ShaderType)new ShaderType.Pointer(g.Type, g.Space, g.Access), StringComparer.Ordinal);
@@ -209,6 +210,12 @@ internal sealed class StructuredControlFlowReader
         foreach (var statement in input.Statements) {
             if (current.Terminator is not null) break;
             switch (statement) {
+                case Statement.Declare { Mutable: true, Type: ShaderType.RayQuery, Initializer: null } query:
+                    // Opaque query identity is an allocation, not a zero-valued
+                    // data object or a promotable load/store slot.
+                    var handle = Emit(new ShaderType.Pointer(query.Type, AddressSpace.Function),
+                        new ValueOperation.Local(query.Name, false), query.Span);
+                    scopes.Peek().Add(query.Name, handle); break;
                 case Statement.Declare declare when CanonicalTypes.Data(declare.Type) || (!declare.Mutable || nativeMemory) && declare.Type is ShaderType.Pointer:
                     if (declare.Mutable) {
                         var initializer = declare.Initializer ?? (declare.Initialize ? new Expression.Construct(declare.Type, []) { Span = declare.Span } : null);

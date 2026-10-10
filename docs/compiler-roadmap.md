@@ -6,7 +6,18 @@ passes and target legalization. This document does not claim that the existing
 translation IR has already been replaced. The [current architecture](compiler-architecture.md)
 is the implementation baseline.
 
-Latest invocation-termination migration (source CCFE45DE…, Compiler A4B234CB…)
+Resource-handle admission (source A01D1F09…, Compiler 7FA706E8…) now captures
+image/sampler/acceleration helper arguments and opaque query allocations in
+canonical graphs. Query updates/getters carry shared effects; query results
+remain conservatively nonuniform, and the structured adapter resets query state
+at its original allocation rather than hoisting it out of a loop. Ten new
+contracts, maintenance 2159/2159 and independent validation of seven source
+outputs plus seven native replays pass. Three older analysis/trace contracts now
+require canonical query admission instead of deferral. This is partial migration:
+deferred-helper import and query guard/state legalization remain open. GPU,
+full research and consumer checks have not run for this source.
+
+Previous invocation-termination migration (source CCFE45DE…, Compiler A4B234CB…)
 removes termination as a trigger for whole-module SPIR-V reconstruction. Owned
 CFGs retain termination, SSA and ordered effects while target joins/latches make
 continuing and nested exits legal. Explicit deferrals and remaining pointer/query

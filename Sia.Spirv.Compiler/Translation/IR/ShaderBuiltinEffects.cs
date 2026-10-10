@@ -15,13 +15,18 @@ internal static class ShaderBuiltinEffects
     private static readonly HashSet<string> Atomic = new("atomicLoad atomicStore atomicAdd atomicSub atomicMin atomicMax atomicAnd atomicOr atomicXor atomicExchange atomicCompareExchangeWeak spirvAtomicCompareExchange".Split(' '), StringComparer.Ordinal);
     private static readonly HashSet<string> Texture = new("textureDimensions textureNumLayers textureNumLevels textureNumSamples textureLoad textureStore textureSample textureSampleBias textureSampleLevel textureSampleGrad textureSampleCompare textureSampleCompareLevel textureSampleBaseClampToEdge textureGather textureGatherCompare textureAtomicAdd textureAtomicMin textureAtomicMax textureAtomicAnd textureAtomicOr textureAtomicXor".Split(' '), StringComparer.Ordinal);
     private static readonly HashSet<string> Derivatives = new("dpdx dpdxCoarse dpdxFine dpdy dpdyCoarse dpdyFine fwidth fwidthCoarse fwidthFine".Split(' '), StringComparer.Ordinal);
+    private static readonly HashSet<string> QueryUpdates = new("rayQueryInitialize rayQueryProceed rayQueryTerminate rayQueryConfirmIntersection rayQueryGenerateIntersection spirvRayQueryInitializeKHR spirvRayQueryProceedKHR spirvRayQueryTerminateKHR spirvRayQueryConfirmIntersectionKHR spirvRayQueryGenerateIntersectionKHR".Split(' '), StringComparer.Ordinal);
+    public static bool IsQuery(string name) => QueryUpdates.Contains(name) || RayQueryTypes.RawGetterType(name) is not null
+        || name is "rayQueryGetCandidateIntersection" or "rayQueryGetCommittedIntersection" or "getCandidateHitVertexPositions" or "getCommittedHitVertexPositions";
     public static bool IsKnown(string name) => IsPureNumeric(name) || Atomic.Contains(name) || Texture.Contains(name)
-        || Derivatives.Contains(name) || SubgroupBuiltins.Contains(name)
+        || Derivatives.Contains(name) || SubgroupBuiltins.Contains(name) || IsQuery(name)
         || name is "arrayLength" or "workgroupUniformLoad" or "storageBarrier" or "workgroupBarrier" or "textureBarrier" or "subgroupBarrier";
     public static ShaderEffects For(string name)
     {
         if (IsPureNumeric(name)) return ShaderEffects.None;
         if (name == "arrayLength") return ShaderEffects.ReadMemory;
+        if (IsQuery(name)) return ShaderEffects.Resource | ShaderEffects.ReadMemory
+            | (QueryUpdates.Contains(name) ? ShaderEffects.WriteMemory : ShaderEffects.None);
         if (Atomic.Contains(name)) return ShaderEffects.Atomic | (name == "atomicLoad" ? ShaderEffects.ReadMemory
             : name == "atomicStore" ? ShaderEffects.WriteMemory : ShaderEffects.ReadMemory | ShaderEffects.WriteMemory);
         if (name is "storageBarrier" or "workgroupBarrier" or "textureBarrier" or "subgroupBarrier" or "workgroupUniformLoad")

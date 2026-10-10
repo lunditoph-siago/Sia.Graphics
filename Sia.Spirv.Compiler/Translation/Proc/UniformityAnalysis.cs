@@ -129,6 +129,7 @@ internal static partial class UniformityAnalysis
         if (name is "subgroupShuffleUp" or "subgroupShuffleDown" or "subgroupShuffleXor" && arguments.Length > 1)
             require(arguments[1], rule, name + " index");
         bool nonuniform = rule is not null || (ShaderBuiltinEffects.For(name) & ShaderEffects.Atomic) != 0
+            || ShaderBuiltinEffects.IsQuery(name)
             || name == "textureLoad" && firstType is ShaderType.Image { Access: var access } && (access & StorageAccess.Write) != 0
             || !ShaderBuiltinEffects.IsKnown(name);
         return Join(arguments.Prepend(control).Concat(nonuniform ? [nonUniform] : []).ToArray());

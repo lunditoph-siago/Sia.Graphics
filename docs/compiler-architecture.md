@@ -42,7 +42,14 @@ Owned pointer-argument/return helpers expand directly with the existing CFG
 inliner, retaining caller SSA IDs, captured addresses and lexical diagnostics.
 Borrowed callees are copied; helper pruning accounts for graph and deferred calls.
 Native canonical pointer parameter spaces remain legal at internal target/constant
-entrances; public WGSL source restrictions are unchanged. Deferred pointer/query
+entrances; public WGSL source restrictions are unchanged. Image, sampler and
+acceleration-structure helper arguments now enter canonical graphs. Query locals
+retain opaque allocation identity and vertex-return type without ordinary data
+zeroing or stores. Their structured adapter declares and resets query state at
+the original allocation, including each loop iteration. Shared effect facts
+distinguish query updates from getters; query results remain conservatively
+nonuniform. Source legality and borrowed graph ownership remain enforced.
+Deferred pointer/query
 families still cross the temporary whole-module adapter. Invocation termination
 uses owned CFGs directly: terminating continuing instructions become loop-body
 code, nested continue exits reconverge through distinct typed joins, and a common

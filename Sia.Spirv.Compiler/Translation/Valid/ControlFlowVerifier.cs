@@ -103,7 +103,7 @@ internal static class ControlFlowVerifier
                 bool valid = instruction.Operation switch {
                     ValueOperation.Symbol symbol => symbols.TryGetValue(symbol.Name, out var type) && type == result,
                     ValueOperation.Local local => result is ShaderType.Pointer { Space: AddressSpace.Function } p
-                        && (CanonicalTypes.Data(p.Base) || !local.ZeroInitialize && p.Base is ShaderType.Pointer),
+                        && (CanonicalTypes.Data(p.Base) || !local.ZeroInitialize && p.Base is ShaderType.Pointer or ShaderType.RayQuery),
                     ValueOperation.Let let => result == let.Value.Type,
                     ValueOperation.Builtin builtin => ShaderBuiltinEffects.IsKnown(builtin.Function)
                         && (builtin.ReturnType is ShaderType.Void ? result is null : result == builtin.ReturnType),

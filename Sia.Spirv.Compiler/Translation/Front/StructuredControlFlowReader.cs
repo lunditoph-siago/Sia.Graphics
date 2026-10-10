@@ -294,12 +294,12 @@ internal sealed class StructuredControlFlowReader
                     breaks.Pop(); current = done; break;
                 case Statement.Break: current.Terminator = new ControlFlowTerminator.Branch(new(breaks.Peek())); break;
                 case Statement.Continue: current.Terminator = new ControlFlowTerminator.Branch(new(continues.Peek())); break;
-                case Statement.Return { Value: null }: current.Terminator = new ControlFlowTerminator.Return(); break;
+                case Statement.Return { Value: null } returned: current.Terminator = new ControlFlowTerminator.Return { Span = returned.Span }; break;
                 case Statement.Unreachable unreachable: current.Terminator = new ControlFlowTerminator.Unreachable(unreachable.Span); break;
                 case Statement.InvocationKill kill: current.Terminator = new ControlFlowTerminator.InvocationKill(kill.Span, kill.ExplicitTermination); break;
                 case Statement.Kill kill: Add(new(null, new ValueOperation.Demote(), kill.Span)); break;
                 case Statement.Return returned when returned.Value is { } value && (CanonicalTypes.Data(value.Type) || value.Type is ShaderType.Pointer):
-                    var returnValue = Expr(value); current.Terminator = new ControlFlowTerminator.Return(returnValue); break;
+                    var returnValue = Expr(value); current.Terminator = new ControlFlowTerminator.Return(returnValue) { Span = returned.Span }; break;
                 default: throw new Unsupported(statement.GetType().Name);
             }
         }

@@ -30,7 +30,7 @@ internal static class StructuredControlFlowLowering
         return output;
     }
 
-    public static ShaderFunction Run(ControlFlowFunction function, Module module, bool relocateTerminatingContinuing = false)
+    public static ShaderFunction Run(ControlFlowFunction function, Module module)
     {
         var signature = function.Signature;
         var output = new ShaderFunction(signature.Name) {
@@ -271,23 +271,7 @@ internal static class StructuredControlFlowLowering
                     var loopBody = Sequence(id, region.Continuing, nested, loopEntry: true);
                     var tail = region.Continuing is int target ? Sequence(target, id, nested, continuing: true) : new Block();
                     breakTargets.Pop(); ResetExit(region.Merge, body);
-                    if (relocateTerminatingContinuing && ContainsInvocationKill(tail)) {
-                        // SSA values shared by body and continuing already have function-scope
-                        // storage. Execute the old tail at the next header, except on first entry.
-                        // Body continue still targets this loop; body break never runs the tail.
-                        string name = Fresh(); var first = Place(name, ShaderType.Bool);
-                        body.Statements.Add(new Statement.Declare(name, ShaderType.Bool, Expression.Bool(true)));
-                        var initial = new Block(); initial.Statements.Add(new Statement.Store(first, Expression.Bool(false)));
-                        if (nested.BreakIf is not null) {
-                            var exit = new Block(); exit.Statements.Add(new Statement.Break());
-                            tail.Statements.Add(new Statement.If(nested.BreakIf, exit, new()));
-                        }
-                        var relocated = new Block(); relocated.DiagnosticFilters.AddRange(loopBody.DiagnosticFilters);
-                        relocated.Statements.Add(new Statement.If(new Expression.Load(first), initial, tail));
-                        relocated.Statements.AddRange(loopBody.Statements);
-                        body.Statements.Add(new Statement.Loop(relocated, new()));
-                    }
-                    else body.Statements.Add(new Statement.Loop(loopBody, tail, nested.BreakIf));
+                    body.Statements.Add(new Statement.Loop(loopBody, tail, nested.BreakIf));
                     PropagateExit(body);
                     nextBlock = region.Merge; continue;
                 }
@@ -351,7 +335,7 @@ internal static class StructuredControlFlowLowering
                         nextBlock = done; break;
                     case ControlFlowTerminator.Return returned:
                         if (continuing) throw Invalid("return from continuing region");
-                        body.Statements.Add(new Statement.Return(returned.Value is { } value ? CallArgument(value) : null)); nextBlock = null; break;
+                        body.Statements.Add(new Statement.Return(returned.Value is { } value ? CallArgument(value) : null) { Span = returned.Span }); nextBlock = null; break;
                     case ControlFlowTerminator.Unreachable unreachable:
                         body.Statements.Add(new Statement.Unreachable { Span = unreachable.Span }); nextBlock = null; break;
                     case ControlFlowTerminator.InvocationKill kill:
@@ -376,10 +360,4 @@ internal static class StructuredControlFlowLowering
         public Expression? BreakIf { get; set; }
     }
 
-    private static bool ContainsInvocationKill(Block body) => body.Statements.Any(s => s switch {
-        Statement.InvocationKill => true, Statement.Nested n => ContainsInvocationKill(n.Body),
-        Statement.If i => ContainsInvocationKill(i.Accept) || ContainsInvocationKill(i.Reject),
-        Statement.Switch sw => sw.Cases.Any(c => ContainsInvocationKill(c.Body)),
-        Statement.Loop l => ContainsInvocationKill(l.Body) || ContainsInvocationKill(l.Continuing), _ => false
-    });
 }

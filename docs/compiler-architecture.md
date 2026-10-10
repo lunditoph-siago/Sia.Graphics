@@ -17,6 +17,15 @@ functions retain the legacy serializer, and operation/type feature policy and
 structured frontend adapters still need migration. This does not establish full
 frontend convergence.
 
+WGSL invocation termination now lowers on owned CFGs before structured
+reconstruction. Shared CFG relocation handles terminating continuing constructs;
+WGSL introduces demotion and typed returns while SPIR-V retains native termination.
+Uniformity checks original non-returning paths before those target returns exist.
+The old structured relocation path is retired. Return origins survive structured
+and native import, SSA mapping, helper graph copying and target reconstruction,
+including void returns replacing unreachable. Only explicit deferrals use the
+remaining structured termination adapter.
+
 WGSL target composition now retains canonical graphs for single-invocation
 entry builtin facts, proven private-zero slots, pointer-helper expansion,
 collective read recovery and uniformity. Graph-derived effects flow through
@@ -24,7 +33,7 @@ helper/recovery proofs; owned declaration Bodies are not re-read. Qualified or
 escaping private slots remain unfurled. Explicit deferrals acquire graph ownership
 only when recovery rewrites them. Empty inlined helpers retain their diagnostic
 scope. Structured reconstruction is an explicit boundary before remaining WGSL
-termination, query-state, memory, layout and builtin-name passes; those semantic
+query-state, memory, layout and builtin-name passes; those semantic
 adapters still need migration.
 
 SPIR-V target preparation no longer reconstructs the entire module for deferred

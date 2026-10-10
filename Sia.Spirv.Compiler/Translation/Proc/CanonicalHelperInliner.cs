@@ -207,7 +207,7 @@ internal static class CanonicalHelperInliner
                 ControlFlowTerminator.Conditional c => new ControlFlowTerminator.Conditional(Value(c.Condition), Edge(c.Accept), Edge(c.Reject)),
                 ControlFlowTerminator.Switch s => new ControlFlowTerminator.Switch(Value(s.Selector), s.Cases.Select(c => new ControlFlowCase(c.Values, Edge(c.Edge))).ToArray(), Edge(s.Default)),
                 ControlFlowTerminator.Return r when continuation is not null => new ControlFlowTerminator.Branch(new(continuation.Id, r.Value is { } v ? [Value(v)] : [])),
-                ControlFlowTerminator.Return r => new ControlFlowTerminator.Return(r.Value is { } v ? Value(v) : null),
+                ControlFlowTerminator.Return r => r with { Value = r.Value is { } v ? Value(v) : null },
                 ControlFlowTerminator.Unreachable u => u,
                 ControlFlowTerminator.InvocationKill k => k,
                 ControlFlowTerminator.TaskDispatch d => d with { Dimensions = Value(d.Dimensions) },

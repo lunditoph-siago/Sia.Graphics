@@ -5,6 +5,27 @@ See the [current pipeline/target map](../../docs/compiler-architecture.md) and
 records the original PR baseline, not verification of later source changes;
 `renewal-evidence.json` records the cleanup follow-up.
 
+Latest WGSL termination migration: source 91017049…, Compiler E9538038….
+Owned graphs retain continuing relocation, demotion and typed returns; uniformity
+checks original non-returning control first. Structured relocation is retired.
+Return origins survive source/native import, SSA mapping and target reconstruction.
+Borrowed graphs are unchanged; only explicit deferrals retain the Body adapter.
+
+Passed: maintenance 2212/2212, independent formats 233/233, GPU 39/39. Fifteen
+WGSL attempts execute five exports with poisoned owned Bodies; 24 input/output
+SPIR-V controls cover kill, nested/repeated continuing, break paths and defined
+unreachable execution. Raw storage words and R32Uint pixels match fixed oracles.
+Three terminate WGSL attempts pass; native terminate-extension controls were not
+rerun and their previous consumer rejection remains open. Four DLL copies match.
+Failures retained: two compiler/test build errors and a temporary exporter assuming
+an authored-source sidecar for native input. No assertions removed. Earlier source
+snapshots (101 focused, full 2211 twice, GPU 39) remain distinct from final evidence.
+Actual manifests, TRX/scripts/reports are under
+`.work/compiler-architecture-first/canonical-wgsl-termination-*`.
+Not run: frozen replay, repeat-export determinism, WASM, real browser, SDK/Linux/AOT,
+full research/parity consumers. Query/memory/layout, constructors and frontend/LLVM
+convergence remain open.
+
 Latest WGSL target graph migration: source 778F73B8…,
 Compiler 5578AA90…. Entry builtin/private-slot facts, pointer helpers, collective
 recovery and uniformity retain owned CFGs until the explicit structured target

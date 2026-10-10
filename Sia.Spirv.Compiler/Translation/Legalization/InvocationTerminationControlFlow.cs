@@ -7,10 +7,16 @@ using Sia.Spirv.Compiler.Translation.Valid;
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
 /// <summary>Prepare terminating continue constructs while retaining invocation termination.
-/// SPIR-V uses owned CFG edges; the remaining structured adapter serves WGSL and deferrals.</summary>
+/// Both targets use owned CFG edges; only explicitly deferred bodies cross the reader boundary.</summary>
 internal static class InvocationTerminationControlFlow
 {
     internal static CanonicalModule PrepareSpirv(CanonicalModule input, DiagnosticStage stage)
+        => Prepare(input, stage, unreachable: false);
+
+    internal static CanonicalModule PrepareWgsl(CanonicalModule input)
+        => Prepare(input, DiagnosticStage.WgslWrite, unreachable: true);
+
+    private static CanonicalModule Prepare(CanonicalModule input, DiagnosticStage stage, bool unreachable)
     {
         ModuleValidator.Validate(input, native: true);
         var graphs = input.Functions.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
@@ -18,7 +24,7 @@ internal static class InvocationTerminationControlFlow
         var effects = ShaderEffectAnalysis.Compute(input);
         foreach (var function in input.Declarations.Functions) {
             // Only an explicit deferred body may cross this reader boundary.
-            if (graphs.ContainsKey(function.Name) || !NeedsRelocation(function.Body)) continue;
+            if (graphs.ContainsKey(function.Name) || !(unreachable ? NeedsWgslRelocation(function.Body) : NeedsRelocation(function.Body))) continue;
             if (!StructuredControlFlowReader.TryRead(function, input.Declarations, out var graph, out var reason, effects, native: true))
                 throw new ShaderException(stage, "Invocation termination relocation requires canonical control flow: " + reason);
             ControlFlowAnalysis.RemoveUnreachable(graph!); graphs.Add(function.Name, graph!); deferred.Remove(function.Name);
@@ -33,7 +39,7 @@ internal static class InvocationTerminationControlFlow
                 while (pending.TryPop(out int id)) {
                     if (id == header || id == merge || !visited.Add(id)) continue;
                     var block = blocks[id];
-                    if (block.Terminator is ControlFlowTerminator.InvocationKill) return true;
+                    if (block.Terminator is ControlFlowTerminator.InvocationKill || unreachable && block.Terminator is ControlFlowTerminator.Unreachable) return true;
                     foreach (var edge in block.Terminator!.Edges) pending.Push(edge.Target);
                 }
                 return false;
@@ -116,23 +122,6 @@ internal static class InvocationTerminationControlFlow
         };
     }
 
-    public static Module Run(Module input, DiagnosticStage stage)
-    {
-        if (!input.Functions.Any(f => NeedsRelocation(f.Body))) return input;
-        var output = new Module { VulkanMemoryModel = input.VulkanMemoryModel, WorkgroupInitializationRequired = input.WorkgroupInitializationRequired };
-        output.Structures.AddRange(input.Structures); output.Constants.AddRange(input.Constants); output.Globals.AddRange(input.Globals);
-        output.Enables.UnionWith(input.Enables); output.DiagnosticFilters.AddRange(input.DiagnosticFilters);
-        foreach (var function in input.Functions) {
-            if (!NeedsRelocation(function.Body)) { output.Functions.Add(function); continue; }
-            if (!StructuredControlFlowReader.TryRead(function, input, out var graph, out var reason))
-                throw new ShaderException(stage, "Invocation termination relocation requires canonical control flow: " + reason);
-            ControlFlowAnalysis.RemoveUnreachable(graph!); ControlFlowVerifier.Validate(graph!, input);
-            output.Functions.Add(StructuredControlFlowLowering.Run(graph!, input, relocateTerminatingContinuing: true));
-        }
-        ModuleValidator.Validate(output);
-        return output;
-    }
-
     private static bool ContainsKill(Block body) => body.Statements.Any(s => s switch {
         Statement.InvocationKill => true, Statement.Nested n => ContainsKill(n.Body),
         Statement.If i => ContainsKill(i.Accept) || ContainsKill(i.Reject),
@@ -145,4 +134,20 @@ internal static class InvocationTerminationControlFlow
         Statement.If i => NeedsRelocation(i.Accept) || NeedsRelocation(i.Reject),
         Statement.Switch sw => sw.Cases.Any(c => NeedsRelocation(c.Body)), _ => false
     });
+
+    private static bool NeedsWgslRelocation(Block body)
+    {
+        bool Terminates(Block block) => block.Statements.Any(s => s switch {
+            Statement.InvocationKill or Statement.Unreachable => true, Statement.Nested n => Terminates(n.Body),
+            Statement.If i => Terminates(i.Accept) || Terminates(i.Reject),
+            Statement.Loop l => Terminates(l.Body) || Terminates(l.Continuing),
+            Statement.Switch choice => choice.Cases.Any(c => Terminates(c.Body)), _ => false
+        });
+        return body.Statements.Any(s => s switch {
+            Statement.Loop l => Terminates(l.Continuing) || NeedsWgslRelocation(l.Body) || NeedsWgslRelocation(l.Continuing),
+            Statement.Nested n => NeedsWgslRelocation(n.Body),
+            Statement.If i => NeedsWgslRelocation(i.Accept) || NeedsWgslRelocation(i.Reject),
+            Statement.Switch choice => choice.Cases.Any(c => NeedsWgslRelocation(c.Body)), _ => false
+        });
+    }
 }

@@ -6,6 +6,18 @@ passes and target legalization. This document does not claim that the existing
 translation IR has already been replaced. The [current architecture](compiler-architecture.md)
 is the implementation baseline.
 
+WGSL termination migration (source 91017049…, Compiler E9538038…) retains
+owned CFG/SSA for continuing relocation and demotion/typed returns, retiring the
+old structured relocation path. Uniformity verifies original non-returning control
+first; return origins survive import/mapping/reconstruction. Twenty-nine new cases
+cover nested/repeated continuing, zero/multiple backedges, defined unreachable
+paths, typed returns, deferrals, rejection/rollback and origins. Maintenance
+2212/2212, independent formats 233/233 and GPU 39/39 pass. Fifteen WGSL attempts
+use poisoned-Body exports; 24 native controls use input/output SPIR-V. Storage words
+and R32Uint pixels match fixed oracles. Three terminate WGSL cases pass; native
+terminate-extension consumer rejection remains open and was not rerun. Remaining
+target/query/layout, frontend/LLVM and full research/consumer gates stay open.
+
 WGSL target graph migration (source 778F73B8…, Compiler 5578AA90…) retains
 owned CFG/SSA through entry facts, pointer helpers, collective recovery and
 uniformity. Fourteen new cases cover stale Bodies, scalar/vector/struct builtins,

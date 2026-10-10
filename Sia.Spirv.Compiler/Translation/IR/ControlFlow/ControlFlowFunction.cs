@@ -149,7 +149,10 @@ internal abstract record ControlFlowTerminator
     public sealed record Branch(ControlFlowEdge Edge) : ControlFlowTerminator;
     public sealed record Conditional(SsaValue Condition, ControlFlowEdge Accept, ControlFlowEdge Reject) : ControlFlowTerminator;
     public sealed record Switch(SsaValue Selector, IReadOnlyList<ControlFlowCase> Cases, ControlFlowEdge Default) : ControlFlowTerminator;
-    public sealed record Return(SsaValue? Value = null) : ControlFlowTerminator;
+    public sealed record Return(SsaValue? Value = null) : ControlFlowTerminator
+    {
+        public SourceSpan Span { get; init; }
+    }
     public sealed record TaskDispatch(SsaValue Dimensions, string Payload, SourceSpan Span = default) : ControlFlowTerminator;
     public sealed record Unreachable(SourceSpan Span = default) : ControlFlowTerminator;
     public sealed record InvocationKill(SourceSpan Span = default, bool ExplicitTermination = false) : ControlFlowTerminator;
@@ -164,6 +167,6 @@ internal abstract record ControlFlowTerminator
     };
     public ControlFlowTerminator Map(Func<SsaValue, SsaValue> value) => this switch {
         Conditional c => c with { Condition = value(c.Condition) }, Switch s => s with { Selector = value(s.Selector) },
-        Return { Value: { } v } => new Return(value(v)), TaskDispatch d => d with { Dimensions = value(d.Dimensions) }, _ => this
+        Return { Value: { } v } r => r with { Value = value(v) }, TaskDispatch d => d with { Dimensions = value(d.Dimensions) }, _ => this
     };
 }

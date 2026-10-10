@@ -94,7 +94,7 @@ public static partial class SpirvReader
                             }
                             terminator = new ControlFlowTerminator.Switch(selector, cases, Edge(a[1])); break;
                         case Op.Return:
-                            Count(0, 0); terminator = new ControlFlowTerminator.Return(); break;
+                            Count(0, 0); terminator = new ControlFlowTerminator.Return { Span = new(current.WordOffset * 4, current.WordCount * 4) }; break;
                         case Op.ReturnValue:
                             if (raw.Function.ReturnType is ShaderType.Pointer && a.Length != 1)
                                 throw Error("Invalid native pointer return operands.");
@@ -104,7 +104,7 @@ public static partial class SpirvReader
                                     ? "Native return references an undefined pointer or mismatched pointer type."
                                     : "Native return references an undefined value or mismatched return type.");
                             terminator = new ControlFlowTerminator.Return(returned.Type is ShaderType.Pointer
-                                ? reader.NativeAddress(returned) : reader.NativeValue(returned)); break;
+                                ? reader.NativeAddress(returned) : reader.NativeValue(returned)) { Span = new(current.WordOffset * 4, current.WordCount * 4) }; break;
                         case Op.Unreachable:
                             Count(0, 0); terminator = new ControlFlowTerminator.Unreachable(new(current.WordOffset * 4, current.WordCount * 4)); break;
                         case Op.Kill: case Op.TerminateInvocation:

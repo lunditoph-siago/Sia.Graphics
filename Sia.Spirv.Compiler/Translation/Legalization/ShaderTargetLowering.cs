@@ -19,12 +19,12 @@ internal static class ShaderTargetLowering
         canonical = CanonicalHelperInliner.RunPointers(canonical);
         canonical = CollectiveReadRecovery.Run(canonical);
         UniformityAnalysis.Validate(canonical.Declarations, canonical.Functions, DiagnosticStage.WgslWrite);
+        // Check original non-returning control before WGSL introduces a return.
+        canonical = WgslTerminationLowering.Run(canonical);
         // Remaining WGSL memory/query/layout passes consume structured target data.
         // All owned graph semantics stay authoritative until this explicit boundary.
         var module = StructuredControlFlowLowering.Run(canonical);
         UniformityAnalysis.Validate(module, DiagnosticStage.WgslWrite);
-        module = InvocationTerminationControlFlow.Run(module, DiagnosticStage.WgslWrite);
-        module = WgslTerminationLowering.Run(module);
         ModuleValidator.Validate(module);
         UniformityAnalysis.Validate(module, DiagnosticStage.WgslWrite);
         PointerAliasAnalysis.Validate(module, DiagnosticStage.WgslWrite);

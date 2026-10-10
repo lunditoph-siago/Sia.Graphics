@@ -116,7 +116,7 @@ public class CanonicalInvocationTerminationTests
     internal static SpirvBinary BranchingFixture(bool multiple, bool terminate)
         => SpirvWriter.Emit(SpirvEntryPointLowering.Run(ShaderTargetLowering.PrepareSpirv(BranchingGraph(multiple, terminate), null), true, true));
 
-    private static CanonicalModule NestedGraph(bool terminate)
+    internal static CanonicalModule NestedGraph(bool terminate)
     {
         var canonical = BranchingGraph(true, terminate); var graph = canonical.Functions["main"];
         int continuing = graph.Loops.Single().Value.Continuing!.Value;

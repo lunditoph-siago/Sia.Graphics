@@ -5,7 +5,28 @@ See the [current pipeline/target map](../../docs/compiler-architecture.md) and
 records the original PR baseline, not verification of later source changes;
 `renewal-evidence.json` records the cleanup follow-up.
 
-Latest canonical target entry migration (D27A86F6…) retains owned graphs through
+Latest integer graph migration (compiler/test source 61AFB62C…, GPU source
+ACF40E1A…) constructs integer safety/remainder helpers directly as pure typed SSA.
+Caller result identities, evaluated operands, edges/loops, spans and filters are
+retained. Ordinary SPIR-V target preparation now keeps shared graphs through
+integer/entry/layout lowering. Pipeline values, pointer/query helper declarations
+and invocation termination retain an explicit temporary whole-module adapter;
+WGSL target preparation also retains its structured path.
+Twenty-one contracts and maintenance 2068/2068 pass; format 217/217 plus two pointer
+formats, frozen input/output format 82/82, 160 reverse routes and 657 deterministic
+files pass. Of 218 SPIR-V files, 105 match the previous batch and 113 change;
+all 41 frozen inputs are retained, while only 12 replay outputs match bytewise.
+GPU attempts are 122 PASS/30 ERROR: the six prior error categories and 24 newly
+tested 16/64-bit consumer cases fail before execution. The 39 signed/unsigned,
+ordered and vector cases and twelve 32-bit width/broadcast controls pass their
+fixed raw-word oracles. Narrow integer WGSL enables/SPIR-V widths and 64-bit
+casts/capability requirements remain compatibility work. Source manifests differ
+only in the GPU fixture registrations; tested compiler/test files and all five
+Compiler DLL copies match. Evidence is under canonical-integer-* in the workspace
+task area. Constants/pointers/termination, WGSL target, initialization/mesh
+constructors, deferrals, frontend/LLVM and full research/consumer gates remain open.
+
+Previous canonical target entry migration (D27A86F6…) retains owned graphs through
 the internal entry/physical-layout entrance, copying borrowed graphs before target
 changes. Pure workgroup and output conversion helpers are constructed directly as
 typed SSA; initialization retains its first captured graph. Explicit target

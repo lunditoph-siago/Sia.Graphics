@@ -25,6 +25,12 @@ internal static partial class CompilerGpuTests
         yield return new("IntegerVectorRuntime", "negative-divisor", [7, 0xfffffffd], [0, 0xfffffffe]);
         yield return new("IntegerVectorRuntime", "zero", [17, 0], [0xffffffef, 0xffffffff]);
         yield return new("IntegerVectorRuntime", "overflow", [0x80000000, 0xffffffff], [0x7ffffffe, 0xffffffff]);
+        foreach (var (scalar, size, scalarLeft) in new[] {
+            ("i16", 1, false), ("u16", 1, false), ("i32", 1, false), ("u32", 1, false),
+            ("i64", 1, false), ("u64", 1, false), ("i16", 2, false), ("u16", 3, false),
+            ("i64", 4, false), ("u64", 2, false), ("i32", 2, true), ("u32", 4, true) })
+            yield return new("IntegerWidth-" + scalar + "-v" + size + (scalarLeft ? "-scalar-left" : "-scalar-right"),
+                "normal", [27, 4], [6, 3]);
         yield return new("NativeScalarPhiLoop", "zero", [0], [12, 0]);
         yield return new("NativeScalarPhiLoop", "one", [1], [21, 0]);
         yield return new("NativeScalarPhiLoop", "two", [2], [12, 0]);

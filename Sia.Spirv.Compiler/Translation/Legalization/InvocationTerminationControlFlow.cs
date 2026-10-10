@@ -32,7 +32,7 @@ internal static class InvocationTerminationControlFlow
         Statement.Loop l => ContainsKill(l.Body) || ContainsKill(l.Continuing),
         Statement.Switch sw => sw.Cases.Any(c => ContainsKill(c.Body)), _ => false
     });
-    private static bool NeedsRelocation(Block body) => body.Statements.Any(s => s switch {
+    internal static bool NeedsRelocation(Block body) => body.Statements.Any(s => s switch {
         Statement.Loop l => ContainsKill(l.Continuing) || NeedsRelocation(l.Body) || NeedsRelocation(l.Continuing),
         Statement.Nested n => NeedsRelocation(n.Body),
         Statement.If i => NeedsRelocation(i.Accept) || NeedsRelocation(i.Reject),

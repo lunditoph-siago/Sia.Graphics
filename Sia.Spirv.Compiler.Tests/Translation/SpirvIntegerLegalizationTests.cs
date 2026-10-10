@@ -107,7 +107,11 @@ public class SpirvIntegerLegalizationTests
         var helper = Assert.Single(signed.Functions, f => f.Name.StartsWith("sia_spv_integer_", StringComparison.Ordinal));
         Assert.DoesNotContain(helper.Body.Statements, s => s is Statement.Declare { Name: "safe_divisor" });
         Assert.DoesNotContain(SpirvWriter.Emit(SpirvPhysicalLayoutLowering.Prepare(signed)).Instructions, i => (Op)i.Opcode == Op.SRem);
-        Assert.Equal(SpirvWriter.Emit(SpirvPhysicalLayoutLowering.Prepare(unsigned)).ToBytes(), SpirvWriter.Write(WgslReader.Parse(Unsigned), new(EmitIntegerDivisionChecks: false)));
+        var prepared = ShaderTargetLowering.ForSpirv(WgslReader.Parse(Unsigned), null, false, true, true);
+        var bytes = SpirvWriter.Write(WgslReader.Parse(Unsigned), new(EmitIntegerDivisionChecks: false));
+        Assert.Equal(SpirvWriter.Emit(prepared).ToBytes(), bytes);
+        foreach (var candidate in new[] { unsigned, SpirvReader.Parse(bytes) })
+            Assert.Equal(new uint[] { 7, 3 }, new CanonicalExecution(candidate, [31, 4]).Run().Output);
     }
 
     [Fact]

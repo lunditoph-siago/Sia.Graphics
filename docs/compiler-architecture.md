@@ -29,9 +29,14 @@ preserves edge identity and dominance; replacing edges requires predecessor
 invalidation, while topology changes invalidate both.
 
 `CanonicalShaderPipeline.Run` is the explicit compatibility adapter over
-`Prepare`. `ShaderTargetLowering` still reconstructs structured bodies before its
-constant/pointer/termination/integer semantic passes. The internal entry and
-physical-layout entrance now accepts `CanonicalModule`, retaining executable
+`Prepare`. Ordinary SPIR-V target preparation retains these graphs through
+integer, entry and physical-layout lowering. Integer safety and signed remainder
+helpers are constructed directly as typed SSA, preserving caller result identities,
+captured operands, topology and diagnostic origins. Pipeline values, pointer/query
+helper declarations (including pointer returns) and invocation termination still
+cross an explicit temporary whole-module structured adapter. WGSL target preparation
+also retains its structured semantic path. The internal entry and physical-layout
+entrance accepts `CanonicalModule`, retaining executable
 graphs and copying borrowed graphs before target mutation. A legacy `Module`
 entrance explicitly captures eligible graphs. Target-deferred owned functions
 adapt their executable graph per function, rather than reading obsolete declaration

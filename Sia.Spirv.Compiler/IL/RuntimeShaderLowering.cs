@@ -41,8 +41,8 @@ internal sealed partial class RuntimeShaderLowering(PEReader pe, MetadataReader 
         var canonical = CanonicalShaderPipeline.Prepare(frontend.Declarations, frontendGraphs: frontend.Functions,
             verifyFrontend: (graph, input) => ControlFlowVerifier.Validate(graph, input));
         canonical = CanonicalHelperInliner.RunReferences(canonical);
-        canonical = CanonicalResourceLowering.Run(canonical);
-        return StructuredControlFlowLowering.Run(CanonicalControlFlowRegions.Run(canonical));
+        canonical = CanonicalReferenceLowering.Run(canonical);
+        return ShaderTargetLowering.ForStructured(CanonicalControlFlowRegions.Run(canonical));
     }
 
     internal static CanonicalModule ReadCanonical(ReadOnlyMemory<byte> assemblyImage, ReadOnlyMemory<byte> intrinsicImage,

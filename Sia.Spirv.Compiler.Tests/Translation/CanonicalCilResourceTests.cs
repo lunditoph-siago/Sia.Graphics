@@ -54,7 +54,7 @@ public class CanonicalCilResourceTests
         ModuleValidator.Validate(source, native: true);
         var shared = CanonicalShaderPipeline.Prepare(source.Declarations, frontendGraphs: source.Functions,
             verifyFrontend: (graph, module) => ControlFlowVerifier.Validate(graph, module));
-        var target = CanonicalResourceLowering.Run(CanonicalHelperInliner.RunReferences(shared));
+        var target = CanonicalReferenceLowering.Run(CanonicalHelperInliner.RunReferences(shared));
         Assert.Empty(target.DeferredFunctions);
         Assert.DoesNotContain(target.Functions.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Parameters), p => CanonicalTypes.Resource(p.Type));
         var structured = StructuredControlFlowLowering.Run(CanonicalControlFlowRegions.Run(target));

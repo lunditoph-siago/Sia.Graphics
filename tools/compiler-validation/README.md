@@ -1,5 +1,17 @@
 # Integrated compiler checks
 
+Reference target graph regression coverage lives in
+`CanonicalReferenceTargetTests`, `CanonicalPointerMergeTests` and
+`CanonicalSlotTests`. It checks owned graph input, simultaneous edge snapshots,
+branch-local initialization, synchronization and qualified accesses. Existing
+`canonical/CanonicalPointerMergeSwapLoop`, `canonical/CanonicalPointerReturnRepeated`,
+`canonical/CanonicalPointerReturnLocal`, `canonical/CanonicalSlotBranch`,
+`canonical/NativePointerPhiQualifiedLoop` and `canonical/NativeSlotStandalone`
+GPU cases provide fixed expected words for both canonical WGSL and SPIR-V outputs.
+Their captured shader hashes must match the exported fixture set. Current
+validation status is recorded in the [roadmap](../../docs/compiler-roadmap.md);
+the [architecture](../../docs/compiler-architecture.md) describes the new boundary.
+
 The resource fixture project is registered in `Sia.Graphics.slnx` so solution
 configuration applies to it. GPU and WASM consumers read `CilResources.dll` from
 the test output directory, using the same PE as the managed regression tests.

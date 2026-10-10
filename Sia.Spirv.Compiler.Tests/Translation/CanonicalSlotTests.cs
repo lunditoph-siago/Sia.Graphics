@@ -34,9 +34,9 @@ public class CanonicalSlotTests
         LocalValuePromotion.Run(graph); ControlFlowVerifier.Validate(graph, module);
         Assert.DoesNotContain(graph.Blocks.SelectMany(b => b.Instructions), i => i.Operation is ValueOperation.Local
             && i.Result?.Type is ShaderType.Pointer { Base: ShaderType.Pointer });
-        var signature = StructuredControlFlowLowering.Run(graph, module);
+        var signature = ShaderTargetLowering.ForStructured(graph, module);
         module.Functions[module.Functions.FindIndex(f => f.Name == signature.Name)] = signature;
-        module = new PointerSelectionLowering(module).Run(); ModuleValidator.Validate(module);
+        ModuleValidator.Validate(module);
         return module;
     }
     private static void Check(Module module, uint input, uint[] expected)
@@ -146,7 +146,7 @@ public class CanonicalSlotTests
         entry.Terminator = new ControlFlowTerminator.Return(); ControlFlowVerifier.Validate(graph, module);
         LocalValuePromotion.Run(graph); ControlFlowVerifier.Validate(graph, module);
         Assert.DoesNotContain(graph.Blocks.SelectMany(b => b.Instructions), i => i.Operation is ValueOperation.Local or ValueOperation.Construct);
-        module.Functions[0] = StructuredControlFlowLowering.Run(graph, module);
+        module.Functions[0] = ShaderTargetLowering.ForStructured(graph, module);
         Assert.Equal(new uint[] { 7, 0 }, new CanonicalExecution(module, [0]).Run().Output);
     }
 

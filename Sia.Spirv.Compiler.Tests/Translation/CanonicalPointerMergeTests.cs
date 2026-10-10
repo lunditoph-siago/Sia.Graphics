@@ -23,9 +23,10 @@ public class CanonicalPointerMergeTests
     private static Module Lower(Module module, ControlFlowFunction graph)
     {
         ControlFlowVerifier.Validate(graph, module); string before = ControlFlowPrinter.Write(graph);
-        var lowered = StructuredControlFlowLowering.Run(graph, module);
-        module.Functions[module.Functions.FindIndex(f => f.Name == graph.Signature.Name)] = lowered;
-        var output = new PointerSelectionLowering(HelperInliner.RunPointers(module)).Run(); ModuleValidator.Validate(output);
+        var canonical = CanonicalShaderPipeline.Prepare(module,
+            frontendGraphs: new Dictionary<string, ControlFlowFunction> { [graph.Signature.Name] = graph },
+            verifyFrontend: (g, m) => ControlFlowVerifier.Validate(g, m));
+        var output = ShaderTargetLowering.ForStructured(canonical); ModuleValidator.Validate(output);
         Assert.Equal(before, ControlFlowPrinter.Write(graph)); return output;
     }
     internal static Module Selection(bool function)

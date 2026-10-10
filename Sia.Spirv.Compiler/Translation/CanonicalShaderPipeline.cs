@@ -22,7 +22,7 @@ internal static class CanonicalShaderPipeline
     public static Module Run(Module input, ICollection<CanonicalPassTrace>? traces = null, ICollection<CanonicalDeferral>? deferrals = null,
         Action<ControlFlowFunction, Module>? verifyFrontend = null,
         IReadOnlyDictionary<string, ControlFlowFunction>? frontendGraphs = null)
-        => StructuredControlFlowLowering.Run(Prepare(input, traces, deferrals, verifyFrontend, frontendGraphs),
+        => ShaderTargetLowering.ForStructured(Prepare(input, traces, deferrals, verifyFrontend, frontendGraphs),
             nativeValidation: verifyFrontend is not null);
 
     public static CanonicalModule Prepare(Module input, ICollection<CanonicalPassTrace>? traces = null,

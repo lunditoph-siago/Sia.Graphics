@@ -52,7 +52,7 @@ internal static class SpirvPhysicalLayoutLowering
             else {
                 // Only a target-deferred executable graph crosses this adapter.
                 // The borrowed declaration Body may be empty or obsolete.
-                adapters.Add(pair.Key, StructuredControlFlowLowering.Run(graph, module)); deferred.Add(pair.Key, reason!);
+                adapters.Add(pair.Key, ShaderTargetLowering.ForStructured(graph, module)); deferred.Add(pair.Key, reason!);
             }
         }
         if (adapters.Count != 0) {
@@ -60,9 +60,7 @@ internal static class SpirvPhysicalLayoutLowering
             adapted.Structures.AddRange(module.Structures); adapted.Globals.AddRange(module.Globals); adapted.Constants.AddRange(module.Constants);
             adapted.Enables.UnionWith(module.Enables); adapted.DiagnosticFilters.AddRange(module.DiagnosticFilters);
             adapted.Functions.AddRange(module.Functions.Select(f => adapters.GetValueOrDefault(f.Name, f)));
-            // Reconstructed pointer merges must dispatch their selected memory
-            // arm. Never inspect the obsolete Bodies of graph-owned functions.
-            module = new PointerSelectionLowering(adapted).Run(adapters.Keys.ToHashSet(StringComparer.Ordinal));
+            module = adapted;
         }
         var uniform = new Dictionary<ShaderType, ShaderType>();
         var workgroup = new Dictionary<ShaderType, ShaderType>();

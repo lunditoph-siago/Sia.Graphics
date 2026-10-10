@@ -77,7 +77,7 @@ internal static class CanonicalHelperInliner
                     foreach (string name in Calls(function).Where(selected.Contains)) changed |= adapterHelpers.Add(name);
             } while (changed);
             var adapter = Declarations(module.Functions.Select(f => (adapterHelpers.Contains(f.Name) || adaptedCallers.Contains(f.Name))
-                && graphs.TryGetValue(f.Name, out var graph) ? Legalization.StructuredControlFlowLowering.Run(graph, module) : f));
+                && graphs.TryGetValue(f.Name, out var graph) ? Legalization.ShaderTargetLowering.ForStructured(graph, module) : f));
             var adapted = HelperInliner.RunSelected(adapter, adapterHelpers, adaptedCallers).Functions.ToDictionary(f => f.Name, StringComparer.Ordinal);
             module = Declarations(module.Functions.Select(f => adaptedCallers.Contains(f.Name) ? adapted[f.Name] : f));
             foreach (string name in adaptedCallers) { graphs.Remove(name); deferred[name] = "explicit helper adapter"; }

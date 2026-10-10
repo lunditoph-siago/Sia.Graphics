@@ -125,7 +125,7 @@ internal static class CollectiveReadRecovery
         output.Enables.UnionWith(input.Enables); output.DiagnosticFilters.AddRange(input.DiagnosticFilters);
         foreach (var function in input.Functions)
             output.Functions.Add(recovered.TryGetValue(function.Name,out var graph) && !ReferenceEquals(graph,graphs[function.Name])
-                ? StructuredControlFlowLowering.Run(graph,input) : function);
+                ? ShaderTargetLowering.ForStructured(graph,input) : function);
         ModuleValidator.Validate(output);
         return output;
     }

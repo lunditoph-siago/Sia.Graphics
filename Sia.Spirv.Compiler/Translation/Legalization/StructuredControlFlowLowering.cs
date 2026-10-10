@@ -5,10 +5,10 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Temporary target adapter: lower verified SSA CFG to the existing structured writer representation.</summary>
+/// <summary>Materialize a legalized SSA CFG in the structured target representation.</summary>
 internal static class StructuredControlFlowLowering
 {
-    /// <summary>Explicit compatibility boundary for consumers not yet migrated to graphs.</summary>
+    /// <summary>Explicit representation boundary for consumers requiring structured target data.</summary>
     public static Module Run(CanonicalModule canonical, bool nativeValidation = false)
     {
         var input = canonical.Declarations;
@@ -17,15 +17,6 @@ internal static class StructuredControlFlowLowering
         output.Enables.UnionWith(input.Enables); output.DiagnosticFilters.AddRange(input.DiagnosticFilters);
         foreach (var function in input.Functions)
             output.Functions.Add(canonical.Functions.TryGetValue(function.Name, out var graph) ? Run(graph, input) : function);
-        var remainingCalls = output.Functions.SelectMany(f => ControlFlowAnalysis.Calls(f.Body)).ToHashSet(StringComparer.Ordinal);
-        output.Functions.RemoveAll(f => f.Stage is null && f.ReturnType is ShaderType.Pointer
-            && canonical.EntryFunctions.Contains(f.Name) && !remainingCalls.Contains(f.Name));
-        if (canonical.Functions.Values.Any(g => g.Blocks.Any(b => b.Parameters.Any(p => p.Type is ShaderType.Pointer)))) {
-            // Until target address dispatch consumes graphs, preserve its existing
-            // expansion-before-dispatch order at this explicit adapter boundary.
-            output = HelperInliner.RunPointers(output);
-            output = new PointerSelectionLowering(output).Run();
-        }
         if (nativeValidation) ModuleValidator.ValidateNative(output); else ModuleValidator.Validate(output);
         return output;
     }
@@ -92,14 +83,11 @@ internal static class StructuredControlFlowLowering
                 }
                 else expressions.Add(value.Id, new Expression.Reference(name, value.Type));
             }
-            else if (value.Type is not ShaderType.Pointer && function.Blocks.Any(b => b.Parameters.Contains(value)))
-                throw new ShaderException(DiagnosticStage.Validation, "Pointer or opaque block parameters require further target legalization.");
+            else if (function.Blocks.Any(b => b.Parameters.Contains(value)))
+                throw new ShaderException(DiagnosticStage.Validation, "Reference block parameters require prior target legalization.");
         }
-        CanonicalPointerLowering? pointerParameters = null;
-        pointerParameters = new CanonicalPointerLowering(function, output.Body, Fresh, Use);
         Expression Use(SsaValue value) {
             if (expressions.TryGetValue(value.Id, out var expression)) return expression;
-            if (pointerParameters?.IsParameter(value) == true) return pointerParameters.Address(value);
             var instruction = definitions[value.Id];
             expression = instruction.Operation switch {
                 ValueOperation.Symbol symbol when value.Type is ShaderType.Pointer && signature.Arguments.Any(a => a.Name == symbol.Name)
@@ -121,12 +109,10 @@ internal static class StructuredControlFlowLowering
             var body = new Block(); var snapshots = new List<(Expression Target, Expression Value)>();
             for (int i = 0; i < edge.Arguments.Count; i++) {
                 var argument = edge.Arguments[i]; var parameter = blocks[edge.Target].Parameters[i];
-                var copies = parameter.Type is ShaderType.Pointer ? pointerParameters.EdgeValues(argument, parameter)
-                    : [(((Expression.Load)Use(parameter)).Pointer as Expression.Reference ?? throw new InvalidOperationException("Expected scalar phi slot."), Use(argument))];
-                foreach (var (target, value) in copies) {
-                    string name = Fresh(); body.Statements.Add(new Statement.Declare(name, value.Type, value, false));
-                    snapshots.Add((target, new Expression.Reference(name, value.Type)));
-                }
+                var target = ((Expression.Load)Use(parameter)).Pointer;
+                var value = Use(argument);
+                string name = Fresh(); body.Statements.Add(new Statement.Declare(name, value.Type, value, false));
+                snapshots.Add((target, new Expression.Reference(name, value.Type)));
             }
             foreach (var (target, value) in snapshots) body.Statements.Add(new Statement.Store(target, value));
             return body;

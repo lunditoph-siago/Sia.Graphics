@@ -10,6 +10,34 @@ Execution amendment, approved by the user on 2026-10-10: remove backward
 compatibility, including public legacy APIs; breaking changes are allowed.
 This supersedes the earlier staged requirement to retain old overload adapters.
 
+Reference target migration, 2026-10-11: source C6A5955C…,
+Compiler 4E01FC53…. Pointer and resource joins now share an owned CFG pass;
+[architecture](compiler-architecture.md) defines the boundary. The structured
+converter no longer encodes reference identities, expands pointer helpers or
+dispatches memory operations. No public interface or dependency was added.
+
+Passed on the frozen source: solution 2322/2322, zero skipped; independent formats
+378/378; frozen replay 41/41; CLI, Dawn browser library and 22+3 managed PE exports.
+Ten Compiler copies match. GPU attempted 56 cases: 54 exact readbacks pass;
+two qualified-loop WGSL cases fail in the current wgpu/Naga consumer because
+`@volatile` requires MEMORY_DECORATION_VOLATILE. Matching SPIR-V cases pass.
+The same rejection is retained in earlier native-phi evidence; no qualifier or
+test was removed. The GPU command exits 1 and its aggregate gate remains failed.
+Twenty-eight pointer GPU cases cover
+parallel swaps, repeated/escaping-local returns, slot snapshots and qualified
+native loops, using fixed expected words and paired shader hashes; the original
+28 CIL/resource/call-binding cases also pass. Ten new regression cases verify
+owned Bodies, source preservation, branch-local resets, memory flags and lexical
+diagnostics. The six expected baseline failures, initial full-run region/vector
+alias failures and subsequent repairs are retained separately. Evidence and exact
+commands are under workspace `.work/compiler-architecture-first/reference-cfg-*`,
+consolidated by `record-reference-cfg-evidence.py`. Submission/CI must be bound to
+the new revision; earlier-head CI does not validate this source.
+
+Remaining qualified/private native slots, target/LLVM adapters, actual browser
+GPU, SDK/AOT and complete research coverage remain open. This is architecture
+progress, not full roadmap completion.
+
 CIL resource SSA migration, 2026-10-11: source 45EB20A7…, Compiler CF823739….
 Real Texture2D, Texture2DArray and Sampler PE locals, assignments, helper returns
 and parallel loop swaps now enter owned resource SSA. Shared definite-assignment

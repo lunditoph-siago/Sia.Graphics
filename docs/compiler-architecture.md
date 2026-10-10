@@ -32,6 +32,21 @@ pointer slots already use native graphs and shared slot promotion; remaining
 shapes must be identified from actual producers rather than assuming all slots
 are deferred.
 
+Pointer and resource joins now share `CanonicalReferenceLowering` on owned target
+graphs. Scalar tags and captured projection indices cross edges simultaneously;
+loads, stores and resource operations execute only in the selected arm. Local
+storage needed outside its declaring branch is allocated in the entry block,
+while initialization stays at its original execution site. Ordered accesses keep
+their memory operands, source spans and diagnostic filters. Reference helpers
+expand before dispatch so unconditional synchronization remains convergent.
+Existing loop regions are retained when inserting selections. SPIR-V preparation
+can retain native pointer SSA; WGSL and structured materialization explicitly
+legalize reference joins first. `StructuredControlFlowLowering` now rejects raw
+reference block parameters and performs representation conversion only. The old
+`CanonicalPointerLowering`, separate resource pass and unused structured pointer
+helper entry are removed. Deferred SPIR-V frontend pointer selection and remaining
+memory/layout adapters still require migration; they are not public API shims.
+
 Entry ABI preparation now builds target canonical wrapper CFG/SSA, including
 interface reads/writes, argument assembly, workgroup initialization, output
 conversion and mesh/task publication calls. The SPIR-V writer consumes the

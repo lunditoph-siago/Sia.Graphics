@@ -8,6 +8,17 @@ namespace Sia.Spirv.Compiler.Translation.Legalization;
 /// <summary>Target pass ordering with explicit adapters for unmigrated families. Passes borrow their input.</summary>
 internal static class ShaderTargetLowering
 {
+    internal static Module ForStructured(CanonicalModule canonical, bool nativeValidation = false)
+    {
+        if (canonical.Functions.Values.Any(g => g.Blocks.Any(b => b.Parameters.Any(p => p.Type is ShaderType.Pointer || CanonicalTypes.Resource(p.Type))))
+            || canonical.Declarations.Functions.Any(f => f.ReturnType is ShaderType.Pointer && canonical.EntryFunctions.Contains(f.Name)))
+            canonical = CanonicalHelperInliner.RunReferences(canonical);
+        return StructuredControlFlowLowering.Run(CanonicalReferenceLowering.Run(canonical), nativeValidation);
+    }
+
+    internal static ShaderFunction ForStructured(ControlFlowFunction graph, Module module)
+        => StructuredControlFlowLowering.Run(CanonicalReferenceLowering.Run(graph), module);
+
     public static Module ForWgsl(Module module)
         => ForWgsl(CanonicalShaderPipeline.Prepare(module));
 
@@ -16,7 +27,7 @@ internal static class ShaderTargetLowering
         ModuleValidator.Validate(canonical, native: true);
         ShaderTargetValidator.ValidateWgslInvocationFeatures(canonical);
         canonical = WgslEntryPointLowering.Run(canonical);
-        canonical = CanonicalResourceLowering.Run(CanonicalHelperInliner.RunReferences(canonical));
+        canonical = CanonicalReferenceLowering.Run(CanonicalHelperInliner.RunReferences(canonical));
         canonical = CollectiveReadRecovery.Run(canonical);
         UniformityAnalysis.Validate(canonical.Declarations, canonical.Functions, DiagnosticStage.WgslWrite);
         // Check original non-returning control before WGSL introduces a return.
@@ -26,7 +37,6 @@ internal static class ShaderTargetLowering
         var module = StructuredControlFlowLowering.Run(canonical);
         UniformityAnalysis.Validate(module, DiagnosticStage.WgslWrite);
         ModuleValidator.Validate(module);
-        UniformityAnalysis.Validate(module, DiagnosticStage.WgslWrite);
         PointerAliasAnalysis.Validate(module, DiagnosticStage.WgslWrite);
         module = QueryStateLowering.Run(module);
         ModuleValidator.Validate(module);
@@ -44,7 +54,7 @@ internal static class ShaderTargetLowering
     }
 
     public static Module ForSpirv(Module module, IReadOnlyDictionary<string, double>? pipelineConstants, bool integerDivisionChecks = true)
-        => StructuredControlFlowLowering.Run(PrepareSpirv(CanonicalShaderPipeline.Prepare(module), pipelineConstants, integerDivisionChecks));
+        => ForStructured(PrepareSpirv(CanonicalShaderPipeline.Prepare(module), pipelineConstants, integerDivisionChecks));
 
     internal static CanonicalModule PrepareSpirv(CanonicalModule canonical, IReadOnlyDictionary<string, double>? pipelineConstants, bool integerDivisionChecks = true)
     {
@@ -52,7 +62,7 @@ internal static class ShaderTargetLowering
         // Native canonical pointer parameters retain their address spaces here.
         ModuleValidator.Validate(canonical, native: true);
         if (pipelineConstants is { } values) canonical = PipelineConstantResolver.Resolve(canonical, values);
-        canonical = CanonicalResourceLowering.Run(CanonicalHelperInliner.RunReferences(canonical));
+        canonical = CanonicalReferenceLowering.Run(CanonicalHelperInliner.RunReferences(canonical), lowerPointers: false);
         canonical = InvocationTerminationControlFlow.PrepareSpirv(canonical, DiagnosticStage.SpirvWrite);
         canonical = SpirvRayQueryLowering.Run(canonical);
         return SpirvIntegerArithmeticLowering.Run(canonical, integerDivisionChecks);

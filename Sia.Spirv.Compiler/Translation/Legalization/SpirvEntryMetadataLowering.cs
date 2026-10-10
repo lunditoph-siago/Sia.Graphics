@@ -161,8 +161,17 @@ internal static class SpirvEntryMetadataLowering
         foreach (var type in module.Structures.Cast<ShaderType>().Concat(module.Constants.Select(c => c.Type))
             .Concat(layout.Globals.Values.Select(g => g.DeclarationType))) Type(type);
         foreach (var function in module.Functions) { Type(function.ReturnType); foreach (var arg in function.Arguments) Type(arg.Type); BodyTypes(function.Body); }
-        return layout with { EntryAbi = new(selectedVersion, mesh, (mesh ? new uint[] { 5283 } : []).ToFrozenSet(),
-            (mesh ? new[] { "SPV_EXT_mesh_shader" } : []).ToFrozenSet(StringComparer.Ordinal), entries.ToFrozenDictionary(StringComparer.Ordinal),
+        var capabilities = new HashSet<uint>(); var extensions = new HashSet<string>(StringComparer.Ordinal);
+        if (mesh) { capabilities.Add(5283); extensions.Add("SPV_EXT_mesh_shader"); }
+        // Raw native target preparation can retain pointer-returning functions.
+        // Their physical signatures require variable pointers even without a phi.
+        var returnedPointers = module.Functions.Select(f => f.ReturnType).OfType<ShaderType.Pointer>().ToArray();
+        if (returnedPointers.Length != 0) {
+            capabilities.Add(returnedPointers.All(p => p.Space == AddressSpace.Storage) ? 4441u : 4442u);
+            if (selectedVersion < 0x00010300) extensions.Add("SPV_KHR_variable_pointers");
+        }
+        return layout with { EntryAbi = new(selectedVersion, mesh, capabilities.ToFrozenSet(),
+            extensions.ToFrozenSet(StringComparer.Ordinal), entries.ToFrozenDictionary(StringComparer.Ordinal),
             meshInterfaces.ToFrozenDictionary(), specialization.Expressions.ToFrozenDictionary(ReferenceEqualityComparer.Instance),
             lengths.ToFrozenDictionary(StringComparer.Ordinal), lengthsU32.ToFrozenDictionary(StringComparer.Ordinal),
             overrides.ToFrozenDictionary(StringComparer.Ordinal)) };

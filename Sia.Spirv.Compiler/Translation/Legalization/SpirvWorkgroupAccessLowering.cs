@@ -1,10 +1,11 @@
 using System.Collections.Frozen;
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
 /// <summary>Give workgroup addresses physical types and place value conversions at ordered accesses.</summary>
-internal sealed class SpirvWorkgroupAccessLowering(SpirvPhysicalLayout layout)
+internal sealed partial class SpirvWorkgroupAccessLowering(SpirvPhysicalLayout layout)
 {
     private readonly Stack<Dictionary<string, bool>> scopes = [];
     private readonly Dictionary<string, GlobalVariable> globals = layout.Module.Globals.ToDictionary(g => g.Name, StringComparer.Ordinal);
@@ -126,21 +127,30 @@ internal sealed class SpirvWorkgroupAccessLowering(SpirvPhysicalLayout layout)
         if (!keepScope) scopes.Pop();
         return output.Statements.Where((s, i) => !ReferenceEquals(s, input.Statements[i])).Any() ? output : input;
     }
-    internal static SpirvPhysicalLayout Run(SpirvPhysicalLayout input)
+    internal static SpirvPhysicalLayout Run(SpirvPhysicalLayout input, IDictionary<string, ControlFlowFunction>? ownedGraphs = null)
     {
         if (input.WorkgroupTypes.All(p => p.Key == p.Value)) return input;
-        return new SpirvWorkgroupAccessLowering(input).Run();
+        return new SpirvWorkgroupAccessLowering(input).Run(ownedGraphs);
     }
-    private SpirvPhysicalLayout Run()
+    private SpirvPhysicalLayout Run(IDictionary<string, ControlFlowFunction>? ownedGraphs)
     {
         var input = layout.Module;
+        var graphs = ownedGraphs ?? new Dictionary<string, ControlFlowFunction>(StringComparer.Ordinal);
+        if (ownedGraphs is null)
+            foreach (var function in input.Functions)
+                if (SpirvControlFlowLowering.TryRead(function, input, out var graph, out _)) graphs.Add(function.Name, graph!);
         var output = new Module { VulkanMemoryModel = input.VulkanMemoryModel, WorkgroupInitializationRequired = input.WorkgroupInitializationRequired };
         output.Structures.AddRange(input.Structures); output.Constants.AddRange(input.Constants);
         output.Globals.AddRange(input.Globals.Select(g => g.Space == AddressSpace.Workgroup ? g with { Type = Physical(g.Type) } : g));
         output.Enables.UnionWith(input.Enables); output.DiagnosticFilters.AddRange(input.DiagnosticFilters);
         foreach (var f in input.Functions) {
-            scopes.Push(f.Arguments.ToDictionary(a => a.Name, _ => true, StringComparer.Ordinal));
-            var body = Body(f.Body); scopes.Pop();
+            // Only explicit deferrals use the structured access adapter. The body
+            // on a graph-owned declaration is borrowed frontend context, not code.
+            var body = f.Body;
+            if (!graphs.ContainsKey(f.Name)) {
+                scopes.Push(f.Arguments.ToDictionary(a => a.Name, _ => true, StringComparer.Ordinal));
+                body = Body(f.Body); scopes.Pop();
+            }
             var args = f.Arguments.Select(a => a with { Type = PointerType(a.Type) }).ToArray();
             var returns = PointerType(f.ReturnType);
             if (ReferenceEquals(body, f.Body) && args.SequenceEqual(f.Arguments) && returns == f.ReturnType) { output.Functions.Add(f); continue; }
@@ -154,6 +164,12 @@ internal sealed class SpirvWorkgroupAccessLowering(SpirvPhysicalLayout layout)
         // be represented by the source-language validator; its native gate remains.
         var types = layout.WorkgroupTypes.ToDictionary(p => p.Key, p => p.Value);
         foreach (var physical in layout.WorkgroupTypes.Values) types.TryAdd(physical, physical);
-        return layout with { Module = output, WorkgroupTypes = types.ToFrozenDictionary() };
+        var prepared = layout with { Module = output, WorkgroupTypes = types.ToFrozenDictionary() };
+        foreach (var declaration in output.Functions)
+            if (graphs.TryGetValue(declaration.Name, out var graph)) {
+                var copy = graph.Copy(declaration);
+                Run(copy, prepared); graphs[declaration.Name] = copy;
+            }
+        return ownedGraphs is null ? SpirvControlFlowLowering.Prepare(prepared, graphs.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal)) : prepared;
     }
 }

@@ -19,9 +19,9 @@ internal sealed class ControlFlowFunction(ShaderFunction signature)
         Blocks.Add(block); return block;
     }
 
-    internal ControlFlowFunction Copy()
+    internal ControlFlowFunction Copy(ShaderFunction? signature = null)
     {
-        var output = new ControlFlowFunction(Signature) { Entry = Entry, nextValue = nextValue, nextBlock = nextBlock };
+        var output = new ControlFlowFunction(signature ?? Signature) { Entry = Entry, nextValue = nextValue, nextBlock = nextBlock };
         ControlFlowEdge Edge(ControlFlowEdge edge) => new(edge.Target, edge.Arguments);
         foreach (var block in Blocks) {
             var copy = new ControlFlowBlock(block.Id);

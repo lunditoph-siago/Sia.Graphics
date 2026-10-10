@@ -10,7 +10,8 @@ namespace Sia.Spirv.Compiler.Translation.Legalization;
 /// <summary>Prepare pure aggregate conversions independently of ordered memory accesses.</summary>
 internal static class SpirvWorkgroupValueLowering
 {
-    internal static SpirvPhysicalLayout Run(SpirvPhysicalLayout layout, IReadOnlyList<ShaderType> typeOrder)
+    internal static SpirvPhysicalLayout Run(SpirvPhysicalLayout layout, IReadOnlyList<ShaderType> typeOrder,
+        IDictionary<string, ControlFlowFunction>? ownedGraphs = null)
     {
         var conversions = new Dictionary<(ShaderType Logical, bool ToPhysical), ShaderFunction>();
         var input = layout.Module;
@@ -58,6 +59,7 @@ internal static class SpirvWorkgroupValueLowering
             if (!StructuredControlFlowReader.TryRead(helper, output, out var graph, out var deferred))
                 throw new ShaderException(DiagnosticStage.SpirvWrite, "Workgroup value conversion requires canonical verification: " + deferred);
             ControlFlowVerifier.Validate(graph!, output); LocalValuePromotion.Run(graph!); ControlFlowVerifier.Validate(graph!, output);
+            ownedGraphs?.Add(helper.Name, graph!);
         }
         return layout with { Module = output, WorkgroupConversions = conversions.ToFrozenDictionary() };
     }

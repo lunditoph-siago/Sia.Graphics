@@ -93,13 +93,12 @@ internal static class SpirvMeshPublicationLowering
             Copy(info.Primitives, info.PrimitivesMember, primitives, true);
             publications.Add(entry.Name, new(helper, info.Topology, maxVertices, maxPrimitives));
         }
-        ModuleValidator.Validate(output);
-        foreach (var publication in publications.Values) {
-            if (!StructuredControlFlowReader.TryRead(publication.Function, output, out var graph, out var deferred))
-                throw new ShaderException(DiagnosticStage.SpirvWrite, "Mesh publication requires canonical verification: " + deferred);
-            ControlFlowAnalysis.RemoveUnreachable(graph!);
-            ControlFlowVerifier.Validate(graph!, output); LocalValuePromotion.Run(graph!); ControlFlowVerifier.Validate(graph!, output);
-        }
-        return (layout with { Module = output }, new ReadOnlyDictionary<string, SpirvMeshPublication>(publications));
+        var prepared = SpirvControlFlowLowering.Prepare(layout with { Module = output });
+        foreach (var publication in publications.Values)
+            if (!prepared.ControlFlow.ContainsKey(publication.Function.Name))
+                throw new ShaderException(DiagnosticStage.SpirvWrite, "Mesh publication requires canonical verification: "
+                    + prepared.DeferredControlFlow[publication.Function.Name]);
+        ModuleValidator.Validate(prepared.Canonical);
+        return (prepared, new ReadOnlyDictionary<string, SpirvMeshPublication>(publications));
     }
 }

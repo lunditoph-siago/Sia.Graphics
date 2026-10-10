@@ -34,6 +34,25 @@ This removes reconstruction from the shared transform itself, but target
 layout/pointer passes and public frontend routes still need conversion. It does
 not yet reduce their full end-to-end graph/structured roundtrips.
 
+Workgroup layout access now maps owned SSA graphs: physical pointer signatures,
+results, call return types, block arguments and captured addresses stay typed
+together. Ordered aggregate reads/stores use explicit to/from conversion calls;
+native operands, source spans and diagnostic filters survive. The structured
+workgroup adapter handles explicit deferrals only. Target re-preparation retains
+existing graphs and structural labels, registering new mesh publication helpers
+without rebuilding graph-owned bodies. Canonical module validation checks the
+actual executable graphs. Raw pointer-return signatures publish variable-pointer
+capabilities in target metadata. Physical type discovery now reads captured graph
+values before rewriting access. Uniform helpers are built directly as typed CFG:
+selected arms read physical columns, a merge parameter carries the logical result,
+and the default arm returns zero. Call arguments use already captured SSA indices;
+caller results, ordered effects and loop/edge identities remain intact. Leaf memory
+operands and inherited member qualifications propagate into helper call effects
+before mixed validation. Structured uniform access handles explicit deferrals only.
+Pure workgroup helpers still originate in typed structured bodies and retain their
+captured graphs. The shared canonical-to-target entrance and frontend/LLVM adapters
+still require migration; this is not an end-to-end cutover.
+
 The structured adapter also recognizes native conditional exits whose target is
 the current enclosing selection's declared merge. It keeps edge copies inside
 each arm and emits the merge once in its caller; missing structure still produces
@@ -361,10 +380,12 @@ their conversions. SpirvWriter.WorkgroupLayout.cs is removed. Normal entry modul
 validation and existing raw-native fixture gates retain their separate contracts. Pending-length
 and atomic aggregates are not first-class data values; their element/atomic memory
 operations retain their own path. SpirvUniformAccessLowering now prepares uniform
-physical reads and aggregate reconstruction in ordinary typed helpers. Dynamic-column
-selection is an explicit switch with a zero fallback, and pointer alias indices are
-captured once in scalar declarations. Shared CFG verification/promotion checks the
-helpers; the serializer no longer owns virtual uniform aliases or builds these
+physical reads and aggregate reconstruction in directly generated CFG helpers for
+owned functions. Dynamic-column selection is an explicit switch with a zero
+fallback and SSA merge parameter; pointer alias indices use already captured SSA
+values. The structured adapter remains for explicit deferrals. Mixed CFG validation
+checks helpers and caller memory effects; the serializer no longer owns virtual
+uniform aliases or builds these
 selection/construction operations. Target module copies preserve borrowed input
 globals and original function bodies. ShaderMemoryRequirements centralizes existing
 memory qualification rules. SpirvMemoryAccessLowering materializes these rules on

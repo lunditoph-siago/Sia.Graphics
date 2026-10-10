@@ -6,7 +6,35 @@ passes and target legalization. This document does not claim that the existing
 translation IR has already been replaced. The [current architecture](compiler-architecture.md)
 is the implementation baseline.
 
-Latest synchronization migration (7BCB90E0…) expands barriers, default atomics and
+Latest uniform graph migration (779A518A…) captures target graphs before physical
+type discovery and builds uniform read/selection helpers directly as CFG/SSA.
+Captured indices, caller results, loop/edge topology, native memory operands and
+diagnostic origins survive. Newly generated helpers propagate memory effects to
+callers before mixed validation; structured access handles explicit deferrals.
+Seven new contracts, related 91/91, maintenance 2037/2037, independent format
+217/217 plus two pointer-return formats, frozen input/output format 82/82,
+160 reverse routes and 657 deterministic files pass. Of 218 SPIR-V files, 214
+match the previous batch and four uniform-layout outputs change; all 41 frozen
+replay outputs match. GPU attempts are 32 PASS/5 ERROR: three existing Vulkan
+memory-model imports and two newly observed original WGSL continuing-name
+redefinitions fail before dispatch. Canonical continuing variants and nested
+uniform selection/zero fallback return the expected values. Source/consumer
+identities, failures and readbacks are recorded under uniform-graph-migration-*.
+The shared canonical-to-target entrance, pure workgroup helper construction,
+deferrals, frontend/LLVM and full research/consumer gates remain open.
+
+Previous workgroup graph migration (11F49A83…) maps physical pointer signatures,
+calls, returned addresses and edge arguments together, placing conversions at
+ordered SSA accesses. Existing target graphs/labels survive entry and mesh
+re-preparation. Seven contracts, maintenance 2030/2030, independent format
+217/217 plus two raw pointer-return formats, frozen native input/output 82/82,
+160 reverse routes and 657 deterministic files pass. GPU attempts are 24 PASS /
+3 ERROR before execution. Of 218 compared SPIR-V files, 187 match; 31 regenerated
+native inputs differ only by duplicate capability declarations, and all 41 frozen
+replay outputs match. Uniform/deferred adapters, frontend/LLVM and the full
+research/consumer gates remain open. Evidence is under workgroup-graph-migration-*.
+
+Previous synchronization migration (7BCB90E0…) expands barriers, default atomics and
 collective reads directly in target graphs after memory qualification. Twelve
 contracts and maintenance 2023/2023 pass; independent format checks are 217/217,
 frozen native input/output checks 82/82, reverse routes 160 PASS, and 657 repeated

@@ -80,10 +80,10 @@ internal static class SpirvEntryPointLowering
             ControlFlowVerifier.Validate(graph!, output); LocalValuePromotion.Run(graph!); ControlFlowVerifier.Validate(graph!, output);
         }
         var layout = SpirvPhysicalLayoutLowering.Prepare(output, useLocalSizeId, version);
-        ModuleValidator.Validate(layout.Module);
+        ModuleValidator.Validate(layout.Canonical);
         var publication = SpirvMeshPublicationLowering.Run(layout, conversions);
         layout = publication.Layout;
-        ModuleValidator.Validate(layout.Module);
+        ModuleValidator.Validate(layout.Canonical);
         layout = SpirvControlFlowLowering.Prepare(layout);
         var finalFunctions = layout.Module.Functions.ToDictionary(f => f.Name, StringComparer.Ordinal);
         var result = new Result(layout.Module, new ReadOnlyDictionary<(string Entry, string? Member), ShaderFunction>(

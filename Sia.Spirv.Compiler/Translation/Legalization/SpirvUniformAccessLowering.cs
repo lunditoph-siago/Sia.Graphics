@@ -1,12 +1,13 @@
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 using Sia.Spirv.Compiler.Translation.Proc;
 using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
 /// <summary>Materialize uniform layout reads and captured paths before serialization.</summary>
-internal sealed class SpirvUniformAccessLowering(SpirvPhysicalLayout layout)
+internal sealed partial class SpirvUniformAccessLowering(SpirvPhysicalLayout layout)
 {
     private sealed record Step(string? Member, Expression? Index, uint? Constant);
     private sealed record Location(GlobalVariable Root, IReadOnlyList<Step> Steps);
@@ -27,13 +28,14 @@ internal sealed class SpirvUniformAccessLowering(SpirvPhysicalLayout layout)
     private static ShaderException Error(string message, SourceSpan span = default) => new(DiagnosticStage.SpirvWrite, message, span);
     private string Name(string stem) { string name; do name = stem + next++; while (!names.Add(name)); return name; }
 
-    internal static SpirvPhysicalLayout Run(SpirvPhysicalLayout input)
+    internal static SpirvPhysicalLayout Run(SpirvPhysicalLayout input, IDictionary<string, ControlFlowFunction>? ownedGraphs = null,
+        IReadOnlyDictionary<string, string>? deferred = null)
     {
         var pass = new SpirvUniformAccessLowering(input);
-        return pass.converted.Count == 0 ? input : pass.Run();
+        return pass.converted.Count == 0 ? input : pass.Run(ownedGraphs, deferred);
     }
 
-    private SpirvPhysicalLayout Run()
+    private SpirvPhysicalLayout Run(IDictionary<string, ControlFlowFunction>? ownedGraphs, IReadOnlyDictionary<string, string>? deferred)
     {
         var input = layout.Module;
         names.UnionWith(input.Globals.Select(g => g.Name).Concat(input.Constants.Select(c => c.Name))
@@ -47,12 +49,23 @@ internal sealed class SpirvUniformAccessLowering(SpirvPhysicalLayout layout)
                 case Statement.Switch s: foreach (var c in s.Cases) Reserve(c.Body); break;
             }
         }
-        foreach (var f in input.Functions) { names.UnionWith(f.Arguments.Select(a => a.Name)); Reserve(f.Body); }
+        foreach (var f in input.Functions) {
+            names.UnionWith(f.Arguments.Select(a => a.Name));
+            if (ownedGraphs?.TryGetValue(f.Name, out var graph) == true) {
+                foreach (var instruction in graph.Blocks.SelectMany(b => b.Instructions))
+                    if (instruction.Operation is ValueOperation.Local local) names.Add(local.Name);
+                    else if (instruction.Operation is ValueOperation.Let let) names.Add(let.Name);
+            }
+            else Reserve(f.Body);
+        }
         output.VulkanMemoryModel = input.VulkanMemoryModel; output.WorkgroupInitializationRequired = input.WorkgroupInitializationRequired;
         output.Structures.AddRange(input.Structures); output.Constants.AddRange(input.Constants);
         output.Globals.AddRange(input.Globals.Select(g => converted.ContainsKey(g.Name) ? g with { Type = layout.Globals[g.Name].PhysicalType } : g));
         output.Enables.UnionWith(input.Enables); output.DiagnosticFilters.AddRange(input.DiagnosticFilters);
         foreach (var function in input.Functions) {
+            if (ownedGraphs?.TryGetValue(function.Name, out var graph) == true) {
+                RunGraph(graph, ownedGraphs); output.Functions.Add(function); continue;
+            }
             scopes.Push(function.Arguments.ToDictionary(a => a.Name, _ => (Location?)null, StringComparer.Ordinal)); changed = false;
             var body = Body(function.Body);
             if (!changed) output.Functions.Add(function);
@@ -66,10 +79,24 @@ internal sealed class SpirvUniformAccessLowering(SpirvPhysicalLayout layout)
         }
         output.Functions.AddRange(helpers);
         foreach (var helper in helpers) {
-            if (!StructuredControlFlowReader.TryRead(helper, output, out var graph, out var deferred))
-                throw Error("Uniform access legalization requires canonical verification: " + deferred);
+            if (ownedGraphs?.ContainsKey(helper.Name) == true) continue;
+            if (!StructuredControlFlowReader.TryRead(helper, output, out var graph, out var helperDeferred))
+                throw Error("Uniform access legalization requires canonical verification: " + helperDeferred);
             ControlFlowAnalysis.RemoveUnreachable(graph!);
             ControlFlowVerifier.Validate(graph!, output); LocalValuePromotion.Run(graph!); ControlFlowVerifier.Validate(graph!, output);
+            ownedGraphs?.Add(helper.Name, graph!);
+        }
+        if (ownedGraphs is not null) {
+            var canonical = new CanonicalModule(output, ownedGraphs.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
+                deferred ?? output.Functions.Where(f => !ownedGraphs.ContainsKey(f.Name)).ToDictionary(f => f.Name, _ => "uniform target structured adapter", StringComparer.Ordinal),
+                output.Functions.Where(f => f.Stage is not null).Select(f => f.Name).ToHashSet(StringComparer.Ordinal));
+            var effects = ShaderEffectAnalysis.Compute(canonical);
+            foreach (var graph in ownedGraphs.Values)
+                foreach (var block in graph.Blocks)
+                    for (int i = 0; i < block.Instructions.Count; i++)
+                        if (block.Instructions[i].Operation is ValueOperation.Call call)
+                            block.Instructions[i] = block.Instructions[i] with { Operation = call with { CalleeEffects = call.CalleeEffects | effects[call.Function] } };
+            ControlFlowVerifier.Validate(canonical);
         }
         return layout with { Module = output };
     }

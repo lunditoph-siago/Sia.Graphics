@@ -5,7 +5,35 @@ See the [current pipeline/target map](../../docs/compiler-architecture.md) and
 records the original PR baseline, not verification of later source changes;
 `renewal-evidence.json` records the cleanup follow-up.
 
-Latest synchronization migration (7BCB90E0…) records twelve contracts, maintenance
+Latest uniform graph migration (779A518A…) captures target graphs before physical
+type discovery and builds uniform read/selection helpers directly as CFG/SSA.
+Captured indices, caller results, loop/edge topology, native memory operands and
+diagnostic origins survive. Newly generated helpers propagate memory effects to
+callers before mixed validation; structured access handles explicit deferrals.
+Seven new contracts, related 91/91, maintenance 2037/2037, independent format
+217/217 plus two pointer-return formats, frozen input/output format 82/82,
+160 reverse routes and 657 deterministic files pass. Of 218 SPIR-V files, 214
+match the previous batch and four uniform-layout outputs change; all 41 frozen
+replay outputs match. GPU attempts are 32 PASS/5 ERROR: three existing Vulkan
+memory-model imports and two newly observed original WGSL continuing-name
+redefinitions fail before dispatch. Canonical continuing variants and nested
+uniform selection/zero fallback return the expected values. Source/consumer
+identities, failures and readbacks are recorded under uniform-graph-migration-*.
+The shared canonical-to-target entrance, pure workgroup helper construction,
+deferrals, frontend/LLVM and full research/consumer gates remain open.
+
+Previous workgroup graph migration (11F49A83…) records seven contracts, maintenance
+2030/2030, independent format 217/217 plus two raw pointer-return fixtures,
+frozen native input/output 82/82, 160 reverse PASS and 657 deterministic files.
+Targeted GPU results are 24 PASS/3 ERROR before execution. Of 218 compared SPIR-V
+files, 187 match; 31 regenerated native inputs differ only by duplicate capability
+declarations. All 41 frozen replay outputs match. Source/DLL/asset identities,
+actual GPU readbacks and original failures are recorded separately under
+workgroup-graph-migration-* in the workspace task area. Current-source browser,
+SDK, Linux, AOT, mesh GPU and full corpus/descriptor checks were not run.
+Uniform/deferred adapters and frontend/LLVM migration still remain open.
+
+Previous synchronization migration (7BCB90E0…) records twelve contracts, maintenance
 2023/2023, independent format 217/217, frozen native input/output format 82/82,
 160 reverse PASS and 657 deterministic files. All 218 prior SPIR-V artifacts and
 41 replay outputs match. Targeted GPU results are 24 PASS/3 ERROR; the three

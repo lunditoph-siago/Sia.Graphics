@@ -18,35 +18,48 @@ internal sealed record SpirvRuntimeArrayLength(SsaValue? Structure, string? Glob
 
 internal static class SpirvControlFlowLowering
 {
-    internal static SpirvPhysicalLayout Prepare(SpirvPhysicalLayout layout)
+    internal static bool TryRead(ShaderFunction function, Module module, out ControlFlowFunction? graph, out string? reason)
+    {
+        if (!StructuredControlFlowReader.TryRead(function, module, out graph, out reason)) return false;
+        ControlFlowAnalysis.RemoveUnreachable(graph!);
+        if (graph!.Blocks.SelectMany(b => b.Parameters).Any(v => v.Type is ShaderType.Pointer)) {
+            reason = "target pointer merge legalization"; return false;
+        }
+        ControlFlowVerifier.Validate(graph, module);
+        if (graph.Blocks.SelectMany(b => b.Instructions).Any(i => i.Operation is ValueOperation.Builtin b
+            && (b.Function.StartsWith("rayQuery", StringComparison.Ordinal)
+                || b.Function is "getCommittedHitVertexPositions" or "getCandidateHitVertexPositions"))) {
+            reason = "ray-query guard legalization"; return false;
+        }
+        LocalValuePromotion.Run(graph);
+        ControlFlowVerifier.Validate(graph, module);
+        if (graph.Blocks.SelectMany(b => b.Parameters).Any(v => v.Type is ShaderType.Pointer)) {
+            reason = "target pointer merge legalization"; return false;
+        }
+        return true;
+    }
+
+    internal static SpirvPhysicalLayout Prepare(SpirvPhysicalLayout layout,
+        IReadOnlyDictionary<string, ControlFlowFunction>? ownedGraphs = null)
     {
         var functions = new Dictionary<string, SpirvFunctionControlFlow>(StringComparer.Ordinal);
         var graphs = new Dictionary<string, ControlFlowFunction>(StringComparer.Ordinal);
         var deferred = new Dictionary<string, string>(StringComparer.Ordinal);
+        var retained = new Dictionary<string, SpirvFunctionControlFlow>(StringComparer.Ordinal);
         foreach (var function in layout.Module.Functions) {
-            if (!StructuredControlFlowReader.TryRead(function, layout.Module, out var graph, out var reason)) {
+            ControlFlowFunction? graph;
+            if (ownedGraphs is not null && ownedGraphs.TryGetValue(function.Name, out var owned)) graph = owned;
+            else if (layout.ControlFlow.TryGetValue(function.Name, out var existing) && ReferenceEquals(existing.Graph.Signature, function)) {
+                graph = existing.Graph.Copy(); retained.Add(function.Name, existing);
+            }
+            else if (!TryRead(function, layout.Module, out graph, out var reason)) {
                 deferred.Add(function.Name, reason!); continue;
             }
-            ControlFlowAnalysis.RemoveUnreachable(graph!);
-            if (graph!.Blocks.SelectMany(b => b.Parameters).Any(v => v.Type is ShaderType.Pointer)) {
-                deferred.Add(function.Name, "target pointer merge legalization"); continue;
+            if (!retained.ContainsKey(function.Name)) {
+                SpirvMemoryAccessLowering.Run(graph!, layout.Module);
+                SpirvSynchronizationLowering.Run(graph!, layout.Module);
             }
-            ControlFlowVerifier.Validate(graph!, layout.Module);
-            // High-level ray-query builtins still expand guards inside the legacy
-            // backend. They require their own target lowering before CFG emission.
-            if (graph!.Blocks.SelectMany(b => b.Instructions).Any(i => i.Operation is ValueOperation.Builtin b
-                && (b.Function.StartsWith("rayQuery", StringComparison.Ordinal)
-                    || b.Function is "getCommittedHitVertexPositions" or "getCandidateHitVertexPositions"))) {
-                deferred.Add(function.Name, "ray-query guard legalization"); continue;
-            }
-            LocalValuePromotion.Run(graph);
-            ControlFlowVerifier.Validate(graph, layout.Module);
-            if (graph.Blocks.SelectMany(b => b.Parameters).Any(v => v.Type is ShaderType.Pointer)) {
-                deferred.Add(function.Name, "target pointer merge legalization"); continue;
-            }
-            SpirvMemoryAccessLowering.Run(graph, layout.Module);
-            SpirvSynchronizationLowering.Run(graph, layout.Module);
-            graphs.Add(function.Name, graph);
+            graphs.Add(function.Name, graph!);
         }
         // Legacy qualification is confined to explicit deferrals. Graph-owned
         // executable bodies are never rebuilt just to publish target metadata.
@@ -59,7 +72,8 @@ internal static class SpirvControlFlowLowering
                 for (int i = 0; i < block.Instructions.Count; i++)
                     if (block.Instructions[i].Operation is ValueOperation.Call call)
                         block.Instructions[i] = block.Instructions[i] with { Operation = call with { CalleeEffects = call.CalleeEffects | effects[call.Function] } };
-            functions.Add(graph.Signature.Name, Prepare(graph, module, effects));
+            functions.Add(graph.Signature.Name, retained.TryGetValue(graph.Signature.Name, out var prior)
+                ? prior with { Graph = graph } : Prepare(graph, module, effects));
         }
         ControlFlowVerifier.Validate(canonical);
         return layout with { Module = module, ControlFlow = functions.ToFrozenDictionary(StringComparer.Ordinal),

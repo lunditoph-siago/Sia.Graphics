@@ -17,8 +17,8 @@ public class SpirvUniformLegalizationTests
         var physical = Assert.IsType<ShaderType.Structure>(prepared.Module.Globals.Single(g => g.Name == "data").Type);
         Assert.Equal(4, physical.Members.Count);
         var helpers = prepared.Module.Functions.Where(f => f.Name.StartsWith("sia_spv_uniform_read_", StringComparison.Ordinal)).ToArray();
-        var selected = Assert.Single(helpers, f => f.Body.Statements.OfType<Statement.Switch>().Any());
-        Assert.True(StructuredControlFlowReader.TryRead(selected, prepared.Module, out var graph, out var reason), reason);
+        var selected = Assert.Single(helpers, f => prepared.PhysicalLayout.ControlFlow[f.Name].Graph.Blocks.Any(b => b.Terminator is ControlFlowTerminator.Switch));
+        var graph = prepared.PhysicalLayout.ControlFlow[selected.Name].Graph;
         ControlFlowVerifier.Validate(graph!, prepared.Module);
         Assert.Contains(graph!.Blocks.SelectMany(b => b.Instructions), i => i.Operation is ValueOperation.Load { MemoryAccess.Flags: 1 });
         ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Emit(prepared).ToBytes()));
@@ -30,8 +30,15 @@ public class SpirvUniformLegalizationTests
         var input = WgslReader.Parse(UniformMemoryTests.AliasSource); string before = WgslWriter.Write(input);
         var prepared = ShaderTargetLowering.ForSpirv(input, null, true, true, true);
         var main = prepared.Module.Functions.Single(f => f.Name == "main");
-        Assert.DoesNotContain(main.Body.Statements, s => s is Statement.Declare { Type: ShaderType.Pointer { Space: AddressSpace.Uniform } });
-        Assert.Contains(main.Body.Statements, s => s is Statement.Declare d && d.Name.StartsWith("sia_spv_uniform_index_", StringComparison.Ordinal));
+        var instructions = prepared.PhysicalLayout.ControlFlow[main.Name].Graph.Blocks.SelectMany(b => b.Instructions).ToArray();
+        Assert.DoesNotContain(instructions, i => i.Result?.Type is ShaderType.Pointer { Space: AddressSpace.Uniform });
+        var dynamic = Assert.Single(instructions, i => i.Operation is ValueOperation.Call { Arguments.Count: 1, ReturnType: ShaderType.Scalar { Kind: ScalarKind.Float } });
+        var captured = Assert.Single(((ValueOperation.Call)dynamic.Operation).Arguments);
+        var definitions = instructions.Where(i => i.Result is not null).ToDictionary(i => i.Result!.Value.Id, i => i);
+        while (definitions[captured.Id].Operation is ValueOperation.Let let) captured = let.Value;
+        Assert.IsType<ValueOperation.Call>(definitions[captured.Id].Operation);
+        Assert.Equal(ShaderType.U32, captured.Type);
+        Assert.Single(instructions, i => i.Operation is ValueOperation.Call { ReturnType: ShaderType.Scalar { Kind: ScalarKind.Uint } });
         Assert.Equal(before, WgslWriter.Write(input));
         Assert.Equal(3, Assert.IsType<ShaderType.Structure>(input.Globals[0].Type).Members.Count);
         ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Emit(prepared).ToBytes()));
@@ -45,7 +52,7 @@ public class SpirvUniformLegalizationTests
         var input = UniformMemoryTests.AggregateFixture("root", 0, true, decoration);
         var prepared = ShaderTargetLowering.ForSpirv(input, null, true, true, true);
         var helper = Assert.Single(prepared.Module.Functions, f => f.Name.StartsWith("sia_spv_uniform_read_", StringComparison.Ordinal));
-        Assert.True(StructuredControlFlowReader.TryRead(helper, prepared.Module, out var graph, out var reason), reason);
+        var graph = prepared.PhysicalLayout.ControlFlow[helper.Name].Graph;
         ControlFlowVerifier.Validate(graph!, prepared.Module);
         var reads = graph!.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).OfType<ValueOperation.Load>().ToArray();
         Assert.Equal(4, reads.Length);
@@ -59,7 +66,7 @@ public class SpirvUniformLegalizationTests
         string source = UniformMemoryTests.AliasSource.Replace("cursor=1u;", "{let column=8u;output[1]=f32(column);} cursor=1u;");
         var input = WgslReader.Parse(source);
         var prepared = SpirvPhysicalLayoutLowering.Prepare(input);
-        ModuleValidator.Validate(prepared.Module);
+        ModuleValidator.Validate(prepared.Canonical);
         ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Emit(prepared).ToBytes()));
     }
 
@@ -81,7 +88,7 @@ public class SpirvUniformLegalizationTests
     public void ContinuingAliasCanShadowAnAliasInTheLoopBody()
     {
         var prepared = SpirvPhysicalLayoutLowering.Prepare(WgslReader.Parse(ContinuingSource));
-        ModuleValidator.Validate(prepared.Module);
+        ModuleValidator.Validate(prepared.Canonical);
         ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Emit(prepared).ToBytes()));
     }
 

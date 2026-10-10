@@ -20,7 +20,7 @@ public class SpirvWorkgroupAccessTests
         main.Body.Statements[position] = declaration with { Initializer = Assert.IsType<Expression.Call>(declaration.Initializer) with { Binding = CallBinding.Unresolved } };
         ModuleValidator.ValidateNative(module);
         var prepared = SpirvPhysicalLayoutLowering.Prepare(module);
-        ModuleValidator.ValidateNative(prepared.Module);
+        ModuleValidator.Validate(prepared.Canonical, native: true);
         var call = Assert.IsType<Expression.Call>(Assert.Single(prepared.Module.Functions.Single(f => f.Stage == ShaderStage.Compute).Body.Statements.OfType<Statement.Declare>()).Initializer);
         Assert.Equal("workgroupUniformLoad", call.Function);
         Assert.Equal(module.Structures.Single(), call.Type);
@@ -36,11 +36,12 @@ public class SpirvWorkgroupAccessTests
         var target = new Expression.Member(new Expression.Reference("output", new ShaderType.Pointer(data, AddressSpace.Storage)), "v", new ShaderType.Pointer(vector, AddressSpace.Storage));
         module.Functions.Single().Body.Statements.Add(new Statement.Store(target, new Expression.Swizzle(source, "yx", vector)));
         var prepared = SpirvPhysicalLayoutLowering.Prepare(module);
-        ModuleValidator.Validate(prepared.Module);
-        var store = Assert.IsType<Statement.Store>(Assert.Single(prepared.Module.Functions.Single(f => f.Stage == ShaderStage.Compute).Body.Statements));
-        var swizzle = Assert.IsType<Expression.Swizzle>(store.Value);
-        Assert.Equal(vector, swizzle.Type);
-        Assert.IsType<Expression.Load>(swizzle.Vector);
+        ModuleValidator.Validate(prepared.Canonical);
+        var instructions = prepared.ControlFlow["main"].Graph.Blocks.SelectMany(b => b.Instructions).ToArray();
+        var swizzle = Assert.Single(instructions, i => i.Operation is ValueOperation.Swizzle);
+        Assert.Equal(vector, swizzle.Result!.Value.Type);
+        var load = Assert.Single(instructions, i => i.Result == ((ValueOperation.Swizzle)swizzle.Operation).Vector);
+        Assert.IsType<ValueOperation.Load>(load.Operation);
         ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Emit(prepared).ToBytes()));
     }
 
@@ -108,7 +109,7 @@ public class SpirvWorkgroupAccessTests
         var input = WgslReader.Parse(AliasSource); string before = WgslWriter.Write(input);
         var prepared = ShaderTargetLowering.ForSpirv(input, null, true, true, true);
         var main = prepared.Module.Functions.Single(f => f.Stage == ShaderStage.Compute);
-        Assert.True(StructuredControlFlowReader.TryRead(main, prepared.Module, out var graph, out var reason), reason);
+        var graph = prepared.PhysicalLayout.ControlFlow[main.Name].Graph;
         ControlFlowVerifier.Validate(graph!, prepared.Module);
         Assert.Single(graph!.Blocks.SelectMany(b => b.Instructions), i => i.Operation is ValueOperation.Call { Function: "get_index" });
         Assert.Equal(before, WgslWriter.Write(input));
@@ -126,7 +127,7 @@ public class SpirvWorkgroupAccessTests
         Assert.NotEqual(logical, physical);
         Assert.Equal(physical, prepared.Module.Globals.Single(g => g.Name == "group_data").Type);
         var main = prepared.Module.Functions.Single(f => f.Name == "main");
-        Assert.True(StructuredControlFlowReader.TryRead(main, prepared.Module, out var graph, out var reason), reason);
+        var graph = prepared.PhysicalLayout.ControlFlow[main.Name].Graph;
         ControlFlowVerifier.Validate(graph!, prepared.Module);
         var instructions = graph!.Blocks.SelectMany(b => b.Instructions).ToArray();
         var calls = instructions.Where(i => i.Operation is ValueOperation.Call c && c.Function.StartsWith("sia_spv_workgroup_", StringComparison.Ordinal)).ToArray();
@@ -143,7 +144,7 @@ public class SpirvWorkgroupAccessTests
     {
         var prepared = ShaderTargetLowering.ForSpirv(WgslReader.Parse(SpirvPhysicalLayoutTests.SharedSource), null, true, true, true);
         var main = prepared.Module.Functions.Single(f => f.Stage == ShaderStage.Compute);
-        Assert.True(StructuredControlFlowReader.TryRead(main, prepared.Module, out var graph, out var reason), reason);
+        var graph = prepared.PhysicalLayout.ControlFlow[main.Name].Graph;
         var calls = graph!.Blocks.SelectMany(b => b.Instructions).Where(i => i.Operation is ValueOperation.Call c
             && c.Function.StartsWith("sia_spv_workgroup_from_", StringComparison.Ordinal)).ToArray();
         Assert.NotEmpty(calls);

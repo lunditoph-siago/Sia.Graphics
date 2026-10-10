@@ -28,7 +28,8 @@ query semantics. Unreadable deferrals and remaining target adapters still requir
 migration. No new public interface or dependency is introduced.
 
 The user approved removal of public legacy APIs on 2026-10-10, allowing breaking
-changes. Those overloads and implicit legacy target defaults currently remain;
+changes. Public CIL/file/options adapters and request forwarding properties are removed.
+Writer overloads with implicit legacy target defaults currently remain;
 their removal and maintained consumer migration are the next architecture scope.
 
 WGSL invocation termination now lowers on owned CFGs before structured
@@ -339,17 +340,17 @@ PE bytes, an entry token, optional matching intrinsic PE bytes and an immutable
 them unchanged. Target validity is checked before PE analysis. The new memory
 and `CompileAssembly(SpirvFileCompilationRequest)` APIs share the same target
 default: WebGPU ABI, Vulkan 1.2 environment, SPIR-V 1.5 and the default resource
-profile. File/process choices stay on the file request. The legacy file overload
-still defaults to Vulkan ABI; SDK targets retain their WebGPU/WGSL defaults.
+profile. File/process choices stay on the file request. The CLI shares that WebGPU
+default; `--abi vulkan` selects Vulkan explicitly. SDK targets retain WebGPU/WGSL defaults.
 
-The legacy `CompileModule(bytes, token, intrinsicBytes, SpirvCompilationOptions)`
-overload adapts ABI/profile into the memory request. Omitted options retain the
-WebGPU default; an explicitly supplied default offline options record retains
-its Vulkan ABI. LLVM passes, optimization level, output flags and Vulkan
-environment still have no effect through this adapter. Maintained consumers use
-the memory request and pass its target to output writers explicitly. The request's
-ABI/profile properties forward to this single target value rather than store
-independent options.
+The old PE/token/options and path/output/options overloads and
+`SpirvCompilationOptions` are removed. Callers construct a memory or file request
+and set ABI/profile through `request.Target`; the memory request's former
+forwarding properties are removed too. `CompileVariants(request, targets)` accepts
+the existing file request and named resource profiles. Each variant replaces only
+`request.Target.ResourceLimits`, preserving its ABI/version/feature contract.
+The profile JSON format remains supported. This is a breaking source/binary change;
+external callers must migrate and recompile. Maintained CLI and tests use the new API.
 
 `SpirvCompilationTarget` combines environment/version, ABI, resource limits,
 allowed stages, SPIR-V capabilities/extensions and WGSL enables. Null policy sets

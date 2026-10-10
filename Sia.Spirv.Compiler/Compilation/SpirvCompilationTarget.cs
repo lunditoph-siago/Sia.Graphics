@@ -73,10 +73,4 @@ public sealed record SpirvCompilationTarget
             return Convert.ToHexString(SHA256.HashData(bytes.WrittenSpan));
         }
     }
-
-    internal static SpirvCompilationTarget FromLegacy(SpirvCompilationOptions options) => new() {
-        Environment = options.TargetEnvironment,
-        Version = options.TargetEnvironment == "vulkan1.3" ? 0x00010600u : 0x00010500u,
-        KernelAbi = options.KernelAbi, ResourceLimits = options.TargetProfile
-    };
 }

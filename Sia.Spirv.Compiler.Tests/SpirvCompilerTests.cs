@@ -18,18 +18,15 @@ public sealed class SpirvCompilerTests
             Guid.NewGuid().ToString("N"));
         try {
             var compiler = new SpirvCompiler();
-            var options = new SpirvCompilationOptions {
+            var request = new SpirvFileCompilationRequest(SpirvTestAssembly.Path, outputDirectory) {
                 ToolchainDirectory = SpirvTestToolchain.Directory,
-                KernelAbi = SpirvKernelAbi.WebGpu,
+                Target = SpirvCompilationTarget.Default with { KernelAbi = SpirvKernelAbi.WebGpu },
                 EmitWgsl = true,
                 EmitLlvmIr = true,
                 OptimizationLevel = 3
             };
 
-            var artifacts = compiler.CompileAssembly(
-                SpirvTestAssembly.Path,
-                outputDirectory,
-                options);
+            var artifacts = compiler.CompileAssembly(request);
 
             var expectedKernels = SpirvTestAssembly.Analyze().Kernels
                 .Select(static kernel => kernel.QualifiedName)
@@ -55,21 +52,17 @@ public sealed class SpirvCompilerTests
             "sia-spirv-tests",
             Guid.NewGuid().ToString("N"));
         try {
-            var options = new SpirvCompilationOptions {
+            var request = new SpirvFileCompilationRequest(SpirvTestAssembly.Path, outputDirectory) {
                 ToolchainDirectory = SpirvTestToolchain.Directory,
-                KernelAbi = SpirvKernelAbi.WebGpu,
+                Target = SpirvCompilationTarget.Default with { ResourceLimits = SpirvTargetProfile.Default with {
+                    PreferUniformForBoundedReadOnlyBuffers = true
+                } },
                 EmitWgsl = true,
                 EmitLlvmIr = true,
-                OptimizationLevel = 3,
-                TargetProfile = SpirvTargetProfile.Default with {
-                    PreferUniformForBoundedReadOnlyBuffers = true
-                }
+                OptimizationLevel = 3
             };
 
-            var artifacts = new SpirvCompiler().CompileAssembly(
-                SpirvTestAssembly.Path,
-                outputDirectory,
-                options);
+            var artifacts = new SpirvCompiler().CompileAssembly(request);
             var artifact = Assert.Single(artifacts, artifact =>
                 artifact.Kernel.QualifiedName ==
                     $"{typeof(ComputeShaders).FullName}.{nameof(ComputeShaders.CopyBoundedStructs)}");

@@ -6,9 +6,4 @@ public sealed record SpirvModuleCompilationRequest(ReadOnlyMemory<byte> Assembly
     ReadOnlyMemory<byte> IntrinsicImage = default)
 {
     public SpirvCompilationTarget Target { get; init; } = SpirvCompilationTarget.Default;
-
-    // Compatibility forwarding properties; the request has one target value.
-    public SpirvKernelAbi KernelAbi { get => Target.KernelAbi; init => Target = Target with { KernelAbi = value }; }
-
-    public SpirvTargetProfile TargetProfile { get => Target.ResourceLimits; init => Target = Target with { ResourceLimits = value }; }
 }

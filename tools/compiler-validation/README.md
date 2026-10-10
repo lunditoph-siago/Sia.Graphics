@@ -5,6 +5,23 @@ See the [current pipeline/target map](../../docs/compiler-architecture.md) and
 records the original PR baseline, not verification of later source changes;
 `renewal-evidence.json` records the cleanup follow-up.
 
+Latest public compiler API migration: source B4DEEE64…, Compiler 18E1514D….
+Public PE/token/options and file/path/options adapters, the options type and
+memory forwarding properties are removed. CLI and maintained tests use requests;
+variants replace named resource limits within the request's target. CLI defaults
+to WebGPU ABI. Writer no-target adapters remain pending.
+
+Passed: maintenance 2259/2259 (focused 60/60), CLI build, default and variants
+compilation with 22/44 manifests and verified SPIR-V hashes, four native GPU cases
+(IntegerControlFlow and SpeculativeSelection, direct WGSL/SPIR-V) on Intel HD 620
+Vulkan. Integer words match exactly; the float branch matches its fixed formula
+within 0.00001. Four Compiler DLL copies match. Evidence and actual scripts/logs
+are in `.work/compiler-architecture-first/public-compiler-api-*`.
+Blocked: local browser build reports NU1102 for exact .NET 11 rc.2 ILLink,
+WebAssembly.Pack and Mono.browser-wasm packages. Not run: actual browser,
+SDK/Linux/AOT, new format exports/frozen replay and full research parity.
+The ray-query records below describe the preceding source, not this API batch.
+
 Latest SPIR-V query guard migration: source 2F3A9B12…, Compiler BED9439A….
 High-level query state/descriptor/traversal/candidate/range/getter guards are
 canonical target control flow. The writer query-state/guard implementation is

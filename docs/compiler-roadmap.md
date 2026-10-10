@@ -10,7 +10,15 @@ Execution amendment, approved by the user on 2026-10-10: remove backward
 compatibility, including public legacy APIs; breaking changes are allowed.
 This supersedes the earlier staged requirement to retain old overload adapters.
 Migrate maintained consumers to explicit requests/targets and record the remaining
-external consumer impact. Public legacy API removal is still pending.
+external consumer impact. Public CIL/file/options adapters and memory forwarding
+properties are removed; writer overloads with implicit targets remain pending.
+
+Public compiler API migration (source B4DEEE64…, Compiler 18E1514D…) passes
+maintenance 2259/2259, CLI build and both default/variants compilation (22/44
+manifests), plus four direct CIL WGSL/SPIR-V GPU cases with fixed oracles.
+CLI defaults now share the request's WebGPU ABI. Local browser build is blocked
+by unavailable exact .NET 11 rc.2 WASM/ILLink packages (NU1102); browser execution,
+SDK/Linux/AOT and full research parity remain unverified for this source.
 
 SPIR-V query guard migration (source 2F3A9B12…, Compiler BED9439A…) moves
 high-level query state, validation and conditional reads/updates into canonical

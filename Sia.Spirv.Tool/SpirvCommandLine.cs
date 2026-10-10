@@ -53,23 +53,27 @@ internal static class SpirvCommandLine
             if (targetProfileFile is not null && variantsFile is not null) {
                 throw new ArgumentException("Options '--target-profile-json' and '--variants-json' cannot be combined.");
             }
-            var options = new SpirvCompilationOptions {
+            string environment = values.GetValueOrDefault("target") ?? SpirvCompilationTarget.Default.Environment;
+            var request = new SpirvFileCompilationRequest(assemblyPath, outputPath) {
                 ToolchainDirectory = values.GetValueOrDefault("toolchain"),
-                TargetEnvironment = values.GetValueOrDefault("target") ?? "vulkan1.2",
-                KernelAbi = ParseKernelAbi(values.GetValueOrDefault("abi") ?? "vulkan"),
+                Target = SpirvCompilationTarget.Default with {
+                    Environment = environment,
+                    Version = environment == "vulkan1.3" ? 0x00010600u : SpirvCompilationTarget.Default.Version,
+                    KernelAbi = ParseKernelAbi(values.GetValueOrDefault("abi") ?? "webgpu"),
+                    ResourceLimits = targetProfileFile is null
+                        ? SpirvTargetProfile.Default : SpirvTargetProfile.Load(targetProfileFile)
+                },
                 EmitWgsl = values.ContainsKey("emit-wgsl"),
                 OptimizationLevel = int.Parse(
                     values.GetValueOrDefault("optimization") ?? "2",
                     System.Globalization.CultureInfo.InvariantCulture),
                 LlvmPasses = passes,
-                EmitLlvmIr = !values.ContainsKey("no-llvm-ir"),
-                TargetProfile = targetProfileFile is null
-                    ? SpirvTargetProfile.Default : SpirvTargetProfile.Load(targetProfileFile)
+                EmitLlvmIr = !values.ContainsKey("no-llvm-ir")
             };
             var compiler = new SpirvCompiler();
             var artifacts = variantsFile is null
-                ? compiler.CompileAssembly(assemblyPath, outputPath, options)
-                : compiler.CompileVariants(assemblyPath, outputPath, SpirvVariantConfiguration.Load(variantsFile).Targets, options);
+                ? compiler.CompileAssembly(request)
+                : compiler.CompileVariants(request, SpirvVariantConfiguration.Load(variantsFile).Targets);
             foreach (var artifact in artifacts) {
                 var state = artifact.CacheHit ? "cached" : "compiled";
                 Console.WriteLine($"SPIR-V {state}: {artifact.Kernel.QualifiedName} -> {artifact.SpirvPath}");

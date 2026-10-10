@@ -2,6 +2,8 @@ using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.Valid;
+using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.Spirv;
 
 namespace Sia.Spirv.Compiler.Tests;
 
@@ -49,34 +51,35 @@ public class RuntimeCompilerTests
         var request = new SpirvModuleCompilationRequest(AssemblyImage(), token, IntrinsicImage());
         var module = new SpirvCompiler().CompileModule(request);
         ModuleValidator.Validate(module);
-        var wgsl = WgslWriter.Write(module);
+        var wgsl = WgslWriter.Write(module, request.Target);
         Assert.Contains("@" + SpirvTestAssembly.GetKernel(declaringType, name).Stage.ToString().ToLowerInvariant(), wgsl);
         ModuleValidator.Validate(WgslReader.Parse(wgsl));
-        var binary = SpirvWriter.Write(module);
+        var binary = SpirvWriter.Write(module, new() { Target = request.Target });
         ModuleValidator.Validate(SpirvReader.Parse(binary));
-        var legacy = new SpirvCompiler().CompileModule(request.AssemblyImage, token, request.IntrinsicImage);
-        Assert.Equal(wgsl, WgslWriter.Write(legacy));
-        Assert.Equal(binary, SpirvWriter.Write(legacy));
+        Assert.Equal(request.Target.Version, SpirvBinary.Parse(binary).Version);
     }
 
     [Theory]
     [InlineData(SpirvKernelAbi.WebGpu)]
     [InlineData(SpirvKernelAbi.Vulkan)]
-    public void MemoryRequestAndLegacyAdapterUseTheSameExplicitAbi(SpirvKernelAbi abi)
+    public void MemoryRequestUsesItsExplicitAbiForParameterStorage(SpirvKernelAbi abi)
     {
-        var token = SpirvTestAssembly.GetKernel(typeof(ComputeShaders), nameof(ComputeShaders.UseHelpers)).MetadataToken;
-        var request = new SpirvModuleCompilationRequest(AssemblyImage(), token, IntrinsicImage()) { KernelAbi = abi };
+        var token = SpirvTestAssembly.GetKernel(typeof(ComputeShaders), nameof(ComputeShaders.Synchronize)).MetadataToken;
+        var request = new SpirvModuleCompilationRequest(AssemblyImage(), token, IntrinsicImage()) {
+            Target = SpirvCompilationTarget.Default with { KernelAbi = abi }
+        };
         var compiler = new SpirvCompiler();
         var module = compiler.CompileModule(request);
-        var legacy = compiler.CompileModule(request.AssemblyImage, token, request.IntrinsicImage,
-            new SpirvCompilationOptions { KernelAbi = abi });
-        Assert.Equal(SpirvWriter.Write(legacy), SpirvWriter.Write(module));
+        var parameters = Assert.Single(module.Globals, g => g.Name == "sia_parameters");
+        Assert.Equal(abi == SpirvKernelAbi.WebGpu ? AddressSpace.Uniform : AddressSpace.Immediate, parameters.Space);
+        Assert.Equal(abi == SpirvKernelAbi.WebGpu, parameters.Binding is not null);
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, new() { Target = request.Target })));
     }
 
     [Fact]
     public void RuntimeCompilerRejectsMissingEntryAndEmptyImage()
     {
-        Assert.Throws<ArgumentException>(() => new SpirvCompiler().CompileModule(AssemblyImage(), 0, IntrinsicImage()));
+        Assert.Throws<ArgumentException>(() => new SpirvCompiler().CompileModule(new SpirvModuleCompilationRequest(AssemblyImage(), 0, IntrinsicImage())));
         Assert.Throws<ArgumentException>(() => new SpirvFrontend().Analyze(ReadOnlyMemory<byte>.Empty));
     }
 
@@ -85,11 +88,11 @@ public class RuntimeCompilerTests
     {
         var compiler = new SpirvCompiler();
         var request = new SpirvModuleCompilationRequest(ReadOnlyMemory<byte>.Empty, 0);
-        Assert.Throws<ArgumentOutOfRangeException>(() => compiler.CompileModule(request with { KernelAbi = (SpirvKernelAbi)99 }));
+        Assert.Throws<ArgumentOutOfRangeException>(() => compiler.CompileModule(request with { Target = request.Target with { KernelAbi = (SpirvKernelAbi)99 } }));
         Assert.Throws<InvalidDataException>(() => compiler.CompileModule(request with {
-            TargetProfile = new SpirvTargetProfile { MaxStorageBuffersPerShaderStage = -1 }
+            Target = request.Target with { ResourceLimits = new SpirvTargetProfile { MaxStorageBuffersPerShaderStage = -1 } }
         }));
-        Assert.Throws<ArgumentNullException>(() => compiler.CompileModule(request with { TargetProfile = null! }));
+        Assert.Throws<ArgumentNullException>(() => compiler.CompileModule(request with { Target = request.Target with { ResourceLimits = null! } }));
     }
 
     [Fact]
@@ -109,7 +112,7 @@ public class RuntimeCompilerTests
         image[offset + 1] = 0x2b;
         image[offset + 2] = 0xfe;
         var error = Assert.Throws<InvalidDataException>(() =>
-            new SpirvCompiler().CompileModule(image, token, IntrinsicImage()));
+            new SpirvCompiler().CompileModule(new SpirvModuleCompilationRequest(image, token, IntrinsicImage())));
         Assert.Contains("backedge", error.Message);
     }
 }

@@ -13,14 +13,43 @@ public class TargetContractTests
 {
     internal const string DescriptorArray = "enable wgpu_binding_array; @id(7) override n:u32; struct Data { value:u32 } @group(0) @binding(0) var<storage,read_write> data:binding_array<Data,n>; @compute @workgroup_size(1) fn main(){data[0].value=9u;}";
     [Fact]
-    public void FileAndMemoryRequestsShareAnImmutableDefaultAndLegacyDefaultsRemainExplicit()
+    public void FileAndMemoryRequestsShareOneImmutableTargetDefault()
     {
         var memory = new SpirvModuleCompilationRequest(default, 0); var file = new SpirvFileCompilationRequest("shader.dll", "output");
         Assert.Same(memory.Target, file.Target); Assert.Equal(SpirvKernelAbi.WebGpu, file.Target.KernelAbi);
         Assert.Equal("vulkan1.2", file.Target.Environment); Assert.Equal(0x00010500u, file.Target.Version);
-        Assert.Equal(SpirvKernelAbi.Vulkan, new SpirvCompilationOptions().KernelAbi);
-        var changed = memory with { KernelAbi = SpirvKernelAbi.Vulkan };
+        var changed = memory with { Target = memory.Target with { KernelAbi = SpirvKernelAbi.Vulkan } };
         Assert.Equal(SpirvKernelAbi.WebGpu, memory.Target.KernelAbi); Assert.Equal(SpirvKernelAbi.Vulkan, changed.Target.KernelAbi);
+    }
+
+    [Fact]
+    public void PublicCompilationSurfaceHasNoLegacyOverloadsOptionsOrForwardingProperties()
+    {
+        var methods = typeof(SpirvCompiler).GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+        var memory = Assert.Single(methods, m => m.Name == nameof(SpirvCompiler.CompileModule));
+        Assert.Equal(new[] { typeof(SpirvModuleCompilationRequest) }, memory.GetParameters().Select(p => p.ParameterType));
+        var file = Assert.Single(methods, m => m.Name == nameof(SpirvCompiler.CompileAssembly));
+        Assert.Equal(new[] { typeof(SpirvFileCompilationRequest) }, file.GetParameters().Select(p => p.ParameterType));
+        var variants = Assert.Single(methods, m => m.Name == nameof(SpirvCompiler.CompileVariants));
+        Assert.Equal(new[] { typeof(SpirvFileCompilationRequest), typeof(IReadOnlyDictionary<string, SpirvTargetProfile>) }, variants.GetParameters().Select(p => p.ParameterType));
+        Assert.Null(typeof(SpirvCompiler).Assembly.GetType("Sia.Spirv.Compiler.Compilation.SpirvCompilationOptions"));
+        Assert.Null(typeof(SpirvModuleCompilationRequest).GetProperty("KernelAbi"));
+        Assert.Null(typeof(SpirvModuleCompilationRequest).GetProperty("TargetProfile"));
+    }
+
+    [Theory] [InlineData("target")] [InlineData("abi")] [InlineData("empty")] [InlineData("name")] [InlineData("limits")]
+    public void VariantsRejectInvalidRequestsAndProfilesBeforeFileAccess(string defect)
+    {
+        var request = new SpirvFileCompilationRequest("missing.dll", "missing-output");
+        IReadOnlyDictionary<string, SpirvTargetProfile> profiles = new Dictionary<string, SpirvTargetProfile> { ["mobile"] = SpirvTargetProfile.Default };
+        if (defect == "target") request = request with { Target = null! };
+        if (defect == "abi") request = request with { Target = request.Target with { KernelAbi = (SpirvKernelAbi)99 } };
+        if (defect == "empty") profiles = new Dictionary<string, SpirvTargetProfile>();
+        if (defect == "name") profiles = new Dictionary<string, SpirvTargetProfile> { ["bad--name"] = SpirvTargetProfile.Default };
+        if (defect == "limits") profiles = new Dictionary<string, SpirvTargetProfile> { ["mobile"] = SpirvTargetProfile.Default with { MaxUniformBuffersPerShaderStage = -1 } };
+        var error = Record.Exception(() => new SpirvCompiler().CompileVariants(request, profiles));
+        Assert.NotNull(error); Assert.IsNotType<FileNotFoundException>(error);
+        Assert.True(error is ArgumentException or InvalidDataException, error.ToString());
     }
 
     [Theory]

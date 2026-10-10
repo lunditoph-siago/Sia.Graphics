@@ -11,8 +11,9 @@ public static partial class SpirvWriter
         {
             private uint Call(Expression.Call call)
             {
-                if (call.Binding != CallBinding.Builtin && owner.functions.TryGetValue(call.Function, out var function))
+                if (call.Binding == CallBinding.Function)
                 {
+                    if (!owner.functions.TryGetValue(call.Function, out var function)) throw owner.Error("Unknown resolved function call.", call.Span);
                     owner.functionCalls[functionId].Add(function.Id);
                     // Target legalization expands calls that need pointer adaptation.
                     // Serialization must retain the supplied address identity.

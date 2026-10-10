@@ -230,7 +230,7 @@ internal sealed class HelperInliner
             case Expression.Swizzle s: result = s with { Vector = E(s.Vector) }; break;
             case Expression.Construct c: result = c with { Components = Values(c.Components, context, prelude) }; break;
             case Expression.Call c:
-                bool inline = c.Binding != CallBinding.Builtin && helpers.ContainsKey(c.Function);
+                bool inline = c.Binding == CallBinding.Function && helpers.ContainsKey(c.Function);
                 var args = Values(c.Arguments, context, prelude, inline);
                 result = inline ? Inline(c, args, prelude, context) : c with { Arguments = args }; break;
             case Expression.Binary b:

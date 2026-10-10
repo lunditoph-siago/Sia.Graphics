@@ -208,7 +208,7 @@ public class MemoryAccessTests
             : new Statement.Declare("value", ShaderType.U32, new Expression.Load(parameter) { MemoryAccess = new(1) }, false));
         module.Functions.Add(helper);
         var global = new Expression.Reference("backing", pointer);
-        module.Functions[0].Body.Statements.Add(new Statement.Evaluate(new Expression.Call("helper", [new Expression.Unary("&", global, pointer)], new ShaderType.Void())));
+        module.Functions[0].Body.Statements.Add(new Statement.Evaluate(new Expression.Call("helper", [new Expression.Unary("&", global, pointer)], new ShaderType.Void(), CallBinding.Function)));
         ModuleValidator.Validate(module);
         Assert.Contains("proven WGSL storage-buffer root", Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default)).Message);
         Assert.Equal(MemoryDecorations.None, module.Globals[0].MemoryDecorations);

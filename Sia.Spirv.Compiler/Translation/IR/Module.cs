@@ -48,8 +48,8 @@ public sealed class ShaderFunction(string name)
     public List<DiagnosticFilter> DiagnosticFilters { get; } = [];
 }
 
-// The public compatibility constructor remains name-resolved; compiler-owned calls retain their resolved identity.
-internal enum CallBinding { Unresolved, Function, Builtin }
+/// <summary>Resolved semantic identity of a call, independent of name collisions.</summary>
+public enum CallBinding { Function = 1, Builtin = 2 }
 
 public abstract record Expression(ShaderType Type)
 {
@@ -65,11 +65,8 @@ public abstract record Expression(ShaderType Type)
     }
     public sealed record Unary(string Operator, Expression Operand, ShaderType ValueType) : Expression(ValueType);
     public sealed record Binary(string Operator, Expression Left, Expression Right, ShaderType ValueType) : Expression(ValueType);
-    public sealed record Call(string Function, IReadOnlyList<Expression> Arguments, ShaderType ValueType) : Expression(ValueType)
+    public sealed record Call(string Function, IReadOnlyList<Expression> Arguments, ShaderType ValueType, CallBinding Binding) : Expression(ValueType)
     {
-        internal CallBinding Binding { get; init; }
-        internal Call(string function, IReadOnlyList<Expression> arguments, ShaderType valueType, CallBinding binding)
-            : this(function, arguments, valueType) { Binding = binding; }
         /// <summary>Native atomic requirements. Null selects the WGSL builtin's default memory behavior.</summary>
         public SpirvAtomicMemory? AtomicMemory { get; init; }
         /// <summary>Native ordinary/cooperative memory access, including accesses to upgraded atomic places.</summary>

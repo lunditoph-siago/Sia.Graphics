@@ -88,14 +88,14 @@ public class SpirvMemoryLegalizationTests
     }
 
     [Fact]
-    public void UnresolvedUserFunctionNamedAtomicLoadRetainsIdentityAndMetadata()
+    public void ExplicitUserFunctionNamedAtomicLoadRetainsIdentityAndMetadata()
     {
         var pointer = new ShaderType.Pointer(new ShaderType.Atomic(ShaderType.U32), AddressSpace.Storage);
         var module = new Module { VulkanMemoryModel = true };
         module.Globals.Add(new("counter", pointer.Base, AddressSpace.Storage) { MemoryDecorations = MemoryDecorations.Volatile });
         var user = new ShaderFunction("atomicLoad"); module.Functions.Add(user);
         var caller = new ShaderFunction("caller"); module.Functions.Add(caller);
-        var call = new Expression.Call("atomicLoad", [new Expression.Unary("&", new Expression.Reference("counter", pointer.Base), pointer)], new ShaderType.Void());
+        var call = new Expression.Call("atomicLoad", [new Expression.Unary("&", new Expression.Reference("counter", pointer.Base), pointer)], new ShaderType.Void(), CallBinding.Function);
         caller.Body.Statements.Add(new Statement.Evaluate(call));
         Assert.Same(module, SpirvMemoryAccessLowering.Run(module));
         Assert.Null(call.AtomicMemory);

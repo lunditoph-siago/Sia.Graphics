@@ -41,7 +41,7 @@ public class ReadOnlyPointerSelectionTests
         var main = new ShaderFunction("main") { Stage = ShaderStage.Compute };
         main.Body.Statements.Add(new Statement.Declare("chosen", selected.Type, selected, false));
         var atomic = Index(b, Expression.U32(0), new ShaderType.Atomic(ShaderType.U32));
-        main.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("atomicAdd", [Address(atomic), Expression.U32(5)], ShaderType.U32) { AtomicMemory = new(1, 0) }));
+        main.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("atomicAdd", [Address(atomic), Expression.U32(5)], ShaderType.U32, CallBinding.Builtin) { AtomicMemory = new(1, 0) }));
         var pointer = new Expression.Unary("*", new Expression.Reference("chosen", selected.Type), selected.Type);
         var load = new Expression.Load(pointer) { MemoryAccess = qualified ? new(7, 4) : null };
         main.Body.Statements.Add(new Statement.Declare("before", load.Type, load, false));

@@ -72,7 +72,7 @@ internal sealed class WgslMemoryLowering(Module input)
         var calls = module.Functions.ToDictionary(f => f.Name, _ => new HashSet<string>(StringComparer.Ordinal), StringComparer.Ordinal);
         void Expr(Expression e, HashSet<string> found)
         {
-            if (e is Expression.Call call && call.Binding != CallBinding.Builtin && calls.ContainsKey(call.Function)) found.Add(call.Function);
+            if (e is Expression.Call call && call.Binding == CallBinding.Function && calls.ContainsKey(call.Function)) found.Add(call.Function);
             IEnumerable<Expression> children = e switch
             {
                 Expression.Call c => c.Arguments, Expression.Unary u => [u.Operand], Expression.Load l => [l.Pointer],
@@ -184,7 +184,7 @@ internal sealed class WgslMemoryLowering(Module input)
         helper.Body.Statements.Add(new Statement.Loop(loop, new()));
         helper.Body.Statements.Add(new Statement.Return(new Expression.Load(observed)));
         output.Functions.Add(helper);
-        return new Expression.Call(helper.Name, actual, call.Type) { Span = call.Span };
+        return new Expression.Call(helper.Name, actual, call.Type, CallBinding.Function) { Span = call.Span };
     }
     private Expression Expr(Expression e) => e switch
     {

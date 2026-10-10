@@ -131,7 +131,7 @@ public class OverrideArrayTests
         var body = module.Functions[1].Body.Statements;
         body.Add(new Statement.Declare("saved", array, new Expression.Load(place), false));
         body.Add(new Statement.Store(new Expression.Access(place, Expression.U32(0), new ShaderType.Pointer(ShaderType.U32, AddressSpace.Workgroup)), Expression.U32(7)));
-        body.Add(new Statement.Declare("result", ShaderType.U32, new Expression.Call("fetch", [new Expression.Reference("saved", array)], ShaderType.U32), false));
+        body.Add(new Statement.Declare("result", ShaderType.U32, new Expression.Call("fetch", [new Expression.Reference("saved", array)], ShaderType.U32, CallBinding.Function), false));
         ModuleValidator.Validate(module);
         Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.NotEmpty(SpirvWriter.Write(PipelineConstantResolver.Resolve(module, new Dictionary<string, double>()), SpirvCompilationTarget.Default));

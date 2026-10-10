@@ -42,7 +42,7 @@ internal sealed partial class RuntimeShaderLowering
             var atomic = type?.Element as ShaderType.Atomic ?? throw Error(at, "Atomic receiver requires an integer writable array.");
             var pointer = new Expression.Access(array.Expression, Read(args[0], body), Pointer(array.Expression, atomic));
             var value = Convert(Read(args[1], body), atomic.Component, true);
-            Push(new Expression.Call(call.Intrinsic == IntrinsicKind.AtomicAdd ? "atomicAdd" : "atomicExchange", [Address(pointer), value], atomic.Component)); return;
+            Push(new Expression.Call(call.Intrinsic == IntrinsicKind.AtomicAdd ? "atomicAdd" : "atomicExchange", [Address(pointer), value], atomic.Component, CallBinding.Builtin)); return;
         }
         if (call.Intrinsic == IntrinsicKind.MathGetComponent) {
             var vector = Read(receiver ?? throw Error(at, "Missing math receiver."), body);
@@ -77,11 +77,11 @@ internal sealed partial class RuntimeShaderLowering
             if (arrayed) operands.Add(Convert(values[coordinate+2], ShaderType.I32));
             int levelIndex = coordinate + (arrayed ? 3 : 2);
             operands.Add(levelIndex < values.Length-1 ? Convert(values[levelIndex], sampled ? ShaderType.F32 : ShaderType.I32) : Zero(sampled ? ShaderType.F32 : ShaderType.I32));
-            var texel = new Expression.Call(sampled ? "textureSampleLevel" : "textureLoad", operands, new ShaderType.Vector(4, ShaderType.F32));
+            var texel = new Expression.Call(sampled ? "textureSampleLevel" : "textureLoad", operands, new ShaderType.Vector(4, ShaderType.F32), CallBinding.Builtin);
             Push(new Expression.Access(texel, Expression.U32(ConstantIndex(values[^1], at)), ShaderType.F32)); return;
         }
         if (call.Intrinsic == IntrinsicKind.UnpackHalf) {
-            Expression HalfValue(Expression value) => new Expression.Access(new Expression.Call("unpack2x16float", [Convert(value, ShaderType.U32, true)], new ShaderType.Vector(2, ShaderType.F32)), Expression.U32(0), ShaderType.F32);
+            Expression HalfValue(Expression value) => new Expression.Access(new Expression.Call("unpack2x16float", [Convert(value, ShaderType.U32, true)], new ShaderType.Vector(2, ShaderType.F32), CallBinding.Builtin), Expression.U32(0), ShaderType.F32);
             if (values[0].Type is ShaderType.Vector vector) Push(new Expression.Construct(new ShaderType.Vector(vector.Size, ShaderType.F32), Enumerable.Range(0, vector.Size).Select(i => HalfValue(new Expression.Access(values[0], Expression.U32((uint)i), vector.Component))).ToArray()));
             else Push(HalfValue(values[0]));
             return;
@@ -126,7 +126,7 @@ internal sealed partial class RuntimeShaderLowering
             IntrinsicKind.MathClamp => "clamp", IntrinsicKind.MathSaturate => "saturate", IntrinsicKind.MathReflect => "reflect",
             IntrinsicKind.MathAny => "any", IntrinsicKind.MathAll => "all", IntrinsicKind.MathTranspose => "transpose", _ => null
         };
-        if (builtin is not null) { Push(new Expression.Call(builtin, values, Type(call.Signature.ReturnType))); return; }
+        if (builtin is not null) { Push(new Expression.Call(builtin, values, Type(call.Signature.ReturnType), CallBinding.Builtin)); return; }
         if (call.Intrinsic is not null) throw Error(at, $"Runtime intrinsic {call.Intrinsic} requires further lowering.");
         if (MetadataTokens.EntityHandle(call.MetadataToken).Kind != HandleKind.MethodDefinition)
             throw Error(at, $"Runtime helper {call.DeclaringType}.{call.Name} needs explicit supported shader metadata.");
@@ -139,7 +139,7 @@ internal sealed partial class RuntimeShaderLowering
             var inputs = new[] { new Value(place, true) }.Concat(parameters.Select(p => new Value(new Expression.Reference(p.Name, p.Type)))).ToArray();
             Function(constructor, call.MetadataToken, inputs, returnOverride: new Expression.Load(place));
             module.Functions.Insert(0, constructor);
-            var construction = new Expression.Call(constructor.Name, values, constructed);
+            var construction = new Expression.Call(constructor.Name, values, constructed, CallBinding.Function);
             if (receiver is not null) Store(receiver.Expression, construction, body); else Push(construction);
             return;
         }
@@ -153,7 +153,7 @@ internal sealed partial class RuntimeShaderLowering
             Function(helper, call.MetadataToken, inputs);
             activeHelpers.Remove(call.MetadataToken); helpers.Add(call.MetadataToken, helper); module.Functions.Insert(0, helper);
         }
-        var invocation = new Expression.Call(helper.Name, values.Select((value, i) => Convert(value, helper.Arguments[i].Type, true)).ToArray(), helper.ReturnType);
+        var invocation = new Expression.Call(helper.Name, values.Select((value, i) => Convert(value, helper.Arguments[i].Type, true)).ToArray(), helper.ReturnType, CallBinding.Function);
         if (helper.ReturnType is ShaderType.Void) body.Statements.Add(new Statement.Evaluate(invocation)); else Push(invocation);
     }
     private static uint ConstantIndex(Expression value, int offset) {

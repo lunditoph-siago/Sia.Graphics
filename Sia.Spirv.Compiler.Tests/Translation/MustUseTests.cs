@@ -51,7 +51,7 @@ public class MustUseTests
     public void IrEvaluationUsesAnExplicitPhonyAssignmentInWgsl()
     {
         var module = new Module(); var function = new ShaderFunction("main") { Stage = ShaderStage.Compute };
-        function.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("abs", [Expression.I32(-1)], ShaderType.I32)));
+        function.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("abs", [Expression.I32(-1)], ShaderType.I32, CallBinding.Builtin)));
         module.Functions.Add(function);
         string output = WgslWriter.Write(module, SpirvCompilationTarget.Default);
         Assert.Contains("_ = abs(-1i);", output);

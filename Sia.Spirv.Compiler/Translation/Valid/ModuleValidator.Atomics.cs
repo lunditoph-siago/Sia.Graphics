@@ -12,7 +12,7 @@ public static partial class ModuleValidator
             Require(!compare || call.AtomicMemory?.UnequalSemantics is not null,
                 "Native compare/exchange requires equal and unequal memory semantics.", call.Span);
             if (call.AtomicMemory is not { } memory) return;
-            Require((call.Binding == CallBinding.Builtin || !functions.ContainsKey(call.Function)) && (call.Function.StartsWith("atomic", StringComparison.Ordinal)
+            Require(call.Binding == CallBinding.Builtin && (call.Function.StartsWith("atomic", StringComparison.Ordinal)
                 || call.Function.StartsWith("textureAtomic", StringComparison.Ordinal) || compare
                 || call.Function == "workgroupUniformLoad" && call.Arguments.Count == 1 && call.Arguments[0].Type is ShaderType.Pointer { Base: ShaderType.Atomic, Space: AddressSpace.Workgroup }),
                 "Native atomic memory operands require an atomic operation.", call.Span);

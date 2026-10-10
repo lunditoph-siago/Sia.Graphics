@@ -5,6 +5,32 @@ See the [current pipeline/target map](../../docs/compiler-architecture.md) and
 records the original PR baseline, not verification of later source changes;
 `renewal-evidence.json` records the cleanup follow-up.
 
+Latest call identity migration: source 221FF2B6…, Compiler 49F8D3FB….
+`Expression.Call` requires a fourth Function/Builtin binding argument; the
+three-argument constructor, Unresolved value and name-inference compatibility
+are removed. Seven regression cases cover API shape, invalid identities,
+unknown functions and same-name function/builtin effects and execution. Existing
+compatibility fixtures now supply explicit Function identities; their behavior
+assertions remain. No tests were deleted or disabled.
+
+Passed: maintenance 2273/2273; independent formats 233 maintained, 22 query/handle,
+82 frozen replay input/output and four identity outputs (341 total); original
+native replay 41/41; GPU 10/10 on Intel HD 620 Vulkan. Six GPU cases independently
+expect [10,1] for the side-effecting user min function and [3,0] for builtin min
+across WGSL, SPIR-V and native-to-WGSL. CLI, Dawn browser-library and validation
+exporter builds pass; the exporter produces 22 shaders. Ten Compiler DLL copies
+match. Full maintenance source AB005358… differs from final source only in the
+GPU runner's async read fix; unchanged compiler/test hashes establish its scope.
+
+Scripts, reports, source identities, failures and commands are retained in
+`.work/compiler-architecture-first/call-binding-*`, consolidated by
+`record-call-binding-evidence.py`. Earlier failed migration runs remain recorded;
+fixtures and migration omissions were corrected without disabling checks.
+Actual browser execution, SDK package consumption, Linux/AOT and full research
+are not local checks of this source. Earlier browser executable NU1102 evidence
+and prior-head CI success remain historical. The records below retain their
+original source scopes.
+
 Latest writer/translator migration: source F53E737A…, Compiler EEBD8F39….
 All public writer and translator calls require an explicit target; writer options
 contain only emission policies. Maintained consumers choose their target directly,

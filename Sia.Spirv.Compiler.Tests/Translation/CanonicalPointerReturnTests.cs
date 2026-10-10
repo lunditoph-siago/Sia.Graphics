@@ -177,7 +177,7 @@ public class CanonicalPointerReturnTests
         var body = module.Functions.Single(f => f.Stage is not null).Body;
         int chosen = body.Statements.FindIndex(s => s is Statement.Declare { Name: "chosen" });
         var address = new Expression.Reference("chosen", Pointer);
-        body.Statements.Insert(chosen + 1, new Statement.Evaluate(new Expression.Call("write", [address, address], new ShaderType.Void())));
+        body.Statements.Insert(chosen + 1, new Statement.Evaluate(new Expression.Call("write", [address, address], new ShaderType.Void(), CallBinding.Function)));
         ModuleValidator.Validate(module);
         Assert.Contains("overlapping root", Assert.Throws<ShaderException>(() => PointerAliasAnalysis.Validate(module)).Message);
     }

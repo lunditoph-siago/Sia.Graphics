@@ -44,7 +44,7 @@ public static class ConstantEvaluator
         Expression.Access a => Access(Eval(a.Base), Eval(a.Index)),
         Expression.Member m => Member(Eval(m.Base), m.Name),
         Expression.Swizzle s => Swizzle(Eval(s.Vector), s.Components, s.Type),
-        Expression.Call c when c.Binding != CallBinding.Function => Call(c.Function, c.Arguments.Select(Eval).ToArray(), c.Type),
+        Expression.Call c when c.Binding == CallBinding.Builtin => Call(c.Function, c.Arguments.Select(Eval).ToArray(), c.Type),
         _ => throw new NotConstant()
     };
 

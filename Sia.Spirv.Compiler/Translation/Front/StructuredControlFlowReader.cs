@@ -119,9 +119,9 @@ internal sealed class StructuredControlFlowReader
                 return Emit(member.Type, new ValueOperation.Member(Expr(member.Base), member.Name), member.Span);
             case Expression.Swizzle swizzle when CanonicalTypes.Data(swizzle.Type):
                 return Emit(swizzle.Type, new ValueOperation.Swizzle(Expr(swizzle.Vector), swizzle.Components), swizzle.Span);
-            case Expression.Call call when call.Binding != CallBinding.Builtin && (CanonicalTypes.Data(call.Type) || call.Type is ShaderType.Pointer) && callees.Contains(call.Function):
+            case Expression.Call call when call.Binding == CallBinding.Function && (CanonicalTypes.Data(call.Type) || call.Type is ShaderType.Pointer) && callees.Contains(call.Function):
                 return Emit(call.Type, Call(call), call.Span);
-            case Expression.Call call when call.Binding != CallBinding.Function && ShaderBuiltinEffects.IsKnown(call.Function) && call.Type is not ShaderType.Void:
+            case Expression.Call call when call.Binding == CallBinding.Builtin && ShaderBuiltinEffects.IsKnown(call.Function) && call.Type is not ShaderType.Void:
                 return Emit(call.Type, new ValueOperation.Builtin(call.Function, call.Arguments.Select(Expr).ToArray(), call.Type, call.AtomicMemory, call.MemoryAccess), call.Span);
             case Expression.Select select when CanonicalTypes.Data(select.Type):
                 return Emit(select.Type, new ValueOperation.Select(Expr(select.Condition), Expr(select.Accept), Expr(select.Reject)), select.Span);
@@ -234,9 +234,9 @@ internal sealed class StructuredControlFlowReader
                 case Statement.Store store when CanonicalTypes.Data(store.Value.Type) || nativeMemory && store.Value.Type is ShaderType.Pointer:
                     var target = Place(store.Target); var stored = Expr(store.Value);
                     Add(new(null, new ValueOperation.Store(target, stored, store.MemoryAccess), store.Span)); break;
-                case Statement.Evaluate { Value: Expression.Call { Type: ShaderType.Void } call } when call.Binding != CallBinding.Builtin && callees.Contains(call.Function):
+                case Statement.Evaluate { Value: Expression.Call { Type: ShaderType.Void } call } when call.Binding == CallBinding.Function && callees.Contains(call.Function):
                     Add(new(null, Call(call), call.Span)); break;
-                case Statement.Evaluate { Value: Expression.Call { Type: ShaderType.Void } builtin } when builtin.Binding != CallBinding.Function && ShaderBuiltinEffects.IsKnown(builtin.Function):
+                case Statement.Evaluate { Value: Expression.Call { Type: ShaderType.Void } builtin } when builtin.Binding == CallBinding.Builtin && ShaderBuiltinEffects.IsKnown(builtin.Function):
                     var arguments = builtin.Arguments.Select(Expr).ToArray();
                     Add(new(null, new ValueOperation.Builtin(builtin.Function, arguments, builtin.Type,
                         builtin.AtomicMemory, builtin.MemoryAccess), builtin.Span)); break;

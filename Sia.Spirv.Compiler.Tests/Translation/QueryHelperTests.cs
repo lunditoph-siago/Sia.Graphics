@@ -119,7 +119,7 @@ public class QueryHelperTests
         var module = WgslReader.Parse("enable wgpu_ray_query; @group(0) @binding(0) var scene:acceleration_structure; @compute @workgroup_size(1) fn main(){var query:ray_query; rayQueryInitialize(&query,scene,RayDesc(0u,255u,0.0,1.0,vec3f(0),vec3f(1)));}");
         var initialize = (Expression.Call)((Statement.Evaluate)module.Functions[0].Body.Statements[1]).Value;
         module.Functions[0].Body.Statements.Add(new Statement.Declare("flags", ShaderType.U32,
-            new Expression.Call("spirvRayQueryGetRayFlagsKHR", [initialize.Arguments[0]], ShaderType.U32), false));
+            new Expression.Call("spirvRayQueryGetRayFlagsKHR", [initialize.Arguments[0]], ShaderType.U32, CallBinding.Builtin), false));
         ModuleValidator.Validate(module);
         var error = Assert.Throws<ShaderException>(() => WgslWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Equal(DiagnosticStage.WgslWrite, error.Diagnostic.Stage); Assert.Contains("guarded state tracking", error.Message);
@@ -186,13 +186,13 @@ public class QueryHelperTests
             {
                 var desc = (Expression.Construct)call.Arguments[2]; var c = desc.Components;
                 body.Statements[i] = new Statement.Evaluate(new Expression.Call("spirvRayQueryInitializeKHR",
-                    [call.Arguments[0], call.Arguments[1], c[0], c[1], c[4], c[2], c[5], c[3]], new ShaderType.Void()));
+                    [call.Arguments[0], call.Arguments[1], c[0], c[1], c[4], c[2], c[5], c[3]], new ShaderType.Void(), CallBinding.Builtin));
             }
         }
         var pointer = new Expression.Reference("q", module.Functions[1].Arguments[0].Type);
         module.Functions[1].Body.Statements[0] = new Statement.Return(new Expression.Construct(new ShaderType.Vector(2, ShaderType.U32),
-            [new Expression.Call("spirvRayQueryGetRayFlagsKHR", [pointer], ShaderType.U32),
-             new Expression.Convert(ShaderType.U32, new Expression.Call("spirvRayQueryGetRayTMinKHR", [pointer], ShaderType.F32), true)]));
+            [new Expression.Call("spirvRayQueryGetRayFlagsKHR", [pointer], ShaderType.U32, CallBinding.Builtin),
+             new Expression.Convert(ShaderType.U32, new Expression.Call("spirvRayQueryGetRayTMinKHR", [pointer], ShaderType.F32, CallBinding.Builtin), true)]));
         return module;
     }
 

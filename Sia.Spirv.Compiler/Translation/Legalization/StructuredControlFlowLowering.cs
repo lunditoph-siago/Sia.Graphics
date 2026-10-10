@@ -159,12 +159,12 @@ internal static class StructuredControlFlowLowering
                     emission.Statements.Add(new Statement.MeshSetOutputs(Use(meshCounts.Vertices), Use(meshCounts.Primitives)) { Span = instruction.Span }); continue;
                 }
                 if (instruction.Operation is ValueOperation.Call { ReturnType: ShaderType.Void } voidCall) {
-                    emission.Statements.Add(new Statement.Evaluate(new Expression.Call(voidCall.Function, voidCall.Arguments.Select(CallArgument).ToArray(), voidCall.ReturnType)
-                        { Binding = CallBinding.Function, AtomicMemory = voidCall.AtomicMemory, MemoryAccess = voidCall.MemoryAccess, Span = instruction.Span }) { Span = instruction.Span }); continue;
+                    emission.Statements.Add(new Statement.Evaluate(new Expression.Call(voidCall.Function, voidCall.Arguments.Select(CallArgument).ToArray(), voidCall.ReturnType, CallBinding.Function)
+                                                { AtomicMemory = voidCall.AtomicMemory,MemoryAccess = voidCall.MemoryAccess,Span = instruction.Span }) { Span = instruction.Span }); continue;
                 }
                 if (instruction.Operation is ValueOperation.Builtin { ReturnType: ShaderType.Void } voidBuiltin) {
-                    emission.Statements.Add(new Statement.Evaluate(new Expression.Call(voidBuiltin.Function, voidBuiltin.Arguments.Select(CallArgument).ToArray(), voidBuiltin.ReturnType)
-                        { Binding = CallBinding.Builtin, AtomicMemory = voidBuiltin.AtomicMemory, MemoryAccess = voidBuiltin.MemoryAccess, Span = instruction.Span }) { Span = instruction.Span }); continue;
+                    emission.Statements.Add(new Statement.Evaluate(new Expression.Call(voidBuiltin.Function, voidBuiltin.Arguments.Select(CallArgument).ToArray(), voidBuiltin.ReturnType, CallBinding.Builtin)
+                                                { AtomicMemory = voidBuiltin.AtomicMemory,MemoryAccess = voidBuiltin.MemoryAccess,Span = instruction.Span }) { Span = instruction.Span }); continue;
                 }
                 var result = instruction.Result!.Value;
                 if (!CanonicalTypes.Data(result.Type)) {
@@ -194,10 +194,10 @@ internal static class StructuredControlFlowLowering
                     ValueOperation.Access access => new Expression.Access(Use(access.Base), Use(access.Index), result.Type),
                     ValueOperation.Member member => new Expression.Member(Use(member.Base), member.Name, result.Type),
                     ValueOperation.Swizzle swizzle => new Expression.Swizzle(Use(swizzle.Vector), swizzle.Components, result.Type),
-                    ValueOperation.Call call => new Expression.Call(call.Function, call.Arguments.Select(CallArgument).ToArray(), call.ReturnType)
-                        { Binding = CallBinding.Function, AtomicMemory = call.AtomicMemory, MemoryAccess = call.MemoryAccess },
-                    ValueOperation.Builtin builtin => new Expression.Call(builtin.Function, builtin.Arguments.Select(CallArgument).ToArray(), result.Type)
-                        { Binding = CallBinding.Builtin, AtomicMemory = builtin.AtomicMemory, MemoryAccess = builtin.MemoryAccess },
+                    ValueOperation.Call call => new Expression.Call(call.Function, call.Arguments.Select(CallArgument).ToArray(), call.ReturnType, CallBinding.Function)
+                                                { AtomicMemory = call.AtomicMemory,MemoryAccess = call.MemoryAccess },
+                    ValueOperation.Builtin builtin => new Expression.Call(builtin.Function, builtin.Arguments.Select(CallArgument).ToArray(), result.Type, CallBinding.Builtin)
+                                                { AtomicMemory = builtin.AtomicMemory,MemoryAccess = builtin.MemoryAccess },
                     _ => throw new ShaderException(DiagnosticStage.Validation, "Unsupported value in CFG target adapter.")
                 };
                 var destination = Use(result);

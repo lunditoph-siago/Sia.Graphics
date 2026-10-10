@@ -45,7 +45,7 @@ internal static class ControlFlowAnalysis
 
     private static IEnumerable<string> Calls(Expression expression)
     {
-        if (expression is Expression.Call { Binding: not CallBinding.Builtin } call) yield return call.Function;
+        if (expression is Expression.Call { Binding: CallBinding.Function } call) yield return call.Function;
         IEnumerable<Expression> children = expression switch {
             Expression.Load l => [l.Pointer], Expression.Unary u => [u.Operand], Expression.Binary b => [b.Left, b.Right],
             Expression.Call c => c.Arguments, Expression.Construct c => c.Components, Expression.Convert c => [c.Operand],

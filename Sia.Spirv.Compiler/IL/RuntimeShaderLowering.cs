@@ -219,7 +219,7 @@ internal sealed partial class RuntimeShaderLowering(PEReader pe, MetadataReader 
     private Expression Read(Value value, Block body) {
         if (!value.Place) return value.Expression;
         var type = ValueType(value.Expression);
-        if (type is ShaderType.Atomic atomic) return Snapshot(new Expression.Call("atomicLoad", [Address(value.Expression)], atomic.Component), body).Expression;
+        if (type is ShaderType.Atomic atomic) return Snapshot(new Expression.Call("atomicLoad", [Address(value.Expression)], atomic.Component, CallBinding.Builtin), body).Expression;
         return Snapshot(new Expression.Load(value.Expression), body).Expression;
     }
     private static Expression Address(Expression place) => new Expression.Unary("&", place, Pointer(place, ValueType(place)));

@@ -162,7 +162,7 @@ public class AtomicMemoryTests
         var weak = Assert.IsType<Expression.Call>(declaration.Initializer);
         int position = main.Body.Statements.IndexOf(declaration);
         main.Body.Statements.RemoveRange(position, main.Body.Statements.Count - position);
-        main.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("spirvAtomicCompareExchange", weak.Arguments, ShaderType.U32) { AtomicMemory = new(1, 0, 0) }));
+        main.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("spirvAtomicCompareExchange", weak.Arguments, ShaderType.U32, CallBinding.Builtin) { AtomicMemory = new(1, 0, 0) }));
         var lowered = WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)); ModuleValidator.Validate(lowered);
         var helper = Assert.Single(lowered.Functions, f => f.Name.StartsWith("sia_atomic_", StringComparison.Ordinal));
         Assert.Equal(3, helper.Arguments.Count);
@@ -191,7 +191,7 @@ public class AtomicMemoryTests
         var module = new Module(); module.Globals.Add(new("value", atomic, AddressSpace.Storage, Binding: new(0, 0)));
         var function = new ShaderFunction("main") { Stage = ShaderStage.Compute };
         function.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("atomicAdd",
-            [new Expression.Unary("&", new Expression.Reference("value", pointer), pointer), new Expression.Literal(2f, ShaderType.F32)], ShaderType.F32)
+            [new Expression.Unary("&", new Expression.Reference("value", pointer), pointer), new Expression.Literal(2f, ShaderType.F32)], ShaderType.F32, CallBinding.Builtin)
             { AtomicMemory = new(1, 72) })); module.Functions.Add(function);
         var binary = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)); AssertAtomic(binary, Op.AtomicFAddEXT, 1, 72);
         var imported = SpirvReader.Parse(binary.ToBytes());

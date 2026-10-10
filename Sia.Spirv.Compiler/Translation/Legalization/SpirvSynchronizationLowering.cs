@@ -8,7 +8,6 @@ internal sealed partial class SpirvSynchronizationLowering(Module input)
     private sealed record Local(bool Place);
     private readonly Stack<Dictionary<string, Local>> scopes = [];
     private readonly Dictionary<string, GlobalVariable> globals = input.Globals.ToDictionary(g => g.Name, StringComparer.Ordinal);
-    private readonly HashSet<string> functions = input.Functions.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
     private readonly HashSet<string> names = input.Functions.Select(f => f.Name).Concat(input.Globals.Select(g => g.Name))
         .Concat(input.Constants.Select(c => c.Name)).Concat(input.Structures.Select(s => s.Name)).ToHashSet(StringComparer.Ordinal);
     private int nextName;
@@ -34,7 +33,7 @@ internal sealed partial class SpirvSynchronizationLowering(Module input)
             return new(e.Type, global.Space, global.Space is AddressSpace.Uniform or AddressSpace.Immediate or AddressSpace.Handle ? StorageAccess.Read : global.Access);
         return new(e.Type, AddressSpace.Function);
     }
-    private bool Builtin(Expression.Call call) => call.Binding == CallBinding.Builtin || call.Binding != CallBinding.Function && !functions.Contains(call.Function);
+    private bool Builtin(Expression.Call call) => call.Binding == CallBinding.Builtin;
     private static bool BarrierName(string name) => name is "storageBarrier" or "workgroupBarrier" or "textureBarrier" or "subgroupBarrier";
     private static SpirvBarrierMemory BarrierMemory(bool storage, bool workgroup, bool texture, bool subgroup, bool control)
         => new(subgroup ? 3u : 2u, 8u | (storage ? 64u : 0) | (workgroup || subgroup ? 256u : 0) | (texture ? 2048u : 0), control ? subgroup ? 3u : 2u : null);
@@ -101,7 +100,8 @@ internal sealed partial class SpirvSynchronizationLowering(Module input)
                     var pointer = Capture(call.Arguments[0], prefix);
                     prefix.Add(Barrier("workgroupBarrier", c.Span));
                     Expression read = pointer.Type is ShaderType.Pointer { Base: ShaderType.Atomic }
-                        ? new Expression.Call("atomicLoad", [pointer], c.Type) { Binding = CallBinding.Builtin, AtomicMemory = call.AtomicMemory, Span = c.Span }
+                        ? new Expression.Call("atomicLoad", [pointer], c.Type, CallBinding.Builtin) { AtomicMemory = call.AtomicMemory,Span = c.Span }
+
                         : new Expression.Load(new Expression.Unary("*", pointer, pointer.Type) { Span = c.Span }) { MemoryAccess = call.MemoryAccess, Span = c.Span };
                     result = Capture(read, prefix);
                     prefix.Add(Barrier("workgroupBarrier", c.Span));

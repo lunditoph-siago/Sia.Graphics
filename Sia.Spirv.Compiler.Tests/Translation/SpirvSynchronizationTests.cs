@@ -56,8 +56,8 @@ public class SpirvSynchronizationTests
     {
         var module = new Module(); module.Functions.Add(new ShaderFunction("workgroupUniformLoad")); module.Functions.Add(new ShaderFunction("workgroupBarrier"));
         var caller = new ShaderFunction("caller"); module.Functions.Add(caller);
-        caller.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("workgroupUniformLoad",[],new ShaderType.Void())));
-        caller.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("workgroupBarrier",[],new ShaderType.Void())));
+        caller.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("workgroupUniformLoad",[],new ShaderType.Void(), CallBinding.Function)));
+        caller.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("workgroupBarrier",[],new ShaderType.Void(), CallBinding.Function)));
         Assert.Same(module,SpirvSynchronizationLowering.Run(module));
         Assert.All(caller.Body.Statements,s => Assert.IsType<Expression.Call>(Assert.IsType<Statement.Evaluate>(s).Value));
     }
@@ -96,20 +96,20 @@ public class SpirvSynchronizationTests
     {
         var module = WgslReader.Parse(OrderedSource);
         var main = module.Functions.Single(f => f.Stage == ShaderStage.Compute); main.Body.Statements.Clear();
-        Expression.Call Mark(uint code) => new("mark", [Expression.U32(code)], ShaderType.U32) { Binding = CallBinding.Function };
+        Expression.Call Mark(uint code) => new("mark", [Expression.U32(code)], ShaderType.U32, CallBinding.Function);
         Expression Place(string name, Expression index) {
             var g = module.Globals.Single(g => g.Name == name);
             return new Expression.Access(new Expression.Reference(name,new ShaderType.Pointer(g.Type,g.Space)),index,new ShaderType.Pointer(ShaderType.U32,g.Space));
         }
         Expression Address(Expression place) => new Expression.Unary("&",place,place.Type);
-        Expression.Call Uniform(Expression pointer) => new("workgroupUniformLoad",[pointer],ShaderType.U32) { Binding = CallBinding.Builtin };
+        Expression.Call Uniform(Expression pointer) => new("workgroupUniformLoad",[pointer],ShaderType.U32, CallBinding.Builtin);
         Expression Group(uint index) => Place("group_data",Expression.U32(index));
         main.Body.Statements.Add(new Statement.Store(Group(0),Expression.U32(11)));
         main.Body.Statements.Add(new Statement.Store(Group(1),Expression.U32(22)));
         main.Body.Statements.Add(new Statement.Store(Place("output",Expression.U32(0)),new Expression.Binary("+",Mark(3),
-            Uniform(Address(Place("group_data",new Expression.Call("get_index",[],ShaderType.U32) { Binding = CallBinding.Function }))),ShaderType.U32)));
+            Uniform(Address(Place("group_data",new Expression.Call("get_index",[],ShaderType.U32, CallBinding.Function) ))),ShaderType.U32)));
         main.Body.Statements.Add(new Statement.Store(Place("output",Expression.U32(1)),new Expression.Binary("+",Uniform(Address(Group(0))),Mark(4),ShaderType.U32)));
-        main.Body.Statements.Add(new Statement.Store(Place("output",new Expression.Call("get_target",[],ShaderType.U32) { Binding = CallBinding.Function }),Uniform(Address(Group(1)))));
+        main.Body.Statements.Add(new Statement.Store(Place("output",new Expression.Call("get_target",[],ShaderType.U32, CallBinding.Function) ),Uniform(Address(Group(1)))));
         var body = new Block(); var continuing = new Block(); var pointer = new ShaderType.Pointer(ShaderType.U32,AddressSpace.Workgroup);
         body.Statements.Add(new Statement.Declare("p",pointer,Address(Group(0)),false));
         continuing.Statements.Add(new Statement.Evaluate(Mark(6)));
@@ -155,7 +155,7 @@ public class SpirvSynchronizationTests
     public void BuiltinBarrierOperandsAreExplicit(string name,uint scope,uint semantics)
     {
         var module = new Module(); var function = new ShaderFunction("main") { Stage = ShaderStage.Compute }; module.Functions.Add(function);
-        function.Body.Statements.Add(new Statement.Evaluate(new Expression.Call(name,[],new ShaderType.Void()) { Binding = CallBinding.Builtin }));
+        function.Body.Statements.Add(new Statement.Evaluate(new Expression.Call(name,[],new ShaderType.Void(), CallBinding.Builtin) ));
         var prepared = SpirvSynchronizationLowering.Run(module);
         var barrier = Assert.IsType<Statement.Barrier>(Assert.Single(prepared.Functions.Single().Body.Statements));
         Assert.Equal(new SpirvBarrierMemory(scope,semantics,scope),barrier.NativeMemory);

@@ -29,7 +29,7 @@ public class TranslationRegressionTests
         ShaderType result = data is ShaderType.Vector vector ? new ShaderType.Vector(vector.Size, ShaderType.Bool) : ShaderType.Bool;
         var module = new Module(); if (type == "f16") module.Enables.Add("f16");
         var function = new ShaderFunction("f") { ReturnType = result }; function.Arguments.Add(new("a", data));
-        function.Body.Statements.Add(new Statement.Return(new Expression.Call("isNan", [new Expression.Reference("a", data)], result))); module.Functions.Add(function);
+        function.Body.Statements.Add(new Statement.Return(new Expression.Call("isNan", [new Expression.Reference("a", data)], result, CallBinding.Builtin))); module.Functions.Add(function);
         string output = WgslWriter.Write(module, SpirvCompilationTarget.Default);
         Assert.DoesNotContain("isNan(", output);
         ModuleValidator.Validate(WgslReader.Parse(output));

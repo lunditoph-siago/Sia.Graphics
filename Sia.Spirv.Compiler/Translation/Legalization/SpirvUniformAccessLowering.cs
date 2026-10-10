@@ -206,7 +206,7 @@ internal sealed partial class SpirvUniformAccessLowering(SpirvPhysicalLayout lay
         Read path = Path(root, location.Root.Type, physical, steps, 0, memory, location.Root.MemoryDecorations, type);
         helper.Body.Statements.Add(new Statement.Return(EmitRead(path, helper.Body)) { Span = span });
         helpers.Add(helper);
-        return new Expression.Call(helper.Name, arguments, type) { Binding = CallBinding.Function, Span = span };
+        return new Expression.Call(helper.Name, arguments, type, CallBinding.Function) { Span = span };
     }
 
     private static Expression Child(Expression pointer, ShaderType type, Expression index) => new Expression.Access(pointer, index, Pointer(type)) { Span = pointer.Span };

@@ -9,7 +9,6 @@ internal sealed partial class SpirvMemoryAccessLowering(Module input)
     private sealed record Symbol(bool Place, AddressSpace Space, MemoryDecorations? Captured = null);
     private readonly Stack<Dictionary<string, Symbol>> scopes = [];
     private readonly Dictionary<string, GlobalVariable> globals = input.Globals.ToDictionary(g => g.Name, StringComparer.Ordinal);
-    private readonly HashSet<string> functions = input.Functions.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
     private readonly MemoryDecorations sharedMemory = input.Globals.Where(g => g.Space == AddressSpace.Storage)
         .Aggregate(MemoryDecorations.None, (flags, g) => flags | g.MemoryDecorations | ShaderMemoryRequirements.TypeMemory(g.Type));
     private readonly bool vulkan = input.VulkanMemoryModel || ShaderMemoryRequirements.UsesCooperativeMemoryModel(input);
@@ -88,7 +87,7 @@ internal sealed partial class SpirvMemoryAccessLowering(Module input)
     private Expression Call(Expression.Call c)
     {
         var result = c with { Arguments = Values(c.Arguments) };
-        if (c.Binding != CallBinding.Builtin && functions.Contains(c.Function)) return result == c ? c : result;
+        if (c.Binding == CallBinding.Function) return result == c ? c : result;
         bool ordinaryAtomic = c.MemoryAccess is not null && c.Function is "atomicLoad" or "atomicStore";
         bool load = c.Function is "coopLoad" or "coopLoadT" or "workgroupUniformLoad" or "atomicLoad";
         bool store = c.Function is "coopStore" or "coopStoreT" or "atomicStore";

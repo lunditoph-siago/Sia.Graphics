@@ -248,7 +248,7 @@ public static partial class WgslReader
                 snapshot = true;
             }
             else throw Error($"Unknown function '{function}'.", name.Span);
-            var call = new Expression.Call(function, arguments, result) { Binding = CallBinding.Builtin, Span = name.Span };
+            var call = new Expression.Call(function, arguments, result, CallBinding.Builtin) { Span = name.Span };
             return snapshot && result is not ShaderType.Void ? Snapshot(call, block) : call;
         }
     }

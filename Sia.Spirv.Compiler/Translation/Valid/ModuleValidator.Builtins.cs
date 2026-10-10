@@ -10,11 +10,12 @@ public static partial class ModuleValidator
         private static bool ScalarVector(ShaderType type) => type is ShaderType.Scalar or ShaderType.Vector;
         private ShaderType Call(Expression.Call call)
         {
+            Require(Enum.IsDefined(call.Binding), "Call binding must explicitly select function or builtin.", call.Span);
             ShaderType[] args = call.Arguments.Select(Expr).ToArray(); string name = call.Function;
             void Count(int count) => Require(args.Length == count, $"'{name}' requires {count} arguments.", call.Span);
             void AllSame() { foreach (var arg in args.Skip(1)) Same(arg, args[0], $"'{name}' argument types differ.", call.Span); }
             void FloatData() => Require(Float(args[0]) && ScalarVector(args[0]), $"'{name}' requires floating-point scalar/vector data.", call.Span);
-            if (call.Binding != CallBinding.Builtin && functions.TryGetValue(name, out var callee))
+            if (call.Binding == CallBinding.Function && functions.TryGetValue(name, out var callee))
             {
                 Require(call.AtomicMemory is null && call.MemoryAccess is null, "User function calls cannot carry builtin memory metadata.", call.Span);
                 Require(callee.Stage is null && function is not null, "Entry points cannot be called; calls require a function body.", call.Span);
@@ -22,7 +23,7 @@ public static partial class ModuleValidator
                 for (int i = 0; i < args.Length; i++) Same(args[i], callee.Arguments[i].Type, "Function argument type mismatch.", call.Span);
                 calls[function!.Name].Add(name); return callee.ReturnType;
             }
-            Require(call.Binding != CallBinding.Function, "Unknown resolved function call.", call.Span);
+            Require(call.Binding == CallBinding.Builtin, "Unknown resolved function call.", call.Span);
             AtomicMemory(call);
             CallMemoryAccess(call);
             if (name is "coopLoad" or "coopLoadT" or "coopStore" or "coopStoreT" or "coopMultiplyAdd") return Cooperative(call, args);

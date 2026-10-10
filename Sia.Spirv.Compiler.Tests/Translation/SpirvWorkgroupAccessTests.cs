@@ -12,20 +12,20 @@ namespace Sia.Spirv.Compiler.Translation.Tests;
 public class SpirvWorkgroupAccessTests
 {
     [Fact]
-    public void RawCompatibilityCallsRetainUserFunctionIdentity()
+    public void ExplicitCallsRetainUserFunctionIdentity()
     {
         var module = WgslReader.Parse("struct Data{v:vec2u,} var<workgroup> group_data:Data; @group(0) @binding(0) var<storage,read_write> output:Data; fn workgroupUniformLoad(p:ptr<workgroup,Data>)->Data{return *p;} @compute @workgroup_size(1) fn main(){output=workgroupUniformLoad(&group_data);}");
         var main = module.Functions.Single(f => f.Stage == ShaderStage.Compute);
         var declaration = Assert.Single(main.Body.Statements.OfType<Statement.Declare>());
         int position = main.Body.Statements.IndexOf(declaration);
-        main.Body.Statements[position] = declaration with { Initializer = Assert.IsType<Expression.Call>(declaration.Initializer) with { Binding = CallBinding.Unresolved } };
+        main.Body.Statements[position] = declaration with { Initializer = Assert.IsType<Expression.Call>(declaration.Initializer) with { Binding = CallBinding.Function } };
         ModuleValidator.ValidateNative(module);
         var prepared = SpirvPhysicalLayoutLowering.Prepare(module);
         ModuleValidator.Validate(prepared.Canonical, native: true);
         var call = Assert.IsType<Expression.Call>(Assert.Single(prepared.Module.Functions.Single(f => f.Stage == ShaderStage.Compute).Body.Statements.OfType<Statement.Declare>()).Initializer);
         Assert.Equal("workgroupUniformLoad", call.Function);
         Assert.Equal(module.Structures.Single(), call.Type);
-        Assert.Equal(CallBinding.Unresolved, call.Binding);
+        Assert.Equal(CallBinding.Function, call.Binding);
     }
 
     [Fact]

@@ -37,14 +37,14 @@ public class NativeCanonicalPointerReturnTests
         if (nested) {
             var forward = new ShaderFunction("forward") { ReturnType = pointer };
             forward.Arguments.AddRange(pick.Arguments);
-            forward.Body.Statements.Add(new Statement.Return(new Expression.Call("pick", [Ref("p", pointer), Ref("q", pointer), Ref("condition", ShaderType.Bool)], pointer)));
+            forward.Body.Statements.Add(new Statement.Return(new Expression.Call("pick", [Ref("p", pointer), Ref("q", pointer), Ref("condition", ShaderType.Bool)], pointer, CallBinding.Function)));
             module.Functions.Add(forward);
         }
         var main = new ShaderFunction("main") { Stage = ShaderStage.Compute };
         main.Body.Statements.Add(new Statement.Store(Cell("outputs", 0), new Expression.Load(Cell("inputs", 0, StorageAccess.Read))));
         main.Body.Statements.Add(new Statement.Store(Cell("outputs", 1), U(10)));
         var condition = new Expression.Binary("!=", new Expression.Binary("&", new Expression.Load(Cell("inputs", 0, StorageAccess.Read)), U(1), ShaderType.U32), U(0), ShaderType.Bool);
-        Expression Call(Expression flag) => new Expression.Call(nested ? "forward" : "pick", [Address(Cell("outputs", 0)), Address(Cell("outputs", 1)), flag], pointer);
+        Expression Call(Expression flag) => new Expression.Call(nested ? "forward" : "pick", [Address(Cell("outputs", 0)), Address(Cell("outputs", 1)), flag], pointer, CallBinding.Function);
         var body = new Block();
         body.Statements.Add(new Statement.Declare("chosen", pointer, Call(condition), false));
         body.Statements.Add(new Statement.Store(Deref("chosen"), new Expression.Binary("+", new Expression.Load(Deref("chosen")), U(7), ShaderType.U32)));

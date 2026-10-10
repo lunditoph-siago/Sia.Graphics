@@ -107,8 +107,8 @@ public class CanonicalSynchronizationTests
     {
         var input = new Module(); input.Functions.Add(new("workgroupUniformLoad")); input.Functions.Add(new("workgroupBarrier"));
         var caller = new ShaderFunction("main"); input.Functions.Add(caller);
-        caller.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("workgroupUniformLoad",[],new ShaderType.Void())));
-        caller.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("workgroupBarrier",[],new ShaderType.Void())));
+        caller.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("workgroupUniformLoad",[],new ShaderType.Void(), CallBinding.Function)));
+        caller.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("workgroupBarrier",[],new ShaderType.Void(), CallBinding.Function)));
         var graph = Read(input); var instructions = graph.Blocks.SelectMany(b => b.Instructions).ToArray();
         SpirvSynchronizationLowering.Run(graph,input);
         Assert.Equal(instructions,graph.Blocks.SelectMany(b => b.Instructions));

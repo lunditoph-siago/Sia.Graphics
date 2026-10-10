@@ -99,7 +99,7 @@ internal sealed class WgslLayoutLowering
             Expression.Load l => new Expression.Load(Expr(l.Pointer)) { Span = l.Span, MemoryAccess = l.MemoryAccess },
             Expression.Unary u => new Expression.Unary(u.Operator, Expr(u.Operand), type) { Span = u.Span },
             Expression.Binary b => new Expression.Binary(b.Operator, Expr(b.Left), Expr(b.Right), type) { Span = b.Span },
-            Expression.Call c => new Expression.Call(c.Function, c.Arguments.Select(Expr).ToArray(), type) { Binding = c.Binding, Span = c.Span, AtomicMemory = c.AtomicMemory, MemoryAccess = c.MemoryAccess },
+            Expression.Call c => new Expression.Call(c.Function, c.Arguments.Select(Expr).ToArray(), type, c.Binding) { Span = c.Span,AtomicMemory = c.AtomicMemory,MemoryAccess = c.MemoryAccess },
             Expression.Construct c => Construct(c, type),
             Expression.Convert c => new Expression.Convert(type, Expr(c.Operand), c.Bitcast) { Span = c.Span },
             Expression.Access a => Access(a),

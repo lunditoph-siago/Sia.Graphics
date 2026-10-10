@@ -34,6 +34,16 @@ options no longer duplicate that target. The implicit-target paths are removed,
 and maintained consumers have migrated. Internal frontend/target deferrals and
 full consumer/research convergence remain the next architecture scope.
 
+Structured IR calls now require `CallBinding.Function` or `CallBinding.Builtin`
+as the fourth `Expression.Call` constructor argument. The three-argument public
+constructor and `Unresolved` identity are removed. Frontends and transformations
+preserve that identity; analyses, legalization and emission no longer infer it
+from a matching name. Invalid identities fail validation at the call's source
+span. Missing functions diagnose instead of becoming builtins; effect analysis
+remains conservative for those malformed calls. A same-name user function and
+builtin can therefore retain different call graphs, side effects and results.
+This is an approved breaking API change; external IR producers must migrate.
+
 WGSL invocation termination now lowers on owned CFGs before structured
 reconstruction. Shared CFG relocation handles terminating continuing constructs;
 WGSL introduces demotion and typed returns while SPIR-V retains native termination.

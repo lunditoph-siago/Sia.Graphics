@@ -215,7 +215,7 @@ public static class PipelineConstantResolver
                 Expression.Load l => new Expression.Load(Child(l.Pointer)) { MemoryAccess = l.MemoryAccess },
                 Expression.Unary u => new Expression.Unary(u.Operator, Child(u.Operand), Type(u.Type)),
                 Expression.Binary b => new Expression.Binary(b.Operator, Child(b.Left), Child(b.Right), Type(b.Type)),
-                Expression.Call c => new Expression.Call(c.Function, c.Arguments.Select(Child).ToArray(), Type(c.Type)) { Binding = c.Binding, AtomicMemory = c.AtomicMemory, MemoryAccess = c.MemoryAccess },
+                Expression.Call c => new Expression.Call(c.Function, c.Arguments.Select(Child).ToArray(), Type(c.Type), c.Binding) { AtomicMemory = c.AtomicMemory,MemoryAccess = c.MemoryAccess },
                 Expression.Construct c => new Expression.Construct(Type(c.Type), c.Components.Select(Child).ToArray()),
                 Expression.Convert c => new Expression.Convert(Type(c.Type), Child(c.Operand), c.Bitcast),
                 Expression.Access a => new Expression.Access(Child(a.Base), Child(a.Index), Type(a.Type)),

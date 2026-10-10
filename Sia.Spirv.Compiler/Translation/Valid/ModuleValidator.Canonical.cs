@@ -110,8 +110,8 @@ public static partial class ModuleValidator
                     ValueOperation.Member m => new Expression.Member(Operand(m.Base), m.Name, type),
                     ValueOperation.Swizzle s => new Expression.Swizzle(Operand(s.Vector), s.Components, type),
                     ValueOperation.Load l => new Expression.Load(Operand(l.Pointer)) { MemoryAccess = l.MemoryAccess },
-                    ValueOperation.Call c => new Expression.Call(c.Function, c.Arguments.Select(Operand).ToArray(), c.ReturnType) { Binding = CallBinding.Function, AtomicMemory = c.AtomicMemory, MemoryAccess = c.MemoryAccess },
-                    ValueOperation.Builtin b => new Expression.Call(b.Function, b.Arguments.Select(Operand).ToArray(), b.ReturnType) { Binding = CallBinding.Builtin, AtomicMemory = b.AtomicMemory, MemoryAccess = b.MemoryAccess },
+                    ValueOperation.Call c => new Expression.Call(c.Function, c.Arguments.Select(Operand).ToArray(), c.ReturnType, CallBinding.Function) { AtomicMemory = c.AtomicMemory,MemoryAccess = c.MemoryAccess },
+                    ValueOperation.Builtin b => new Expression.Call(b.Function, b.Arguments.Select(Operand).ToArray(), b.ReturnType, CallBinding.Builtin) { AtomicMemory = b.AtomicMemory,MemoryAccess = b.MemoryAccess },
                     _ => throw Error("Unsupported canonical instruction.", instruction.Span)
                 };
                 Same(Expr(expression with { Span = instruction.Span }), type, "Canonical result type mismatch.", instruction.Span);

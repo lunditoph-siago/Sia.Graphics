@@ -103,7 +103,7 @@ internal sealed partial class RuntimeShaderLowering
     }
     private void Store(Expression pointer, Expression value, Block body) {
         var type = ValueType(pointer);
-        if (type is ShaderType.Atomic atomic) body.Statements.Add(new Statement.Evaluate(new Expression.Call("atomicStore", [Address(pointer), Convert(value, atomic.Component, true)], new ShaderType.Void())));
+        if (type is ShaderType.Atomic atomic) body.Statements.Add(new Statement.Evaluate(new Expression.Call("atomicStore", [Address(pointer), Convert(value, atomic.Component, true)], new ShaderType.Void(), CallBinding.Builtin)));
         else body.Statements.Add(new Statement.Store(pointer, Convert(value, type, true)));
     }
     private static ShaderType.Pointer Pointer(Expression place, ShaderType type) => place.Type is ShaderType.Pointer p ? p with { Base = type }
@@ -123,7 +123,7 @@ internal sealed partial class RuntimeShaderLowering
         left = Convert(left, type, type != ShaderType.F32); right = Convert(right, type, type != ShaderType.F32);
         Expression result = new Expression.Binary(symbol, left, right, ShaderType.Bool);
         if (unsigned && type == ShaderType.F32) result = new Expression.Binary("||", result,
-            new Expression.Binary("||", new Expression.Call("isNan", [left], ShaderType.Bool), new Expression.Call("isNan", [right], ShaderType.Bool), ShaderType.Bool), ShaderType.Bool);
+            new Expression.Binary("||", new Expression.Call("isNan", [left], ShaderType.Bool, CallBinding.Builtin), new Expression.Call("isNan", [right], ShaderType.Bool, CallBinding.Builtin), ShaderType.Bool), ShaderType.Bool);
         return result;
     }
 }

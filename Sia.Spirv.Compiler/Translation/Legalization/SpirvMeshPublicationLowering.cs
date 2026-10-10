@@ -50,7 +50,7 @@ internal static class SpirvMeshPublicationLowering
             Expression Count(int member, uint maximum, string name) {
                 var field = info.Structure.Members[member];
                 var read = Read(Field(root, field), ShaderType.U32, info.Variable.MemoryDecorations | field.MemoryDecorations);
-                var bounded = new Expression.Call("min", [read, Expression.U32(maximum)], ShaderType.U32) { Binding = CallBinding.Builtin };
+                var bounded = new Expression.Call("min", [read, Expression.U32(maximum)], ShaderType.U32, CallBinding.Builtin) ;
                 helper.Body.Statements.Add(new Statement.Declare(name, ShaderType.U32, bounded, false)); return Ref(name, ShaderType.U32);
             }
             uint maxVertices = info.Vertices.Length!.Value, maxPrimitives = info.Primitives.Length!.Value;
@@ -75,10 +75,10 @@ internal static class SpirvMeshPublicationLowering
                     Expression value = Read(Field(element, member), member.Type,
                         info.Variable.MemoryDecorations | arrayMember.MemoryDecorations | member.MemoryDecorations);
                     if (!primitive && conversions.TryGetValue((entry.Name, member.Name), out var conversion))
-                        value = new Expression.Call(conversion.Name, [value], conversion.ReturnType) { Binding = CallBinding.Function };
+                        value = new Expression.Call(conversion.Name, [value], conversion.ReturnType, CallBinding.Function) ;
                     if (physical != member.Type) {
                         var physicalConversion = layout.WorkgroupConversions[(member.Type, true)];
-                        value = new Expression.Call(physicalConversion.Name, [value], physicalConversion.ReturnType) { Binding = CallBinding.Function };
+                        value = new Expression.Call(physicalConversion.Name, [value], physicalConversion.ReturnType, CallBinding.Function) ;
                     }
                     var binding = member.Binding!;
                     var outputField = new MeshOutputField(Fresh(entry.Name + "_" + member.Name), physical, array.Length!.Value,

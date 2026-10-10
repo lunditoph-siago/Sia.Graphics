@@ -9,7 +9,7 @@ internal sealed class QueryStateLowering
     private readonly Stack<Dictionary<string, Query?>> scopes = new();
     private int next;
     private sealed record Query(Expression.Reference Min, Expression.Reference Flags);
-    private static bool StateGetter(Expression e) => e is Expression.Call { Binding: not CallBinding.Function, Function: "spirvRayQueryGetRayTMinKHR" or "spirvRayQueryGetRayFlagsKHR" };
+    private static bool StateGetter(Expression e) => e is Expression.Call { Binding: CallBinding.Builtin, Function: "spirvRayQueryGetRayTMinKHR" or "spirvRayQueryGetRayFlagsKHR" };
     public static Module Run(Module input)
     {
         var pass = new QueryStateLowering(); var output = new Module { VulkanMemoryModel = input.VulkanMemoryModel, WorkgroupInitializationRequired = input.WorkgroupInitializationRequired };
@@ -24,7 +24,7 @@ internal sealed class QueryStateLowering
             // A high-level initialization can be rejected by WGSL's robustness
             // guards, leaving the previous native query state intact. Recording
             // its descriptor unconditionally would therefore be incorrect.
-            if (pass.Visit(f.Body, e => e is Expression.Call { Binding: not CallBinding.Function, Function: "rayQueryInitialize" }))
+            if (pass.Visit(f.Body, e => e is Expression.Call { Binding: CallBinding.Builtin, Function: "rayQueryInitialize" }))
                 throw new ShaderException(DiagnosticStage.WgslWrite,
                     "Mixed high-level initialization and raw query state getters require guarded state tracking.");
             pass.scopes.Push(new(StringComparer.Ordinal));
@@ -80,7 +80,7 @@ internal sealed class QueryStateLowering
                 }
                 scopes.Peek()[d.Name] = alias; continue;
             }
-            if (s is Statement.Evaluate { Value: Expression.Call { Binding: not CallBinding.Function, Function: "spirvRayQueryInitializeKHR" } initialize })
+            if (s is Statement.Evaluate { Value: Expression.Call { Binding: CallBinding.Builtin, Function: "spirvRayQueryInitializeKHR" } initialize })
             {
                 var query = Root(initialize.Arguments[0]) ?? throw new ShaderException(DiagnosticStage.WgslWrite, "Raw query initialization requires a tracked local query.");
                 var args = new List<Expression>();

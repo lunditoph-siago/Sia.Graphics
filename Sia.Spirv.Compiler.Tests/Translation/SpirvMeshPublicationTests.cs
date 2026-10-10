@@ -156,7 +156,7 @@ public class SpirvMeshPublicationTests
         var prepared = ShaderTargetLowering.ForSpirv(WgslReader.Parse(MeshShaderTests.Source), null, true, true, true);
         var invalid = new ShaderFunction("invalid") { Stage = ShaderStage.Compute };
         invalid.Body.Statements.Add(new Statement.Evaluate(new Expression.Call(prepared.MeshPublications["task_main"].Function.Name,
-            [new Expression.Construct(new ShaderType.Vector(3, ShaderType.U32), [Expression.U32(1), Expression.U32(1), Expression.U32(1)])], new ShaderType.Void()) { Binding = CallBinding.Function }));
+            [new Expression.Construct(new ShaderType.Vector(3, ShaderType.U32), [Expression.U32(1), Expression.U32(1), Expression.U32(1)])], new ShaderType.Void(), CallBinding.Function) ));
         prepared.Module.Functions.Add(invalid);
         var canonical = prepared.PhysicalLayout.Canonical;
         var deferred = canonical.DeferredFunctions.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);

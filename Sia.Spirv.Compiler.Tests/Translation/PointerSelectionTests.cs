@@ -64,17 +64,17 @@ public class PointerSelectionTests
         {
             // Native SPIR-V has scalar pointees for both ordinary and atomic operations.
             var atomicPlace = Index(Field(memory, "a", values), Expression.U32(0), new ShaderType.Atomic(ShaderType.U32));
-            main.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("atomicAdd", [Address(atomicPlace), Expression.U32(5)], ShaderType.U32)
+            main.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("atomicAdd", [Address(atomicPlace), Expression.U32(5)], ShaderType.U32, CallBinding.Builtin)
                 { AtomicMemory = new(1, 0) }));
         }
         var access = qualified ? new SpirvMemoryAccess(7, 4) : null;
         if (atomic)
         {
-            var call = new Expression.Call("atomicAdd", [new Expression.Unary("&", pointer, pointer.Type), Expression.U32(100)], ShaderType.U32)
+            var call = new Expression.Call("atomicAdd", [new Expression.Unary("&", pointer, pointer.Type), Expression.U32(100)], ShaderType.U32, CallBinding.Builtin)
                 { AtomicMemory = new(1, qualified ? 32768u : 0u) };
             main.Body.Statements.Add(new Statement.Store(Index(output, Expression.U32(0), ShaderType.U32), call));
             main.Body.Statements.Add(new Statement.Store(Index(output, Expression.U32(1), ShaderType.U32),
-                new Expression.Call("atomicLoad", [new Expression.Unary("&", pointer, pointer.Type)], ShaderType.U32)));
+                new Expression.Call("atomicLoad", [new Expression.Unary("&", pointer, pointer.Type)], ShaderType.U32, CallBinding.Builtin)));
         }
         else if (kind == "helper")
         {
@@ -86,7 +86,7 @@ public class PointerSelectionTests
             helper.Body.Statements.Add(new Statement.Return(new Expression.Load(q) { MemoryAccess = access })); module.Functions.Add(helper);
             main.Body.Statements.Add(new Statement.Store(Index(output, Expression.U32(0), ShaderType.U32), new Expression.Load(pointer) { MemoryAccess = access }));
             main.Body.Statements.Add(new Statement.Store(Index(output, Expression.U32(1), ShaderType.U32),
-                new Expression.Call("edit", [new Expression.Unary("&", pointer, pointer.Type), new Expression.Unary("&", pointer, pointer.Type)], ShaderType.U32)));
+                new Expression.Call("edit", [new Expression.Unary("&", pointer, pointer.Type), new Expression.Unary("&", pointer, pointer.Type)], ShaderType.U32, CallBinding.Function)));
         }
         else
         {

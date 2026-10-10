@@ -14,6 +14,18 @@ external consumer impact. Public CIL/file/options adapters and memory forwarding
 properties are removed. Writers/translators also require explicit targets; the
 implicit-target overloads and duplicate writer-options Target are removed.
 
+Call identity migration (source 221FF2B6…, Compiler 49F8D3FB…) removes the public
+three-argument `Expression.Call` constructor and `CallBinding.Unresolved`.
+Callers must specify Function or Builtin; analyses and targets preserve that
+identity rather than infer it by name. Maintenance passes 2273/2273, independent
+formats 341/341, frozen native replay 41/41 and GPU execution 10/10, including
+six same-name function/builtin cases with fixed expected values. CLI, Dawn
+browser-library and validation exporter builds pass. Full maintenance used
+source AB005358…; its compiler/test files are unchanged in final source 221FF2B6…,
+whose only later change fixes the GPU runner's async buffer read. Ten consumer
+Compiler DLLs match. Evidence is recorded in the validation guide; this batch
+does not complete internal deferrals, actual browser/AOT or full research parity.
+
 Writer/translator migration (source F53E737A…, Compiler EEBD8F39…) passes
 maintenance 2266/2266, 233 maintained formats, 22 query/handle formats, 41 frozen
 native replays and 82 independent replay input/output formats. Four direct CIL

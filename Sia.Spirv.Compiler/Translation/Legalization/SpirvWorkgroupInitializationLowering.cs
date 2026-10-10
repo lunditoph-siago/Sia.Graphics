@@ -30,8 +30,7 @@ internal static class SpirvWorkgroupInitializationLowering
             }
             if (type is ShaderType.Atomic atomic) {
                 var address = new Expression.Unary("&", place, new ShaderType.Pointer(type, AddressSpace.Workgroup));
-                body.Statements.Add(new Statement.Evaluate(new Expression.Call("atomicStore", [address, new Expression.Construct(atomic.Component, [])], new ShaderType.Void()) {
-                    Binding = CallBinding.Builtin,
+                body.Statements.Add(new Statement.Evaluate(new Expression.Call("atomicStore", [address, new Expression.Construct(atomic.Component, [])], new ShaderType.Void(), CallBinding.Builtin) {
                     AtomicMemory = new(2, module.VulkanMemoryModel && (inherited & MemoryDecorations.Volatile) != 0 ? 32768u : 0u)
                 }));
                 return;

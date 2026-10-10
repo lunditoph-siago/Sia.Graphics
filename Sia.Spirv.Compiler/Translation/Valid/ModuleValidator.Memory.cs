@@ -34,7 +34,7 @@ public static partial class ModuleValidator
             if (call.MemoryAccess is null) return;
             bool load = call.Function is "coopLoad" or "coopLoadT" or "atomicLoad" or "workgroupUniformLoad";
             bool store = call.Function is "coopStore" or "coopStoreT" or "atomicStore";
-            Require((call.Binding == CallBinding.Builtin || !functions.ContainsKey(call.Function)) && (load || store) && call.AtomicMemory is null,
+            Require(call.Binding == CallBinding.Builtin && (load || store) && call.AtomicMemory is null,
                 "Per-access memory operands require an ordinary or cooperative load/store.", call.Span);
             int index = call.Function is "coopStore" or "coopStoreT" ? 1 : 0;
             Require(call.Arguments.Count > index && call.Arguments[index].Type is ShaderType.Pointer, "Memory access requires a pointer operand.", call.Span);

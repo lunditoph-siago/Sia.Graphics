@@ -118,7 +118,7 @@ internal static class SpirvIntegerArithmeticLowering
             if (mapped is not Expression.Binary binary || !RequiresHelper(binary.Type, binary.Operator)) return mapped;
             Expression Broadcast(Expression value) => value.Type == binary.Type ? value : new Expression.Construct(binary.Type, [value]) { Span = value.Span };
             // Function arguments snapshot the two evaluated operands once, in source order.
-            return new Expression.Call(Helper(binary.Type, binary.Operator).Name, [Broadcast(binary.Left), Broadcast(binary.Right)], binary.Type) { Span = binary.Span };
+            return new Expression.Call(Helper(binary.Type, binary.Operator).Name, [Broadcast(binary.Left), Broadcast(binary.Right)], binary.Type, CallBinding.Function) { Span = binary.Span };
         }
         Block Body(Block block) {
             var copy = new Block(); copy.DiagnosticFilters.AddRange(block.DiagnosticFilters);

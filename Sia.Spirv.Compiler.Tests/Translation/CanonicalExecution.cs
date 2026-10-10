@@ -117,16 +117,16 @@ internal sealed class CanonicalExecution(Module module, uint[] input, bool initi
                 };
             case Expression.Select select:
                 var reject = E(select.Reject); var accept = E(select.Accept); return (bool)E(select.Condition) ? accept : reject;
-            case Expression.Call { Function: "arrayLength" } length:
+            case Expression.Call { Binding: CallBinding.Builtin, Function: "arrayLength" } length:
                 var array = (Address)E(length.Arguments[0]);
                 return (uint)(module.Globals.Single(g => g.Name == array.Name).Binding!.Binding == 0 ? input.Length : output.Length);
-            case Expression.Call { Function: "min" } min: return System.Math.Min((uint)E(min.Arguments[0]), (uint)E(min.Arguments[1]));
-            case Expression.Call { Function: "max" } max: return System.Math.Max((uint)E(max.Arguments[0]), (uint)E(max.Arguments[1]));
-            case Expression.Call { Function: "select", Arguments.Count: 3 } selection:
+            case Expression.Call { Binding: CallBinding.Builtin, Function: "min" } min: return System.Math.Min((uint)E(min.Arguments[0]), (uint)E(min.Arguments[1]));
+            case Expression.Call { Binding: CallBinding.Builtin, Function: "max" } max: return System.Math.Max((uint)E(max.Arguments[0]), (uint)E(max.Arguments[1]));
+            case Expression.Call { Binding: CallBinding.Builtin, Function: "select", Arguments.Count: 3 } selection:
                 // WGSL evaluates argument expressions before choosing b when cond is true.
                 var rejected = E(selection.Arguments[0]); var accepted = E(selection.Arguments[1]);
                 return (bool)E(selection.Arguments[2]) ? accepted : rejected;
-            case Expression.Call call:
+            case Expression.Call { Binding: CallBinding.Function } call:
                 var function = module.Functions.SingleOrDefault(f => f.Name == call.Function)
                     ?? throw new NotSupportedException("Test call " + call.Function);
                 var arguments = call.Arguments.Select(E).ToArray();

@@ -277,7 +277,8 @@ internal static partial class UniformityAnalysis
                 else arguments[i] = Value(call.Arguments[i], state);
             }
             var contents = addresses.Select(a => a is null ? state.Control : Read(a, state)).ToArray();
-            if (call.Binding != CallBinding.Builtin && userFunction(call.Function)) {
+            if (call.Binding == CallBinding.Function) {
+                if (!userFunction(call.Function)) throw new ShaderException(DiagnosticStage.Validation, "Unknown resolved function call.", call.Span);
                 var summary = callee(call.Function);
                 Node Bind(IEnumerable<Dependency> dependencies) => Join(dependencies.Select(d => d.Source switch {
                     Source.Control => state.Control, Source.NonUniform => nonUniform,

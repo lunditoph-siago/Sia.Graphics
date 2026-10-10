@@ -63,8 +63,8 @@ internal static class WgslBuiltinNameLowering
             Expression result = e switch {
                 Expression.Reference r => new Expression.Reference(Reference(r.Name), Type(r.Type)),
                 Expression.Literal l => new Expression.Literal(l.Value, Type(l.Type)),
-                Expression.Call c => new Expression.Call(c.Binding == CallBinding.Builtin ? c.Function : ModuleName(c.Function), c.Arguments.Select(Expr).ToArray(), Type(c.Type))
-                    { Binding = c.Binding, AtomicMemory = c.AtomicMemory, MemoryAccess = c.MemoryAccess },
+                Expression.Call c => new Expression.Call(c.Binding == CallBinding.Builtin ? c.Function : ModuleName(c.Function), c.Arguments.Select(Expr).ToArray(), Type(c.Type), c.Binding)
+                                        { AtomicMemory = c.AtomicMemory,MemoryAccess = c.MemoryAccess },
                 Expression.Load l => new Expression.Load(Expr(l.Pointer)) { MemoryAccess = l.MemoryAccess },
                 Expression.Construct c => new Expression.Construct(Type(c.Type), c.Components.Select(Expr).ToArray()),
                 Expression.Convert c => new Expression.Convert(Type(c.Type), Expr(c.Operand), c.Bitcast),

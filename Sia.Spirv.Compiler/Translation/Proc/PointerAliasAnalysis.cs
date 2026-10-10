@@ -149,7 +149,7 @@ internal static partial class PointerAliasAnalysis
                 if (argument.Type is ShaderType.Pointer) { Address(argument); arguments[i] = Origins(argument); }
                 else { Value(argument); arguments[i] = []; }
             }
-            if (call.Binding == CallBinding.Builtin || !userFunction(call.Function)) {
+            if (call.Binding == CallBinding.Builtin) {
                 // Synchronization effects describe ordering of surrounding memory;
                 // a collective load still only reads its pointer operand.
                 var effects = PointerEffects(call.Function);
@@ -159,6 +159,7 @@ internal static partial class PointerAliasAnalysis
                 }
                 return;
             }
+            if (!userFunction(call.Function)) throw new ShaderException(stage, "Unknown resolved function call.", call.Span);
             ApplyCall(function.Name, call.Function, call.Arguments.Select(a => a.Type is ShaderType.Pointer).ToArray(),
                 arguments, callee(call.Function), reads, writes, stage, call.Span);
         }

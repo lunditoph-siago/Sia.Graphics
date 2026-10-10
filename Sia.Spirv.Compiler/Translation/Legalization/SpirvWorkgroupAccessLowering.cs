@@ -9,7 +9,6 @@ internal sealed partial class SpirvWorkgroupAccessLowering(SpirvPhysicalLayout l
 {
     private readonly Stack<Dictionary<string, bool>> scopes = [];
     private readonly Dictionary<string, GlobalVariable> globals = layout.Module.Globals.ToDictionary(g => g.Name, StringComparer.Ordinal);
-    private readonly HashSet<string> functions = layout.Module.Functions.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
     private ShaderType Physical(ShaderType logical) => layout.WorkgroupTypes.TryGetValue(logical, out var physical) ? physical
         : layout.WorkgroupTypes.Values.Contains(logical) ? logical
         : throw new ShaderException(DiagnosticStage.SpirvWrite, "Workgroup address type was not prepared by target legalization.");
@@ -29,7 +28,7 @@ internal sealed partial class SpirvWorkgroupAccessLowering(SpirvPhysicalLayout l
         if (Physical(logical) == logical) return value;
         if (!layout.WorkgroupConversions.TryGetValue((logical, toPhysical), out var helper))
             throw new ShaderException(DiagnosticStage.SpirvWrite, "Workgroup access needs a prepared value conversion.", value.Span);
-        return new Expression.Call(helper.Name, [value], helper.ReturnType) { Binding = CallBinding.Function, Span = value.Span };
+        return new Expression.Call(helper.Name, [value], helper.ReturnType, CallBinding.Function) { Span = value.Span };
     }
     private Expression Read(Expression pointer, ShaderType logical, SpirvMemoryAccess? memory = null, SourceSpan span = default)
         => Conversion(new Expression.Load(pointer) { MemoryAccess = memory, Span = span }, logical, false);
@@ -81,12 +80,11 @@ internal sealed partial class SpirvWorkgroupAccessLowering(SpirvPhysicalLayout l
     private Expression Call(Expression.Call call)
     {
         var arguments = Values(call.Arguments);
-        bool builtin = call.Binding == CallBinding.Builtin || call.Binding == CallBinding.Unresolved && !functions.Contains(call.Function);
+        bool builtin = call.Binding == CallBinding.Builtin;
         bool uniform = builtin && call.Function == "workgroupUniformLoad"
             && call.Arguments.Count == 1 && call.Arguments[0].Type is ShaderType.Pointer { Base: not ShaderType.Atomic };
         var type = uniform ? Physical(call.Type) : PointerType(call.Type);
-        var result = new Expression.Call(call.Function, arguments, type) { Binding = call.Binding,
-            AtomicMemory = call.AtomicMemory, MemoryAccess = call.MemoryAccess, Span = call.Span };
+        var result = new Expression.Call(call.Function, arguments, type, call.Binding) {             AtomicMemory = call.AtomicMemory,MemoryAccess = call.MemoryAccess,Span = call.Span };
         return uniform ? Conversion(result, call.Type, false) : result;
     }
     private Statement Statement(Statement s)

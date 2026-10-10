@@ -89,7 +89,7 @@ public class HelperInvocationQueryTests
         var module = new Module(); var helper = new ShaderFunction("state") { ReturnType = ShaderType.Bool };
         helper.Body.Statements.Add(new Statement.Return(new Expression.HelperInvocation())); module.Functions.Add(helper);
         var main = new ShaderFunction("main") { Stage = stage };
-        main.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("state", [], ShaderType.Bool))); module.Functions.Add(main);
+        main.Body.Statements.Add(new Statement.Evaluate(new Expression.Call("state", [], ShaderType.Bool, CallBinding.Function))); module.Functions.Add(main);
         if (stage == ShaderStage.Vertex) {
             main.ReturnType = new ShaderType.Vector(4, ShaderType.F32); main.ReturnBinding = new(Builtin: "position");
             main.Body.Statements.Add(new Statement.Return(new Expression.Construct(main.ReturnType, [])));

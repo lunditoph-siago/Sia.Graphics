@@ -35,7 +35,9 @@ internal static class ShaderEffectAnalysis
         ShaderEffects Expr(Expression expression) {
             ShaderEffects result = expression switch {
                 Expression.HelperInvocation => ShaderEffects.Convergent | ShaderEffects.ReadInvocationState,
-                Expression.Call call => (call.Binding != CallBinding.Builtin && functions.ContainsKey(call.Function) ? Function(call.Function) : ShaderBuiltinEffects.For(call.Function))
+                Expression.Call call => (call.Binding == CallBinding.Builtin ? ShaderBuiltinEffects.For(call.Function)
+                    : functions.ContainsKey(call.Function) ? Function(call.Function)
+                    : ShaderEffects.ReadMemory | ShaderEffects.WriteMemory | ShaderEffects.UnknownCall)
                     | ShaderBuiltinEffects.Memory(call.MemoryAccess) | ShaderBuiltinEffects.AtomicMemory(call.AtomicMemory),
                 Expression.Load load => ShaderEffects.ReadMemory | ShaderBuiltinEffects.Memory(load.MemoryAccess), _ => ShaderEffects.None
             };

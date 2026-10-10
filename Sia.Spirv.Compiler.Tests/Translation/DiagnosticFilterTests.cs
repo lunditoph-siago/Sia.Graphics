@@ -113,7 +113,7 @@ public class DiagnosticFilterTests
         var input = WgslReader.Parse(source);
         var traces = new List<CanonicalPassTrace>(); var deferrals = new List<CanonicalDeferral>();
         var canonical = CanonicalShaderPipeline.Run(input, traces, deferrals);
-        Assert.Empty(deferrals); Assert.Equal(3, traces.Count);
+        Assert.Empty(deferrals); Assert.Equal(4, traces.Count);
         Assert.Contains(traces, trace => trace.After.Contains("subgroup_uniformity:Off", StringComparison.Ordinal));
         _ = WgslReader.Parse(WgslWriter.Write(canonical, SpirvCompilationTarget.Default));
         Assert.Contains("Uniformity violation", Assert.Throws<ShaderException>(() => WgslReader.Parse(source.Replace("@diagnostic(off,subgroup_uniformity)", "", StringComparison.Ordinal))).Message);

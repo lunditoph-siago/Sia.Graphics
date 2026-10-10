@@ -11,6 +11,9 @@ internal static class ControlFlowPrinter
         string V(SsaValue value) => "v" + value.Id.ToString(CultureInfo.InvariantCulture);
         string Edge(ControlFlowEdge edge) => "b" + edge.Target.ToString(CultureInfo.InvariantCulture) + "(" + string.Join(",", edge.Arguments.Select(V)) + ")";
         text.Append("function ").Append(function.Signature.Name).Append(" entry b").Append(function.Entry.ToString(CultureInfo.InvariantCulture)).Append('\n');
+        foreach (var filters in function.DiagnosticRanges.Prepend(function.BodyDiagnosticFilters).Where(r => r.Count != 0))
+            text.Append("diagnostic-range ").Append(string.Join(",", filters.Select(f =>
+                (f.Namespace is null ? "" : f.Namespace + ".") + f.Rule + ":" + f.Severity))).Append('\n');
         foreach (var block in function.Blocks.OrderBy(b => b.Id)) {
             text.Append('b').Append(block.Id.ToString(CultureInfo.InvariantCulture)).Append('(')
                 .Append(string.Join(",", block.Parameters.Select(v => V(v) + ":" + Type(v.Type)))).Append("):");

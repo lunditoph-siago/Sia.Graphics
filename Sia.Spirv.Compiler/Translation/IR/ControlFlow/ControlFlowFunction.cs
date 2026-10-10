@@ -5,6 +5,10 @@ internal sealed class ControlFlowFunction(ShaderFunction signature)
 {
     public ShaderFunction Signature { get; } = signature;
     public List<ControlFlowBlock> Blocks { get; } = [];
+    public IReadOnlyList<DiagnosticFilter> BodyDiagnosticFilters { get; private set; } = signature.Body.DiagnosticFilters.ToArray();
+    // Declared block settings also survive when a range contains no instruction.
+    // Executable settings remain on instructions; empty ranges cannot affect them.
+    public List<IReadOnlyList<DiagnosticFilter>> DiagnosticRanges { get; } = [];
     // Frontends retain known structured boundaries as verified CFG facts, without
     // retaining source statements. Null boundaries were removed as unreachable.
     public Dictionary<int, int?> SelectionMerges { get; } = [];
@@ -22,6 +26,8 @@ internal sealed class ControlFlowFunction(ShaderFunction signature)
     internal ControlFlowFunction Copy(ShaderFunction? signature = null)
     {
         var output = new ControlFlowFunction(signature ?? Signature) { Entry = Entry, nextValue = nextValue, nextBlock = nextBlock };
+        output.BodyDiagnosticFilters = BodyDiagnosticFilters.ToArray();
+        output.DiagnosticRanges.AddRange(DiagnosticRanges.Select(r => (IReadOnlyList<DiagnosticFilter>)r.ToArray()));
         ControlFlowEdge Edge(ControlFlowEdge edge) => new(edge.Target, edge.Arguments);
         foreach (var block in Blocks) {
             var copy = new ControlFlowBlock(block.Id);

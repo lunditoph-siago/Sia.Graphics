@@ -32,7 +32,7 @@ public class CanonicalEffectTests
         foreach (var module in new[] { input, SpirvReader.Parse(SpirvWriter.Write(input, SpirvCompilationTarget.Default)) }) {
             var traces = new List<CanonicalPassTrace>(); var deferrals = new List<CanonicalDeferral>();
             var output = CanonicalShaderPipeline.Run(module, traces, deferrals);
-            Assert.Empty(deferrals); Assert.Equal(module.Functions.Count * 3, traces.Count);
+            Assert.Empty(deferrals); Assert.Equal(module.Functions.Count * 4, traces.Count);
             Assert.All(module.Functions, f => Assert.NotSame(f, output.Functions.Single(p => p.Name == f.Name)));
             ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(output, SpirvCompilationTarget.Default)));
             ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(output, SpirvCompilationTarget.Default)));

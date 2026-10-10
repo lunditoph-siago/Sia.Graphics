@@ -207,6 +207,8 @@ internal sealed class StructuredControlFlowReader
 
     private void Body(Block input, bool scope = true)
     {
+        if (input.DiagnosticFilters.Count != 0 && !ReferenceEquals(input, function.Signature.Body))
+            function.DiagnosticRanges.Add(input.DiagnosticFilters.ToArray());
         diagnosticScopes.Push(input.DiagnosticFilters);
         if (scope) scopes.Push(new(StringComparer.Ordinal));
         foreach (var statement in input.Statements) {

@@ -200,7 +200,7 @@ public class CanonicalControlFlowTests
     {
         var module = WgslReader.Parse(SwapLoop); var traces = new List<CanonicalPassTrace>(); var deferrals = new List<CanonicalDeferral>();
         _ = CanonicalShaderPipeline.Run(module, traces, deferrals);
-        Assert.Empty(deferrals); Assert.Equal(new[] { "remove-unreachable", "local-value-promotion", "canonical-call-effects" }, traces.Select(t => t.Pass));
+        Assert.Empty(deferrals); Assert.Equal(new[] { "remove-unreachable", "local-value-promotion", "constant-conversion-folding", "canonical-call-effects" }, traces.Select(t => t.Pass));
         Assert.Contains("local ", traces[1].Before); Assert.DoesNotContain("local ", traces[1].After);
         Assert.Contains("value dominance", traces[1].InvalidatedAnalyses);
         var advanced = WgslReader.Parse("enable wgpu_ray_query;fn helper(p:ptr<function,ray_query>){var query:ray_query;} @compute @workgroup_size(1) fn main(){var query:ray_query;helper(&query);}");
@@ -240,7 +240,7 @@ public class CanonicalControlFlowTests
         var native = SpirvReader.Parse(SpirvWriter.Write(WgslReader.Parse(source), SpirvCompilationTarget.Default));
         var deferrals = new List<CanonicalDeferral>(); var traces = new List<CanonicalPassTrace>();
         var prepared = CanonicalShaderPipeline.Run(native, traces, deferrals);
-        Assert.Empty(deferrals); Assert.Equal(native.Functions.Count * 3, traces.Count);
+        Assert.Empty(deferrals); Assert.Equal(native.Functions.Count * 4, traces.Count);
         for (int i = 0; i < native.Functions.Count; i++) Assert.NotSame(native.Functions[i], prepared.Functions[i]);
     }
     [Theory]

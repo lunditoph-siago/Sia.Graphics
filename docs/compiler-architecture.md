@@ -44,6 +44,20 @@ remains conservative for those malformed calls. A same-name user function and
 builtin can therefore retain different call graphs, side effects and results.
 This is an approved breaking API change; external IR producers must migrate.
 
+The shared middle-end now attempts graph import for every declared function,
+including uncalled helpers and modules without entries. Entry reachability still
+defines stage checks and entry semantics; it no longer creates a structured-body
+deferral. Actual unreadable shapes retain explicit feature reasons. Function
+graphs own root diagnostic settings and declared range snapshots, including empty
+ranges, and preserve them through copying and helper expansion. Reconstruction
+uses those snapshots rather than borrowed Body settings. Executable instruction
+filters retain their existing policy; empty ranges emit attributed empty blocks.
+Pointer lets retain explicit address aliases and safe source names. A shared
+constant-conversion pass folds literal conversions with the existing runtime
+evaluator before reconstruction, preserving SSA identities, spans and effects.
+These changes extend graph ownership; remaining opaque/local, target and LLVM
+adapters still require migration.
+
 WGSL invocation termination now lowers on owned CFGs before structured
 reconstruction. Shared CFG relocation handles terminating continuing constructs;
 WGSL introduces demotion and typed returns while SPIR-V retains native termination.

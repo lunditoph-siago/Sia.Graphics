@@ -9,6 +9,18 @@ is the implementation baseline.
 Execution amendment, approved by the user on 2026-10-10: remove backward
 compatibility, including public legacy APIs; breaking changes are allowed.
 This supersedes the earlier staged requirement to retain old overload adapters.
+
+Uncalled/library graph import (source ABB68A3A…, Compiler 452095AB…) retires the
+automatic outside-entry-call-graph deferral. All declared functions attempt import;
+only actual unsupported shapes retain feature reasons. Graph-owned diagnostic
+snapshots, explicit pointer aliases and shared literal conversion folding preserve
+the behavior formerly carried by those Bodies. Six new regression cases and
+updated explicit adapter/trace fixtures pass in maintenance 2279/2279. Independent
+formats 343/343, frozen native replay 41/41, GPU 10/10 and CLI/browser-library/
+exporter builds pass. The export snapshot CEE2911C… differs from final source only
+in an exact UniformityTests trace-count expectation; production sources are identical
+and ten Compiler DLL copies match. This does not close all frontend/target/LLVM
+or full research/consumer gates.
 Migrate maintained consumers to explicit requests/targets and record the remaining
 external consumer impact. Public CIL/file/options adapters and memory forwarding
 properties are removed. Writers/translators also require explicit targets; the

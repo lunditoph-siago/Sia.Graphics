@@ -144,8 +144,8 @@ public class CanonicalModuleTests
     public void UnmigratedBodiesAreExplicitAndDoNotBecomeAnImplicitGraphCache()
     {
         var input = WgslReader.Parse("fn unused()->u32{return 3u;} @compute @workgroup_size(1) fn main(){}");
-        var canonical = CanonicalShaderPipeline.Prepare(input);
-        Assert.Equal("outside shader entry call graph", canonical.DeferredFunctions["unused"]);
+        var canonical = CanonicalUncalledFunctionTests.Defer(CanonicalShaderPipeline.Prepare(input), "unused");
+        Assert.Equal("test migration boundary", canonical.DeferredFunctions["unused"]);
         Assert.False(canonical.Functions.ContainsKey("unused"));
         var adapted = StructuredControlFlowLowering.Run(canonical);
         Assert.Same(input.Functions.Single(f => f.Name == "unused"), adapted.Functions.Single(f => f.Name == "unused"));

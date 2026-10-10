@@ -69,6 +69,7 @@ public class CanonicalModuleValidationTests
     {
         var canonical = CanonicalShaderPipeline.Prepare(WgslReader.Parse(
             "fn unused()->u32{return 3u;} @compute @workgroup_size(1) fn main(){}"));
+        canonical = CanonicalUncalledFunctionTests.Defer(canonical, "unused");
         Assert.Contains("unused", canonical.DeferredFunctions.Keys);
         canonical.Declarations.Functions.Single(f => f.Name == "unused").Body.Statements.Clear();
         Assert.Contains("without returning", Assert.Throws<ShaderException>(() => ModuleValidator.Validate(canonical)).Message);
@@ -79,6 +80,7 @@ public class CanonicalModuleValidationTests
     {
         var canonical = CanonicalShaderPipeline.Prepare(WgslReader.Parse(
             "fn synchronize(){} fn unused(){synchronize();} @compute @workgroup_size(1) fn main(){synchronize();}"));
+        canonical = CanonicalUncalledFunctionTests.Defer(canonical, "unused");
         Assert.Contains("unused", canonical.DeferredFunctions.Keys);
         canonical.Functions["synchronize"].Blocks[0].Instructions.Add(new(null,
             new ValueOperation.Barrier(true, false, true, false, false)));

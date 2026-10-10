@@ -167,7 +167,7 @@ public class UniformityTests
         foreach (var module in new[] { input, SpirvReader.Parse(SpirvWriter.Write(input, SpirvCompilationTarget.Default)) }) {
             var deferrals = new List<CanonicalDeferral>(); var traces = new List<CanonicalPassTrace>();
             var result = CanonicalShaderPipeline.Run(module, traces, deferrals);
-            Assert.Empty(deferrals); Assert.Equal(module.Functions.Count * 3, traces.Count);
+            Assert.Empty(deferrals); Assert.Equal(module.Functions.Count * 4, traces.Count);
             Assert.All(module.Functions, f => Assert.NotSame(f, result.Functions.Single(r => r.Name == f.Name)));
             Assert.Empty(UniformityAnalysis.Validate(WgslReader.Parse(WgslWriter.Write(result, SpirvCompilationTarget.Default))));
             ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(result, SpirvCompilationTarget.Default)));

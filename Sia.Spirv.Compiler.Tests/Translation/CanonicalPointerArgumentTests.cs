@@ -127,13 +127,14 @@ public class CanonicalPointerArgumentTests
     }
 
     [Fact]
-    public void UncalledFunctionPointerHelperRetainsItsExplicitDeferral()
+    public void UncalledFunctionPointerHelperRetainsItsOwnedGraph()
     {
         var input = WgslReader.Parse("fn unused(p:ptr<function,u32>){*p=9u;}@compute @workgroup_size(1) fn main(){}");
         var canonical = CanonicalShaderPipeline.Prepare(input);
-        Assert.Equal("outside shader entry call graph", canonical.DeferredFunctions["unused"]);
+        Assert.Empty(canonical.DeferredFunctions); Assert.Contains("unused", canonical.Functions.Keys);
         var output = CanonicalHelperInliner.RunPointers(canonical);
         Assert.Same(canonical, output); Assert.Contains(output.Declarations.Functions, f => f.Name == "unused");
+        Assert.Same(canonical.Functions["unused"], output.Functions["unused"]);
     }
 
     [Fact]

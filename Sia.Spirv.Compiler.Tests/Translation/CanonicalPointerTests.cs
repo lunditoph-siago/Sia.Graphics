@@ -29,7 +29,7 @@ public class CanonicalPointerTests
             string before = WgslWriter.Emit(module);
             var traces = new List<CanonicalPassTrace>(); var deferrals = new List<CanonicalDeferral>();
             var output = CanonicalShaderPipeline.Run(module, traces, deferrals);
-            Assert.Empty(deferrals); Assert.Equal(module.Functions.Count * 3, traces.Count);
+            Assert.Empty(deferrals); Assert.Equal(module.Functions.Count * 4, traces.Count);
             Assert.All(module.Functions, f => Assert.NotSame(f, output.Functions.Single(p => p.Name == f.Name)));
             ModuleValidator.Validate(output);
             ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(output, SpirvCompilationTarget.Default)));

@@ -134,7 +134,7 @@ public class CanonicalWgslTerminationTests
     {
         var module = WgslReader.Parse("fn unused()->u32{return 1u;}@compute @workgroup_size(1) fn main(){}");
         var unused = module.Functions.Single(f => f.Name == "unused"); unused.Body = new(); unused.Body.Statements.Add(new Statement.Unreachable { Span = new(71, 2) });
-        var canonical = CanonicalShaderPipeline.Prepare(module); var before = Poison(canonical);
+        var canonical = CanonicalUncalledFunctionTests.Defer(CanonicalShaderPipeline.Prepare(module), "unused"); var before = Poison(canonical);
         var lowered = WgslTerminationLowering.Run(canonical);
         Assert.Same(canonical.Functions["main"], lowered.Functions["main"]);
         Assert.Contains(lowered.DeferredFunctions, p => p.Key == "unused");

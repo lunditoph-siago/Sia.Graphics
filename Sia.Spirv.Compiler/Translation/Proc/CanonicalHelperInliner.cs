@@ -144,6 +144,8 @@ internal static class CanonicalHelperInliner
                 output.SelectionMerges.Add(continuation.Id, loop.Merge);
             var arguments = callee.Arguments.Select((a, i) => (a.Name, Value: call.Arguments[i])).ToDictionary(a => a.Name, a => a.Value, StringComparer.Ordinal);
             int entry = Copy(graph, output, arguments, continuation, site.Instruction.DiagnosticFilters, module);
+            output.DiagnosticRanges.AddRange(graph.DiagnosticRanges);
+            if (graph.BodyDiagnosticFilters.Count != 0) output.DiagnosticRanges.Add(graph.BodyDiagnosticFilters);
             // A single-arm selection provides the helper's lexical exit target without
             // introducing a loop or changing convergence. Arguments are already SSA values.
             var selector = output.Value(ShaderType.U32); site.Block.Instructions.Add(new(selector, new ValueOperation.Literal(0u), site.Instruction.Span) {

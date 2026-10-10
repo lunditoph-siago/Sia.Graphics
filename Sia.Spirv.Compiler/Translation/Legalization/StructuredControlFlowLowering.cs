@@ -39,7 +39,11 @@ internal static class StructuredControlFlowLowering
             EarlyDepthTest = signature.EarlyDepthTest, ConservativeDepth = signature.ConservativeDepth
         };
         output.Arguments.AddRange(signature.Arguments); output.DiagnosticFilters.AddRange(signature.DiagnosticFilters);
-        output.Body.DiagnosticFilters.AddRange(signature.Body.DiagnosticFilters);
+        output.Body.DiagnosticFilters.AddRange(function.BodyDiagnosticFilters);
+        foreach (var filters in function.DiagnosticRanges) {
+            var range = new Block(); range.DiagnosticFilters.AddRange(filters);
+            output.Body.Statements.Add(new Statement.Nested(range));
+        }
         var names = module.Globals.Select(g => g.Name).Concat(module.Constants.Select(c => c.Name))
             .Concat(module.Structures.Select(s => s.Name)).Concat(module.Functions.Select(f => f.Name))
             .Concat(signature.Arguments.Select(a => a.Name)).ToHashSet(StringComparer.Ordinal);
@@ -72,6 +76,11 @@ internal static class StructuredControlFlowLowering
                 if (type is not ShaderType.RayQuery)
                     output.Body.Statements.Add(new Statement.Declare(name, type, null) { Initialize = false });
                 expressions.Add(value.Id, Place(name, type));
+            }
+            else if (value.Type is ShaderType.Pointer && definitions.TryGetValue(value.Id, out var aliasDefinition)
+                && aliasDefinition.Operation is ValueOperation.Let) {
+                string name = ValueName(aliasDefinition);
+                expressions.Add(value.Id, new Expression.Unary("*", new Expression.Reference(name, value.Type), value.Type));
             }
             else if (CanonicalTypes.Data(value.Type)) {
                 bool parameter = !definitions.TryGetValue(value.Id, out var definition);
@@ -175,8 +184,10 @@ internal static class StructuredControlFlowLowering
                     if (result.Type is ShaderType.Pointer && instruction.Operation is ValueOperation.Let) {
                         // Retain explicit address formation for target legality, even when the alias is unused.
                         // Access indices have already been captured as SSA values before this declaration.
-                        emission.Statements.Add(new Statement.Declare(Fresh(), result.Type,
-                            new Expression.Unary("&", address, result.Type) { Span = instruction.Span }, false) { Span = instruction.Span });
+                        var alias = (ValueOperation.Let)instruction.Operation;
+                        string name = ((Expression.Reference)((Expression.Unary)address).Operand).Name;
+                        emission.Statements.Add(new Statement.Declare(name, result.Type,
+                            new Expression.Unary("&", Use(alias.Value), result.Type) { Span = instruction.Span }, false) { Span = instruction.Span });
                     }
                     continue;
                 }

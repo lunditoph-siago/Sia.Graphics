@@ -39,9 +39,6 @@ internal static class CanonicalShaderPipeline
             deferredFunctions.Add(function, reason); deferrals?.Add(new(function, reason));
         }
         foreach (var function in input.Functions) {
-            if (!entryFunctions.Contains(function.Name) && frontendGraphs?.ContainsKey(function.Name) != true) {
-                Defer(function.Name, "outside shader entry call graph"); continue;
-            }
             ControlFlowFunction? graph = null; string? deferred = null;
             bool native = frontendGraphs?.TryGetValue(function.Name, out graph) == true;
             if (!native && !StructuredControlFlowReader.TryRead(function, input, out graph, out deferred)) {
@@ -80,6 +77,13 @@ internal static class CanonicalShaderPipeline
                 Preserved = ControlFlowAnalyses.All
             });
             ControlFlowVerifier.Validate(graph, input, analyses);
+            before = traces is null ? null : ControlFlowPrinter.Write(graph);
+            ConstantConversionFolding.Run(graph);
+            ControlFlowVerifier.Validate(graph, input, analyses);
+            traces?.Add(new(function.Name, "constant-conversion-folding", before!, ControlFlowPrinter.Write(graph),
+                "CFG topology, predecessor edges, dominance, SSA identities and ordered effects", "converted constant values") {
+                Preserved = ControlFlowAnalyses.All
+            });
             functions.Add(function.Name, graph);
         }
         var result = new CanonicalModule(input, functions.ToFrozenDictionary(StringComparer.Ordinal),

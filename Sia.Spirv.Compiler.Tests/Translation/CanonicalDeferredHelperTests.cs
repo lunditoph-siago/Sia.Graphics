@@ -63,7 +63,8 @@ public class CanonicalDeferredHelperTests
         var graph = canonical.Functions["main"]; string before = ControlFlowPrinter.Write(graph);
         var output = ShaderTargetLowering.PrepareSpirv(canonical, null);
         Assert.Equal(before, ControlFlowPrinter.Write(output.Functions["main"]));
-        Assert.Equal("outside shader entry call graph", output.DeferredFunctions["unused"]);
+        Assert.Empty(output.DeferredFunctions);
+        Assert.Equal(ControlFlowPrinter.Write(canonical.Functions["unused"]), ControlFlowPrinter.Write(output.Functions["unused"]));
         Assert.Equal(before, ControlFlowPrinter.Write(graph));
     }
 

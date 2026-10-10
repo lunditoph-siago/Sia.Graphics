@@ -5,6 +5,33 @@ See the [current pipeline/target map](../../docs/compiler-architecture.md) and
 records the original PR baseline, not verification of later source changes;
 `renewal-evidence.json` records the cleanup follow-up.
 
+Latest uncalled/library graph import: source ABB68A3A…, Compiler 452095AB….
+Every declared function attempts canonical import, including modules without
+entries; entry reachability no longer causes a structured deferral. Six new cases
+cover library/pointer helper ownership, fresh graphs, borrowed Body replacement,
+diagnostic snapshot copies and constant-width conversions. Adapter regressions
+construct explicit deferrals. The new shared conversion pass adds a fourth trace;
+exact trace-count assertions were updated accordingly.
+
+Passed: maintenance 2279/2279, zero skipped; formats 233 maintained + 22
+query/handle + 82 frozen replay input/output + six binding/library outputs = 343;
+original native replay 41/41; GPU 10/10 with fixed oracles; CLI, Dawn browser
+library and validation exporter builds, with 22 direct shaders and ten matching
+Compiler DLL copies. Export source CEE2911C… differs from final source only in
+UniformityTests' exact 3-to-4 trace count. Production and fixture behavior sources
+are unchanged; final maintenance/GPU use ABB68A3A…. Scripts, actual commands,
+hashes and reports are in `.work/compiler-architecture-first/uncalled-*`, with
+`record-uncalled-evidence.py` consolidating them.
+
+Retained failures: baseline ownership reproduction, former implicit-deferral
+fixtures, empty diagnostic ranges/constant-return layout/pointer alias names,
+and obsolete trace counts. Existing behavior assertions remain and code repairs
+preserve graph-owned settings/aliases and shared conversion semantics. The first
+GPU build preceded static fixture generation; it succeeds after generation.
+Current-source local browser executable, actual browser GPU, SDK/Linux/AOT,
+ray traversal and full research parity have not run. Prior-head CI remains
+historical; new-head CI must verify the submitted source separately.
+
 Latest call identity migration: source 221FF2B6…, Compiler 49F8D3FB….
 `Expression.Call` requires a fourth Function/Builtin binding argument; the
 three-argument constructor, Unresolved value and name-inference compatibility

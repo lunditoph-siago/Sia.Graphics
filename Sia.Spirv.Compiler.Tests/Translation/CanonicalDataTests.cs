@@ -28,7 +28,7 @@ public class CanonicalDataTests
         foreach (var module in new[] { input, SpirvReader.Parse(SpirvWriter.Write(input, SpirvCompilationTarget.Default)) }) {
             var traces = new List<CanonicalPassTrace>(); var deferrals = new List<CanonicalDeferral>();
             var prepared = CanonicalShaderPipeline.Run(module, traces, deferrals);
-            Assert.Empty(deferrals); Assert.Equal(module.Functions.Count * 3, traces.Count);
+            Assert.Empty(deferrals); Assert.Equal(module.Functions.Count * 4, traces.Count);
             Assert.All(module.Functions, f => Assert.NotSame(f, prepared.Functions.Single(p => p.Name == f.Name)));
             ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
             ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
@@ -104,7 +104,7 @@ public class CanonicalDataTests
         foreach (var module in new[] { input, SpirvReader.Parse(SpirvWriter.Write(input, SpirvCompilationTarget.Default)) }) {
             var traces = new List<CanonicalPassTrace>(); var deferrals = new List<CanonicalDeferral>();
             var output = CanonicalShaderPipeline.Run(module, traces, deferrals);
-            Assert.Empty(deferrals); Assert.Equal(module.Functions.Count * 3, traces.Count);
+            Assert.Empty(deferrals); Assert.Equal(module.Functions.Count * 4, traces.Count);
             var entry = Assert.Single(output.Functions, f => f.Stage is not null);
             var original = Assert.Single(module.Functions, f => f.Stage is not null);
             Assert.Equal(stage, entry.Stage); Assert.Equal(original.ReturnBinding, entry.ReturnBinding);

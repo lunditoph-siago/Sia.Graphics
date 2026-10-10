@@ -111,9 +111,10 @@ public class CanonicalWgslTargetTests
     }
 
     [Fact]
-    public void RecoveryKeepsAnUnchangedFunctionOutsideTheEntryGraphDeferred()
+    public void RecoveryKeepsAnUnchangedExplicitDeferral()
     {
         var canonical = CanonicalShaderPipeline.Prepare(WgslReader.Parse("fn f()->i32{var a=array<i32,1>(42);let p=&a;return p[0];}"));
+        canonical = CanonicalUncalledFunctionTests.Defer(canonical, "f");
         Assert.Empty(canonical.Functions); var function = Assert.Single(canonical.Declarations.Functions);
         var recovered = CollectiveReadRecovery.Run(canonical);
         Assert.Empty(recovered.Functions); Assert.Equal(canonical.DeferredFunctions["f"], recovered.DeferredFunctions["f"]);

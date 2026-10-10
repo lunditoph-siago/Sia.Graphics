@@ -37,9 +37,10 @@ public class SpirvWorkgroupConversionTests
         Assert.Equal(physical, Assert.Single(from.Arguments).Type);
         foreach (var helper in helpers) {
             Assert.Null(helper.Stage);
-            Assert.True(StructuredControlFlowReader.TryRead(helper, prepared.Module, out var graph, out var reason), reason);
-            ControlFlowVerifier.Validate(graph!, prepared.Module);
-            Assert.All(graph!.Blocks.SelectMany(b => b.Instructions), i => Assert.Equal(ShaderEffects.None, i.Effects));
+            Assert.Empty(helper.Body.Statements);
+            var graph = prepared.PhysicalLayout.ControlFlow[helper.Name].Graph;
+            ControlFlowVerifier.Validate(graph, prepared.Module);
+            Assert.All(graph.Blocks.SelectMany(b => b.Instructions), i => Assert.Equal(ShaderEffects.None, i.Effects));
         }
         var binary = SpirvWriter.Emit(prepared);
         Assert.True(binary.Instructions.Count(i => (Op)i.Opcode == Op.FunctionCall) >= 4);

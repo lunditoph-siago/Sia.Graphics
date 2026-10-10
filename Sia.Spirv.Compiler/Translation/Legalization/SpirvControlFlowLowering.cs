@@ -18,9 +18,27 @@ internal sealed record SpirvRuntimeArrayLength(SsaValue? Structure, string? Glob
 
 internal static class SpirvControlFlowLowering
 {
+    // Explicit adapter for callers that still supply structured declarations.
+    // Consumers accepting CanonicalModule retain its executable graphs instead.
+    internal static CanonicalModule Capture(Module module)
+    {
+        var graphs = new Dictionary<string, ControlFlowFunction>(StringComparer.Ordinal);
+        var deferred = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var function in module.Functions)
+            if (TryRead(function, module, out var graph, out var reason)) graphs.Add(function.Name, graph!);
+            else deferred.Add(function.Name, reason!);
+        return new(module, graphs, deferred, module.Functions.Where(f => f.Stage is not null).Select(f => f.Name).ToHashSet(StringComparer.Ordinal));
+    }
+
     internal static bool TryRead(ShaderFunction function, Module module, out ControlFlowFunction? graph, out string? reason)
     {
         if (!StructuredControlFlowReader.TryRead(function, module, out graph, out reason)) return false;
+        return TryPrepare(graph!, module, out reason);
+    }
+
+    internal static bool TryPrepare(ControlFlowFunction graph, Module module, out string? reason)
+    {
+        reason = null;
         ControlFlowAnalysis.RemoveUnreachable(graph!);
         if (graph!.Blocks.SelectMany(b => b.Parameters).Any(v => v.Type is ShaderType.Pointer)) {
             reason = "target pointer merge legalization"; return false;

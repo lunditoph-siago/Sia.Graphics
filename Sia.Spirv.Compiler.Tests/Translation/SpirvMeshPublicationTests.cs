@@ -157,6 +157,11 @@ public class SpirvMeshPublicationTests
         invalid.Body.Statements.Add(new Statement.Evaluate(new Expression.Call(prepared.MeshPublications["task_main"].Function.Name,
             [new Expression.Construct(new ShaderType.Vector(3, ShaderType.U32), [Expression.U32(1), Expression.U32(1), Expression.U32(1)])], new ShaderType.Void()) { Binding = CallBinding.Function }));
         prepared.Module.Functions.Add(invalid);
-        Assert.Contains("unavailable in its stage", Assert.Throws<ShaderException>(() => ModuleValidator.Validate(prepared.Module)).Message);
+        var canonical = prepared.PhysicalLayout.Canonical;
+        var deferred = canonical.DeferredFunctions.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+        deferred.Add(invalid.Name, "legacy negative stage fixture");
+        Assert.Contains("unavailable in its stage", Assert.Throws<ShaderException>(() => ModuleValidator.Validate(canonical with {
+            DeferredFunctions = deferred, EntryFunctions = canonical.EntryFunctions.Append(invalid.Name).ToHashSet(StringComparer.Ordinal)
+        })).Message);
     }
 }

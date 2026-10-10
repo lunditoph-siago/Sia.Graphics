@@ -26,7 +26,8 @@ public class SpirvOutputBuiltinIdentityTests
             + "fn " + helper.Name + "(value:f32)->f32{return value;}"
             + "@compute @workgroup_size(1) fn main(){outputs[0]=bitcast<u32>(" + helper.Name + "(clamp(bitcast<f32>(inputs[0]),0.0,1.0)));}";
         var module = WgslReader.Parse(source);
-        module.Functions.RemoveAll(f => f.Name == helper.Name); module.Functions.Add(helper);
+        var adapted = StructuredControlFlowLowering.Run(prepared.PhysicalLayout.ControlFlow[helper.Name].Graph, prepared.Module);
+        module.Functions.RemoveAll(f => f.Name == helper.Name); module.Functions.Add(adapted);
         ModuleValidator.Validate(module); return module;
     }
     [Fact]
@@ -93,7 +94,8 @@ public class SpirvOutputBuiltinIdentityTests
         var input = WgslReader.Parse("@fragment fn clamp()->@builtin(frag_depth) f32{return 2.0;}");
         var prepared = ShaderTargetLowering.ForSpirv(input, null, true, true, true);
         Assert.Equal("clamp", prepared.Module.Functions.Single(f => f.Stage is not null).Name);
-        Assert.Contains("Entry name 'clamp'", Assert.Throws<ShaderException>(() => WgslWriter.Write(prepared.Module)).Message);
+        var adapted = StructuredControlFlowLowering.Run(prepared.PhysicalLayout.Canonical);
+        Assert.Contains("Entry name 'clamp'", Assert.Throws<ShaderException>(() => WgslWriter.Write(adapted)).Message);
         ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Emit(prepared).ToBytes()));
     }
 
@@ -106,7 +108,7 @@ public class SpirvOutputBuiltinIdentityTests
         var prepared = WgslBuiltinNameLowering.Run(module);
         var renamed = prepared.Functions.Single(f => f.Name == helper.Name);
         Assert.StartsWith("sia_wgsl_clamp_", Assert.IsType<Statement.Declare>(renamed.Body.Statements[0]).Name);
-        var builtin = Assert.IsType<Expression.Call>(Assert.IsType<Statement.Return>(renamed.Body.Statements[1]).Value);
+        var builtin = Assert.IsType<Expression.Call>(Assert.Single(renamed.Body.Statements.OfType<Statement.Declare>(), d => d.Initializer is Expression.Call).Initializer);
         Assert.Equal("clamp", builtin.Function); Assert.Equal(CallBinding.Builtin, builtin.Binding);
         ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
         Assert.Equal("clamp", Assert.IsType<Statement.Declare>(helper.Body.Statements[0]).Name);
@@ -133,8 +135,10 @@ public class SpirvOutputBuiltinIdentityTests
     {
         var module = SpirvOutputPolicyTests.PolicyProbe(true);
         var helper = module.Functions.Single(f => f.Name == "sia_spv_output_depth");
-        var returned = Assert.IsType<Statement.Return>(Assert.Single(helper.Body.Statements));
-        helper.Body.Statements[0] = returned with { Value = Assert.IsType<Expression.Call>(returned.Value) with { Binding = CallBinding.Function } };
+        var declaration = Assert.Single(helper.Body.Statements.OfType<Statement.Declare>(), d => d.Initializer is Expression.Call);
+        helper.Body.Statements[helper.Body.Statements.IndexOf(declaration)] = declaration with {
+            Initializer = Assert.IsType<Expression.Call>(declaration.Initializer) with { Binding = CallBinding.Function }
+        };
         Assert.Contains("Unknown resolved function", Assert.Throws<ShaderException>(() => ModuleValidator.Validate(module)).Message);
     }
 

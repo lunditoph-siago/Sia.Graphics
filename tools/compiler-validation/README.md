@@ -5,7 +5,25 @@ See the [current pipeline/target map](../../docs/compiler-architecture.md) and
 records the original PR baseline, not verification of later source changes;
 `renewal-evidence.json` records the cleanup follow-up.
 
-Latest uniform graph migration (779A518A…) captures target graphs before physical
+Latest canonical target entry migration (D27A86F6…) retains owned graphs through
+the internal entry/physical-layout entrance, copying borrowed graphs before target
+changes. Pure workgroup and output conversion helpers are constructed directly as
+typed SSA; initialization retains its first captured graph. Explicit target
+deferrals adapt the executable graph rather than an obsolete declaration body.
+Ten new contracts and maintenance 2047/2047 pass, with independent format 217/217,
+two pointer formats, frozen input/output format 82/82, 160 reverse routes and
+657 deterministic files. Of 218 compared SPIR-V files, 211 match; seven workgroup
+outputs change. All 41 frozen replay outputs match. GPU attempts are 71 PASS /
+6 ERROR: three Vulkan memory-model imports, two original continuing WGSL name
+redefinitions and one unresolved specialization-array import fail before execution.
+The last artifact matches the preceding batch. Output conversion, raster policy
+and resolved initialization readbacks pass. Evidence and original failed test/tool
+runs are retained under canonical-target-entry-* in the workspace task area.
+The shared ShaderTargetLowering entrance still reconstructs structured bodies
+before constant/pointer/termination/integer passes. Initialization/mesh constructors,
+deferrals, frontend/LLVM and full research/consumer gates remain open.
+
+Previous uniform graph migration (779A518A…) captures target graphs before physical
 type discovery and builds uniform read/selection helpers directly as CFG/SSA.
 Captured indices, caller results, loop/edge topology, native memory operands and
 diagnostic origins survive. Newly generated helpers propagate memory effects to

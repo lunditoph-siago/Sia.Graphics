@@ -29,10 +29,14 @@ preserves edge identity and dominance; replacing edges requires predecessor
 invalidation, while topology changes invalidate both.
 
 `CanonicalShaderPipeline.Run` is the explicit compatibility adapter over
-`Prepare`; target preparation explicitly uses the same structured adapter.
-This removes reconstruction from the shared transform itself, but target
-layout/pointer passes and public frontend routes still need conversion. It does
-not yet reduce their full end-to-end graph/structured roundtrips.
+`Prepare`. `ShaderTargetLowering` still reconstructs structured bodies before its
+constant/pointer/termination/integer semantic passes. The internal entry and
+physical-layout entrance now accepts `CanonicalModule`, retaining executable
+graphs and copying borrowed graphs before target mutation. A legacy `Module`
+entrance explicitly captures eligible graphs. Target-deferred owned functions
+adapt their executable graph per function, rather than reading obsolete declaration
+bodies. This is partial target migration; public frontend routes and the complete
+shared canonical-to-target path still need conversion.
 
 Workgroup layout access now maps owned SSA graphs: physical pointer signatures,
 results, call return types, block arguments and captured addresses stay typed
@@ -49,9 +53,13 @@ and the default arm returns zero. Call arguments use already captured SSA indice
 caller results, ordered effects and loop/edge identities remain intact. Leaf memory
 operands and inherited member qualifications propagate into helper call effects
 before mixed validation. Structured uniform access handles explicit deferrals only.
-Pure workgroup helpers still originate in typed structured bodies and retain their
-captured graphs. The shared canonical-to-target entrance and frontend/LLVM adapters
-still require migration; this is not an end-to-end cutover.
+Pure workgroup conversion and position/depth output helpers are built directly
+as typed SSA graphs with empty compatibility bodies. Their aggregate projections,
+constructors and builtin identity remain explicit. Initialization still starts
+from a structured constructor, but its first verified/promoted graph is retained
+through layout instead of being reconstructed and captured again. Initialization
+and mesh constructors, the shared semantic target entrance, explicit deferrals and
+frontend/LLVM adapters still require migration; this is not an end-to-end cutover.
 
 The structured adapter also recognizes native conditional exits whose target is
 the current enclosing selection's declared merge. It keeps edge copies inside
@@ -122,7 +130,7 @@ texture is a rendering resource, not a shader compiler target.
 | `Sia.Spirv.Compiler/Translation/CanonicalShaderPipeline.cs`, `Proc/` | Per-compilation shader-entry reachability/dominance and concrete data local promotion; optional before/after traces and explicit deferred-feature reports |
 | `Sia.Spirv.Compiler/Translation/Proc/UniformityAnalysis.cs`, `UniformityAnalysis.Canonical.cs` | Shared per-compilation control/value dependencies and bottom-up helper/pointer-content requirements; verified CFG/SSA instructions, incoming edges and function-memory dependencies, with explicit unmigrated-family fallback |
 | `Sia.Spirv.Compiler/Translation/Proc/PointerAliasAnalysis.cs`, `PointerAliasAnalysis.Canonical.cs` | Shared root identities and bottom-up read/write footprints; target checks consume verified SSA instructions/edges, with structured source legality and unmigrated-family fallback |
-| `Sia.Spirv.Compiler/Translation/Legalization/` | Ordered target preparation over structured IR; WGSL memory/layout lowering; validates input and each pass result |
+| `Sia.Spirv.Compiler/Translation/Legalization/` | Ordered target preparation over canonical graphs with explicit structured adapters; WGSL memory/layout lowering; validates input and each pass result |
 | `Sia.Spirv.Compiler/Translation/Back/` | Public writer composition adapters and target emission; SPIR-V bytes/words share one preparation path |
 | `Sia.Spirv.Compiler/LLVM/` | Offline LLVM emission, SPIR-V repair and host tool process boundary |
 | `Sia.Spirv.Compiler/Compilation/` | Public compilation entry points and offline files, hashes, manifests, variants and cache orchestration |

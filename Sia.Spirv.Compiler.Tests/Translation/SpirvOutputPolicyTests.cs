@@ -1,6 +1,7 @@
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 using Sia.Spirv.Compiler.Translation.Legalization;
 using Sia.Spirv.Compiler.Translation.Spirv;
 using Sia.Spirv.Compiler.Translation.Valid;
@@ -59,17 +60,22 @@ public class SpirvOutputPolicyTests
         Assert.Same(conversion.Value, prepared.Module.Functions.Single(f => f.Name == conversion.Value.Name));
         Assert.Null(conversion.Value.Stage); Assert.Null(conversion.Value.ReturnBinding);
         Assert.Equal(conversion.Value.ReturnType, Assert.Single(conversion.Value.Arguments).Type);
-        var result = Assert.Single(conversion.Value.Body.Statements.OfType<Statement.Return>()).Value;
+        Assert.Empty(conversion.Value.Body.Statements);
+        var graph = prepared.PhysicalLayout.ControlFlow[conversion.Value.Name].Graph;
+        var block = Assert.Single(graph.Blocks);
+        var definitions = block.Instructions.ToDictionary(i => i.Result!.Value.Id, i => i.Operation);
+        var result = Assert.IsType<ControlFlowTerminator.Return>(block.Terminator).Value!.Value;
         if (policy == "position") {
-            var vector = Assert.IsType<Expression.Construct>(result);
+            var vector = Assert.IsType<ValueOperation.Construct>(definitions[result.Id]);
             Assert.Equal(4, vector.Components.Count);
-            Assert.Equal("y", Assert.IsType<Expression.Swizzle>(Assert.IsType<Expression.Unary>(vector.Components[1]).Operand).Components);
-            Assert.Equal(new[] { "x", "z", "w" }, new[] { 0, 2, 3 }.Select(i => Assert.IsType<Expression.Swizzle>(vector.Components[i]).Components));
+            var negate = Assert.IsType<ValueOperation.Unary>(definitions[vector.Components[1].Id]); Assert.Equal("-", negate.Operator);
+            Assert.Equal("y", Assert.IsType<ValueOperation.Swizzle>(definitions[negate.Operand.Id]).Components);
+            Assert.Equal(new[] { "x", "z", "w" }, new[] { 0, 2, 3 }.Select(i => Assert.IsType<ValueOperation.Swizzle>(definitions[vector.Components[i].Id]).Components));
         }
         else {
-            var clamp = Assert.IsType<Expression.Call>(result); Assert.Equal("clamp", clamp.Function);
-            Assert.Equal(0f, Assert.IsType<Expression.Literal>(clamp.Arguments[1]).Value);
-            Assert.Equal(1f, Assert.IsType<Expression.Literal>(clamp.Arguments[2]).Value);
+            var clamp = Assert.IsType<ValueOperation.Builtin>(definitions[result.Id]); Assert.Equal("clamp", clamp.Function);
+            Assert.Equal(0f, Assert.IsType<ValueOperation.Literal>(definitions[clamp.Arguments[1].Id]).Value);
+            Assert.Equal(1f, Assert.IsType<ValueOperation.Literal>(definitions[clamp.Arguments[2].Id]).Value);
         }
         var binary = SpirvWriter.Emit(prepared);
         Assert.Equal(binary.ToBytes(), SpirvWriter.Emit(prepared).ToBytes());
@@ -152,7 +158,10 @@ public class SpirvOutputPolicyTests
                 ? "fn conversion(value:f32)->f32{return clamp(value,0.0,1.0);}@compute @workgroup_size(1) fn main(){outputs[0]=bitcast<u32>(conversion(bitcast<f32>(inputs[0])));outputs[1]=inputs[1];}"
                 : "fn conversion(value:vec4f)->vec4f{return vec4f(value.x,-value.y,value.z,value.w);}@compute @workgroup_size(1) fn main(){let value=conversion(vec4f(bitcast<f32>(inputs[0]),bitcast<f32>(inputs[1]),0.5,1.0));outputs[0]=bitcast<u32>(value.y);outputs[1]=bitcast<u32>(value.x);}");
         var probe = WgslReader.Parse(source.Replace("conversion", helper.Name, StringComparison.Ordinal));
-        probe.Functions.RemoveAll(f => f.Name == helper.Name); probe.Functions.Add(helper);
+        // This standalone legacy Module consumer crosses its explicit adapter;
+        // the production conversion has a CFG body and no structured executable.
+        var adapted = StructuredControlFlowLowering.Run(prepared.PhysicalLayout.ControlFlow[helper.Name].Graph, prepared.Module);
+        probe.Functions.RemoveAll(f => f.Name == helper.Name); probe.Functions.Add(adapted);
         ModuleValidator.Validate(probe); return probe;
     }
 

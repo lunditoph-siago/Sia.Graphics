@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 using Sia.Spirv.Compiler.Translation.Proc;
 using Sia.Spirv.Compiler.Translation.Valid;
 
@@ -14,7 +15,13 @@ internal static class SpirvEntryPointLowering
         IReadOnlyDictionary<string, SpirvMeshPublication> MeshPublications);
 
     public static Result Run(Module input, bool adjustCoordinateSpace, bool clampFragmentDepth, bool zeroInitializeWorkgroupMemory = true, bool useLocalSizeId = false, uint? version = null)
+        => Run(SpirvControlFlowLowering.Capture(input), adjustCoordinateSpace, clampFragmentDepth, zeroInitializeWorkgroupMemory, useLocalSizeId, version);
+
+    internal static Result Run(CanonicalModule canonical, bool adjustCoordinateSpace, bool clampFragmentDepth, bool zeroInitializeWorkgroupMemory = true, bool useLocalSizeId = false, uint? version = null)
     {
+        var input = canonical.Declarations;
+        ControlFlowVerifier.Validate(canonical);
+        var graphs = canonical.Functions.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
         var output = new Module { VulkanMemoryModel = input.VulkanMemoryModel, WorkgroupInitializationRequired = input.WorkgroupInitializationRequired };
         output.Structures.AddRange(input.Structures); output.Globals.AddRange(input.Globals); output.Constants.AddRange(input.Constants);
         output.Functions.AddRange(input.Functions); output.Enables.UnionWith(input.Enables); output.DiagnosticFilters.AddRange(input.DiagnosticFilters);
@@ -22,6 +29,8 @@ internal static class SpirvEntryPointLowering
         var helpers = new Dictionary<string, ShaderFunction>(StringComparer.Ordinal);
         var names = input.Functions.Select(f => f.Name).Concat(input.Globals.Select(g => g.Name))
             .Concat(input.Constants.Select(c => c.Name)).Concat(input.Structures.Select(s => s.Name)).ToHashSet(StringComparer.Ordinal);
+        CanonicalModule View() => new(output, graphs, canonical.DeferredFunctions,
+            output.Functions.Where(f => f.Stage is not null).Select(f => f.Name).ToHashSet(StringComparer.Ordinal));
 
         ShaderFunction Helper(string policy)
         {
@@ -29,15 +38,21 @@ internal static class SpirvEntryPointLowering
             string stem = "sia_spv_output_" + policy, name = stem; int suffix = 0;
             while (!names.Add(name)) name = stem + "_" + ++suffix;
             ShaderType type = policy == "position" ? new ShaderType.Vector(4, ShaderType.F32) : ShaderType.F32;
-            var value = new Expression.Reference("value", type);
-            Expression result;
-            if (policy == "position") {
-                Expression Component(string component) => new Expression.Swizzle(value, component, ShaderType.F32);
-                result = new Expression.Construct(type, [Component("x"), new Expression.Unary("-", Component("y"), ShaderType.F32), Component("z"), Component("w")]);
-            }
-            else result = new Expression.Call("clamp", [value, new Expression.Literal(0f, ShaderType.F32), new Expression.Literal(1f, ShaderType.F32)], type) { Binding = CallBinding.Builtin };
             var function = new ShaderFunction(name) { ReturnType = type };
-            function.Arguments.Add(new("value", type)); function.Body.Statements.Add(new Statement.Return(result));
+            function.Arguments.Add(new("value", type));
+            var graph = new ControlFlowFunction(function); var block = graph.Block(); graph.Entry = block.Id;
+            SsaValue Emit(ShaderType resultType, ValueOperation operation) {
+                var created = graph.Value(resultType); block.Instructions.Add(new(created, operation)); return created;
+            }
+            var value = Emit(type, new ValueOperation.Symbol("value"));
+            SsaValue result;
+            if (policy == "position") {
+                SsaValue Component(string component) => Emit(ShaderType.F32, new ValueOperation.Swizzle(value, component));
+                result = Emit(type, new ValueOperation.Construct([Component("x"), Emit(ShaderType.F32, new ValueOperation.Unary("-", Component("y"))), Component("z"), Component("w")]));
+            }
+            else result = Emit(type, new ValueOperation.Builtin("clamp", [value, Emit(type, new ValueOperation.Literal(0f)), Emit(type, new ValueOperation.Literal(1f))], type));
+            block.Terminator = new ControlFlowTerminator.Return(result);
+            graphs.Add(name, graph);
             helpers.Add(policy, function); output.Functions.Add(function); return function;
         }
 
@@ -64,22 +79,15 @@ internal static class SpirvEntryPointLowering
             && input.Globals.Any(g => g.Space == AddressSpace.Workgroup)) {
             var initializer = SpirvWorkgroupInitializationLowering.Create(output, names);
             output.Functions.Add(initializer);
-            ModuleValidator.Validate(output);
             if (!StructuredControlFlowReader.TryRead(initializer, output, out var graph, out var deferred))
                 throw new ShaderException(DiagnosticStage.SpirvWrite, "Workgroup initialization requires canonical verification: " + deferred);
             ControlFlowAnalysis.RemoveUnreachable(graph!);
             ControlFlowVerifier.Validate(graph!, output); LocalValuePromotion.Run(graph!); ControlFlowVerifier.Validate(graph!, output);
-            var lowered = StructuredControlFlowLowering.Run(graph!, output);
-            output.Functions[^1] = lowered;
-            foreach (var entry in entries) initializers.Add(entry.Name, lowered);
+            graphs.Add(initializer.Name, graph!);
+            foreach (var entry in entries) initializers.Add(entry.Name, initializer);
         }
-        ModuleValidator.Validate(output);
-        foreach (var function in helpers.Values) {
-            if (!StructuredControlFlowReader.TryRead(function, output, out var graph, out var deferred))
-                throw new ShaderException(DiagnosticStage.SpirvWrite, "Entry output legalization requires canonical verification: " + deferred);
-            ControlFlowVerifier.Validate(graph!, output); LocalValuePromotion.Run(graph!); ControlFlowVerifier.Validate(graph!, output);
-        }
-        var layout = SpirvPhysicalLayoutLowering.Prepare(output, useLocalSizeId, version);
+        ModuleValidator.Validate(View());
+        var layout = SpirvPhysicalLayoutLowering.Prepare(View(), useLocalSizeId, version);
         ModuleValidator.Validate(layout.Canonical);
         var publication = SpirvMeshPublicationLowering.Run(layout, conversions);
         layout = publication.Layout;

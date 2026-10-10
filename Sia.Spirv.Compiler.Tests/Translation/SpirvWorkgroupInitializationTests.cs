@@ -53,9 +53,9 @@ public class SpirvWorkgroupInitializationTests
         var initializer = Assert.Single(prepared.WorkgroupInitializers).Value;
         Assert.Same(initializer, prepared.Module.Functions.Single(f => f.Name == initializer.Name));
         Assert.Null(initializer.Stage);
-        Assert.True(StructuredControlFlowReader.TryRead(initializer, prepared.Module, out var graph, out var deferred), deferred);
-        ControlFlowAnalysis.RemoveUnreachable(graph!); ControlFlowVerifier.Validate(graph!, prepared.Module);
-        var effects = graph!.Blocks.SelectMany(b => b.Instructions).ToArray();
+        var graph = prepared.PhysicalLayout.ControlFlow[initializer.Name].Graph;
+        ControlFlowVerifier.Validate(graph, prepared.Module);
+        var effects = graph.Blocks.SelectMany(b => b.Instructions).ToArray();
         var barrier = Assert.Single(effects.Select(i => i.Operation).OfType<ValueOperation.Barrier>());
         Assert.True(barrier.Control && barrier.Workgroup);
         Assert.Equal(new SpirvBarrierMemory(2, 0x108, 2), barrier.NativeMemory);

@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using Sia.Spirv.Compiler.Translation.IR;
 using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
+using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
@@ -34,12 +35,30 @@ internal sealed record SpirvBufferMemberLayout(uint Offset, uint? MatrixStride);
 internal static class SpirvPhysicalLayoutLowering
 {
     internal static SpirvPhysicalLayout Prepare(Module module, bool useLocalSizeId = false, uint? version = null)
+        => Prepare(SpirvControlFlowLowering.Capture(module), useLocalSizeId, version);
+
+    internal static SpirvPhysicalLayout Prepare(CanonicalModule canonical, bool useLocalSizeId = false, uint? version = null)
     {
+        ControlFlowVerifier.Validate(canonical);
+        var module = canonical.Declarations;
         var graphs = new Dictionary<string, ControlFlowFunction>(StringComparer.Ordinal);
-        var deferred = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var function in module.Functions)
-            if (SpirvControlFlowLowering.TryRead(function, module, out var graph, out var reason)) graphs.Add(function.Name, graph!);
-            else deferred.Add(function.Name, reason!);
+        var deferred = canonical.DeferredFunctions.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+        var adapters = new Dictionary<string, ShaderFunction>(StringComparer.Ordinal);
+        foreach (var pair in canonical.Functions) {
+            var graph = pair.Value.Copy();
+            if (SpirvControlFlowLowering.TryPrepare(graph, module, out var reason)) graphs.Add(pair.Key, graph);
+            else {
+                // Only a target-deferred executable graph crosses this adapter.
+                // The borrowed declaration Body may be empty or obsolete.
+                adapters.Add(pair.Key, StructuredControlFlowLowering.Run(graph, module)); deferred.Add(pair.Key, reason!);
+            }
+        }
+        if (adapters.Count != 0) {
+            var adapted = new Module { VulkanMemoryModel = module.VulkanMemoryModel, WorkgroupInitializationRequired = module.WorkgroupInitializationRequired };
+            adapted.Structures.AddRange(module.Structures); adapted.Globals.AddRange(module.Globals); adapted.Constants.AddRange(module.Constants);
+            adapted.Enables.UnionWith(module.Enables); adapted.DiagnosticFilters.AddRange(module.DiagnosticFilters);
+            adapted.Functions.AddRange(module.Functions.Select(f => adapters.GetValueOrDefault(f.Name, f))); module = adapted;
+        }
         var uniform = new Dictionary<ShaderType, ShaderType>();
         var workgroup = new Dictionary<ShaderType, ShaderType>();
         var bufferTypes = new HashSet<ShaderType>();

@@ -37,7 +37,7 @@ public static partial class ModuleValidator
             function = graph.Signature;
             foreach (var global in module.Globals)
                 globals.Add(global.Name, new(global.Type, global.Space != AddressSpace.Handle,
-                    global.Space != AddressSpace.Uniform && (global.Access & StorageAccess.Write) != 0, global.Space));
+                    global.Space != AddressSpace.Uniform && (global.Access & StorageAccess.Write) != 0, global.Space, global.Space == AddressSpace.Handle));
             foreach (var constant in module.Constants) globals.Add(constant.Name, new(constant.Type, false, false));
             foreach (var f in module.Functions.Append(function).DistinctBy(f => f.Name)) {
                 functions.Add(f.Name, f); calls.Add(f.Name, new(StringComparer.Ordinal)); stages.Add(f.Name, AllStages);

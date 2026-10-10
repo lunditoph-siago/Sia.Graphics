@@ -49,7 +49,7 @@ public static partial class ModuleValidator
         private readonly Stack<BreakTarget> breaks = new();
         private ShaderFunction? function;
         private int loopDepth, expressionDepth;
-        private sealed record Variable(ShaderType Type, bool Place, bool Writable, AddressSpace Space = AddressSpace.Function);
+        private sealed record Variable(ShaderType Type, bool Place, bool Writable, AddressSpace Space = AddressSpace.Function, bool HandleResource = false);
         private sealed class BreakTarget(bool loop) { public bool Loop { get; } = loop; public bool Used; }
         private ShaderException Error(string message, SourceSpan span = default) => new(DiagnosticStage.Validation, message, span);
         private void Require(bool condition, string message, SourceSpan span = default) { if (!condition) throw Error(message, span); }
@@ -109,7 +109,7 @@ public static partial class ModuleValidator
                     Require(global.Space == AddressSpace.Private, "Only private module variables can have initializers.");
                     Require(overrideExpressions.IsValid(global.Initializer), "Global initializer is not a constant or override expression.");
                 }
-                globals.Add(global.Name, new(global.Type, !handle, global.Space != AddressSpace.Uniform && (global.Access & StorageAccess.Write) != 0, global.Space));
+                globals.Add(global.Name, new(global.Type, !handle, global.Space != AddressSpace.Uniform && (global.Access & StorageAccess.Write) != 0, global.Space, handle));
             }
             foreach (var f in module.Functions)
             {

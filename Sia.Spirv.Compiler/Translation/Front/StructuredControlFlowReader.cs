@@ -220,7 +220,9 @@ internal sealed class StructuredControlFlowReader
                     var handle = Emit(new ShaderType.Pointer(query.Type, AddressSpace.Function),
                         new ValueOperation.Local(query.Name, false), query.Span);
                     scopes.Peek().Add(query.Name, handle); break;
-                case Statement.Declare declare when CanonicalTypes.Data(declare.Type) || (!declare.Mutable || nativeMemory) && declare.Type is ShaderType.Pointer:
+                case Statement.Declare declare when CanonicalTypes.Data(declare.Type)
+                    || (!declare.Mutable || nativeMemory) && declare.Type is ShaderType.Pointer
+                    || !declare.Mutable && declare.Type is ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure or ShaderType.BindingArray:
                     if (declare.Mutable) {
                         var initializer = declare.Initializer ?? (declare.Initialize ? new Expression.Construct(declare.Type, []) { Span = declare.Span } : null);
                         SsaValue? value = initializer is null ? null : Expr(initializer);

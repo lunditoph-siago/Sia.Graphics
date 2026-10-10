@@ -10,6 +10,20 @@ Execution amendment, approved by the user on 2026-10-10: remove backward
 compatibility, including public legacy APIs; breaking changes are allowed.
 This supersedes the earlier staged requirement to retain old overload adapters.
 
+Immutable resource alias import (2026-10-11, source 55BFDC69…, Compiler D150C150…)
+moves image, sampler, acceleration-structure and binding-array lets into owned
+graphs, including pointer helper closures. Atomic origin validation captures
+resolved resource provenance rather than matching global names. Mutable handles
+remain rejected; specialization maps binding-array types on owned graphs.
+Maintenance passes 2292/2292, independent formats 353/353, frozen replay 41/41
+and GPU 16/16. Six new texture/sampler GPU cases have fixed resource identities,
+side-effect counts and sample results. CLI, Dawn browser-library and validation
+exporter builds/direct export22 pass; ten Compiler copies match. The format
+snapshot 3CBBBDF5… differs only in two specialization test expectations;
+production and shader fixture sources are unchanged. CIL opaque resource locals,
+native pointer slots, target/LLVM adapters, real browser/AOT and full research
+remain open. See the validation guide for scope and evidence.
+
 Uncalled/library graph import (source ABB68A3A…, Compiler 452095AB…) retires the
 automatic outside-entry-call-graph deferral. All declared functions attempt import;
 only actual unsupported shapes retain feature reasons. Graph-owned diagnostic

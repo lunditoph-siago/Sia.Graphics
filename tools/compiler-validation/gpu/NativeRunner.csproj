@@ -11,6 +11,7 @@
     <PackageReference Include="Sia.WebGPU" Version="0.0.20" />
     <PackageReference Include="Sia.WebGPU.Native" Version="0.0.20" />
     <ProjectReference Include="../../../Sia.Spirv.Compiler/Sia.Spirv.Compiler.csproj" />
+    <Compile Include="../../../Sia.Spirv.Compiler.Tests/Translation/HandleAliasFixtures.cs" Link="HandleAliasFixtures.cs" />
     <Compile Include="$(GpuDiagnosticsRoot)/scripts/Runner/Program.cs;$(GpuDiagnosticsRoot)/scripts/Runner/Models.cs;$(GpuDiagnosticsRoot)/scripts/Runner/TestContext.cs;$(GpuDiagnosticsRoot)/scripts/Runner/TestRegistry.cs" />
     <Compile Include="$(IntermediateOutputPath)BuildInfo.g.cs" />
     <EmbeddedResource Include="../../../Sia.Spirv.Compiler.Tests/bin/Release/net11.0/Sia.Spirv.Compiler.Tests.dll" LogicalName="fixtures/shaders.dll" />

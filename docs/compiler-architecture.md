@@ -1,6 +1,6 @@
 # Compiler and graphics pipelines
 
-Current implementation based on PR 92, updated 2026-10-10. The
+Current implementation based on PR 92, updated 2026-10-11. The
 [improvement plan](compiler-roadmap.md) describes proposed changes separately.
 Paths below are relative to this repository. The four shader routes exist for a
 bounded shader subset; none establishes support for arbitrary managed programs.
@@ -55,8 +55,20 @@ filters retain their existing policy; empty ranges emit attributed empty blocks.
 Pointer lets retain explicit address aliases and safe source names. A shared
 constant-conversion pass folds literal conversions with the existing runtime
 evaluator before reconstruction, preserving SSA identities, spans and effects.
-These changes extend graph ownership; remaining opaque/local, target and LLVM
-adapters still require migration.
+These changes extend graph ownership; remaining local, target and LLVM adapters
+still require migration.
+
+Immutable image, sampler, acceleration-structure and binding-array aliases now
+import as typed SSA lets. Pointer helper expansion retains owned graphs rather
+than moving their callers into a structured serializer. Selected descriptor
+indices remain captured once, and SPIR-V lets preserve resource-pointer identity.
+Image atomic validation follows resolved global resource provenance through
+immutable aliases and binding-array access. The provenance is captured at the
+declaration, so later shadowing cannot change it; a same-name parameter or its
+alias is not a global resource. Mutable handles remain rejected. Pipeline
+specialization maps binding-array types on these graphs without reading Body.
+CIL resource locals, native pointer-slot shapes and remaining target adapters
+still need separate migration; this does not establish full frontend convergence.
 
 WGSL invocation termination now lowers on owned CFGs before structured
 reconstruction. Shared CFG relocation handles terminating continuing constructs;

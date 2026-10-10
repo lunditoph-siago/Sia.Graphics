@@ -69,34 +69,29 @@ public class CanonicalDeferredHelperTests
     }
 
     [Theory] [InlineData(false, false)] [InlineData(true, false)] [InlineData(false, true)] [InlineData(true, true)]
-    public void UnsupportedHandleAliasesAdaptOnlyTheirPointerCallClosure(bool nested, bool qualified)
+    public void HandleAliasesExpandOnTheirOwnedPointerCallClosure(bool nested, bool qualified)
     {
         var input = WgslReader.Parse(nested ? HandleAlias : HandleAlias.Replace("middle(&value)", "read(&value)"));
-        var canonical = CanonicalShaderPipeline.Prepare(input); Assert.Equal("Declare", canonical.DeferredFunctions["read"]);
         var read = input.Functions.Single(f => f.Name == "read");
         if (qualified) {
             int index = read.Body.Statements.FindIndex(s => s is Statement.Store);
             read.Body.Statements[index] = ((Statement.Store)read.Body.Statements[index]) with { MemoryAccess = new(1), Span = new(31, 3) };
-            var effects = ShaderEffectAnalysis.Compute(canonical);
-            foreach (var block in canonical.Functions.Values.SelectMany(g => g.Blocks))
-                for (int i = 0; i < block.Instructions.Count; i++)
-                    if (block.Instructions[i].Operation is ValueOperation.Call call)
-                        block.Instructions[i] = block.Instructions[i] with { Operation = call with { CalleeEffects = call.CalleeEffects | effects[call.Function] } };
         }
+        var canonical = CanonicalShaderPipeline.Prepare(input); Assert.Empty(canonical.DeferredFunctions);
         var before = canonical.Functions.ToDictionary(p => p.Key, p => ControlFlowPrinter.Write(p.Value));
         var bodies = input.Functions.ToDictionary(f => f.Name, f => f.Body);
         try {
             foreach (var function in input.Functions.Where(f => canonical.Functions.ContainsKey(f.Name))) function.Body = new();
             var output = CanonicalHelperInliner.RunPointers(canonical);
             Assert.Same(canonical.Functions["untouched"], output.Functions["untouched"]);
-            Assert.Equal("Declare", output.DeferredFunctions["main"]);
+            Assert.Empty(output.DeferredFunctions);
             Assert.DoesNotContain(output.Declarations.Functions, f => f.Name == "read");
             if (nested) Assert.DoesNotContain(output.Declarations.Functions, f => f.Name == "middle");
             Assert.All(canonical.Functions, p => Assert.Equal(before[p.Key], ControlFlowPrinter.Write(p.Value)));
-            var main = output.Declarations.Functions.Single(f => f.Name == "main");
             if (qualified) {
-                var store = Assert.Single(Statements(main.Body).OfType<Statement.Store>(), s => s.Span == new SourceSpan(31, 3));
-                Assert.Equal(1u, store.MemoryAccess!.Flags);
+                var instruction = Assert.Single(output.Functions["main"].Blocks.SelectMany(b => b.Instructions),
+                    i => i.Operation is ValueOperation.Store && i.Span == new SourceSpan(31, 3));
+                Assert.Equal(1u, ((ValueOperation.Store)instruction.Operation).MemoryAccess!.Flags);
             }
             ModuleValidator.Validate(output, native: true);
             var binary = SpirvWriter.Emit(SpirvEntryPointLowering.Run(ShaderTargetLowering.PrepareSpirv(output, null), true, true));

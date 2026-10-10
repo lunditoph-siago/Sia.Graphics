@@ -29,7 +29,8 @@ public static partial class ModuleValidator
                         if (declaration.Type is ShaderType.RayQuery) Require(declaration.Mutable && declaration.Initializer is null, "Ray queries require uninitialized mutable locals.", statement.Span);
                         if (declaration.Initializer is not null) Same(Expr(declaration.Initializer), declaration.Type, "Local initializer type mismatch.", statement.Span);
                         else Require(declaration.Mutable, "Immutable local needs an initializer.", statement.Span);
-                        Require(scopes.Peek().TryAdd(declaration.Name, new(declaration.Type, declaration.Mutable, declaration.Mutable)), "Duplicate local name.", statement.Span); break;
+                        bool handleResource = !declaration.Mutable && declaration.Initializer is not null && HandleResource(declaration.Initializer);
+                        Require(scopes.Peek().TryAdd(declaration.Name, new(declaration.Type, declaration.Mutable, declaration.Mutable, HandleResource: handleResource)), "Duplicate local name.", statement.Span); break;
                     case Statement.Store store:
                         Expr(store.Target); ShaderType value = Expr(store.Value); var place = Place(store.Target);
                         MemoryAccess(store.MemoryAccess, place.Space, false, store.Span);

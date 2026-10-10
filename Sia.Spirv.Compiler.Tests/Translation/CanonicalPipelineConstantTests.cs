@@ -194,16 +194,23 @@ public class CanonicalPipelineConstantTests
 
     [Theory]
     [InlineData("sampler")] [InlineData("texture_2d<f32>")]
-    public void OpaqueLocalFrontendDeferralRemainsExplicitWhileResolvingBindingArrayDeclarations(string element)
+    public void OpaqueAliasesResolveBindingArrayDeclarationsFromOwnedGraphs(string element)
     {
         var input = WgslReader.Parse("enable wgpu_binding_array; @id(7) override n=2u; @group(0) @binding(0) var data:binding_array<"
             + element + ",n>; @compute @workgroup_size(1) fn main(){_=data[1];}");
         var canonical = CanonicalShaderPipeline.Prepare(input);
-        Assert.Equal("Declare", canonical.DeferredFunctions["main"]);
+        Assert.Empty(canonical.DeferredFunctions);
+        var before = ControlFlowPrinter.Write(canonical.Functions["main"]);
+        input.Functions[0].Body = new();
         var lowered = PipelineConstantResolver.Resolve(canonical, new Dictionary<string, double> { ["7"] = 4 });
         Assert.Equal(canonical.DeferredFunctions, lowered.DeferredFunctions);
         Assert.Equal(4u, Assert.IsType<ShaderType.BindingArray>(lowered.Declarations.Globals[0].Type).Length);
-        Assert.NotEmpty(lowered.Declarations.Functions[0].Body.Statements);
+        var root = Assert.Single(lowered.Functions["main"].Blocks.SelectMany(b => b.Instructions),
+            i => i.Operation is ValueOperation.Symbol { Name: "data" });
+        Assert.Equal(4u, Assert.IsType<ShaderType.BindingArray>(root.Result!.Value.Type).Length);
+        Assert.Equal(before, ControlFlowPrinter.Write(canonical.Functions["main"]));
+        ModuleValidator.Validate(lowered);
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Emit(SpirvEntryPointLowering.Run(lowered, true, true)).ToBytes()));
     }
 
     [Theory]

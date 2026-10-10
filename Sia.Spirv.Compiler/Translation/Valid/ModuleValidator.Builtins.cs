@@ -176,6 +176,12 @@ public static partial class ModuleValidator
             throw Error($"Unsupported builtin '{name}'.", call.Span);
         }
 
+        private bool HandleResource(Expression expression) => expression switch {
+            Expression.Reference reference => Lookup(reference.Name).HandleResource,
+            Expression.Access access => HandleResource(access.Base),
+            _ => false
+        };
+
         private ShaderType Texture(Expression.Call call, ShaderType[] args)
         {
             string name = call.Function; int textureIndex = name == "textureGather" && args.Length > 0 && args[0] is not ShaderType.Image ? 1 : 0;
@@ -192,8 +198,7 @@ public static partial class ModuleValidator
                 Require(Scalar(args[1])?.Kind is ScalarKind.Sint or ScalarKind.Uint && (dimensions == 1 ? args[1] is ShaderType.Scalar : args[1] is ShaderType.Vector coordinates && coordinates.Size == dimensions), "Image atomic coordinate shape/type mismatch.", call.Span);
                 if (image.Arrayed) Require(Index(args[2]), "Image atomic array index must be an integer scalar.", call.Span);
                 Same(args[^1], image.Component, "Image atomic value type mismatch.", call.Span);
-                Expression origin = call.Arguments[0] is Expression.Access access ? access.Base : call.Arguments[0];
-                Require(origin is Expression.Reference reference && module.Globals.Any(g => g.Name == reference.Name && g.Space == AddressSpace.Handle), "Image atomic requires a global texture or binding array element.", call.Span);
+                Require(HandleResource(call.Arguments[0]), "Image atomic requires a global texture or binding array element.", call.Span);
                 return new ShaderType.Void();
             }
             if (name is "textureDimensions" or "textureNumLayers" or "textureNumLevels" or "textureNumSamples")

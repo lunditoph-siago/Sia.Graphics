@@ -5,7 +5,43 @@ See the [current pipeline/target map](../../docs/compiler-architecture.md) and
 records the original PR baseline, not verification of later source changes;
 `renewal-evidence.json` records the cleanup follow-up.
 
-Latest uncalled/library graph import: source ABB68A3A…, Compiler 452095AB….
+Immutable resource alias graph import, 2026-10-11: source 55BFDC69…,
+Compiler D150C150…. Thirteen new cases cover image/sampler/scene/binding-array/
+atomic alias ownership, single index capture, mutable handle rejection and
+shadowed symbol provenance. Four former helper adapter cases now verify owned
+graphs and qualifier/span preservation; two specialization cases verify graph
+type mapping instead of obsolete Declare deferrals. Atomic resources retain
+their global provenance through immutable aliases; matching names alone do not
+establish resource identity.
+
+Passed: focused 55/55, maintenance 2292/2292, zero skipped; independent formats
+233 maintained + 22 query/handle + 82 frozen input/output + 16 binding/library/
+alias outputs = 353; frozen native replay 41/41; GPU 16/16. Six new image/sampler
+cases execute source WGSL, source SPIR-V and native-to-WGSL with fixed expected
+words [13,29,2] and [0x3e800000,7]. Distinct 1x1 textures are cleared to 13/29
+or 0.25; readbacks prove identity, ordered coordinate calls and sample value.
+CLI, Dawn browser-library and validation exporter builds/direct export22 pass.
+Ten Compiler DLL copies match. Formats used source 3CBBBDF5…; only the two
+specialization test expectations differ from the final tested snapshot, with
+production and shader inputs unchanged. Final full/GPU use 55BFDC69…. Submitted
+source 037D0511… then removes one terminal empty line from HandleAliasFixtures.cs;
+all other bytes and fixture constant data are identical. The exact byte proof is
+recorded in handle-alias-eof-proof.json; production Compiler remains unchanged.
+
+Scripts and actual commands/results/hashes are in workspace
+`.work/compiler-architecture-first/handle-alias-*`, consolidated by
+`record-handle-alias-evidence.py`. Retained failures include reserved-word input
+parse errors (not architecture evidence), the legitimate four Declare deferrals
+and atomic origin rejection, one obsolete direct-index assertion, a new test
+constructor compilation error, and two obsolete specialization deferral
+expectations. Behavior assertions were preserved or strengthened.
+
+CIL opaque resource locals, descriptor/atomic alias GPU, actual ray traversal,
+local browser executable/WASM, real browser GPU, SDK/AOT and full research parity
+are unverified for this batch. Current-head CI must be recorded after submission;
+older CI results do not verify this source.
+
+Previous uncalled/library graph import: source ABB68A3A…, Compiler 452095AB….
 Every declared function attempts canonical import, including modules without
 entries; entry reachability no longer causes a structured deferral. Six new cases
 cover library/pointer helper ownership, fresh graphs, borrowed Body replacement,

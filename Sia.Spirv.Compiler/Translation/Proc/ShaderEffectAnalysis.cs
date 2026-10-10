@@ -15,7 +15,7 @@ internal static class ShaderEffectAnalysis
     public static Dictionary<string, ShaderEffects> Compute(Module module)
         => Compute(module, null);
 
-    private static Dictionary<string, ShaderEffects> Compute(Module module, IReadOnlyDictionary<string, ControlFlowFunction>? graphs)
+    internal static Dictionary<string, ShaderEffects> Compute(Module module, IReadOnlyDictionary<string, ControlFlowFunction>? graphs)
     {
         var functions = module.Functions.ToDictionary(f => f.Name, StringComparer.Ordinal);
         var effects = new Dictionary<string, ShaderEffects>(StringComparer.Ordinal);

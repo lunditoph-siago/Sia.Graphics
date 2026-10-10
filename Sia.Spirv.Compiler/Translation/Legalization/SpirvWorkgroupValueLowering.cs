@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using Sia.Spirv.Compiler.Translation.IR;
 using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
+using Sia.Spirv.Compiler.Translation.Proc;
 using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
@@ -60,8 +61,9 @@ internal static class SpirvWorkgroupValueLowering
             }
         }
         if (conversions.Count == 0) return layout;
+        var effects = ShaderEffectAnalysis.Compute(output, ownedGraphs.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal));
         foreach (var helper in conversions.Values) {
-            ControlFlowVerifier.Validate(ownedGraphs[helper.Name], output);
+            ControlFlowVerifier.Validate(ownedGraphs[helper.Name], output, calleeEffects: effects);
         }
         return layout with { Module = output, WorkgroupConversions = conversions.ToFrozenDictionary() };
     }

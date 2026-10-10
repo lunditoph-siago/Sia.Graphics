@@ -79,10 +79,11 @@ internal static class SpirvEntryPointLowering
             && input.Globals.Any(g => g.Space == AddressSpace.Workgroup)) {
             var initializer = SpirvWorkgroupInitializationLowering.Create(output, names);
             output.Functions.Add(initializer);
-            if (!StructuredControlFlowReader.TryRead(initializer, output, out var graph, out var deferred))
+            var effects = ShaderEffectAnalysis.Compute(View());
+            if (!StructuredControlFlowReader.TryRead(initializer, output, out var graph, out var deferred, effects))
                 throw new ShaderException(DiagnosticStage.SpirvWrite, "Workgroup initialization requires canonical verification: " + deferred);
             ControlFlowAnalysis.RemoveUnreachable(graph!);
-            ControlFlowVerifier.Validate(graph!, output); LocalValuePromotion.Run(graph!); ControlFlowVerifier.Validate(graph!, output);
+            ControlFlowVerifier.Validate(graph!, output, calleeEffects: effects); LocalValuePromotion.Run(graph!); ControlFlowVerifier.Validate(graph!, output, calleeEffects: effects);
             graphs.Add(initializer.Name, graph!);
             foreach (var entry in entries) initializers.Add(entry.Name, initializer);
         }

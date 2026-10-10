@@ -160,14 +160,44 @@ internal static class SpirvEntryMetadataLowering
         }
         foreach (var type in module.Structures.Cast<ShaderType>().Concat(module.Constants.Select(c => c.Type))
             .Concat(layout.Globals.Values.Select(g => g.DeclarationType))) Type(type);
-        foreach (var function in module.Functions) { Type(function.ReturnType); foreach (var arg in function.Arguments) Type(arg.Type); BodyTypes(function.Body); }
+        foreach (var function in module.Functions) {
+            Type(function.ReturnType); foreach (var arg in function.Arguments) Type(arg.Type);
+            if (layout.ControlFlow.TryGetValue(function.Name, out var flow)) {
+                foreach (var block in flow.Graph.Blocks) {
+                    foreach (var value in block.Parameters.Concat(block.Instructions.Where(i => i.Result is not null).Select(i => i.Result!.Value))) Type(value.Type);
+                    foreach (var value in block.Instructions.SelectMany(i => i.Operation.Operands).Concat(block.Terminator!.Operands)) Type(value.Type);
+                }
+            }
+            else BodyTypes(function.Body);
+        }
         var capabilities = new HashSet<uint>(); var extensions = new HashSet<string>(StringComparer.Ordinal);
         if (mesh) { capabilities.Add(5283); extensions.Add("SPV_EXT_mesh_shader"); }
         // Raw native target preparation can retain pointer-returning functions.
         // Their physical signatures require variable pointers even without a phi.
         var returnedPointers = module.Functions.Select(f => f.ReturnType).OfType<ShaderType.Pointer>().ToArray();
-        if (returnedPointers.Length != 0) {
-            capabilities.Add(returnedPointers.All(p => p.Space == AddressSpace.Storage) ? 4441u : 4442u);
+        bool pointerMemory = false, fullPointers = returnedPointers.Any(p => p.Space != AddressSpace.Storage);
+        foreach (var flow in layout.ControlFlow.Values) {
+            var instructions = flow.Graph.Blocks.SelectMany(b => b.Instructions).ToArray();
+            var memory = instructions.Where(i => i.Operation is ValueOperation.Load && i.Result?.Type is ShaderType.Pointer
+                || i.Operation is ValueOperation.Store { Value.Type: ShaderType.Pointer }
+                || i.Operation is ValueOperation.Local && i.Result?.Type is ShaderType.Pointer { Base: ShaderType.Pointer }).ToArray();
+            if (memory.Length == 0) continue;
+            pointerMemory = true;
+            ShaderType.Pointer Pointer(ControlFlowInstruction i) => i.Operation is ValueOperation.Store store ? (ShaderType.Pointer)store.Value.Type
+                : i.Operation is ValueOperation.Local ? (ShaderType.Pointer)((ShaderType.Pointer)i.Result!.Value.Type).Base : (ShaderType.Pointer)i.Result!.Value.Type;
+            foreach (var instruction in memory.Where(i => Pointer(i).Space is not (AddressSpace.Storage or AddressSpace.Workgroup)))
+                throw new ShaderException(DiagnosticStage.SpirvWrite, "Pointer-slot values require storage or workgroup addresses.", instruction.Span);
+            var origins = PointerAliasAnalysis.Origins(module, flow.Graph);
+            var stores = memory.Select(i => i.Operation).OfType<ValueOperation.Store>().ToArray();
+            var roots = stores.SelectMany(s => origins[s.Value.Id]).ToArray();
+            // The restricted capability requires a proven single storage block.
+            // Unknown roots or potentially shared slots conservatively need full pointers.
+            fullPointers |= memory.Any(i => Pointer(i).Space != AddressSpace.Storage) || stores.Length == 0
+                || stores.Any(s => origins[s.Value.Id].Count != 1) || roots.Any(r => r.Global is null)
+                || roots.Select(r => r.Global).Distinct().Count() != 1;
+        }
+        if (returnedPointers.Length != 0 || pointerMemory) {
+            capabilities.Add(fullPointers ? 4442u : 4441u);
             if (selectedVersion < 0x00010300) extensions.Add("SPV_KHR_variable_pointers");
         }
         return layout with { EntryAbi = new(selectedVersion, mesh, capabilities.ToFrozenSet(),

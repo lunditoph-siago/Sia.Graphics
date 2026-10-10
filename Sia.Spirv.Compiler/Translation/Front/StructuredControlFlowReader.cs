@@ -15,13 +15,14 @@ internal sealed class StructuredControlFlowReader
     private readonly Stack<IReadOnlyList<DiagnosticFilter>> diagnosticScopes = [];
     private readonly HashSet<string> callees;
     private readonly Dictionary<string, ShaderType> symbols;
-    private readonly Dictionary<string, ShaderEffects> calleeEffects;
+    private readonly IReadOnlyDictionary<string, ShaderEffects> calleeEffects;
     private bool nativeMemory;
     private sealed class Unsupported(string feature) : Exception(feature);
-    private StructuredControlFlowReader(ShaderFunction signature, Module module)
+    private StructuredControlFlowReader(ShaderFunction signature, Module module,
+        IReadOnlyDictionary<string, ShaderEffects>? effects = null, bool native = false)
     {
         function = new(signature); current = function.Block(); function.Entry = current.Id;
-        calleeEffects = ShaderEffectAnalysis.Compute(module);
+        calleeEffects = effects ?? ShaderEffectAnalysis.Compute(module); nativeMemory = native;
         callees = module.Functions.Where(f => (f.ReturnType is ShaderType.Void or ShaderType.Pointer || CanonicalTypes.Data(f.ReturnType))
             && f.Arguments.All(a => CanonicalTypes.Data(a.Type)
                 || a.Type is ShaderType.Pointer or ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure))
@@ -32,14 +33,15 @@ internal sealed class StructuredControlFlowReader
         foreach (var argument in signature.Arguments) symbols[argument.Name] = argument.Type;
     }
 
-    public static bool TryRead(ShaderFunction input, Module module, out ControlFlowFunction? output, out string? deferredFeature)
+    public static bool TryRead(ShaderFunction input, Module module, out ControlFlowFunction? output, out string? deferredFeature,
+        IReadOnlyDictionary<string, ShaderEffects>? calleeEffects = null, bool native = false)
     {
         output = null; deferredFeature = null;
         if (!(input.ReturnType is ShaderType.Void or ShaderType.Pointer || CanonicalTypes.Data(input.ReturnType))) {
             deferredFeature = "unsupported return data"; return false;
         }
         try {
-            var reader = new StructuredControlFlowReader(input, module);
+            var reader = new StructuredControlFlowReader(input, module, calleeEffects, native);
             reader.Body(input.Body);
             // Valid non-void bodies may leave an unreachable merge after returning in both arms.
             // Reachability removes it before verification; live fallthrough is rejected by ModuleValidator.

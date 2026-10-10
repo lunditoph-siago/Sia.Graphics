@@ -17,6 +17,18 @@ functions retain the legacy serializer, and operation/type feature policy and
 structured frontend adapters still need migration. This does not establish full
 frontend convergence.
 
+SPIR-V target preparation no longer reconstructs the entire module for deferred
+pointer/query helpers. Readable explicit deferrals enter canonical graphs using
+graph-derived callee effects; unreadable helpers expand through a structured
+adapter restricted to their related callers. Other owned graphs retain identity,
+and readable callers retain SSA results, captured addresses and native memory
+operands. Target readers, entry wrappers and generated helpers use those same
+effect summaries. Metadata discovers types from owned graphs and inspects Body
+only for explicit deferrals. Native pointer-slot memory declares variable-pointer
+capabilities from address space and proven storage origins; unsupported held
+address spaces fail before emission. WGSL target migration and remaining
+per-function semantic adapters are still open.
+
 The shared middle-end now returns an internal `CanonicalModule`: owned function
 graphs, borrowed declarations and explicit deferred bodies. Native frontend
 graphs are copied before shared mutation. `ControlFlowAnalysisContext` shares
@@ -49,8 +61,8 @@ zeroing or stores. Their structured adapter declares and resets query state at
 the original allocation, including each loop iteration. Shared effect facts
 distinguish query updates from getters; query results remain conservatively
 nonuniform. Source legality and borrowed graph ownership remain enforced.
-Deferred pointer/query
-families still cross the temporary whole-module adapter. Invocation termination
+Unreadable deferred pointer/query families use only the related per-function
+helper adapter. Invocation termination
 uses owned CFGs directly: terminating continuing instructions become loop-body
 code, nested continue exits reconverge through distinct typed joins, and a common
 latch forwards evaluated backedge values. Former break-if branches receive body

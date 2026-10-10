@@ -80,10 +80,11 @@ internal sealed partial class SpirvUniformAccessLowering(SpirvPhysicalLayout lay
         output.Functions.AddRange(helpers);
         foreach (var helper in helpers) {
             if (ownedGraphs?.ContainsKey(helper.Name) == true) continue;
-            if (!StructuredControlFlowReader.TryRead(helper, output, out var graph, out var helperDeferred))
+            var effects = ShaderEffectAnalysis.Compute(output, ownedGraphs?.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal));
+            if (!StructuredControlFlowReader.TryRead(helper, output, out var graph, out var helperDeferred, effects))
                 throw Error("Uniform access legalization requires canonical verification: " + helperDeferred);
             ControlFlowAnalysis.RemoveUnreachable(graph!);
-            ControlFlowVerifier.Validate(graph!, output); LocalValuePromotion.Run(graph!); ControlFlowVerifier.Validate(graph!, output);
+            ControlFlowVerifier.Validate(graph!, output, calleeEffects: effects); LocalValuePromotion.Run(graph!); ControlFlowVerifier.Validate(graph!, output, calleeEffects: effects);
             ownedGraphs?.Add(helper.Name, graph!);
         }
         if (ownedGraphs is not null) {

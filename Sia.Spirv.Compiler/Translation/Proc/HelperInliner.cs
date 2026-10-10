@@ -11,7 +11,7 @@ internal sealed class HelperInliner
     private readonly string kind;
     private readonly IReadOnlyList<DiagnosticFilter> moduleFilters;
     private int next;
-    private HelperInliner(Module module, Func<ShaderFunction, bool> select, string kind)
+    private HelperInliner(Module module, Func<ShaderFunction, bool> select, string kind, IReadOnlySet<string>? rewriteFunctions = null)
     {
         this.kind = kind;
         moduleFilters = module.DiagnosticFilters;
@@ -21,7 +21,7 @@ internal sealed class HelperInliner
         foreach (var f in module.Functions)
         {
             foreach (var a in f.Arguments) names.Add(a.Name);
-            Reserve(f.Body);
+            if (rewriteFunctions is null || rewriteFunctions.Contains(f.Name) || helpers.ContainsKey(f.Name)) Reserve(f.Body);
         }
     }
     public static Module RunQueries(Module module) => Run(module,
@@ -36,15 +36,22 @@ internal sealed class HelperInliner
     public static Module RunPointers(Module module) => Run(module,
         f => f.Stage is null && f.Arguments.Any(a => a.Type is ShaderType.Pointer), "pointer", preserveUncalled: true);
 
-    private static Module Run(Module module, Func<ShaderFunction, bool> select, string kind, bool preserveUncalled = false)
+    // Explicit per-function adapter for helpers not yet representable in CFG.
+    // Unrelated declaration bodies are neither reserved nor traversed.
+    internal static Module RunSelected(Module module, IReadOnlySet<string> helpers, IReadOnlySet<string> callers)
+        => Run(module, f => helpers.Contains(f.Name), "pointer", rewriteFunctions: callers);
+
+    private static Module Run(Module module, Func<ShaderFunction, bool> select, string kind, bool preserveUncalled = false,
+        IReadOnlySet<string>? rewriteFunctions = null)
     {
-        var pass = new HelperInliner(module, select, kind);
+        var pass = new HelperInliner(module, select, kind, rewriteFunctions);
         if (pass.helpers.Count == 0) return module;
-        var called = module.Functions.SelectMany(f => ControlFlowAnalysis.Calls(f.Body)).ToHashSet(StringComparer.Ordinal);
+        var called = preserveUncalled ? module.Functions.SelectMany(f => ControlFlowAnalysis.Calls(f.Body)).ToHashSet(StringComparer.Ordinal) : [];
         var output = new Module { VulkanMemoryModel = module.VulkanMemoryModel, WorkgroupInitializationRequired = module.WorkgroupInitializationRequired }; output.Enables.UnionWith(module.Enables); output.DiagnosticFilters.AddRange(module.DiagnosticFilters);
         output.Structures.AddRange(module.Structures); output.Constants.AddRange(module.Constants); output.Globals.AddRange(module.Globals);
         foreach (var f in module.Functions.Where(f => !pass.helpers.ContainsKey(f.Name) || preserveUncalled && !called.Contains(f.Name)))
         {
+            if (rewriteFunctions is not null && !rewriteFunctions.Contains(f.Name)) { output.Functions.Add(f); continue; }
             var copy = new ShaderFunction(f.Name) { Stage = f.Stage, ReturnType = f.ReturnType, ReturnBinding = f.ReturnBinding,
                 TaskPayload = f.TaskPayload, MeshOutput = f.MeshOutput,
                 WorkgroupSize = f.WorkgroupSize.ToArray(), EarlyDepthTest = f.EarlyDepthTest, ConservativeDepth = f.ConservativeDepth,

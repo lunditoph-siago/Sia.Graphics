@@ -13,42 +13,101 @@ internal static class CanonicalHelperInliner
     {
         ModuleValidator.Validate(canonical, native: true);
         var module = canonical.Declarations;
-        IEnumerable<string> Calls(ShaderFunction function) => canonical.Functions.TryGetValue(function.Name, out var graph)
+        var graphs = canonical.Functions.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+        var deferred = canonical.DeferredFunctions.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+        IEnumerable<string> Calls(ShaderFunction function) => graphs.TryGetValue(function.Name, out var graph)
             ? graph.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).OfType<ValueOperation.Call>().Select(c => c.Function)
             : ControlFlowAnalysis.Calls(function.Body);
         var called = module.Functions.SelectMany(Calls).ToHashSet(StringComparer.Ordinal);
         var selected = module.Functions.Where(f => f.Stage is null && called.Contains(f.Name)
-            && canonical.Functions.ContainsKey(f.Name) && f.Arguments.Any(a => a.Type is ShaderType.Pointer))
+            && (f.ReturnType is ShaderType.Pointer || f.Arguments.Any(a => a.Type is ShaderType.Pointer)))
             .Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
-        if (selected.Count == 0 && !module.Functions.Any(f => f.Stage is null && f.ReturnType is ShaderType.Pointer
-            && canonical.EntryFunctions.Contains(f.Name))) return canonical;
-        var graphs = canonical.Functions.ToDictionary(p => p.Key,
-            p => Run(p.Value, module, canonical.Functions, expandFunctions: selected), StringComparer.Ordinal);
-        var remainingCalls = module.Functions.SelectMany(f => graphs.TryGetValue(f.Name, out var graph)
+        bool UnusedTargetHelper(ShaderFunction f) => f.Stage is null && !called.Contains(f.Name)
+            && f.Arguments.Any(a => a.Type is ShaderType.Pointer p && (p.Space != AddressSpace.Function || p.Base is ShaderType.RayQuery));
+        if (selected.Count == 0 && !module.Functions.Any(f => UnusedTargetHelper(f)
+            || f.Stage is null && f.ReturnType is ShaderType.Pointer && canonical.EntryFunctions.Contains(f.Name))) return canonical;
+
+        Module Declarations(IEnumerable<ShaderFunction> functions) {
+            var output = new Module { VulkanMemoryModel = module.VulkanMemoryModel, WorkgroupInitializationRequired = module.WorkgroupInitializationRequired };
+            output.Structures.AddRange(module.Structures); output.Constants.AddRange(module.Constants); output.Globals.AddRange(module.Globals);
+            output.Enables.UnionWith(module.Enables); output.DiagnosticFilters.AddRange(module.DiagnosticFilters); output.Functions.AddRange(functions);
+            return output;
+        }
+        CanonicalModule Current() => new(module, graphs, deferred, canonical.EntryFunctions);
+        var effects = ShaderEffectAnalysis.Compute(Current());
+        void Import(ShaderFunction function) {
+            if (!StructuredControlFlowReader.TryRead(function, module, out var graph, out var reason, effects, native: true)) {
+                deferred[function.Name] = reason!; return;
+            }
+            ControlFlowAnalysis.RemoveUnreachable(graph!); ControlFlowVerifier.Validate(graph!, module, calleeEffects: effects);
+            LocalValuePromotion.Run(graph!); ControlFlowVerifier.Validate(graph!, module, calleeEffects: effects);
+            graphs.Add(function.Name, graph!); deferred.Remove(function.Name);
+        }
+        // Only explicitly deferred implementations cross the reader boundary.
+        // Summaries come from owned graphs, never obsolete declaration bodies.
+        foreach (var function in module.Functions.Where(f => !graphs.ContainsKey(f.Name)
+            && (selected.Contains(f.Name) || Calls(f).Any(selected.Contains))).ToArray()) Import(function);
+
+        var unsupported = selected.Where(n => !graphs.ContainsKey(n)).ToHashSet(StringComparer.Ordinal);
+        var adapterHelpers = new HashSet<string>(unsupported, StringComparer.Ordinal);
+        foreach (var function in module.Functions.Where(f => !graphs.ContainsKey(f.Name)))
+            adapterHelpers.UnionWith(Calls(function).Where(selected.Contains));
+        // A pointer helper that calls an unreadable helper must expand with it.
+        // Ordinary callers need no adapter merely because they share a readable
+        // helper with a deferred caller: they retain the canonical inliner.
+        bool changed;
+        do {
+            changed = false;
+            foreach (var function in module.Functions.Where(f => selected.Contains(f.Name)))
+                if (Calls(function).Any(unsupported.Contains)) changed |= unsupported.Add(function.Name);
+        } while (changed);
+        adapterHelpers.UnionWith(unsupported);
+        var adaptedCallers = module.Functions.Where(f => !selected.Contains(f.Name)
+            && Calls(f).Any(n => unsupported.Contains(n) || !graphs.ContainsKey(f.Name) && adapterHelpers.Contains(n)))
+            .Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
+        if (adaptedCallers.Count != 0) {
+            foreach (var function in module.Functions.Where(f => adaptedCallers.Contains(f.Name)))
+                adapterHelpers.UnionWith(Calls(function).Where(selected.Contains));
+            do {
+                changed = false;
+                foreach (var function in module.Functions.Where(f => adapterHelpers.Contains(f.Name)))
+                    foreach (string name in Calls(function).Where(selected.Contains)) changed |= adapterHelpers.Add(name);
+            } while (changed);
+            var adapter = Declarations(module.Functions.Select(f => (adapterHelpers.Contains(f.Name) || adaptedCallers.Contains(f.Name))
+                && graphs.TryGetValue(f.Name, out var graph) ? Legalization.StructuredControlFlowLowering.Run(graph, module) : f));
+            var adapted = HelperInliner.RunSelected(adapter, adapterHelpers, adaptedCallers).Functions.ToDictionary(f => f.Name, StringComparer.Ordinal);
+            module = Declarations(module.Functions.Select(f => adaptedCallers.Contains(f.Name) ? adapted[f.Name] : f));
+            foreach (string name in adaptedCallers) { graphs.Remove(name); deferred[name] = "explicit helper adapter"; }
+            effects = ShaderEffectAnalysis.Compute(Current());
+            foreach (var function in module.Functions.Where(f => adaptedCallers.Contains(f.Name))) Import(function);
+        }
+        effects = ShaderEffectAnalysis.Compute(Current());
+        var graphHelpers = selected.Where(graphs.ContainsKey).ToHashSet(StringComparer.Ordinal);
+        graphs = graphs.ToDictionary(p => p.Key,
+            p => selected.Contains(p.Key) ? p.Value : Run(p.Value, module, graphs, expandFunctions: graphHelpers, calleeEffects: effects), StringComparer.Ordinal);
+        var remainingCalls = module.Functions.Where(f => !selected.Contains(f.Name)).SelectMany(f => graphs.TryGetValue(f.Name, out var graph)
             ? graph.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).OfType<ValueOperation.Call>().Select(c => c.Function)
             : ControlFlowAnalysis.Calls(f.Body)).ToHashSet(StringComparer.Ordinal);
         var removed = module.Functions.Where(f => f.Stage is null && !remainingCalls.Contains(f.Name)
-            && (selected.Contains(f.Name) || f.ReturnType is ShaderType.Pointer && canonical.EntryFunctions.Contains(f.Name)))
+            && (selected.Contains(f.Name) || UnusedTargetHelper(f) || f.ReturnType is ShaderType.Pointer && canonical.EntryFunctions.Contains(f.Name)))
             .Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
-        var output = new Module { VulkanMemoryModel = module.VulkanMemoryModel, WorkgroupInitializationRequired = module.WorkgroupInitializationRequired };
-        output.Structures.AddRange(module.Structures); output.Constants.AddRange(module.Constants); output.Globals.AddRange(module.Globals);
-        output.Enables.UnionWith(module.Enables); output.DiagnosticFilters.AddRange(module.DiagnosticFilters);
-        output.Functions.AddRange(module.Functions.Where(f => !removed.Contains(f.Name)));
+        var output = Declarations(module.Functions.Where(f => !removed.Contains(f.Name)));
         var result = new CanonicalModule(output, graphs.Where(p => !removed.Contains(p.Key)).ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
-            canonical.DeferredFunctions.Where(p => !removed.Contains(p.Key)).ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
+            deferred.Where(p => !removed.Contains(p.Key)).ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
             canonical.EntryFunctions.Where(n => !removed.Contains(n)).ToHashSet(StringComparer.Ordinal));
         ModuleValidator.Validate(result, native: true); return result;
     }
 
     public static ControlFlowFunction Run(ControlFlowFunction input, Module module,
         IReadOnlyDictionary<string, ControlFlowFunction>? frontendGraphs = null, bool expandPointerSlots = false,
-        IReadOnlySet<string>? expandFunctions = null)
+        IReadOnlySet<string>? expandFunctions = null, IReadOnlyDictionary<string, ShaderEffects>? calleeEffects = null)
     {
         bool calls = input.Blocks.SelectMany(b => b.Instructions).Any(i => RequiresExpansion(i.Operation, expandPointerSlots, expandFunctions));
         if (!calls && input.Signature.ReturnType is not ShaderType.Pointer) return input;
-        ControlFlowVerifier.Validate(input, module);
+        calleeEffects ??= ShaderEffectAnalysis.Compute(module, frontendGraphs);
+        ControlFlowVerifier.Validate(input, module, calleeEffects: calleeEffects);
         if (input.Signature.ReturnType is ShaderType.Pointer) CheckLifetime(input, module);
-        return Expand(input, module, new(StringComparer.Ordinal), frontendGraphs, expandPointerSlots, expandFunctions);
+        return Expand(input, module, new(StringComparer.Ordinal), frontendGraphs, expandPointerSlots, expandFunctions, calleeEffects);
     }
 
     private static bool RequiresExpansion(ValueOperation operation, bool slots, IReadOnlySet<string>? functions) => operation is ValueOperation.Call call
@@ -56,7 +115,8 @@ internal static class CanonicalHelperInliner
             || slots && call.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.Pointer }));
 
     private static ControlFlowFunction Expand(ControlFlowFunction input, Module module, HashSet<string> active,
-        IReadOnlyDictionary<string, ControlFlowFunction>? frontendGraphs, bool expandPointerSlots, IReadOnlySet<string>? expandFunctions)
+        IReadOnlyDictionary<string, ControlFlowFunction>? frontendGraphs, bool expandPointerSlots, IReadOnlySet<string>? expandFunctions,
+        IReadOnlyDictionary<string, ShaderEffects> calleeEffects)
     {
         if (!input.Blocks.SelectMany(b => b.Instructions).Any(i => RequiresExpansion(i.Operation, expandPointerSlots, expandFunctions))) return input;
         if (!active.Add(input.Signature.Name)) throw Error("recursive pointer-return helper", input.Signature.Name);
@@ -69,11 +129,11 @@ internal static class CanonicalHelperInliner
             var callee = module.Functions.Single(f => f.Name == call.Function);
             ControlFlowFunction? graph = null; string? reason = null;
             if (frontendGraphs?.TryGetValue(callee.Name, out graph) != true
-                && !StructuredControlFlowReader.TryRead(callee, module, out graph, out reason))
+                && !StructuredControlFlowReader.TryRead(callee, module, out graph, out reason, calleeEffects))
                 throw Error("pointer-return helper cannot enter canonical IR: " + reason, callee.Name);
             graph = graph!.Copy();
-            ControlFlowAnalysis.RemoveUnreachable(graph); ControlFlowVerifier.Validate(graph, module);
-            graph = Expand(graph, module, active, frontendGraphs, expandPointerSlots, expandFunctions);
+            ControlFlowAnalysis.RemoveUnreachable(graph); ControlFlowVerifier.Validate(graph, module, calleeEffects: calleeEffects);
+            graph = Expand(graph, module, active, frontendGraphs, expandPointerSlots, expandFunctions, calleeEffects);
             if (graph.Signature.ReturnType is ShaderType.Pointer) CheckLifetime(graph, module);
             var continuation = output.Block();
             if (site.Instruction.Result is { } result) continuation.Parameters.Add(result);
@@ -91,7 +151,7 @@ internal static class CanonicalHelperInliner
             output.SelectionMerges.Add(site.Block.Id, continuation.Id);
         }
         active.Remove(input.Signature.Name);
-        ControlFlowAnalysis.RemoveUnreachable(output); ControlFlowVerifier.Validate(output, module); return output;
+        ControlFlowAnalysis.RemoveUnreachable(output); ControlFlowVerifier.Validate(output, module, calleeEffects: calleeEffects); return output;
     }
 
     private static ShaderException Error(string message, string function)

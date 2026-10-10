@@ -6,6 +6,20 @@ passes and target legalization. This document does not claim that the existing
 translation IR has already been replaced. The [current architecture](compiler-architecture.md)
 is the implementation baseline.
 
+Deferred-helper migration (source 9CC19A9B…, Compiler 9C8FE148…) removes the
+remaining PrepareSpirv whole-module adapter. Explicit deferrals import function
+by function; unreadable helpers rebuild only affected callers. Owned graphs and
+graph-derived effect summaries remain authoritative through target preparation,
+including type discovery and native pointer-slot capability declarations. Ten
+new cases cover readable/deferred callers, unused helpers, direct/nested handle
+aliases, qualified memory, borrowed graphs and unsupported pointer-slot spaces.
+One earlier deferral contract now expects readable helper admission. Maintenance
+2169/2169 and independent formats 233/233 + 6/6 pass; frozen replay
+41/41 and input/output validation 82/82 pass. This is progress toward the
+original roadmap, with query guards, WGSL, constructors, frontend/LLVM and full
+research/consumer convergence still open. GPU and browser checks have not run
+for this source; earlier-source results do not verify this batch.
+
 Resource-handle admission (source A01D1F09…, Compiler 7FA706E8…) now captures
 image/sampler/acceleration helper arguments and opaque query allocations in
 canonical graphs. Query updates/getters carry shared effects; query results

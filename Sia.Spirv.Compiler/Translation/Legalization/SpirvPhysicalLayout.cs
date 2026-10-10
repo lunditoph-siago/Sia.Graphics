@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using Sia.Spirv.Compiler.Translation.IR;
 using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
+using Sia.Spirv.Compiler.Translation.Proc;
 using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
@@ -44,9 +45,10 @@ internal static class SpirvPhysicalLayoutLowering
         var graphs = new Dictionary<string, ControlFlowFunction>(StringComparer.Ordinal);
         var deferred = canonical.DeferredFunctions.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
         var adapters = new Dictionary<string, ShaderFunction>(StringComparer.Ordinal);
+        var effects = ShaderEffectAnalysis.Compute(canonical);
         foreach (var pair in canonical.Functions) {
             var graph = pair.Value.Copy();
-            if (SpirvControlFlowLowering.TryPrepare(graph, module, out var reason)) graphs.Add(pair.Key, graph);
+            if (SpirvControlFlowLowering.TryPrepare(graph, module, out var reason, effects)) graphs.Add(pair.Key, graph);
             else {
                 // Only a target-deferred executable graph crosses this adapter.
                 // The borrowed declaration Body may be empty or obsolete.

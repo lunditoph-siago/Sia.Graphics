@@ -15,14 +15,16 @@ internal static class InvocationTerminationControlFlow
         ModuleValidator.Validate(input, native: true);
         var graphs = input.Functions.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
         var deferred = input.DeferredFunctions.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+        var effects = ShaderEffectAnalysis.Compute(input);
         foreach (var function in input.Declarations.Functions) {
             // Only an explicit deferred body may cross this reader boundary.
             if (graphs.ContainsKey(function.Name) || !NeedsRelocation(function.Body)) continue;
-            if (!StructuredControlFlowReader.TryRead(function, input.Declarations, out var graph, out var reason))
+            if (!StructuredControlFlowReader.TryRead(function, input.Declarations, out var graph, out var reason, effects, native: true))
                 throw new ShaderException(stage, "Invocation termination relocation requires canonical control flow: " + reason);
             ControlFlowAnalysis.RemoveUnreachable(graph!); graphs.Add(function.Name, graph!); deferred.Remove(function.Name);
         }
         bool changed = graphs.Count != input.Functions.Count;
+        effects = ShaderEffectAnalysis.Compute(input.Declarations, graphs);
         foreach (var pair in graphs.ToArray()) {
             var graph = pair.Value;
             var blocks = graph.Blocks.ToDictionary(b => b.Id);
@@ -96,7 +98,7 @@ internal static class InvocationTerminationControlFlow
                 // blocks. Their edges, effects and SSA values stay in place.
                 graph.Loops[header] = graph.Loops[header] with { Continuing = continuing };
             }
-            ControlFlowVerifier.Validate(graph, input.Declarations); graphs[pair.Key] = graph;
+            ControlFlowVerifier.Validate(graph, input.Declarations, calleeEffects: effects); graphs[pair.Key] = graph;
         }
         if (!changed) return input;
         var result = new CanonicalModule(input.Declarations, graphs, deferred, input.EntryFunctions);

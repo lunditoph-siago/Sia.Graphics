@@ -5,6 +5,30 @@ See the [current pipeline/target map](../../docs/compiler-architecture.md) and
 records the original PR baseline, not verification of later source changes;
 `renewal-evidence.json` records the cleanup follow-up.
 
+Latest deferred-helper migration: source
+`9CC19A9B35995EC4218C31B5D121B2EB43499E348519B453375449032507C2EE`,
+Compiler `9C8FE148D9CA731675DAC1A3B29A33A2223333FFA4A68B6B6B4463D52FF744F3`.
+PrepareSpirv no longer uses a whole-module structured adapter. Readable explicit
+deferrals import individually; unreadable helpers adapt only related callers.
+Owned graphs supply effects and types across readers, wrappers and target helper
+construction. Qualified native pointer-slot memory retains origin/access flags
+and declares StorageBuffer or full variable-pointer capabilities as appropriate;
+held Function-space pointers fail before emission.
+
+Passed: maintenance 2169/2169 (no skips), maintained independent formats 233/233
+and six additional helper/slot outputs 6/6. Export builds have no warnings/errors.
+Ten new cases and one updated readable-deferral contract cover ownership, SSA,
+effects, unsupported aliases, qualified memory and target capabilities. Retained
+failure history includes the three before-change failures, stale effect summaries,
+the obsolete deferral expectation, invalid Function-space fixture, missing pointer
+capability, one fixture constructor build error and scalar interpreter gaps.
+Actual manifests, TRX, scripts and logs are under
+`.work/compiler-architecture-first/canonical-deferred-helpers-*`.
+Not run for this source: GPU, WASM, real browser, SDK/Linux/AOT or full research
+consumers. Frozen replay passes 41/41 with input/output formats 82/82; 41/41 outputs
+match the earlier termination batch, using identical frozen inputs.
+Query guards, WGSL target, constructors and frontend/LLVM convergence remain open.
+
 Latest resource-handle admission: source
 `A01D1F090CEE7312BB35A157BB6FA85A6E2764EB550FBA75C13CC9D873B0FCB9`,
 Compiler `7FA706E849B928D31AD626CAFF5363D04E339E990727D4F5BB1D98C65B9F96F4`.

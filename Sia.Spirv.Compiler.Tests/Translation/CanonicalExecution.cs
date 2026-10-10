@@ -10,6 +10,7 @@ internal sealed class CanonicalExecution(Module module, uint[] input, bool initi
     private readonly Stack<Dictionary<string, object>> scopes = [];
     private readonly uint[] output = new uint[2];
     private readonly List<int> reads = [];
+    private static readonly object Uninitialized = new();
     private int budget = 200000;
     private object? returnedValue;
     private sealed class InvocationTermination : Exception;
@@ -21,8 +22,11 @@ internal sealed class CanonicalExecution(Module module, uint[] input, bool initi
     {
         scopes.Push(new(StringComparer.Ordinal));
         foreach (var constant in module.Constants) scopes.Peek().Add(constant.Name, E(constant.Value!));
-        foreach (var global in module.Globals.Where(g => g.Space == AddressSpace.Private))
-            scopes.Peek().Add(global.Name, global.Initializer is not null ? E(global.Initializer)
+        // One invocation only: scalar workgroup addresses share this interpreter's
+        // storage. Native inputs have no implicit initial value.
+        foreach (var global in module.Globals.Where(g => g.Space is AddressSpace.Private or AddressSpace.Workgroup))
+            scopes.Peek().Add(global.Name, global.Space == AddressSpace.Workgroup && !module.WorkgroupInitializationRequired ? Uninitialized
+                : global.Initializer is not null ? E(global.Initializer)
                 : global.Type == ShaderType.Bool ? (object)false : global.Type == ShaderType.U32 || global.Type == ShaderType.I32
                     ? 0u : throw new NotSupportedException("Test private global " + global.Name));
         try { _ = Body(module.Functions.Single(f => f.Stage is not null).Body); }
@@ -34,7 +38,8 @@ internal sealed class CanonicalExecution(Module module, uint[] input, bool initi
         throw new InvalidOperationException("Unknown test local " + name);
     }
     private object Read(Address address) {
-        if (address.Owner is not null) return address.Owner[address.Name];
+        if (address.Owner is not null) return ReferenceEquals(address.Owner[address.Name], Uninitialized)
+            ? throw new InvalidOperationException("Read of uninitialized test workgroup storage") : address.Owner[address.Name];
         var global = module.Globals.SingleOrDefault(g => g.Name == address.Name);
         if (global is null) return Get(address.Name);
         if (global.Binding is null) throw new NotSupportedException("Test global " + global.Name);

@@ -30,27 +30,29 @@ internal static class SpirvControlFlowLowering
         return new(module, graphs, deferred, module.Functions.Where(f => f.Stage is not null).Select(f => f.Name).ToHashSet(StringComparer.Ordinal));
     }
 
-    internal static bool TryRead(ShaderFunction function, Module module, out ControlFlowFunction? graph, out string? reason)
+    internal static bool TryRead(ShaderFunction function, Module module, out ControlFlowFunction? graph, out string? reason,
+        IReadOnlyDictionary<string, ShaderEffects>? calleeEffects = null)
     {
-        if (!StructuredControlFlowReader.TryRead(function, module, out graph, out reason)) return false;
-        return TryPrepare(graph!, module, out reason);
+        if (!StructuredControlFlowReader.TryRead(function, module, out graph, out reason, calleeEffects)) return false;
+        return TryPrepare(graph!, module, out reason, calleeEffects);
     }
 
-    internal static bool TryPrepare(ControlFlowFunction graph, Module module, out string? reason)
+    internal static bool TryPrepare(ControlFlowFunction graph, Module module, out string? reason,
+        IReadOnlyDictionary<string, ShaderEffects>? calleeEffects = null)
     {
         reason = null;
         ControlFlowAnalysis.RemoveUnreachable(graph!);
         if (graph!.Blocks.SelectMany(b => b.Parameters).Any(v => v.Type is ShaderType.Pointer)) {
             reason = "target pointer merge legalization"; return false;
         }
-        ControlFlowVerifier.Validate(graph, module);
+        ControlFlowVerifier.Validate(graph, module, calleeEffects: calleeEffects);
         if (graph.Blocks.SelectMany(b => b.Instructions).Any(i => i.Operation is ValueOperation.Builtin b
             && (b.Function.StartsWith("rayQuery", StringComparison.Ordinal)
                 || b.Function is "getCommittedHitVertexPositions" or "getCandidateHitVertexPositions"))) {
             reason = "ray-query guard legalization"; return false;
         }
         LocalValuePromotion.Run(graph);
-        ControlFlowVerifier.Validate(graph, module);
+        ControlFlowVerifier.Validate(graph, module, calleeEffects: calleeEffects);
         if (graph.Blocks.SelectMany(b => b.Parameters).Any(v => v.Type is ShaderType.Pointer)) {
             reason = "target pointer merge legalization"; return false;
         }
@@ -64,13 +66,16 @@ internal static class SpirvControlFlowLowering
         var graphs = new Dictionary<string, ControlFlowFunction>(StringComparer.Ordinal);
         var deferred = new Dictionary<string, string>(StringComparer.Ordinal);
         var retained = new Dictionary<string, SpirvFunctionControlFlow>(StringComparer.Ordinal);
+        var knownGraphs = layout.ControlFlow.ToDictionary(p => p.Key, p => p.Value.Graph, StringComparer.Ordinal);
+        if (ownedGraphs is not null) foreach (var pair in ownedGraphs) knownGraphs[pair.Key] = pair.Value;
+        var knownEffects = ShaderEffectAnalysis.Compute(layout.Module, knownGraphs);
         foreach (var function in layout.Module.Functions) {
             ControlFlowFunction? graph;
             if (ownedGraphs is not null && ownedGraphs.TryGetValue(function.Name, out var owned)) graph = owned;
             else if (layout.ControlFlow.TryGetValue(function.Name, out var existing) && ReferenceEquals(existing.Graph.Signature, function)) {
                 graph = existing.Graph.Copy(); retained.Add(function.Name, existing);
             }
-            else if (!TryRead(function, layout.Module, out graph, out var reason)) {
+            else if (!TryRead(function, layout.Module, out graph, out var reason, knownEffects)) {
                 deferred.Add(function.Name, reason!); continue;
             }
             if (!retained.ContainsKey(function.Name)) {

@@ -113,13 +113,14 @@ public class CanonicalPointerArgumentTests
     }
 
     [Fact]
-    public void DeferredPointerCalleeKeepsItsExplicitAdapterAndOwnedCaller()
+    public void ReadableDeferredPointerCalleeImportsWithoutRebuildingTheOwnedCaller()
     {
         var input = WgslReader.Parse(CanonicalPointerTests.PointerScalar); var canonical = CanonicalShaderPipeline.Prepare(input);
         var deferred = new CanonicalModule(input, new Dictionary<string, ControlFlowFunction> { ["main"] = canonical.Functions["main"] },
             new Dictionary<string, string> { ["edit"] = "test helper migration" }, canonical.EntryFunctions);
         ModuleValidator.Validate(deferred);
-        Assert.Same(deferred, CanonicalHelperInliner.RunPointers(deferred));
+        var expanded = CanonicalHelperInliner.RunPointers(deferred);
+        Assert.DoesNotContain(expanded.Declarations.Functions, f => f.Name == "edit"); Assert.Empty(expanded.DeferredFunctions);
         var prepared = SpirvEntryPointLowering.Run(ShaderTargetLowering.PrepareSpirv(deferred, null), true, true);
         Assert.Equal(new uint[] { 5, 8 }, new CanonicalExecution(SpirvReader.Parse(SpirvWriter.Emit(prepared).ToBytes()), [5]).Run().Output);
         Assert.Equal("test helper migration", deferred.DeferredFunctions["edit"]);

@@ -32,8 +32,13 @@ invalidation, while topology changes invalidate both.
 `Prepare`. Ordinary SPIR-V target preparation retains these graphs through
 integer, entry and physical-layout lowering. Integer safety and signed remainder
 helpers are constructed directly as typed SSA, preserving caller result identities,
-captured operands, topology and diagnostic origins. Pipeline values, pointer/query
-helper declarations (including pointer returns) and invocation termination still
+captured operands, topology and diagnostic origins. Pipeline constants resolve
+directly in canonical declarations and graphs, preserving result IDs, typed edges,
+captured addresses, spans and native memory operands. Only deferred functions use
+the existing Body mapper. Prepared target resource checks follow graph calls and
+symbols, retaining descriptor-array limits after resolution. Target-deferred pointer
+merges legalize selected memory arms without visiting other declaration bodies.
+Pointer/query helper declarations (including pointer returns) and invocation termination still
 cross an explicit temporary whole-module structured adapter. WGSL target preparation
 also retains its structured semantic path. The internal entry and physical-layout
 entrance accepts `CanonicalModule`, retaining executable

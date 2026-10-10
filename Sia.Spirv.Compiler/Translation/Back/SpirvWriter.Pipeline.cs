@@ -22,7 +22,7 @@ public static partial class SpirvWriter
         }
         var prepared = ShaderTargetLowering.ForSpirv(module, options.PipelineConstants, options.EmitIntegerDivisionChecks,
             options.AdjustCoordinateSpace, options.ClampFragmentDepth, options.ZeroInitializeWorkgroupMemory, options.UseLocalSizeId, options.Target?.Version);
-        if (options.Target is { } resourceTarget) ShaderTargetValidator.ValidateModule(prepared.Module, resourceTarget);
+        if (options.Target is { } resourceTarget) ShaderTargetValidator.ValidateModule(prepared.PhysicalLayout.Canonical, resourceTarget);
         var binary = Emit(prepared);
         if (options.Target is { } selected) ShaderTargetValidator.ValidateBinary(binary, selected);
         return binary;

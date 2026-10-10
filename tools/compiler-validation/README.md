@@ -5,7 +5,32 @@ See the [current pipeline/target map](../../docs/compiler-architecture.md) and
 records the original PR baseline, not verification of later source changes;
 `renewal-evidence.json` records the cleanup follow-up.
 
-Latest integer graph migration (compiler/test source 61AFB62C…, GPU source
+Latest pipeline-constant graph migration (source 4C1D37AF…) resolves values and
+types directly in `CanonicalModule`, preserving SSA identities, captured addresses,
+edge arguments, loops, diagnostics and native memory operands. Owned declaration
+bodies are not read; explicit deferrals retain their structured adapter. Pipeline
+values no longer force a whole-module reconstruction. Target-deferred pointer
+merges receive selected memory-arm legalization, and resource/call-closure checks
+read the prepared graphs so resolved descriptor-array limits remain enforced.
+No new public API, IR or dependency is introduced.
+Thirty-two contracts and maintenance 2100/2100 pass. Independent format 217/217
+passes; all 218 compared SPIR-V artifacts match the preceding integer batch.
+GPU workgroup-initialization probes are 8 PASS/1 ERROR: Pending5 canonical SPIR-V
+still fails import with invalid array size %6 and has no readback. Passing probes
+retain fixed expected raw words. Four Compiler DLL copies match 7C825AD4…;
+export source 7E0DB4F7… differs only in the two test files subsequently repaired.
+Original failed runs remain recorded under canonical-constants-* in the workspace
+task area. Native specialization composites remain inline; named derived values
+remain scalar-only, and opaque WGSL locals still defer as Declare. Pointer/query
+helpers, invocation termination, WGSL target, initialization/mesh construction,
+frontends/LLVM and full research/consumer coverage remain open. Current-source
+frozen replay, repeat-export determinism, remaining GPU, browser/SDK/Linux/AOT
+and full corpus/descriptor checks have not run in this batch.
+Previous 01422dc CI succeeded: Ubuntu compiler 2068/2068, WASM publish and Node
+managed-host 22 fixtures. This is evidence for that commit, not this new source;
+unlisted Rust checks do not establish repair of the earlier configuration error.
+
+Previous integer graph migration (compiler/test source 61AFB62C…, GPU source
 ACF40E1A…) constructs integer safety/remainder helpers directly as pure typed SSA.
 Caller result identities, evaluated operands, edges/loops, spans and filters are
 retained. Ordinary SPIR-V target preparation now keeps shared graphs through

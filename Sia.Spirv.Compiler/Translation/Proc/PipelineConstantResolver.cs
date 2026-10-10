@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Numerics;
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 
 namespace Sia.Spirv.Compiler.Translation.Proc;
 
@@ -27,6 +28,19 @@ public static class PipelineConstantResolver
         Valid.ModuleValidator.Validate(result); return result;
     }
 
+    internal static CanonicalModule Resolve(CanonicalModule canonical, IReadOnlyDictionary<string, double> values)
+    {
+        ArgumentNullException.ThrowIfNull(canonical); ArgumentNullException.ThrowIfNull(values);
+        Valid.ModuleValidator.Validate(canonical);
+        var resolver = new Resolver(canonical.Declarations, values);
+        var output = resolver.Run(canonical);
+        var declarations = output.Functions.ToDictionary(f => f.Name, StringComparer.Ordinal);
+        var graphs = canonical.Functions.ToDictionary(p => p.Key, p => resolver.Graph(p.Value, declarations[p.Key]), StringComparer.Ordinal);
+        var result = new CanonicalModule(output, graphs, canonical.DeferredFunctions, canonical.EntryFunctions);
+        Valid.ModuleValidator.Validate(result);
+        return result;
+    }
+
     private sealed class Resolver(Module input, IReadOnlyDictionary<string, double> values)
     {
         private readonly Dictionary<string, ShaderConstant> constants = input.Constants.ToDictionary(c => c.Name, StringComparer.Ordinal);
@@ -37,7 +51,7 @@ public static class PipelineConstantResolver
         private HashSet<string> locals = new(StringComparer.Ordinal);
         private static ShaderException Error(string message, SourceSpan span = default) => new(DiagnosticStage.Validation, message, span);
 
-        public Module Run()
+        public Module Run(CanonicalModule? canonical = null)
         {
             // An explicit @id replaces the name as the pipeline API identifier.
             foreach (var pair in values)
@@ -66,12 +80,56 @@ public static class PipelineConstantResolver
                     TaskPayload = function.TaskPayload, MeshOutput = function.MeshOutput,
                     EarlyDepthTest = function.EarlyDepthTest, ConservativeDepth = function.ConservativeDepth,
                     WorkgroupSize = dimensions,
-                    Body = Body(function.Body)
+                    Body = canonical?.Functions.ContainsKey(function.Name) == true ? new Block() : Body(function.Body)
                 };
                 copy.Arguments.AddRange(function.Arguments.Select(a => a with { Type = Type(a.Type) })); output.Functions.Add(copy);
                 copy.DiagnosticFilters.AddRange(function.DiagnosticFilters);
+                if (canonical?.Functions.ContainsKey(function.Name) == true)
+                    copy.Body.DiagnosticFilters.AddRange(function.Body.DiagnosticFilters);
             }
             return output;
+        }
+
+        public ControlFlowFunction Graph(ControlFlowFunction input, ShaderFunction signature)
+        {
+            var graph = input.Copy(signature);
+            var arguments = signature.Arguments.Select(a => a.Name).ToHashSet(StringComparer.Ordinal);
+            SsaValue Value(SsaValue value) => new(value.Id, Type(value.Type));
+            ValueOperation Operation(ValueOperation operation) => operation.Map(Value) switch {
+                ValueOperation.Call c => c with { ReturnType = Type(c.ReturnType) },
+                ValueOperation.Builtin b => b with { ReturnType = Type(b.ReturnType) },
+                ValueOperation.MeshStore m => m with { Field = m.Field with { Type = Type(m.Field.Type) } },
+                ValueOperation.InterfaceLoad i => i with { Field = i.Field with { Type = Type(i.Field.Type) } },
+                ValueOperation.InterfaceStore i => i with { Field = i.Field with { Type = Type(i.Field.Type) } },
+                var mapped => mapped
+            };
+            foreach (var block in graph.Blocks) {
+                for (int i = 0; i < block.Parameters.Count; i++) block.Parameters[i] = Value(block.Parameters[i]);
+                var instructions = block.Instructions.ToArray(); block.Instructions.Clear();
+                void Define(Expression expression, SsaValue result, ControlFlowInstruction origin) {
+                    SsaValue Child(Expression child) {
+                        var value = graph.Value(Type(child.Type)); Define(child, value, origin); return value;
+                    }
+                    var operation = expression switch {
+                        Expression.Literal literal => (ValueOperation)new ValueOperation.Literal(literal.Value),
+                        Expression.Construct construct => new ValueOperation.Construct(construct.Components.Select(Child).ToArray()),
+                        _ => throw Error("Resolved pipeline constant is not a concrete value.", origin.Span)
+                    };
+                    block.Instructions.Add(origin with { Result = result, Operation = operation });
+                }
+                foreach (var instruction in instructions) {
+                    var mapped = instruction with { Result = instruction.Result is { } result ? Value(result) : null,
+                        Operation = Operation(instruction.Operation) };
+                    if (instruction.Result is { } oldValue && instruction.Operation is ValueOperation.Symbol symbol
+                        && !arguments.Contains(symbol.Name) && constants.ContainsKey(symbol.Name))
+                        Define(resolved[symbol.Name], Value(oldValue), mapped);
+                    else block.Instructions.Add(mapped);
+                }
+                block.Terminator = block.Terminator!.Map(Value);
+                foreach (var edge in block.Terminator.Edges)
+                    for (int i = 0; i < edge.Arguments.Count; i++) edge.Arguments[i] = Value(edge.Arguments[i]);
+            }
+            return graph;
         }
 
         public Expression ResolveExpression(Expression expression) => ConstantEvaluator.Evaluate(Expr(expression).Value);

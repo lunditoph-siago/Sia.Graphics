@@ -57,7 +57,10 @@ internal static class SpirvPhysicalLayoutLowering
             var adapted = new Module { VulkanMemoryModel = module.VulkanMemoryModel, WorkgroupInitializationRequired = module.WorkgroupInitializationRequired };
             adapted.Structures.AddRange(module.Structures); adapted.Globals.AddRange(module.Globals); adapted.Constants.AddRange(module.Constants);
             adapted.Enables.UnionWith(module.Enables); adapted.DiagnosticFilters.AddRange(module.DiagnosticFilters);
-            adapted.Functions.AddRange(module.Functions.Select(f => adapters.GetValueOrDefault(f.Name, f))); module = adapted;
+            adapted.Functions.AddRange(module.Functions.Select(f => adapters.GetValueOrDefault(f.Name, f)));
+            // Reconstructed pointer merges must dispatch their selected memory
+            // arm. Never inspect the obsolete Bodies of graph-owned functions.
+            module = new PointerSelectionLowering(adapted).Run(adapters.Keys.ToHashSet(StringComparer.Ordinal));
         }
         var uniform = new Dictionary<ShaderType, ShaderType>();
         var workgroup = new Dictionary<ShaderType, ShaderType>();

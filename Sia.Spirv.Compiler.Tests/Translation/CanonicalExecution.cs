@@ -2,7 +2,7 @@ using Sia.Spirv.Compiler.Translation.IR;
 
 namespace Sia.Spirv.Compiler.Translation.Tests;
 
-/// <summary>Test-only scalar interpreter with C# arithmetic, independent of compiler folding and SSA passes.</summary>
+/// <summary>Test-only interpreter with C# scalar arithmetic and vector construction/projection, independent of compiler folding and SSA passes.</summary>
 internal sealed class CanonicalExecution(Module module, uint[] input, bool initiallyHelper = false)
 {
     private sealed record Address(string Name, int? Index = null, Dictionary<string, object>? Owner = null);
@@ -75,8 +75,16 @@ internal sealed class CanonicalExecution(Module module, uint[] input, bool initi
                 if (reference.Type is not ShaderType.Pointer) return Get(reference.Name);
                 return ReferenceAddress(reference.Name);
             case Expression.Load load: return Read(P(load.Pointer));
-            case Expression.Access access: return ((Address)E(access.Base)) with { Index = checked((int)(uint)E(access.Index)) };
+            case Expression.Access access:
+                var accessed = E(access.Base); int index = checked((int)(uint)E(access.Index));
+                return accessed is object[] vectorValues ? vectorValues[index] : ((Address)accessed) with { Index = index };
             case Expression.Member member: return E(member.Base); // Native array buffer wrappers have one data member.
+            case Expression.Construct { Type: ShaderType.Vector } vector:
+                return vector.Components.Select(E).SelectMany(v => v is object[] components ? components : [v]).ToArray();
+            case Expression.Swizzle swizzle:
+                var components = (object[])E(swizzle.Vector);
+                return swizzle.Components.Length == 1 ? components["xyzw".IndexOf(swizzle.Components[0])]
+                    : swizzle.Components.Select(c => components["xyzw".IndexOf(c)]).ToArray();
             case Expression.Construct construct when construct.Components.Count == 0: return construct.Type == ShaderType.Bool ? (object)false : 0u;
             case Expression.Construct construct when construct.Components.Count == 1: return E(construct.Components[0]);
             case Expression.Convert convert: return E(convert.Operand);

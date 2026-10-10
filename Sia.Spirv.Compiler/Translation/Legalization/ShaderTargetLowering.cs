@@ -44,10 +44,10 @@ internal static class ShaderTargetLowering
     internal static CanonicalModule PrepareSpirv(CanonicalModule canonical, IReadOnlyDictionary<string, double>? pipelineConstants, bool integerDivisionChecks = true)
     {
         ModuleValidator.Validate(canonical);
+        if (pipelineConstants is { } values) canonical = PipelineConstantResolver.Resolve(canonical, values);
         // These semantic families still require the legacy module adapter.
         // Ordinary graphs reach integer/entry/layout preparation without reconstruction.
-        bool legacy = pipelineConstants is not null
-            || canonical.Declarations.Functions.Any(f => f.ReturnType is ShaderType.Pointer
+        bool legacy = canonical.Declarations.Functions.Any(f => f.ReturnType is ShaderType.Pointer
                 || f.Arguments.Any(a => a.Type is ShaderType.Pointer)
                 && (f.Stage is null || f.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.RayQuery })))
             || canonical.Functions.Values.Any(g => g.Blocks.Any(b => b.Terminator is ControlFlowTerminator.InvocationKill))
@@ -55,10 +55,6 @@ internal static class ShaderTargetLowering
                 && InvocationTerminationControlFlow.NeedsRelocation(f.Body));
         if (legacy) {
             var module = StructuredControlFlowLowering.Run(canonical);
-            if (pipelineConstants is { } values) {
-                module = PipelineConstantResolver.Resolve(module, values);
-                ModuleValidator.Validate(module);
-            }
             module = HelperInliner.RunQueries(module);
             ModuleValidator.Validate(module);
             module = HelperInliner.RunNonFunctionPointers(module);

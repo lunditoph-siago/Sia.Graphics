@@ -1,5 +1,6 @@
 using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 using Sia.Spirv.Compiler.Translation.Spirv;
 using Sia.Spirv.Compiler.Translation.Proc;
 
@@ -20,15 +21,37 @@ internal static class ShaderTargetValidator
     }
 
     public static void ValidateModule(Module module, SpirvCompilationTarget target, bool wgsl = false, bool resources = true)
+        => ValidateModule(module, target, wgsl, resources, null);
+
+    internal static void ValidateModule(CanonicalModule canonical, SpirvCompilationTarget target)
+        => ValidateModule(canonical.Declarations, target, false, true, canonical.Functions);
+
+    private static void ValidateModule(Module module, SpirvCompilationTarget target, bool wgsl, bool resources,
+        IReadOnlyDictionary<string, ControlFlowFunction>? graphs)
     {
         target.Validate(wgsl: wgsl);
-        foreach (var function in module.Functions) ValidateInvocationRequirements(function.Body, target, wgsl);
+        foreach (var function in module.Functions)
+            if (graphs?.TryGetValue(function.Name, out var graph) == true) {
+                foreach (var block in graph.Blocks) {
+                    foreach (var instruction in block.Instructions)
+                        if (instruction.Operation is ValueOperation.Demote or ValueOperation.HelperInvocation)
+                            ValidateInvocationFeature("SPV_EXT_demote_to_helper_invocation", true, instruction.Span, target, wgsl);
+                    if (block.Terminator is ControlFlowTerminator.InvocationKill { ExplicitTermination: true } kill)
+                        ValidateInvocationFeature("SPV_KHR_terminate_invocation", false, kill.Span, target, wgsl);
+                }
+            }
+            else ValidateInvocationRequirements(function.Body, target, wgsl);
         foreach (var function in module.Functions.Where(f => f.Stage is not null)) ValidateStage(target, function.Stage!.Value.ToString());
         if (target.KernelAbi == SpirvKernelAbi.WebGpu && module.Globals.Any(g => g.Space == AddressSpace.Immediate))
             throw new ShaderException(DiagnosticStage.Validation, "WebGPU ABI does not allow immediate/push-constant resources.");
         foreach (var entry in module.Functions.Where(f => resources && f.Stage is not null)) {
-            var functions = ControlFlowAnalysis.CalledFunctions(module, [entry.Name]);
-            var used = module.Functions.Where(f => functions.Contains(f.Name)).SelectMany(f => UsedGlobals(f, module)).ToHashSet(StringComparer.Ordinal);
+            var functions = ControlFlowAnalysis.CalledFunctions(module, [entry.Name], graphs);
+            var globalNames = module.Globals.Select(g => g.Name).ToHashSet(StringComparer.Ordinal);
+            var used = module.Functions.Where(f => functions.Contains(f.Name)).SelectMany(f =>
+                graphs?.TryGetValue(f.Name, out var graph) == true
+                    ? graph.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).OfType<ValueOperation.Symbol>()
+                        .Select(s => s.Name).Where(n => globalNames.Contains(n) && !f.Arguments.Any(a => a.Name == n))
+                    : UsedGlobals(f, module)).ToHashSet(StringComparer.Ordinal);
             var buffers = module.Globals.Where(g => used.Contains(g.Name) && g.Space is AddressSpace.Storage or AddressSpace.Uniform).ToArray();
             long Count(AddressSpace space) => buffers.Where(g => g.Space == space).Sum(g => g.Type is ShaderType.BindingArray array
                 ? (long)(array.Length ?? throw new ShaderException(DiagnosticStage.Validation, "Resource limits require a resolved descriptor array length.")) : 1L);
@@ -58,16 +81,19 @@ internal static class ShaderTargetValidator
         foreach (var function in module.Functions) ValidateInvocationRequirements(function.Body, null, wgsl: true);
     }
 
+    private static void ValidateInvocationFeature(string extension, bool demotion, SourceSpan span, SpirvCompilationTarget? target, bool wgsl)
+    {
+        if (wgsl || target is null) return;
+        if (demotion && target.AllowedCapabilities is { } capabilities && !capabilities.Any(capability => capability == 5379))
+            throw new ShaderException(DiagnosticStage.SpirvWrite, "Target does not allow SPIR-V capability 5379.", span);
+        if (target.Version < 0x10600 && target.AllowedExtensions is { } extensions
+            && !extensions.Any(e => StringComparer.Ordinal.Equals(e, extension)))
+            throw new ShaderException(DiagnosticStage.SpirvWrite, "Target does not allow SPIR-V extension " + extension + ".", span);
+    }
+
     private static void ValidateInvocationRequirements(Block block, SpirvCompilationTarget? target, bool wgsl = false)
     {
-        void Feature(string extension, bool demotion, SourceSpan span) {
-            if (wgsl || target is null) return;
-            if (demotion && target.AllowedCapabilities is { } capabilities && !capabilities.Any(capability => capability == 5379))
-                throw new ShaderException(DiagnosticStage.SpirvWrite, "Target does not allow SPIR-V capability 5379.", span);
-            if (target.Version < 0x10600 && target.AllowedExtensions is { } extensions
-                && !extensions.Any(e => StringComparer.Ordinal.Equals(e, extension)))
-                throw new ShaderException(DiagnosticStage.SpirvWrite, "Target does not allow SPIR-V extension " + extension + ".", span);
-        }
+        void Feature(string extension, bool demotion, SourceSpan span) => ValidateInvocationFeature(extension, demotion, span, target, wgsl);
         void Expr(Expression expression) {
             if (expression is Expression.HelperInvocation) {
                 if (wgsl) throw new ShaderException(DiagnosticStage.WgslWrite,

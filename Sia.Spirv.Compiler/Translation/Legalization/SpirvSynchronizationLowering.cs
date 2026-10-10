@@ -3,7 +3,7 @@ using Sia.Spirv.Compiler.Translation.IR;
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
 /// <summary>Materialize synchronization and default atomic operands in ordered target IR.</summary>
-internal sealed class SpirvSynchronizationLowering(Module input)
+internal sealed partial class SpirvSynchronizationLowering(Module input)
 {
     private sealed record Local(bool Place);
     private readonly Stack<Dictionary<string, Local>> scopes = [];
@@ -43,14 +43,20 @@ internal sealed class SpirvSynchronizationLowering(Module input)
     };
     private Expression.Call Atomic(Expression.Call call)
     {
-        if (!Builtin(call) || call.MemoryAccess is not null && call.Function is "atomicLoad" or "atomicStore") return call;
-        bool uniform = call.Function == "workgroupUniformLoad" && call.Arguments[0].Type is ShaderType.Pointer { Base: ShaderType.Atomic };
-        if (!uniform && !call.Function.StartsWith("atomic", StringComparison.Ordinal) && !call.Function.StartsWith("textureAtomic", StringComparison.Ordinal)
-            && call.Function != "spirvAtomicCompareExchange") return call;
-        if (call.AtomicMemory is not null) return call;
-        bool workgroup = call.Arguments[0].Type is ShaderType.Pointer { Space: AddressSpace.Workgroup or AddressSpace.TaskPayload };
-        return call with { AtomicMemory = new(uniform || workgroup ? 2u : input.VulkanMemoryModel ? 5u : 1u, 0,
-            call.Function is "atomicCompareExchangeWeak" or "spirvAtomicCompareExchange" ? 0u : null) };
+        if (!Builtin(call)) return call;
+        return call with { AtomicMemory = DefaultAtomic(call.Function, call.Arguments.FirstOrDefault()?.Type,
+            call.AtomicMemory, call.MemoryAccess, input.VulkanMemoryModel) };
+    }
+    private static SpirvAtomicMemory? DefaultAtomic(string name, ShaderType? pointer, SpirvAtomicMemory? memory,
+        SpirvMemoryAccess? ordinaryMemory, bool vulkan)
+    {
+        if (memory is not null || ordinaryMemory is not null && name is "atomicLoad" or "atomicStore") return memory;
+        bool uniform = name == "workgroupUniformLoad" && pointer is ShaderType.Pointer { Base: ShaderType.Atomic };
+        if (!uniform && !name.StartsWith("atomic", StringComparison.Ordinal) && !name.StartsWith("textureAtomic", StringComparison.Ordinal)
+            && name != "spirvAtomicCompareExchange") return memory;
+        bool workgroup = pointer is ShaderType.Pointer { Space: AddressSpace.Workgroup or AddressSpace.TaskPayload };
+        return new(uniform || workgroup ? 2u : vulkan ? 5u : 1u, 0,
+            name is "atomicCompareExchangeWeak" or "spirvAtomicCompareExchange" ? 0u : null);
     }
     private Expression Capture(Expression value, List<Statement> prefix, bool place = false)
     {
@@ -184,13 +190,15 @@ internal sealed class SpirvSynchronizationLowering(Module input)
         }
     }
     internal static Module Run(Module module) => new SpirvSynchronizationLowering(module).Run();
-    private Module Run()
+    internal static Module Run(Module module, IReadOnlySet<string> functions) => new SpirvSynchronizationLowering(module).Run(functions);
+    private Module Run(IReadOnlySet<string>? selected = null)
     {
         foreach (var f in input.Functions) { foreach (var a in f.Arguments) names.Add(a.Name); Names(f.Body); }
         var output = new Module { VulkanMemoryModel = input.VulkanMemoryModel, WorkgroupInitializationRequired = input.WorkgroupInitializationRequired };
         output.Structures.AddRange(input.Structures); output.Constants.AddRange(input.Constants); output.Globals.AddRange(input.Globals);
         output.Enables.UnionWith(input.Enables); output.DiagnosticFilters.AddRange(input.DiagnosticFilters);
         foreach (var f in input.Functions) {
+            if (selected is not null && !selected.Contains(f.Name)) { output.Functions.Add(f); continue; }
             scopes.Push(f.Arguments.ToDictionary(a => a.Name,_ => new Local(false),StringComparer.Ordinal));
             var body = Body(f.Body); scopes.Pop();
             if (ReferenceEquals(body,f.Body)) { output.Functions.Add(f); continue; }

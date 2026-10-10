@@ -45,11 +45,13 @@ internal static class SpirvControlFlowLowering
                 deferred.Add(function.Name, "target pointer merge legalization"); continue;
             }
             SpirvMemoryAccessLowering.Run(graph, layout.Module);
+            SpirvSynchronizationLowering.Run(graph, layout.Module);
             graphs.Add(function.Name, graph);
         }
         // Legacy qualification is confined to explicit deferrals. Graph-owned
         // executable bodies are never rebuilt just to publish target metadata.
-        var module = SpirvMemoryAccessLowering.Run(layout.Module, deferred.Keys.ToHashSet(StringComparer.Ordinal));
+        var deferredNames = deferred.Keys.ToHashSet(StringComparer.Ordinal);
+        var module = SpirvSynchronizationLowering.Run(SpirvMemoryAccessLowering.Run(layout.Module, deferredNames), deferredNames);
         var canonical = new CanonicalModule(module, graphs, deferred, new HashSet<string>(StringComparer.Ordinal));
         var effects = ShaderEffectAnalysis.Compute(canonical);
         foreach (var graph in graphs.Values) {

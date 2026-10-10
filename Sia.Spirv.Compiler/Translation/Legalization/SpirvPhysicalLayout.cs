@@ -182,6 +182,6 @@ internal static class SpirvPhysicalLayoutLowering
         var prepared = new SpirvPhysicalLayout(module, globals.ToFrozenDictionary(StringComparer.Ordinal), uniform.ToFrozenDictionary(), workgroup.ToFrozenDictionary(),
             buffers.ToFrozenDictionary(), fields.ToFrozenDictionary(), flattened.ToFrozenSet());
         prepared = SpirvUniformAccessLowering.Run(SpirvWorkgroupAccessLowering.Run(SpirvWorkgroupValueLowering.Run(prepared, workgroup.Keys.ToArray())));
-        return SpirvEntryMetadataLowering.Prepare(SpirvEntryWrapperLowering.Prepare(SpirvControlFlowLowering.Prepare(prepared with { Module = SpirvSynchronizationLowering.Run(prepared.Module) })), useLocalSizeId, version);
+        return SpirvEntryMetadataLowering.Prepare(SpirvEntryWrapperLowering.Prepare(SpirvControlFlowLowering.Prepare(prepared)), useLocalSizeId, version);
     }
 }

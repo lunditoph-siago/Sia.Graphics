@@ -5,7 +5,16 @@ See the [current pipeline/target map](../../docs/compiler-architecture.md) and
 records the original PR baseline, not verification of later source changes;
 `renewal-evidence.json` records the cleanup follow-up.
 
-Latest target memory qualification (F7382786…) consumes SSA address provenance
+Latest synchronization migration (7BCB90E0…) records twelve contracts, maintenance
+2023/2023, independent format 217/217, frozen native input/output format 82/82,
+160 reverse PASS and 657 deterministic files. All 218 prior SPIR-V artifacts and
+41 replay outputs match. Targeted GPU results are 24 PASS/3 ERROR; the three
+Vulkan memory-model imports have no execution/readback. Evidence is separately
+recorded under canonical-synchronization-* in the workspace task area. The first
+full run's two compatibility-body assertions and their correction to prepared
+target graphs are retained. Full architecture and research acceptance remain open.
+
+Previous target memory qualification (F7382786…) consumes SSA address provenance
 and keeps qualified access/atomic operands in target graphs. Graph call closure
 inherits those memory effects; structured qualification handles explicit deferrals
 only. Six new contracts, related 143/143 checks and maintenance 2011/2011 pass;

@@ -6,7 +6,16 @@ passes and target legalization. This document does not claim that the existing
 translation IR has already been replaced. The [current architecture](compiler-architecture.md)
 is the implementation baseline.
 
-Latest target memory qualification (F7382786…) consumes SSA address provenance
+Latest synchronization migration (7BCB90E0…) expands barriers, default atomics and
+collective reads directly in target graphs after memory qualification. Twelve
+contracts and maintenance 2023/2023 pass; independent format checks are 217/217,
+frozen native input/output checks 82/82, reverse routes 160 PASS, and 657 repeated
+files agree. All 218 prior SPIR-V artifacts and 41 replay outputs match. Targeted
+GPU attempts are 24 PASS/3 ERROR: Vulkan memory-model Load/Store imports are
+rejected before execution. Layout/pointers, frontend/LLVM and full research gates
+remain open; this is partial stage-5 migration, not architecture completion.
+
+Previous target memory qualification (F7382786…) consumes SSA address provenance
 and keeps qualified access/atomic operands in target graphs. Graph call closure
 inherits those memory effects; structured qualification handles explicit deferrals
 only. Six new contracts, related 143/143 checks and maintenance 2011/2011 pass;

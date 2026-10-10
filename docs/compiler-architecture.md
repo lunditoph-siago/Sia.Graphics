@@ -55,8 +55,13 @@ member projections, selects and block parameters; aggregate type requirements
 are applied at the access site. Function snapshots preserve native operands
 without inheriting resource decorations. Target calls inherit qualified memory
 effects from the graph closure. The legacy structured qualification pass handles
-only explicitly deferred functions. Synchronization expansion and target
-layout/pointer adapters still precede graph preparation and require migration.
+only explicitly deferred functions. Target synchronization now expands directly
+in owned graphs after memory qualification: typed barriers and default atomic
+operands use shared policy, and collective reads become barrier/read/barrier at
+their already evaluated SSA address. Results, diagnostic metadata and CFG edges
+remain intact; effects are recomputed after target changes. The structured
+synchronization adapter also handles only explicit deferrals. Target layout/pointer
+adapters still precede graph preparation and require migration.
 
 ## Project flow and ownership
 

@@ -82,7 +82,7 @@ internal static class SpirvEntryPointLowering
         var layout = SpirvPhysicalLayoutLowering.Prepare(output, useLocalSizeId, version);
         ModuleValidator.Validate(layout.Module);
         var publication = SpirvMeshPublicationLowering.Run(layout, conversions);
-        layout = publication.Layout with { Module = SpirvSynchronizationLowering.Run(publication.Layout.Module) };
+        layout = publication.Layout;
         ModuleValidator.Validate(layout.Module);
         layout = SpirvControlFlowLowering.Prepare(layout);
         var finalFunctions = layout.Module.Functions.ToDictionary(f => f.Name, StringComparer.Ordinal);

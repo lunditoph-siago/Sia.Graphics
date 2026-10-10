@@ -85,9 +85,9 @@ public class SpirvWorkgroupAccessTests
         var logical = input.Globals.Single(g => g.Name == "group_data").Type;
         var physical = prepared.PhysicalLayout.WorkgroupTypes[logical];
         var main = prepared.Module.Functions.Single(f => f.Stage == ShaderStage.Compute);
-        Assert.True(StructuredControlFlowReader.TryRead(main, prepared.Module, out var graph, out var reason), reason);
-        ControlFlowVerifier.Validate(graph!, prepared.Module);
-        var instructions = graph!.Blocks.SelectMany(b => b.Instructions).ToArray();
+        var graph = prepared.PhysicalLayout.ControlFlow[main.Name].Graph;
+        ControlFlowVerifier.Validate(graph, prepared.Module);
+        var instructions = graph.Blocks.SelectMany(b => b.Instructions).ToArray();
         Assert.DoesNotContain(instructions, i => i.Operation is ValueOperation.Builtin { Function: "workgroupUniformLoad" });
         var uniform = Assert.Single(instructions, i => i.Operation is ValueOperation.Load && i.Result?.Type == physical);
         Assert.Equal(physical, uniform.Result!.Value.Type);

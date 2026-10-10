@@ -17,9 +17,9 @@ public class SpirvSynchronizationTests
         var module = RawOrderedFixture();
         module.Constants.Add(new("sia_spv_sync_0",ShaderType.U32,Expression.U32(99)));
         module.Functions.Single(f => f.Stage == ShaderStage.Compute).Body.Statements.Add(new Statement.Declare("sia_spv_sync_1",ShaderType.U32,Expression.U32(100),false));
-        var prepared = SpirvPhysicalLayoutLowering.Prepare(module);
-        ModuleValidator.Validate(prepared.Module);
-        var names = prepared.Module.Functions.Single(f => f.Stage == ShaderStage.Compute).Body.Statements.OfType<Statement.Declare>().Select(d => d.Name).ToArray();
+        var prepared = SpirvSynchronizationLowering.Run(module);
+        ModuleValidator.Validate(prepared);
+        var names = prepared.Functions.Single(f => f.Stage == ShaderStage.Compute).Body.Statements.OfType<Statement.Declare>().Select(d => d.Name).ToArray();
         Assert.DoesNotContain("sia_spv_sync_0",names);
         Assert.Equal(names.Length,names.Distinct(StringComparer.Ordinal).Count());
         Assert.Single(names,n => n == "sia_spv_sync_1");
@@ -40,9 +40,9 @@ public class SpirvSynchronizationTests
         var input = WgslReader.Parse(AtomicSource); input.VulkanMemoryModel = vulkan;
         var prepared = SpirvPhysicalLayoutLowering.Prepare(input);
         ModuleValidator.Validate(prepared.Module);
-        Assert.True(StructuredControlFlowReader.TryRead(prepared.Module.Functions.Single(),prepared.Module,out var graph,out var reason),reason);
-        ControlFlowVerifier.Validate(graph!,prepared.Module);
-        var operations = graph!.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).ToArray();
+        var graph = prepared.ControlFlow["main"].Graph;
+        ControlFlowVerifier.Validate(graph,prepared.Module);
+        var operations = graph.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).ToArray();
         Assert.DoesNotContain(operations,o => o is ValueOperation.Builtin { Function:"workgroupUniformLoad" });
         Assert.Equal(4,operations.OfType<ValueOperation.Barrier>().Count());
         var reads = operations.OfType<ValueOperation.Builtin>().Where(c => c.Function == "atomicLoad").ToArray();
@@ -128,16 +128,17 @@ public class SpirvSynchronizationTests
         string before = WgslWriter.Write(module);
         var prepared = SpirvPhysicalLayoutLowering.Prepare(module);
         ModuleValidator.Validate(prepared.Module);
-        var main = prepared.Module.Functions.Single(f => f.Stage == ShaderStage.Compute);
-        Assert.True(StructuredControlFlowReader.TryRead(main,prepared.Module,out var graph,out var reason),reason);
-        ControlFlowVerifier.Validate(graph!,prepared.Module);
-        var operations = graph!.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).ToArray();
+        var graph = prepared.ControlFlow["main"].Graph;
+        ControlFlowVerifier.Validate(graph,prepared.Module);
+        var operations = graph.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).ToArray();
         Assert.DoesNotContain(operations,o => o is ValueOperation.Builtin { Function:"workgroupUniformLoad" });
         Assert.Equal(10,operations.OfType<ValueOperation.Barrier>().Count());
         Assert.Single(operations.OfType<ValueOperation.Call>(),c => c.Function == "get_index");
         Assert.Single(operations.OfType<ValueOperation.Call>(),c => c.Function == "get_target");
         Assert.Equal(3,operations.OfType<ValueOperation.Call>().Count(c => c.Function == "mark"));
-        Assert.Same(prepared.Module,SpirvSynchronizationLowering.Run(prepared.Module));
+        string once = ControlFlowPrinter.Write(graph);
+        SpirvSynchronizationLowering.Run(graph,prepared.Module);
+        Assert.Equal(once,ControlFlowPrinter.Write(graph));
         Assert.Equal(before,WgslWriter.Write(module));
         var binary = RawOrderedBinary();
         var words = SpirvBinary.Parse(binary);
@@ -167,10 +168,9 @@ public class SpirvSynchronizationTests
     {
         var input = WgslReader.Parse("var<workgroup> group_value:u32; @group(0) @binding(0) var<storage,read_write> output:u32; @compute @workgroup_size(1) fn main(){group_value=7u; output=workgroupUniformLoad(&group_value);}");
         var prepared = SpirvPhysicalLayoutLowering.Prepare(input);
-        var function = prepared.Module.Functions.Single();
-        Assert.True(StructuredControlFlowReader.TryRead(function, prepared.Module, out var graph, out var reason), reason);
-        ControlFlowVerifier.Validate(graph!, prepared.Module);
-        var operations = graph!.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).ToArray();
+        var graph = prepared.ControlFlow["main"].Graph;
+        ControlFlowVerifier.Validate(graph, prepared.Module);
+        var operations = graph.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).ToArray();
         Assert.DoesNotContain(operations, o => o is ValueOperation.Builtin { Function: "workgroupUniformLoad" });
         var barriers = operations.Select((o,i) => (o,i)).Where(p => p.o is ValueOperation.Barrier).ToArray();
         Assert.Equal(2, barriers.Length);
@@ -186,7 +186,8 @@ public class SpirvSynchronizationTests
         var input = WgslReader.Parse("@group(0) @binding(0) var<storage,read_write> counter:atomic<u32>; @compute @workgroup_size(1) fn main(){atomicStore(&counter,7u);}");
         input.VulkanMemoryModel = vulkan;
         var prepared = SpirvPhysicalLayoutLowering.Prepare(input);
-        var call = Assert.IsType<Expression.Call>(Assert.Single(prepared.Module.Functions.Single().Body.Statements.OfType<Statement.Evaluate>()).Value);
+        var call = Assert.Single(prepared.ControlFlow["main"].Graph.Blocks.SelectMany(b => b.Instructions)
+            .Select(i => i.Operation).OfType<ValueOperation.Builtin>());
         Assert.Equal(new SpirvAtomicMemory(scope,0), call.AtomicMemory);
         Assert.Null(Assert.IsType<Expression.Call>(Assert.Single(input.Functions.Single().Body.Statements.OfType<Statement.Evaluate>()).Value).AtomicMemory);
     }

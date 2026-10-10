@@ -5,6 +5,34 @@ See the [current pipeline/target map](../../docs/compiler-architecture.md) and
 records the original PR baseline, not verification of later source changes;
 `renewal-evidence.json` records the cleanup follow-up.
 
+CIL CFG migration, 2026-10-11: source F3D86329…, Compiler E6F30890….
+The frontend now owns real CIL blocks, stack-edge parameters and a separate
+initialization block. Target region reconstruction owns natural loops,
+selection joins and irreducible data dispatch. Fourteen new cases cover raw
+topology, independent graphs, Body replacement, ordered loop effects,
+reconverged barriers and parallel edge swaps. The old leading-backedge rejection
+case retains its patched PE and now checks initialization isolation and both
+valid outputs; the new architecture supports that loop.
+
+Passed on one frozen source: focused 42/42; maintenance 2306/2306, zero skipped;
+independent formats 233 maintained + 22 query/handle + 82 frozen input/output +
+16 identity/library/alias + 22 direct CIL = 375; frozen native replay 41/41; GPU
+16/16 with the existing fixed integer/float, binding and alias oracles. CLI,
+Dawn browser-library and validation exporter builds/export22 pass; ten Compiler
+DLL copies match. Reports, source/PE/artifact hashes and actual commands are in
+workspace `.work/compiler-architecture-first/cil-cfg-*`, consolidated by
+`record-cil-cfg-evidence.py`. GPU kernel tokens and target identities match the
+direct export, and its assembly hashes match the final tested PE inputs.
+
+Historical failures are retained: source PC reproduction, invalid target
+boundaries, dispatcher convergence, partial short-circuit joins, loop-header
+exit trampolines, new-test compilation errors and the obsolete backedge
+rejection expectation. The barrier test checks synchronization effects instead
+of requiring a native-only opcode; uniformity validation remains in place.
+CIL opaque locals, pointer stack edges, irreducible convergent effects, actual
+browser GPU, SDK/AOT and full research parity remain unverified. New-head CI
+must be recorded after submission; previous-head CI does not verify this slice.
+
 Immutable resource alias graph import, 2026-10-11: source 55BFDC69…,
 Compiler D150C150…. Thirteen new cases cover image/sampler/scene/binding-array/
 atomic alias ownership, single index capture, mutable handle rejection and

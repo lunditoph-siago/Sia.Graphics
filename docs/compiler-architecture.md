@@ -5,6 +5,23 @@ Current implementation based on PR 92, updated 2026-10-11. The
 Paths below are relative to this repository. The four shader routes exist for a
 bounded shader subset; none establishes support for arbitrary managed programs.
 
+The CIL runtime frontend now builds canonical CFGs directly from reachable CIL
+blocks. A separate initialization block owns argument/local allocation; typed
+block parameters carry the evaluation stack. Helper, constructor and entry-output
+graphs are owned independently of structured Bodies. Shared promotion and effect
+analysis consume those graphs. Target legalization reconstructs natural loops
+and selection regions, splitting partial join tails where their SSA definitions
+have no external uses. Irreducible data graphs use a target dispatcher with
+parallel edge copies. The former frontend PC/switch Body and return traversal
+are removed. `CompileModule` explicitly materializes its public typed IR result;
+the writers still prepare that public input at their own boundary. This slice
+does not eliminate every target adapter or establish complete CIL resource SSA.
+Pointer values on evaluation-stack edges remain diagnosed, and opaque resource
+locals and irreducible convergent effects require further work. Common native
+pointer slots already use native graphs and shared slot promotion; remaining
+shapes must be identified from actual producers rather than assuming all slots
+are deferred.
+
 Entry ABI preparation now builds target canonical wrapper CFG/SSA, including
 interface reads/writes, argument assembly, workgroup initialization, output
 conversion and mesh/task publication calls. The SPIR-V writer consumes the

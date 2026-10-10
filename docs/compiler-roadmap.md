@@ -10,6 +10,20 @@ Execution amendment, approved by the user on 2026-10-10: remove backward
 compatibility, including public legacy APIs; breaking changes are allowed.
 This supersedes the earlier staged requirement to retain old overload adapters.
 
+CIL control-flow migration (2026-10-11, source F3D86329…, Compiler E6F30890…)
+removes the frontend PC/switch Body. Reachable CIL blocks and typed stack-edge
+parameters now enter owned canonical graphs, with independent initialization
+and shared local promotion/effects. Target passes reconstruct natural regions
+and partial joins; irreducible data edges retain parallel assignment semantics.
+The public typed module result still has an explicit materialization boundary.
+Maintenance passes 2306/2306, independent formats 375/375 (including 22 direct
+CIL outputs), frozen replay 41/41 and GPU 16/16. CLI, Dawn browser-library and
+validation exporter builds pass; ten Compiler copies match. Source/GPU/format
+evidence shares one frozen snapshot. CIL opaque locals, pointer stack edges,
+irreducible convergent effects, remaining target/LLVM adapters, actual browser,
+SDK/AOT and full research remain open. Common native slots already use graphs;
+remaining slot shapes require concrete reproductions.
+
 Immutable resource alias import (2026-10-11, source 55BFDC69…, Compiler D150C150…)
 moves image, sampler, acceleration-structure and binding-array lets into owned
 graphs, including pointer helper closures. Atomic origin validation captures

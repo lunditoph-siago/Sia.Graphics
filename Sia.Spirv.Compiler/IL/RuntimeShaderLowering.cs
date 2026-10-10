@@ -6,6 +6,9 @@ using Sia.Spirv.Compiler.Metadata;
 using Sia.Spirv.Compiler.Legalization;
 using Sia.Spirv.Compiler.Model;
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
+using Sia.Spirv.Compiler.Translation.Legalization;
+using Sia.Spirv.Compiler.Translation;
 using Sia.Spirv.Compiler.Translation.Valid;
 using Module = Sia.Spirv.Compiler.Translation.IR.Module;
 
@@ -33,14 +36,26 @@ internal sealed partial class RuntimeShaderLowering(PEReader pe, MetadataReader 
     public static Module Run(ReadOnlyMemory<byte> assemblyImage, ReadOnlyMemory<byte> intrinsicImage,
         SpirvKernel kernel, SpirvKernelAbi abi)
     {
+        var frontend = ReadCanonical(assemblyImage, intrinsicImage, kernel, abi);
+        var canonical = CanonicalShaderPipeline.Prepare(frontend.Declarations, frontendGraphs: frontend.Functions,
+            verifyFrontend: (graph, input) => ControlFlowVerifier.Validate(graph, input));
+        return StructuredControlFlowLowering.Run(CanonicalControlFlowRegions.Run(canonical));
+    }
+
+    internal static CanonicalModule ReadCanonical(ReadOnlyMemory<byte> assemblyImage, ReadOnlyMemory<byte> intrinsicImage,
+        SpirvKernel kernel, SpirvKernelAbi abi)
+    {
         using var stream = new MemoryStream(assemblyImage.ToArray(), writable: false);
         using var pe = new PEReader(stream, PEStreamOptions.PrefetchEntireImage);
         using var intrinsics = IntrinsicCatalog.Open(intrinsicImage);
         var metadata = pe.GetMetadataReader();
         var lowering = new RuntimeShaderLowering(pe, metadata, new CilCallResolver(metadata, intrinsics));
         lowering.Entry(kernel, abi);
-        ModuleValidator.Validate(lowering.module);
-        return lowering.module;
+        var graphs = lowering.ReadGraphs();
+        var canonical = new CanonicalModule(lowering.module, graphs, new Dictionary<string, string>(),
+            Translation.Proc.ControlFlowAnalysis.EntryFunctions(lowering.module, graphs));
+        ModuleValidator.Validate(canonical, native: true);
+        return canonical;
     }
 
     private void Entry(SpirvKernel kernel, SpirvKernelAbi abi)
@@ -132,8 +147,7 @@ internal sealed partial class RuntimeShaderLowering(PEReader pe, MetadataReader 
             var resultType = new ShaderType.Structure("SiaOutput", members);
             module.Structures.Add(resultType); entry.ReturnType = resultType;
             var returned = new Expression.Construct(resultType, outputs.Values.Select(p => (Expression)new Expression.Load(p)).ToArray());
-            RewriteReturns(entry.Body, returned);
-            if (entry.Body.Statements.LastOrDefault() is not Statement.Return) entry.Body.Statements.Add(new Statement.Return(returned));
+            entryResult = returned;
         }
     }
 
@@ -158,18 +172,6 @@ internal sealed partial class RuntimeShaderLowering(PEReader pe, MetadataReader 
         var type = new ShaderType.Structure(Name("io"), fields);
         structures.Add(layout.Name, type); module.Structures.Add(type); return type;
     }
-    private static void RewriteReturns(Block block, Expression value) {
-        for (int i = 0; i < block.Statements.Count; i++) {
-            switch (block.Statements[i]) {
-                case Statement.Return: block.Statements[i] = new Statement.Return(value); break;
-                case Statement.If branch: RewriteReturns(branch.Accept, value); RewriteReturns(branch.Reject, value); break;
-                case Statement.Loop loop: RewriteReturns(loop.Body, value); RewriteReturns(loop.Continuing, value); break;
-                case Statement.Switch selection: foreach (var arm in selection.Cases) RewriteReturns(arm.Body, value); break;
-                case Statement.Nested nested: RewriteReturns(nested.Body, value); break;
-            }
-        }
-    }
-
     private static ShaderType Type(SpirvScalarType type) => type switch {
         SpirvScalarType.Boolean => ShaderType.Bool, SpirvScalarType.Int32 => ShaderType.I32,
         SpirvScalarType.UInt32 => ShaderType.U32, SpirvScalarType.Float32 => ShaderType.F32,
@@ -224,94 +226,4 @@ internal sealed partial class RuntimeShaderLowering(PEReader pe, MetadataReader 
     }
     private static Expression Address(Expression place) => new Expression.Unary("&", place, Pointer(place, ValueType(place)));
 
-    private void Function(ShaderFunction function, int token, Value[] arguments, CilControlFlowGraph? inputGraph = null, Expression? returnOverride = null)
-    {
-        var method = metadata.GetMethodDefinition((MethodDefinitionHandle)MetadataTokens.EntityHandle(token));
-        var nativeBody = pe.GetMethodBody(method.RelativeVirtualAddress);
-        if (nativeBody.ExceptionRegions.Length != 0) throw Error(0, "Exception regions are not supported.");
-        var bytes = nativeBody.GetILBytes() ?? throw Error(0, "Method has no CIL.");
-        var graph = inputGraph ?? CilControlFlowGraph.Create(CilInstructionDecoder.Decode(bytes), bytes.Length);
-        var view = new ShaderCilView(graph, calls);
-        var body = function.Body;
-        arguments = arguments.Select(argument => {
-            if (argument.Place || argument.Expression.Type is ShaderType.Image or ShaderType.Sampler) return argument;
-            var slot = Place(Name("argument"), argument.Expression.Type);
-            body.Statements.Add(new Statement.Declare(slot.Name, argument.Expression.Type, argument.Expression));
-            return new Value(slot, true, true);
-        }).ToArray();
-        var locals = nativeBody.LocalSignature.IsNil ? [] : metadata.GetStandaloneSignature(nativeBody.LocalSignature).DecodeLocalSignature(new KernelTypeProvider(), null).Select(Type).ToArray();
-        var localValues = locals.Select((type, index) => {
-            var place = Place(Name("local"), type);
-            body.Statements.Add(new Statement.Declare(place.Name, type, null));
-            return new Value(place, true);
-        }).ToArray();
-        var blockByOffset = graph.Blocks.ToDictionary(b => b.StartOffset);
-        var incoming = new Dictionary<int, Value[]> { [0] = [] };
-        var queue = new Queue<int>(); queue.Enqueue(0);
-        var emitted = new Dictionary<int, Block>();
-        var pc = Place(Name("block"), ShaderType.I32);
-        body.Statements.Add(new Statement.Declare(pc.Name, ShaderType.I32, Expression.I32(0)));
-        bool isEntry = true;
-        while (queue.TryDequeue(out int id)) {
-            var native = graph.Blocks[id];
-            var output = new Block(); var stack = new Stack<Value>(incoming[id]);
-            var argumentPlaces = arguments;
-            void Edge(int target, Block into) {
-                var values = stack.Reverse().ToArray();
-                if (!incoming.TryGetValue(target, out var slots)) {
-                    slots = values.Select(value => {
-                        if (value.Place || value.Expression.Type is ShaderType.Pointer) throw Error(native.StartOffset, "Pointer values across CIL stack edges require address provenance lowering.");
-                        string name = Name("stack");
-                        body.Statements.Add(new Statement.Declare(name, value.Expression.Type, null));
-                        return new Value(Place(name, value.Expression.Type), true);
-                    }).ToArray();
-                    incoming.Add(target, slots); queue.Enqueue(target);
-                }
-                if (slots.Length != values.Length) throw Error(native.StartOffset, "CIL evaluation stack edge mismatch.");
-                // Snapshot all edge values before writing the destination stack, including backedges.
-                var snapshots = values.Select(v => Snapshot(Read(v, into), into).Expression).ToArray();
-                for (int s = 0; s < slots.Length; s++) into.Statements.Add(new Statement.Store(slots[s].Expression, Convert(snapshots[s], ValueType(slots[s].Expression), true)));
-                into.Statements.Add(new Statement.Store(pc, Expression.I32(target)));
-            }
-            bool terminated = false;
-            foreach (var instruction in native.Instructions) {
-                string op = instruction.OpCode.Name!; int at = instruction.Offset;
-                if (op is "br" or "br.s") { Edge(blockByOffset[instruction.Operand.GetInt32(at)].Id, output); terminated = true; break; }
-                if (op == "switch") {
-                    var selector = Convert(Read(stack.Pop(), output), ShaderType.I32, true);
-                    var targets = instruction.Operand.GetSwitchTargets(at);
-                    var cases = new List<SwitchCase>();
-                    for (int t = 0; t < targets.Length; t++) { var arm = new Block(); Edge(blockByOffset[targets[t]].Id, arm); cases.Add(new([Expression.I32(t)], false, arm)); }
-                    var fallback = new Block(); Edge(blockByOffset[instruction.EndOffset].Id, fallback); cases.Add(new([], true, fallback));
-                    output.Statements.Add(new Statement.Switch(selector, cases)); terminated = true; break;
-                }
-                if (instruction.OpCode.FlowControl == System.Reflection.Emit.FlowControl.Cond_Branch) {
-                    var condition = Branch(instruction, stack, output);
-                    var yes = new Block(); var no = new Block();
-                    Edge(blockByOffset[instruction.Operand.GetInt32(at)].Id, yes); Edge(blockByOffset[instruction.EndOffset].Id, no);
-                    output.Statements.Add(new Statement.If(condition, yes, no)); terminated = true; break;
-                }
-                if (op == "ret") {
-                    output.Statements.Add(new Statement.Return(returnOverride ?? (function.ReturnType is ShaderType.Void ? null : Convert(Read(stack.Pop(), output), function.ReturnType, true))));
-                    terminated = true; break;
-                }
-                Instruction(instruction, stack, argumentPlaces, localValues, output);
-            }
-            if (!terminated && native.Successors.Count == 1) Edge(native.Successors[0], output);
-            if (isEntry) { body.Statements.AddRange(output.Statements); isEntry = false; }
-            else emitted.Add(id, output);
-        }
-        if (graph.Blocks.Any(b => b.Successors.Contains(0))) throw Error(0, "A backedge into the method prologue is unsupported.");
-        if (emitted.Count != 0) {
-            var cases = emitted.Select(pair => new SwitchCase([Expression.I32(pair.Key)], false, pair.Value)).ToList();
-            var fallback = new Block(); fallback.Statements.Add(new Statement.Return(function.ReturnType is ShaderType.Void ? null : Zero(function.ReturnType)));
-            cases.Add(new([], true, fallback));
-            var loopBody = new Block(); loopBody.Statements.Add(new Statement.Switch(new Expression.Load(pc), cases));
-            body.Statements.Add(new Statement.Loop(loopBody, new Block()));
-            // WGSL requires a syntactic return after a loop, even if every
-            // exiting state in the dispatcher already returns.
-            if (function.ReturnType is not ShaderType.Void)
-                body.Statements.Add(new Statement.Return(returnOverride ?? Zero(function.ReturnType)));
-        }
-    }
 }

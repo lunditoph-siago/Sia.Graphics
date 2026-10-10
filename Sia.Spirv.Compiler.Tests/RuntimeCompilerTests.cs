@@ -4,6 +4,8 @@ using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.Valid;
 using Sia.Spirv.Compiler.Translation.IR;
 using Sia.Spirv.Compiler.Translation.Spirv;
+using Sia.Spirv.Compiler.IL;
+using Sia.Spirv.Compiler.Translation.Legalization;
 
 namespace Sia.Spirv.Compiler.Tests;
 
@@ -96,7 +98,7 @@ public class RuntimeCompilerTests
     }
 
     [Fact]
-    public void RuntimeCompilerDiagnosesBackedgeIntoPrologue()
+    public void RuntimeCompilerKeepsLeadingBackedgeSeparateFromInitialization()
     {
         var image = AssemblyImage();
         var token = SpirvTestAssembly.GetKernel(typeof(ComputeShaders), nameof(ComputeShaders.Synchronize)).MetadataToken;
@@ -111,8 +113,16 @@ public class RuntimeCompilerTests
         image[offset] = (2 << 2) | 2;
         image[offset + 1] = 0x2b;
         image[offset + 2] = 0xfe;
-        var error = Assert.Throws<InvalidDataException>(() =>
-            new SpirvCompiler().CompileModule(new SpirvModuleCompilationRequest(image, token, IntrinsicImage())));
-        Assert.Contains("backedge", error.Message);
+        var intrinsics = IntrinsicImage();
+        var kernel = new SpirvFrontend().Analyze(image, intrinsics).Kernels.Single(k => k.MetadataToken == token);
+        var raw = RuntimeShaderLowering.ReadCanonical(image, intrinsics, kernel, SpirvKernelAbi.WebGpu);
+        var graph = raw.Functions[kernel.Name];
+        Assert.DoesNotContain(graph.Blocks.SelectMany(b => b.Terminator!.Edges), e => e.Target == graph.Entry);
+        var regions = CanonicalControlFlowRegions.Run(raw);
+        Assert.Single(regions.Functions[kernel.Name].Loops);
+        var module = new SpirvCompiler().CompileModule(new SpirvModuleCompilationRequest(image, token, intrinsics));
+        Assert.Contains(module.Functions.Single(f => f.Stage is not null).Body.Statements, s => s is Statement.Loop);
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module, SpirvCompilationTarget.Default)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default)));
     }
 }

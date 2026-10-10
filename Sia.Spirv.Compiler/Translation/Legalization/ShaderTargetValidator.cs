@@ -81,6 +81,19 @@ internal static class ShaderTargetValidator
         foreach (var function in module.Functions) ValidateInvocationRequirements(function.Body, null, wgsl: true);
     }
 
+    internal static void ValidateWgslInvocationFeatures(CanonicalModule canonical)
+    {
+        foreach (var function in canonical.Declarations.Functions) {
+            if (!canonical.Functions.TryGetValue(function.Name, out var graph)) {
+                ValidateInvocationRequirements(function.Body, null, wgsl: true); continue;
+            }
+            foreach (var instruction in graph.Blocks.SelectMany(b => b.Instructions))
+                if (instruction.Operation is ValueOperation.HelperInvocation)
+                    throw new ShaderException(DiagnosticStage.WgslWrite,
+                        "Dynamic helper invocation queries cannot be represented in WGSL.", instruction.Span);
+        }
+    }
+
     private static void ValidateInvocationFeature(string extension, bool demotion, SourceSpan span, SpirvCompilationTarget? target, bool wgsl)
     {
         if (wgsl || target is null) return;

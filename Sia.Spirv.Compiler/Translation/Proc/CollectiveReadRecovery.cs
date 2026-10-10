@@ -20,6 +20,7 @@ internal static class CollectiveReadRecovery
 
     internal static IReadOnlyDictionary<string, ControlFlowFunction> Recover(Module module, IReadOnlyDictionary<string, ControlFlowFunction> graphs)
     {
+        var effects = ShaderEffectAnalysis.Compute(module, graphs);
         var candidates = new Dictionary<(string Function,int Value),Candidate>();
         foreach (var graph in graphs.Values) foreach (var block in graph.Blocks) {
             for (int start = 0; start < block.Instructions.Count; start++) {
@@ -44,19 +45,42 @@ internal static class CollectiveReadRecovery
         while (candidates.Count != 0) {
             // Keep original barriers during proof. Callee requirement origins survive actual argument binding.
             var hypothesis = Rewrite(graphs,candidates.Values,false);
-            foreach (var graph in hypothesis.Values) ControlFlowVerifier.Validate(graph,module);
+            foreach (var graph in hypothesis.Values) ControlFlowVerifier.Validate(graph,module,calleeEffects: effects);
             var divergent = new HashSet<(string Function,int Value)>();
             _ = UniformityAnalysis.AnalyzeCore(module,hypothesis,divergent);
             bool removed = false;
             foreach (var site in divergent) removed |= candidates.Remove(site);
             if (!removed) {
                 var recovered = Rewrite(graphs,candidates.Values,true);
-                foreach (var graph in recovered.Values) ControlFlowVerifier.Validate(graph,module);
+                foreach (var graph in recovered.Values) ControlFlowVerifier.Validate(graph,module,calleeEffects: effects);
                 return recovered;
             }
             // Removing one unproved uniform result can invalidate pointers/control of later candidates.
         }
         return graphs;
+    }
+
+    internal static CanonicalModule Run(CanonicalModule input)
+    {
+        ModuleValidator.Validate(input, native: true);
+        var graphs = input.Functions.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+        var deferred = input.DeferredFunctions.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+        var effects = ShaderEffectAnalysis.Compute(input);
+        var imported = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var function in input.Declarations.Functions.Where(f => deferred.ContainsKey(f.Name)))
+            if (StructuredControlFlowReader.TryRead(function, input.Declarations, out var graph, out _, effects, native: true)) {
+                ControlFlowAnalysis.RemoveUnreachable(graph!); graphs.Add(function.Name, graph!); imported.Add(function.Name);
+            }
+        var prepared = UniformityAnalysis.PrepareGraphs(input.Declarations, graphs);
+        var recovered = Recover(input.Declarations, prepared).ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+        foreach (string name in imported) {
+            // Reading an explicit deferral for the proof does not claim ownership
+            // unless this pass actually rewrites it. Preserve unused source bodies.
+            if (ReferenceEquals(prepared[name], recovered[name])) recovered.Remove(name);
+            else deferred.Remove(name);
+        }
+        var result = new CanonicalModule(input.Declarations, recovered, deferred, input.EntryFunctions);
+        ModuleValidator.Validate(result, native: true); return result;
     }
 
     private static IReadOnlyDictionary<string,ControlFlowFunction> Rewrite(IReadOnlyDictionary<string,ControlFlowFunction> graphs,

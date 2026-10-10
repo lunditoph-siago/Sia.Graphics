@@ -1,11 +1,75 @@
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 using Sia.Spirv.Compiler.Translation.Proc;
+using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
 /// <summary>Expose proven entry builtin values without assuming shader-language uniformity exceptions.</summary>
 internal static class WgslEntryPointLowering
 {
+    internal static CanonicalModule Run(CanonicalModule input)
+    {
+        ModuleValidator.Validate(input, native: true);
+        Module Deferred(Module declarations) {
+            var result = new Module { VulkanMemoryModel = declarations.VulkanMemoryModel, WorkgroupInitializationRequired = declarations.WorkgroupInitializationRequired };
+            result.Globals.AddRange(declarations.Globals); result.Constants.AddRange(declarations.Constants); result.Structures.AddRange(declarations.Structures);
+            result.Enables.UnionWith(declarations.Enables); result.DiagnosticFilters.AddRange(declarations.DiagnosticFilters);
+            result.Functions.AddRange(declarations.Functions.Where(f => input.DeferredFunctions.ContainsKey(f.Name))); return result;
+        }
+        Module Replace(Module declarations, Module deferred) {
+            var result = Deferred(declarations); result.Functions.Clear();
+            var mapped = deferred.Functions.ToDictionary(f => f.Name, StringComparer.Ordinal);
+            result.Functions.AddRange(declarations.Functions.Select(f => mapped.GetValueOrDefault(f.Name) ?? f)); return result;
+        }
+        var graphs = input.Functions.ToDictionary(p => p.Key, p => Rewrite(p.Value, []), StringComparer.Ordinal);
+        var module = Replace(input.Declarations, Run(Deferred(input.Declarations), []));
+        var zeros = PrivateZeroFacts(module, graphs);
+        if (zeros.Count != 0) {
+            graphs = graphs.ToDictionary(p => p.Key, p => Rewrite(p.Value, zeros), StringComparer.Ordinal);
+            module = Replace(module, Run(Deferred(module), zeros));
+        }
+        var result = new CanonicalModule(module, graphs, input.DeferredFunctions, input.EntryFunctions);
+        ModuleValidator.Validate(result, native: true); return result;
+    }
+
+    private static ControlFlowFunction Rewrite(ControlFlowFunction input, HashSet<string> privateZeros)
+    {
+        var function = input.Signature;
+        bool one = function.Stage is ShaderStage.Compute or ShaderStage.Task or ShaderStage.Mesh && function.WorkgroupSize.All(e =>
+            ConstantEvaluator.TryEvaluateRuntime(new Expression.Convert(ShaderType.U32, e), out var value) && value is Expression.Literal { Value: uint n } && n == 1);
+        var arguments = function.Arguments.ToDictionary(a => a.Name, StringComparer.Ordinal);
+        var definitions = input.Blocks.SelectMany(b => b.Instructions).Where(i => i.Result is not null).ToDictionary(i => i.Result!.Value.Id);
+        ValueOperation? Definition(SsaValue value) => definitions.GetValueOrDefault(value.Id)?.Operation;
+        bool Local(IoBinding? binding) => one && binding?.Builtin is "local_invocation_id" or "local_invocation_index";
+        bool Zero(ControlFlowInstruction instruction) => instruction.Operation switch {
+            ValueOperation.Symbol s when arguments.TryGetValue(s.Name, out var a) => Local(a.Binding),
+            ValueOperation.Member m when Definition(m.Base) is ValueOperation.Symbol s && arguments.TryGetValue(s.Name, out var a)
+                && a.Type is ShaderType.Structure structure => Local(structure.Members.FirstOrDefault(f => f.Name == m.Name)?.Binding),
+            ValueOperation.Load { MemoryAccess: null } l when instruction.Result?.Type == ShaderType.U32
+                && Definition(l.Pointer) is ValueOperation.Symbol s => privateZeros.Contains(s.Name) && !arguments.ContainsKey(s.Name),
+            _ => false
+        };
+        if (!input.Blocks.SelectMany(b => b.Instructions).Any(Zero)) return input;
+        var output = input.Copy();
+        foreach (var block in output.Blocks) {
+            var original = block.Instructions.ToArray(); block.Instructions.Clear();
+            foreach (var instruction in original) {
+                if (!Zero(instruction)) { block.Instructions.Add(instruction); continue; }
+                if (instruction.Result!.Value.Type is ShaderType.Vector vector) {
+                    var components = new List<SsaValue>();
+                    for (int i = 0; i < vector.Size; i++) {
+                        var value = output.Value(vector.Component); components.Add(value);
+                        block.Instructions.Add(instruction with { Result = value, Operation = new ValueOperation.Literal(0u) });
+                    }
+                    block.Instructions.Add(instruction with { Operation = new ValueOperation.Construct(components) });
+                }
+                else block.Instructions.Add(instruction with { Operation = new ValueOperation.Literal(0u) });
+            }
+        }
+        return output;
+    }
+
     public static Module Run(Module input)
     {
         var output = Run(input, new HashSet<string>(StringComparer.Ordinal));
@@ -15,7 +79,7 @@ internal static class WgslEntryPointLowering
 
     // Native entry wrappers may transfer a builtin through a private IO slot.
     // Fold only zero-initialized u32 slots whose every write is zero and whose address never escapes.
-    private static HashSet<string> PrivateZeroFacts(Module input)
+    private static HashSet<string> PrivateZeroFacts(Module input, IReadOnlyDictionary<string, ControlFlowFunction>? graphs = null)
     {
         bool Zero(Expression e) => ConstantEvaluator.TryEvaluateRuntime(e, out var value) && value is Expression.Literal { Value: uint n } && n == 0;
         var candidates = input.Globals.Where(g => g.Space == AddressSpace.Private && g.Type == ShaderType.U32
@@ -54,7 +118,27 @@ internal static class WgslEntryPointLowering
             }
         }
         foreach (var function in input.Functions) {
-            candidates.ExceptWith(function.Arguments.Select(a => a.Name)); Body(function.Body);
+            candidates.ExceptWith(function.Arguments.Select(a => a.Name));
+            if (graphs?.TryGetValue(function.Name, out var graph) != true) { Body(function.Body); continue; }
+            var definitions = graph!.Blocks.SelectMany(b => b.Instructions).Where(i => i.Result is not null).ToDictionary(i => i.Result!.Value.Id);
+            string? Slot(SsaValue value) => definitions.GetValueOrDefault(value.Id)?.Operation is ValueOperation.Symbol symbol
+                && value.Type is ShaderType.Pointer && candidates.Contains(symbol.Name) ? symbol.Name : null;
+            bool IsZero(SsaValue value) => definitions.GetValueOrDefault(value.Id)?.Operation is ValueOperation.Literal { Value: uint n } && n == 0;
+            foreach (var instruction in graph.Blocks.SelectMany(b => b.Instructions)) {
+                if (instruction.Operation is ValueOperation.Local local) candidates.Remove(local.Name);
+                if (instruction.Operation is ValueOperation.Let let) candidates.Remove(let.Name);
+                if (instruction.Operation is ValueOperation.Load load && Slot(load.Pointer) is string read) {
+                    if (load.MemoryAccess is not null || instruction.Result?.Type != ShaderType.U32) candidates.Remove(read);
+                }
+                else if (instruction.Operation is ValueOperation.Store store && Slot(store.Pointer) is string write) {
+                    if (store.MemoryAccess is not null || !IsZero(store.Value)) candidates.Remove(write);
+                    if (Slot(store.Value) is string escaped) candidates.Remove(escaped);
+                }
+                else foreach (var operand in instruction.Operation.Operands)
+                    if (Slot(operand) is string escaped) candidates.Remove(escaped);
+            }
+            foreach (var operand in graph.Blocks.SelectMany(b => b.Terminator!.Operands.Concat(b.Terminator.Edges.SelectMany(e => e.Arguments))))
+                if (Slot(operand) is string escaped) candidates.Remove(escaped);
         }
         return candidates;
     }

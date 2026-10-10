@@ -5,6 +5,27 @@ See the [current pipeline/target map](../../docs/compiler-architecture.md) and
 records the original PR baseline, not verification of later source changes;
 `renewal-evidence.json` records the cleanup follow-up.
 
+Latest WGSL target graph migration: source 778F73B8…,
+Compiler 5578AA90…. Entry builtin/private-slot facts, pointer helpers, collective
+recovery and uniformity retain owned CFGs until the explicit structured target
+boundary. Recovery retains unchanged deferrals; empty inlined helper diagnostic
+scopes survive. No new public interface/dependency.
+
+Passed: maintenance 2183/2183, independent SPIR-V formats 233/233; 21 isolated
+GPU attempts on scalar helpers, captured indices and loop-carried swaps. Seven
+canonical-WGSL samples use exports from deliberately poisoned owned Bodies;
+source WGSL and SPIR-V provide controls. All raw words match fixed expectations.
+The report records device, source/options, shader/DLL hashes and raw readback.
+Failures retained: helper rename assumption/nullable warning, temporary exporter
+compile errors, full 2171 PASS/10 FAIL and 2181 PASS/1 FAIL, then 21 suite errors
+from missing canonical/ filter prefix with zero selected tests. Current checks
+pass; existing assertions are preserved. Logs/scripts/manifests are under
+`.work/compiler-architecture-first/canonical-wgsl-target-*`.
+Not run: frozen replay, repeat-export determinism, WASM, real browser, SDK/Linux/AOT
+and full research consumers. These scalar GPU results do not prove concurrent
+workgroup or query traversal behavior. Remaining WGSL query/memory/layout and
+termination adapters, constructors and frontend/LLVM convergence remain open.
+
 Latest deferred-helper migration: source
 `9CC19A9B35995EC4218C31B5D121B2EB43499E348519B453375449032507C2EE`,
 Compiler `9C8FE148D9CA731675DAC1A3B29A33A2223333FFA4A68B6B6B4463D52FF744F3`.

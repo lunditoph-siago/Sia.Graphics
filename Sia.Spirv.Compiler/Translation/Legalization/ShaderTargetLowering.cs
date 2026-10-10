@@ -9,14 +9,19 @@ namespace Sia.Spirv.Compiler.Translation.Legalization;
 internal static class ShaderTargetLowering
 {
     public static Module ForWgsl(Module module)
+        => ForWgsl(CanonicalShaderPipeline.Prepare(module));
+
+    internal static Module ForWgsl(CanonicalModule canonical)
     {
-        ShaderTargetValidator.ValidateWgslInvocationFeatures(module);
-        ModuleValidator.Validate(module);
-        module = WgslEntryPointLowering.Run(module);
-        ModuleValidator.Validate(module);
-        module = StructuredControlFlowLowering.Run(CanonicalShaderPipeline.Prepare(module));
-        module = HelperInliner.RunPointers(module);
-        module = CollectiveReadRecovery.Run(module);
+        ModuleValidator.Validate(canonical, native: true);
+        ShaderTargetValidator.ValidateWgslInvocationFeatures(canonical);
+        canonical = WgslEntryPointLowering.Run(canonical);
+        canonical = CanonicalHelperInliner.RunPointers(canonical);
+        canonical = CollectiveReadRecovery.Run(canonical);
+        UniformityAnalysis.Validate(canonical.Declarations, canonical.Functions, DiagnosticStage.WgslWrite);
+        // Remaining WGSL memory/query/layout passes consume structured target data.
+        // All owned graph semantics stay authoritative until this explicit boundary.
+        var module = StructuredControlFlowLowering.Run(canonical);
         UniformityAnalysis.Validate(module, DiagnosticStage.WgslWrite);
         module = InvocationTerminationControlFlow.Run(module, DiagnosticStage.WgslWrite);
         module = WgslTerminationLowering.Run(module);

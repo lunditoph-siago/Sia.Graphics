@@ -17,6 +17,16 @@ functions retain the legacy serializer, and operation/type feature policy and
 structured frontend adapters still need migration. This does not establish full
 frontend convergence.
 
+WGSL target composition now retains canonical graphs for single-invocation
+entry builtin facts, proven private-zero slots, pointer-helper expansion,
+collective read recovery and uniformity. Graph-derived effects flow through
+helper/recovery proofs; owned declaration Bodies are not re-read. Qualified or
+escaping private slots remain unfurled. Explicit deferrals acquire graph ownership
+only when recovery rewrites them. Empty inlined helpers retain their diagnostic
+scope. Structured reconstruction is an explicit boundary before remaining WGSL
+termination, query-state, memory, layout and builtin-name passes; those semantic
+adapters still need migration.
+
 SPIR-V target preparation no longer reconstructs the entire module for deferred
 pointer/query helpers. Readable explicit deferrals enter canonical graphs using
 graph-derived callee effects; unreadable helpers expand through a structured

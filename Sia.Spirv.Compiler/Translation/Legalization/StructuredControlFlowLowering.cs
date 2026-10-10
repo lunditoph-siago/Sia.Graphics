@@ -135,7 +135,7 @@ internal static class StructuredControlFlowLowering
                     continue;
                 }
                 var emission = body;
-                if (instruction.DiagnosticFilters.Count != 0 && instruction.Operation is not (ValueOperation.Literal or ValueOperation.Symbol)) {
+                if (instruction.DiagnosticFilters.Count != 0) {
                     emission = new Block(); emission.DiagnosticFilters.AddRange(instruction.DiagnosticFilters);
                     body.Statements.Add(new Statement.Nested(emission));
                 }

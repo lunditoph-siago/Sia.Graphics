@@ -146,7 +146,12 @@ internal static class CanonicalHelperInliner
             int entry = Copy(graph, output, arguments, continuation, site.Instruction.DiagnosticFilters, module);
             // A single-arm selection provides the helper's lexical exit target without
             // introducing a loop or changing convergence. Arguments are already SSA values.
-            var selector = output.Value(ShaderType.U32); site.Block.Instructions.Add(new(selector, new ValueOperation.Literal(0u), site.Instruction.Span));
+            var selector = output.Value(ShaderType.U32); site.Block.Instructions.Add(new(selector, new ValueOperation.Literal(0u), site.Instruction.Span) {
+                // An empty callee has no copied instruction carrying its lexical
+                // settings. Retain that scope on the synthetic call-site value.
+                DiagnosticFilters = graph.Signature.DiagnosticFilters.Concat(site.Instruction.DiagnosticFilters)
+                    .DistinctBy(f => (f.Namespace, f.Rule)).ToArray()
+            });
             site.Block.Terminator = new ControlFlowTerminator.Switch(selector, [], new(entry));
             output.SelectionMerges.Add(site.Block.Id, continuation.Id);
         }

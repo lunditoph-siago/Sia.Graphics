@@ -6,6 +6,17 @@ passes and target legalization. This document does not claim that the existing
 translation IR has already been replaced. The [current architecture](compiler-architecture.md)
 is the implementation baseline.
 
+WGSL target graph migration (source 778F73B8…, Compiler 5578AA90…) retains
+owned CFG/SSA through entry facts, pointer helpers, collective recovery and
+uniformity. Fourteen new cases cover stale Bodies, scalar/vector/struct builtins,
+override/multiple-invocation limits, private-slot escapes/qualified accesses,
+deferred ownership and empty helper diagnostics. Existing assertions remain.
+Maintenance 2183/2183, independent formats 233/233 and 21 isolated GPU attempts
+pass with fixed raw-word expectations. Seven canonical-WGSL samples execute
+exports produced with poisoned owned Bodies; source WGSL and SPIR-V are controls.
+Remaining WGSL semantic adapters and the original full roadmap remain open;
+frozen replay, determinism and full consumers have not run for this source.
+
 Deferred-helper migration (source 9CC19A9B…, Compiler 9C8FE148…) removes the
 remaining PrepareSpirv whole-module adapter. Explicit deferrals import function
 by function; unreadable helpers rebuild only affected callers. Owned graphs and

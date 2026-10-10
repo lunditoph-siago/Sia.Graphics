@@ -5,40 +5,75 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Proc;
 
-/// <summary>Expand address-return/slot calls on verified CFG, retaining address identity
+/// <summary>Expand address-return/slot and selected pointer-argument calls on verified CFG, retaining address identity
 /// and joining actual return values rather than copying pointed-to data.</summary>
 internal static class CanonicalHelperInliner
 {
-    public static ControlFlowFunction Run(ControlFlowFunction input, Module module,
-        IReadOnlyDictionary<string, ControlFlowFunction>? frontendGraphs = null, bool expandPointerSlots = false)
+    internal static CanonicalModule RunPointers(CanonicalModule canonical)
     {
-        bool calls = input.Blocks.SelectMany(b => b.Instructions).Any(i => RequiresExpansion(i.Operation, expandPointerSlots));
+        ModuleValidator.Validate(canonical, native: true);
+        var module = canonical.Declarations;
+        IEnumerable<string> Calls(ShaderFunction function) => canonical.Functions.TryGetValue(function.Name, out var graph)
+            ? graph.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).OfType<ValueOperation.Call>().Select(c => c.Function)
+            : ControlFlowAnalysis.Calls(function.Body);
+        var called = module.Functions.SelectMany(Calls).ToHashSet(StringComparer.Ordinal);
+        var selected = module.Functions.Where(f => f.Stage is null && called.Contains(f.Name)
+            && canonical.Functions.ContainsKey(f.Name) && f.Arguments.Any(a => a.Type is ShaderType.Pointer))
+            .Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
+        if (selected.Count == 0 && !module.Functions.Any(f => f.Stage is null && f.ReturnType is ShaderType.Pointer
+            && canonical.EntryFunctions.Contains(f.Name))) return canonical;
+        var graphs = canonical.Functions.ToDictionary(p => p.Key,
+            p => Run(p.Value, module, canonical.Functions, expandFunctions: selected), StringComparer.Ordinal);
+        var remainingCalls = module.Functions.SelectMany(f => graphs.TryGetValue(f.Name, out var graph)
+            ? graph.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).OfType<ValueOperation.Call>().Select(c => c.Function)
+            : ControlFlowAnalysis.Calls(f.Body)).ToHashSet(StringComparer.Ordinal);
+        var removed = module.Functions.Where(f => f.Stage is null && !remainingCalls.Contains(f.Name)
+            && (selected.Contains(f.Name) || f.ReturnType is ShaderType.Pointer && canonical.EntryFunctions.Contains(f.Name)))
+            .Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
+        var output = new Module { VulkanMemoryModel = module.VulkanMemoryModel, WorkgroupInitializationRequired = module.WorkgroupInitializationRequired };
+        output.Structures.AddRange(module.Structures); output.Constants.AddRange(module.Constants); output.Globals.AddRange(module.Globals);
+        output.Enables.UnionWith(module.Enables); output.DiagnosticFilters.AddRange(module.DiagnosticFilters);
+        output.Functions.AddRange(module.Functions.Where(f => !removed.Contains(f.Name)));
+        var result = new CanonicalModule(output, graphs.Where(p => !removed.Contains(p.Key)).ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
+            canonical.DeferredFunctions.Where(p => !removed.Contains(p.Key)).ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
+            canonical.EntryFunctions.Where(n => !removed.Contains(n)).ToHashSet(StringComparer.Ordinal));
+        ModuleValidator.Validate(result, native: true); return result;
+    }
+
+    public static ControlFlowFunction Run(ControlFlowFunction input, Module module,
+        IReadOnlyDictionary<string, ControlFlowFunction>? frontendGraphs = null, bool expandPointerSlots = false,
+        IReadOnlySet<string>? expandFunctions = null)
+    {
+        bool calls = input.Blocks.SelectMany(b => b.Instructions).Any(i => RequiresExpansion(i.Operation, expandPointerSlots, expandFunctions));
         if (!calls && input.Signature.ReturnType is not ShaderType.Pointer) return input;
         ControlFlowVerifier.Validate(input, module);
         if (input.Signature.ReturnType is ShaderType.Pointer) CheckLifetime(input, module);
-        return Expand(input, module, new(StringComparer.Ordinal), frontendGraphs, expandPointerSlots);
+        return Expand(input, module, new(StringComparer.Ordinal), frontendGraphs, expandPointerSlots, expandFunctions);
     }
 
-    private static bool RequiresExpansion(ValueOperation operation, bool slots) => operation is ValueOperation.Call call
-        && (call.ReturnType is ShaderType.Pointer || slots && call.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.Pointer }));
+    private static bool RequiresExpansion(ValueOperation operation, bool slots, IReadOnlySet<string>? functions) => operation is ValueOperation.Call call
+        && (call.ReturnType is ShaderType.Pointer || functions?.Contains(call.Function) == true
+            || slots && call.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.Pointer }));
 
     private static ControlFlowFunction Expand(ControlFlowFunction input, Module module, HashSet<string> active,
-        IReadOnlyDictionary<string, ControlFlowFunction>? frontendGraphs, bool expandPointerSlots)
+        IReadOnlyDictionary<string, ControlFlowFunction>? frontendGraphs, bool expandPointerSlots, IReadOnlySet<string>? expandFunctions)
     {
-        if (!input.Blocks.SelectMany(b => b.Instructions).Any(i => RequiresExpansion(i.Operation, expandPointerSlots))) return input;
+        if (!input.Blocks.SelectMany(b => b.Instructions).Any(i => RequiresExpansion(i.Operation, expandPointerSlots, expandFunctions))) return input;
         if (!active.Add(input.Signature.Name)) throw Error("recursive pointer-return helper", input.Signature.Name);
-        var output = new ControlFlowFunction(input.Signature);
-        output.Entry = Copy(input, output, null, null, null, module);
+        // Keep the caller's SSA identities, including each call result. Callee
+        // values alone receive fresh IDs from this compilation-owned copy.
+        var output = input.Copy();
         while (output.Blocks.SelectMany(b => b.Instructions.Select((i, index) => (Block: b, Instruction: i, Index: index)))
-            .FirstOrDefault(p => RequiresExpansion(p.Instruction.Operation, expandPointerSlots)) is { Instruction: not null } site) {
+            .FirstOrDefault(p => RequiresExpansion(p.Instruction.Operation, expandPointerSlots, expandFunctions)) is { Instruction: not null } site) {
             var call = (ValueOperation.Call)site.Instruction.Operation;
             var callee = module.Functions.Single(f => f.Name == call.Function);
             ControlFlowFunction? graph = null; string? reason = null;
             if (frontendGraphs?.TryGetValue(callee.Name, out graph) != true
                 && !StructuredControlFlowReader.TryRead(callee, module, out graph, out reason))
                 throw Error("pointer-return helper cannot enter canonical IR: " + reason, callee.Name);
-            ControlFlowAnalysis.RemoveUnreachable(graph!); ControlFlowVerifier.Validate(graph!, module);
-            graph = Expand(graph!, module, active, frontendGraphs, expandPointerSlots);
+            graph = graph!.Copy();
+            ControlFlowAnalysis.RemoveUnreachable(graph); ControlFlowVerifier.Validate(graph, module);
+            graph = Expand(graph, module, active, frontendGraphs, expandPointerSlots, expandFunctions);
             if (graph.Signature.ReturnType is ShaderType.Pointer) CheckLifetime(graph, module);
             var continuation = output.Block();
             if (site.Instruction.Result is { } result) continuation.Parameters.Add(result);

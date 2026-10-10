@@ -6,7 +6,33 @@ passes and target legalization. This document does not claim that the existing
 translation IR has already been replaced. The [current architecture](compiler-architecture.md)
 is the implementation baseline.
 
-Latest pipeline-constant graph migration (source 4C1D37AF…) resolves values and
+Latest pointer-helper graph migration (source AA5E4452…) expands owned
+pointer-argument helpers with the existing canonical CFG inliner. Caller SSA IDs,
+captured argument addresses, return joins, lexical diagnostics and native memory
+operands survive; borrowed caller/callee graphs are copied. Private helpers are
+removed only after remaining graph/deferred calls are accounted for. Deferred
+pointer/query and invocation-termination families keep the temporary whole-module
+adapter. Internal target/constant validation accepts existing native canonical
+pointer address spaces; public WGSL source legality remains enforced.
+Twenty-one new contracts and maintenance 2121/2121 pass; independent format
+217/217 passes. Of 218 SPIR-V artifacts compared with the constant batch, 205 match
+and 13 change, including one newly generated native-input artifact. Current-source
+frozen-input replay and repeat-export determinism have not run.
+Forty pointer GPU attempts are 38 PASS/2 NATIVE_ABORT: PointerIndexCapture source
+WGSL for zero/five panics in Naga 29.0.3 (Expression [8] is not cached), exit
+-1073740791, with no report/readback evidence. That authored input matches the
+preceding batch; baseline GPU reproduction was not run, so these are not labelled
+pre-existing. Both generated WGSL/SPIR-V variants pass, as do nested helpers,
+private pointers, distinct addresses, loops and native alias probes with fixed raw
+word expectations. Four Compiler copies match 3BE9D155…; evidence and failed runs
+remain under canonical-pointer-arguments-* in the workspace task area.
+WGSL target, initialization/mesh construction, frontend/LLVM convergence, deferred
+families and full research/consumer coverage remain open. Remaining historical
+GPU/corpus/descriptor, real browser GPU, SDK/Linux/AOT and mesh GPU are not run
+for this source. Prior 05e30b1 CI passes Ubuntu compiler 2100/2100, WASM publish
+and Node managed-host 22 fixtures; it does not verify this new source.
+
+Previous pipeline-constant graph migration (source 4C1D37AF…) resolves values and
 types directly in `CanonicalModule`, preserving SSA identities, captured addresses,
 edge arguments, loops, diagnostics and native memory operands. Owned declaration
 bodies are not read; explicit deferrals retain their structured adapter. Pipeline

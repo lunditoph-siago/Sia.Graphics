@@ -43,8 +43,11 @@ internal static class ShaderTargetLowering
 
     internal static CanonicalModule PrepareSpirv(CanonicalModule canonical, IReadOnlyDictionary<string, double>? pipelineConstants, bool integerDivisionChecks = true)
     {
-        ModuleValidator.Validate(canonical);
+        // Source-language legality has already run at the frontend boundary.
+        // Native canonical pointer parameters retain their address spaces here.
+        ModuleValidator.Validate(canonical, native: true);
         if (pipelineConstants is { } values) canonical = PipelineConstantResolver.Resolve(canonical, values);
+        canonical = CanonicalHelperInliner.RunPointers(canonical);
         // These semantic families still require the legacy module adapter.
         // Ordinary graphs reach integer/entry/layout preparation without reconstruction.
         bool legacy = canonical.Declarations.Functions.Any(f => f.ReturnType is ShaderType.Pointer

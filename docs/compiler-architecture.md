@@ -38,8 +38,12 @@ captured addresses, spans and native memory operands. Only deferred functions us
 the existing Body mapper. Prepared target resource checks follow graph calls and
 symbols, retaining descriptor-array limits after resolution. Target-deferred pointer
 merges legalize selected memory arms without visiting other declaration bodies.
-Pointer/query helper declarations (including pointer returns) and invocation termination still
-cross an explicit temporary whole-module structured adapter. WGSL target preparation
+Owned pointer-argument/return helpers expand directly with the existing CFG
+inliner, retaining caller SSA IDs, captured addresses and lexical diagnostics.
+Borrowed callees are copied; helper pruning accounts for graph and deferred calls.
+Native canonical pointer parameter spaces remain legal at internal target/constant
+entrances; public WGSL source restrictions are unchanged. Deferred pointer/query
+families and invocation termination still cross the temporary whole-module adapter. WGSL target preparation
 also retains its structured semantic path. The internal entry and physical-layout
 entrance accepts `CanonicalModule`, retaining executable
 graphs and copying borrowed graphs before target mutation. A legacy `Module`

@@ -31,13 +31,13 @@ public static class PipelineConstantResolver
     internal static CanonicalModule Resolve(CanonicalModule canonical, IReadOnlyDictionary<string, double> values)
     {
         ArgumentNullException.ThrowIfNull(canonical); ArgumentNullException.ThrowIfNull(values);
-        Valid.ModuleValidator.Validate(canonical);
+        Valid.ModuleValidator.Validate(canonical, native: true);
         var resolver = new Resolver(canonical.Declarations, values);
         var output = resolver.Run(canonical);
         var declarations = output.Functions.ToDictionary(f => f.Name, StringComparer.Ordinal);
         var graphs = canonical.Functions.ToDictionary(p => p.Key, p => resolver.Graph(p.Value, declarations[p.Key]), StringComparer.Ordinal);
         var result = new CanonicalModule(output, graphs, canonical.DeferredFunctions, canonical.EntryFunctions);
-        Valid.ModuleValidator.Validate(result);
+        Valid.ModuleValidator.Validate(result, native: true);
         return result;
     }
 

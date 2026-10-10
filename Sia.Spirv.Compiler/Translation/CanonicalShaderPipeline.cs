@@ -88,20 +88,7 @@ internal static class CanonicalShaderPipeline
         }
         var result = new CanonicalModule(input, functions.ToFrozenDictionary(StringComparer.Ordinal),
             deferredFunctions.ToFrozenDictionary(StringComparer.Ordinal), entryFunctions.ToFrozenSet(StringComparer.Ordinal));
-        var effects = ShaderEffectAnalysis.Compute(result);
-        foreach (var graph in functions.Values) {
-            string? before = traces is null ? null : ControlFlowPrinter.Write(graph);
-            foreach (var block in graph.Blocks)
-                for (int i = 0; i < block.Instructions.Count; i++)
-                    if (block.Instructions[i].Operation is ValueOperation.Call call
-                        && effects.TryGetValue(call.Function, out var callee) && (block.Instructions[i].Effects & callee) != callee) {
-                        block.Instructions[i] = block.Instructions[i] with { Operation = call with { CalleeEffects = call.CalleeEffects | callee } };
-                    }
-            traces?.Add(new(graph.Signature.Name, "canonical-call-effects", before!, ControlFlowPrinter.Write(graph),
-                "CFG topology, predecessor edges, dominance, argument evaluation order", "call requirement summaries") {
-                Preserved = ControlFlowAnalyses.All
-            });
-        }
+        ShaderEffectAnalysis.RefreshCalls(result, traces);
         ModuleValidator.Validate(result, native: verifyFrontend is not null);
         return result;
     }

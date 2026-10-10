@@ -50,7 +50,9 @@ internal sealed partial class RuntimeShaderLowering
             if (component < 0 || vector.Type is not ShaderType.Vector shape) throw Error(at, "Invalid math component.");
             Push(new Expression.Access(vector, Expression.U32((uint)component), shape.Component)); return;
         }
-        var values = args.Select(a => Read(a, body)).ToArray();
+        var values = args.Select((a, i) => call.Intrinsic is null && call.Signature.ParameterTypes[i].IsByReference
+            ? a.Place ? Address(a.Expression) : throw Error(at, "By-reference helper argument requires an address.")
+            : Read(a, body)).ToArray();
         if (call.Intrinsic is IntrinsicKind.SetOutput or IntrinsicKind.SetFlatOutput or IntrinsicKind.SetPosition) {
             bool position = call.Intrinsic == IntrinsicKind.SetPosition;
             uint location = position ? uint.MaxValue : ConstantIndex(values[0], at);

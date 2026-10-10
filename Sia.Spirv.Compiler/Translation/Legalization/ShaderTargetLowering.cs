@@ -16,7 +16,7 @@ internal static class ShaderTargetLowering
         ModuleValidator.Validate(canonical, native: true);
         ShaderTargetValidator.ValidateWgslInvocationFeatures(canonical);
         canonical = WgslEntryPointLowering.Run(canonical);
-        canonical = CanonicalHelperInliner.RunPointers(canonical);
+        canonical = CanonicalResourceLowering.Run(CanonicalHelperInliner.RunReferences(canonical));
         canonical = CollectiveReadRecovery.Run(canonical);
         UniformityAnalysis.Validate(canonical.Declarations, canonical.Functions, DiagnosticStage.WgslWrite);
         // Check original non-returning control before WGSL introduces a return.
@@ -52,7 +52,7 @@ internal static class ShaderTargetLowering
         // Native canonical pointer parameters retain their address spaces here.
         ModuleValidator.Validate(canonical, native: true);
         if (pipelineConstants is { } values) canonical = PipelineConstantResolver.Resolve(canonical, values);
-        canonical = CanonicalHelperInliner.RunPointers(canonical);
+        canonical = CanonicalResourceLowering.Run(CanonicalHelperInliner.RunReferences(canonical));
         canonical = InvocationTerminationControlFlow.PrepareSpirv(canonical, DiagnosticStage.SpirvWrite);
         canonical = SpirvRayQueryLowering.Run(canonical);
         return SpirvIntegerArithmeticLowering.Run(canonical, integerDivisionChecks);

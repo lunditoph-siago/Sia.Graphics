@@ -1,5 +1,40 @@
 # Integrated compiler checks
 
+CIL resource SSA migration, 2026-10-11: source 45EB20A7…, Compiler CF823739….
+Real Texture2D, Texture2DArray and Sampler PE locals, assignments, helper returns
+and parallel loop swaps now enter owned resource SSA. Shared definite-assignment
+and escape checks remove temporary resource locations. Target legalization turns
+opaque joins into scalar identity tags and captured descriptor indices, then
+dispatches operations after their data arguments have been evaluated. Reference
+helper arguments retain addresses; intrinsic `in` arguments retain values.
+Owned callee summaries refresh before validation. Helper expansion is limited to
+resource returns or actual opaque joins, preserving the existing ray-query path.
+Public mutable handle declarations remain rejected; no new product API or dependency.
+
+Passed: focused 97/97 including ray query; maintenance 2312/2312, zero skipped;
+independent formats 378/378 (233 maintained + 22 query/handle + 82 frozen I/O +
+16 identity/alias + 22 existing direct CIL + 3 resource PE); frozen replay 41/41;
+GPU 28/28. Twelve new GPU cases cover three resource kinds, both selectors and
+WGSL/SPIR-V with fixed 0.25/0.75 texture values, clamp/repeat samplers and exact
+helper/coordinate call counts. CLI, Dawn browser-library and export22+3 pass;
+ten Compiler DLL copies match. Source/PE/artifact hashes, tokens, targets, actual
+commands and retained failures are recorded in workspace
+`.work/compiler-architecture-first/cil-resource-*`, consolidated by
+`record-cil-resource-evidence.py`.
+
+Historical failures include unsupported resource types, incorrect ref/in call
+handling, call-summary refresh, overly broad helper expansion affecting ray query,
+and GPU await/span compilation. Final focused/full production, test and fixture
+inputs remain unchanged by the subsequent GPU-only await repair. Formats,
+consumers and GPU use the final frozen snapshot. New-head CI will also run the
+three resource PE fixtures in WASM, retaining the original 22. Submission/CI are
+pending; earlier-head CI is not evidence for this source.
+
+Escaping/uninitialized resource addresses, pointer stack edges, remaining qualified/
+private slots, descriptor-index join GPU, irreducible convergence, target/LLVM,
+actual browser GPU, SDK/AOT and full research remain open. New direct resource
+coverage does not establish support in the optional LLVM path.
+
 See the [current pipeline/target map](../../docs/compiler-architecture.md) and
 [proposed improvement plan](../../docs/compiler-roadmap.md). `evidence.json`
 records the original PR baseline, not verification of later source changes;

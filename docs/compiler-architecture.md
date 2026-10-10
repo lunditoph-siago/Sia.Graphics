@@ -15,9 +15,19 @@ have no external uses. Irreducible data graphs use a target dispatcher with
 parallel edge copies. The former frontend PC/switch Body and return traversal
 are removed. `CompileModule` explicitly materializes its public typed IR result;
 the writers still prepare that public input at their own boundary. This slice
-does not eliminate every target adapter or establish complete CIL resource SSA.
-Pointer values on evaluation-stack edges remain diagnosed, and opaque resource
-locals and irreducible convergent effects require further work. Common native
+does not eliminate every target adapter. Texture2D, Texture2DArray and Sampler
+CIL locals, assignments and helper returns now enter typed resource SSA through
+shared definite-assignment and non-escape promotion. Temporary resource locations
+cannot survive that frontend boundary. Reference helper arguments retain their
+addresses; intrinsic `in` arguments retain their value semantics. Graph-owned
+callee summaries are refreshed before validation. Target resource legalization
+encodes opaque joins as scalar identity tags and captured descriptor indices,
+then dispatches resource operations with their data arguments already evaluated.
+Helpers expand for resource returns or actual opaque joins rather than merely
+having an opaque argument, preserving the existing ray-query path. Public mutable
+handle declarations remain invalid; this is CIL/native import bookkeeping.
+Pointer values on evaluation-stack edges remain diagnosed, and escaping resource
+addresses and irreducible convergent effects require further work. Common native
 pointer slots already use native graphs and shared slot promotion; remaining
 shapes must be identified from actual producers rather than assuming all slots
 are deferred.

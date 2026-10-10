@@ -10,6 +10,7 @@ using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 using Sia.Spirv.Compiler.Translation.Legalization;
 using Sia.Spirv.Compiler.Translation;
 using Sia.Spirv.Compiler.Translation.Valid;
+using Sia.Spirv.Compiler.Translation.Proc;
 using Module = Sia.Spirv.Compiler.Translation.IR.Module;
 
 namespace Sia.Spirv.Compiler.IL;
@@ -39,6 +40,8 @@ internal sealed partial class RuntimeShaderLowering(PEReader pe, MetadataReader 
         var frontend = ReadCanonical(assemblyImage, intrinsicImage, kernel, abi);
         var canonical = CanonicalShaderPipeline.Prepare(frontend.Declarations, frontendGraphs: frontend.Functions,
             verifyFrontend: (graph, input) => ControlFlowVerifier.Validate(graph, input));
+        canonical = CanonicalHelperInliner.RunReferences(canonical);
+        canonical = CanonicalResourceLowering.Run(canonical);
         return StructuredControlFlowLowering.Run(CanonicalControlFlowRegions.Run(canonical));
     }
 
@@ -54,6 +57,7 @@ internal sealed partial class RuntimeShaderLowering(PEReader pe, MetadataReader 
         var graphs = lowering.ReadGraphs();
         var canonical = new CanonicalModule(lowering.module, graphs, new Dictionary<string, string>(),
             Translation.Proc.ControlFlowAnalysis.EntryFunctions(lowering.module, graphs));
+        Translation.Proc.ShaderEffectAnalysis.RefreshCalls(canonical);
         ModuleValidator.Validate(canonical, native: true);
         return canonical;
     }
@@ -185,6 +189,9 @@ internal sealed partial class RuntimeShaderLowering(PEReader pe, MetadataReader 
         ShaderType result = type.Name switch {
             "System.Void" => new ShaderType.Void(), "System.Boolean" => ShaderType.Bool,
             "System.Int32" => ShaderType.I32, "System.UInt32" => ShaderType.U32, "System.Single" => ShaderType.F32,
+            "Sia.Spirv.Texture2D" => new ShaderType.Image(ImageDimension.D2, ShaderType.F32),
+            "Sia.Spirv.Texture2DArray" => new ShaderType.Image(ImageDimension.D2, ShaderType.F32, Arrayed: true),
+            "Sia.Spirv.Sampler" => new ShaderType.Sampler(),
             "Sia.Spirv.UInt3" => new ShaderType.Vector(3, ShaderType.U32),
             _ when type.Name.StartsWith("Sia.Math.", StringComparison.Ordinal) => MathType(type.Name[9..]),
             _ when structures.TryGetValue(type.Name, out var structure) => structure,

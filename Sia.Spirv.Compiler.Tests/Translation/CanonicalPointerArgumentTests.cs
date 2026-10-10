@@ -119,7 +119,7 @@ public class CanonicalPointerArgumentTests
         var deferred = new CanonicalModule(input, new Dictionary<string, ControlFlowFunction> { ["main"] = canonical.Functions["main"] },
             new Dictionary<string, string> { ["edit"] = "test helper migration" }, canonical.EntryFunctions);
         ModuleValidator.Validate(deferred);
-        var expanded = CanonicalHelperInliner.RunPointers(deferred);
+        var expanded = CanonicalHelperInliner.RunReferences(deferred);
         Assert.DoesNotContain(expanded.Declarations.Functions, f => f.Name == "edit"); Assert.Empty(expanded.DeferredFunctions);
         var prepared = SpirvEntryPointLowering.Run(ShaderTargetLowering.PrepareSpirv(deferred, null), true, true);
         Assert.Equal(new uint[] { 5, 8 }, new CanonicalExecution(SpirvReader.Parse(SpirvWriter.Emit(prepared).ToBytes()), [5]).Run().Output);
@@ -132,7 +132,7 @@ public class CanonicalPointerArgumentTests
         var input = WgslReader.Parse("fn unused(p:ptr<function,u32>){*p=9u;}@compute @workgroup_size(1) fn main(){}");
         var canonical = CanonicalShaderPipeline.Prepare(input);
         Assert.Empty(canonical.DeferredFunctions); Assert.Contains("unused", canonical.Functions.Keys);
-        var output = CanonicalHelperInliner.RunPointers(canonical);
+        var output = CanonicalHelperInliner.RunReferences(canonical);
         Assert.Same(canonical, output); Assert.Contains(output.Declarations.Functions, f => f.Name == "unused");
         Assert.Same(canonical.Functions["unused"], output.Functions["unused"]);
     }
@@ -153,7 +153,7 @@ public class CanonicalPointerArgumentTests
             new Dictionary<string, string>(), new HashSet<string> { main.Name, helper.Name });
         ModuleValidator.Validate(canonical, native: true);
         var before = canonical.Functions.ToDictionary(p => p.Key, p => ControlFlowPrinter.Write(p.Value));
-        Assert.Contains("callee-local returned address", Assert.Throws<ShaderException>(() => CanonicalHelperInliner.RunPointers(canonical)).Message);
+        Assert.Contains("callee-local returned address", Assert.Throws<ShaderException>(() => CanonicalHelperInliner.RunReferences(canonical)).Message);
         Assert.All(canonical.Functions, p => Assert.Equal(before[p.Key], ControlFlowPrinter.Write(p.Value)));
         Assert.All(input.Functions, f => Assert.Empty(f.Body.Statements));
     }
@@ -176,7 +176,7 @@ public class CanonicalPointerArgumentTests
             for (int i = 0; i < block.Instructions.Count; i++)
                 if (block.Instructions[i].Operation is ValueOperation.Call actualCall)
                     block.Instructions[i] = block.Instructions[i] with { Operation = actualCall with { CalleeEffects = actualCall.CalleeEffects | effects } };
-        var output = CanonicalHelperInliner.RunPointers(canonical);
+        var output = CanonicalHelperInliner.RunReferences(canonical);
         var actual = Assert.Single(output.Functions["main"].Blocks.SelectMany(b => b.Instructions), i => i.Span == new SourceSpan(31, 3));
         var memory = Assert.IsType<ValueOperation.Store>(actual.Operation);
         Assert.Equal(call.Arguments[0], memory.Pointer); Assert.Equal(1u, memory.MemoryAccess!.Flags);

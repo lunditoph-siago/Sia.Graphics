@@ -35,7 +35,7 @@ public class CanonicalDeferredHelperTests
                 function.Body.Statements.Add(new Statement.Declare("obsolete", new ShaderType.Array(ShaderType.U32, null) { OverrideLength = "missing_length" }, null));
             }
             ModuleValidator.Validate(canonical);
-            var output = CanonicalHelperInliner.RunPointers(canonical);
+            var output = CanonicalHelperInliner.RunReferences(canonical);
             Assert.DoesNotContain(output.Declarations.Functions, f => f.Name == "edit");
             Assert.Empty(output.DeferredFunctions);
             Assert.Same(graphs["leaf"], output.Functions["leaf"]);
@@ -82,7 +82,7 @@ public class CanonicalDeferredHelperTests
         var bodies = input.Functions.ToDictionary(f => f.Name, f => f.Body);
         try {
             foreach (var function in input.Functions.Where(f => canonical.Functions.ContainsKey(f.Name))) function.Body = new();
-            var output = CanonicalHelperInliner.RunPointers(canonical);
+            var output = CanonicalHelperInliner.RunReferences(canonical);
             Assert.Same(canonical.Functions["untouched"], output.Functions["untouched"]);
             Assert.Empty(output.DeferredFunctions);
             Assert.DoesNotContain(output.Declarations.Functions, f => f.Name == "read");
@@ -136,7 +136,7 @@ public class CanonicalDeferredHelperTests
         var input = QualifiedSlot(space); ModuleValidator.Validate(input, native: true);
         var main = input.Functions["main"]; string before = ControlFlowPrinter.Write(main);
         var call = Assert.Single(main.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).OfType<ValueOperation.Call>());
-        var output = CanonicalHelperInliner.RunPointers(input); Assert.Empty(output.DeferredFunctions);
+        var output = CanonicalHelperInliner.RunReferences(input); Assert.Empty(output.DeferredFunctions);
         Assert.DoesNotContain(output.Declarations.Functions, f => f.Name == "assign");
         var store = Assert.Single(output.Functions["main"].Blocks.SelectMany(b => b.Instructions), i => i.Span == new SourceSpan(31, 3));
         var memory = Assert.IsType<ValueOperation.Store>(store.Operation);

@@ -51,6 +51,15 @@ jobs:
             Sia.Spirv.Compiler.Tests/bin/Release/net11.0/Sia.Spirv.Compiler.Tests.dll \
             Sia.Spirv.Core/bin/Release/net10.0/Sia.Spirv.Core.dll \
             artifacts/compiler-direct
+          dotnet run --project tools/compiler-validation/CompilerValidation.csproj -c Release -- \
+            tools/compiler-validation/fixtures/bin/Release/net10.0/CilResources.dll \
+            Sia.Spirv.Core/bin/Release/net10.0/Sia.Spirv.Core.dll \
+            artifacts/compiler-resources
+          node tools/compiler-validation/wasm-smoke.mjs \
+            tools/compiler-validation/browser/bin/Release/net11.0/publish/wwwroot/_framework/dotnet.js \
+            tools/compiler-validation/fixtures/bin/Release/net10.0/CilResources.dll \
+            Sia.Spirv.Core/bin/Release/net10.0/Sia.Spirv.Core.dll \
+            artifacts/compiler-resources
           node tools/compiler-validation/wasm-smoke.mjs \
             tools/compiler-validation/browser/bin/Release/net11.0/publish/wwwroot/_framework/dotnet.js \
             Sia.Spirv.Compiler.Tests/bin/Release/net11.0/Sia.Spirv.Compiler.Tests.dll \

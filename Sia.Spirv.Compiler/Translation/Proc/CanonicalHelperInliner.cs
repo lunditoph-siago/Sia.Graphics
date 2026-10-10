@@ -9,7 +9,7 @@ namespace Sia.Spirv.Compiler.Translation.Proc;
 /// and joining actual return values rather than copying pointed-to data.</summary>
 internal static class CanonicalHelperInliner
 {
-    internal static CanonicalModule RunPointers(CanonicalModule canonical)
+    internal static CanonicalModule RunReferences(CanonicalModule canonical)
     {
         ModuleValidator.Validate(canonical, native: true);
         var module = canonical.Declarations;
@@ -20,12 +20,15 @@ internal static class CanonicalHelperInliner
             : ControlFlowAnalysis.Calls(function.Body);
         var called = module.Functions.SelectMany(Calls).ToHashSet(StringComparer.Ordinal);
         var selected = module.Functions.Where(f => f.Stage is null && called.Contains(f.Name)
-            && (f.ReturnType is ShaderType.Pointer || f.Arguments.Any(a => a.Type is ShaderType.Pointer)))
+            && (f.ReturnType is ShaderType.Pointer || CanonicalTypes.Resource(f.ReturnType)
+                || f.Arguments.Any(a => a.Type is ShaderType.Pointer)
+                || graphs.TryGetValue(f.Name, out var resourceGraph)
+                    && resourceGraph.Blocks.Any(b => b.Parameters.Any(p => CanonicalTypes.Resource(p.Type)))))
             .Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
         bool UnusedTargetHelper(ShaderFunction f) => f.Stage is null && !called.Contains(f.Name)
             && f.Arguments.Any(a => a.Type is ShaderType.Pointer p && (p.Space != AddressSpace.Function || p.Base is ShaderType.RayQuery));
         if (selected.Count == 0 && !module.Functions.Any(f => UnusedTargetHelper(f)
-            || f.Stage is null && f.ReturnType is ShaderType.Pointer && canonical.EntryFunctions.Contains(f.Name))) return canonical;
+            || f.Stage is null && (f.ReturnType is ShaderType.Pointer || CanonicalTypes.Resource(f.ReturnType)) && canonical.EntryFunctions.Contains(f.Name))) return canonical;
 
         Module Declarations(IEnumerable<ShaderFunction> functions) {
             var output = new Module { VulkanMemoryModel = module.VulkanMemoryModel, WorkgroupInitializationRequired = module.WorkgroupInitializationRequired };
@@ -89,7 +92,7 @@ internal static class CanonicalHelperInliner
             ? graph.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).OfType<ValueOperation.Call>().Select(c => c.Function)
             : ControlFlowAnalysis.Calls(f.Body)).ToHashSet(StringComparer.Ordinal);
         var removed = module.Functions.Where(f => f.Stage is null && !remainingCalls.Contains(f.Name)
-            && (selected.Contains(f.Name) || UnusedTargetHelper(f) || f.ReturnType is ShaderType.Pointer && canonical.EntryFunctions.Contains(f.Name)))
+            && (selected.Contains(f.Name) || UnusedTargetHelper(f) || (f.ReturnType is ShaderType.Pointer || CanonicalTypes.Resource(f.ReturnType)) && canonical.EntryFunctions.Contains(f.Name)))
             .Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
         var output = Declarations(module.Functions.Where(f => !removed.Contains(f.Name)));
         var result = new CanonicalModule(output, graphs.Where(p => !removed.Contains(p.Key)).ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
@@ -111,7 +114,7 @@ internal static class CanonicalHelperInliner
     }
 
     private static bool RequiresExpansion(ValueOperation operation, bool slots, IReadOnlySet<string>? functions) => operation is ValueOperation.Call call
-        && (call.ReturnType is ShaderType.Pointer || functions?.Contains(call.Function) == true
+        && (call.ReturnType is ShaderType.Pointer || CanonicalTypes.Resource(call.ReturnType) || functions?.Contains(call.Function) == true
             || slots && call.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.Pointer }));
 
     private static ControlFlowFunction Expand(ControlFlowFunction input, Module module, HashSet<string> active,

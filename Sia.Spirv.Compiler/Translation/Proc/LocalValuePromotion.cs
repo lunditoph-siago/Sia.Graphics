@@ -37,7 +37,7 @@ internal static class LocalValuePromotion
             return function.Blocks.All(block => Transfer(block, Incoming(block), checkLoads: true));
         }
         var slots = instructions.Where(i => i.Operation is ValueOperation.Local local && i.Result?.Type is ShaderType.Pointer pointer
-                && (CanonicalTypes.Data(pointer.Base) || !local.ZeroInitialize && pointer.Base is ShaderType.Pointer))
+                && (CanonicalTypes.Data(pointer.Base) || !local.ZeroInitialize && (pointer.Base is ShaderType.Pointer || CanonicalTypes.Resource(pointer.Base))))
             .Select(i => i.Result!.Value).Where(slot => !function.Blocks.Any(b => b.Terminator!.Operands.Contains(slot)
                 || b.Terminator.Edges.Any(e => e.Arguments.Contains(slot))) && instructions.All(i => !i.Operation.Operands.Contains(slot)
                 || i.Operation is ValueOperation.Load { MemoryAccess: null } load && load.Pointer == slot

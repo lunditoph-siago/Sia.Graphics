@@ -4,6 +4,7 @@ using Sia.Spirv.Compiler.Metadata;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
 using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
+using Sia.Spirv.Compiler.Translation.Proc;
 
 namespace Sia.Spirv.Compiler.IL;
 
@@ -23,15 +24,15 @@ internal sealed partial class RuntimeShaderLowering
         var bytes = nativeBody.GetILBytes() ?? throw Error(0, "Method has no CIL.");
         var graph = inputGraph ?? CilControlFlowGraph.Create(CilInstructionDecoder.Decode(bytes), bytes.Length);
         arguments = arguments.Select(argument => {
-            if (argument.Place || argument.Expression.Type is ShaderType.Image or ShaderType.Sampler) return argument;
+            if (argument.Place) return argument;
             var slot = Place(Name("argument"), argument.Expression.Type);
-            function.Body.Statements.Add(new Statement.Declare(slot.Name, argument.Expression.Type, argument.Expression));
+            function.Body.Statements.Add(new Statement.Declare(slot.Name, argument.Expression.Type, argument.Expression) { Initialize = !CanonicalTypes.Resource(argument.Expression.Type) });
             return new Value(slot, true, true);
         }).ToArray();
         var locals = nativeBody.LocalSignature.IsNil ? [] : metadata.GetStandaloneSignature(nativeBody.LocalSignature).DecodeLocalSignature(new KernelTypeProvider(), null).Select(Type).ToArray();
         var localValues = locals.Select(type => {
             var place = Place(Name("local"), type);
-            function.Body.Statements.Add(new Statement.Declare(place.Name, type, null));
+            function.Body.Statements.Add(new Statement.Declare(place.Name, type, null) { Initialize = !CanonicalTypes.Resource(type) });
             return new Value(place, true);
         }).ToArray();
         var byOffset = graph.Blocks.ToDictionary(b => b.StartOffset);
@@ -110,6 +111,12 @@ internal sealed partial class RuntimeShaderLowering
                     reader.NativeCurrent.Terminator = terminator;
                 }
             }
+            // Resource locations are CIL bookkeeping, never mutable target objects.
+            // Shared definite-assignment and escape checks turn them into SSA first.
+            LocalValuePromotion.Run(graph);
+            if (graph.Blocks.SelectMany(b => b.Instructions).Any(i => i.Operation is ValueOperation.Local
+                && i.Result?.Type is ShaderType.Pointer p && CanonicalTypes.Resource(p.Base)))
+                throw Error(0, "Resource local has an uninitialized or escaping address; resource SSA requires an assigned value.");
             input.Signature.Body = new(); result.Add(input.Signature.Name, graph);
         }
         return result;

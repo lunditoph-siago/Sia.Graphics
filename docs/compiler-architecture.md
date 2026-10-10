@@ -43,7 +43,14 @@ inliner, retaining caller SSA IDs, captured addresses and lexical diagnostics.
 Borrowed callees are copied; helper pruning accounts for graph and deferred calls.
 Native canonical pointer parameter spaces remain legal at internal target/constant
 entrances; public WGSL source restrictions are unchanged. Deferred pointer/query
-families and invocation termination still cross the temporary whole-module adapter. WGSL target preparation
+families still cross the temporary whole-module adapter. Invocation termination
+uses owned CFGs directly: terminating continuing instructions become loop-body
+code, nested continue exits reconverge through distinct typed joins, and a common
+latch forwards evaluated backedge values. Former break-if branches receive body
+selection merges; absent backedges retain target-only structural continuation.
+Existing SSA identities, ordered operations and termination origins survive, and
+borrowed graphs are copied. Only explicit deferred bodies use the reader adapter.
+The serializer consumes these prepared facts. WGSL target preparation
 also retains its structured semantic path. The internal entry and physical-layout
 entrance accepts `CanonicalModule`, retaining executable
 graphs and copying borrowed graphs before target mutation. A legacy `Module`

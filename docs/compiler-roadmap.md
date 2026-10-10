@@ -6,7 +6,20 @@ passes and target legalization. This document does not claim that the existing
 translation IR has already been replaced. The [current architecture](compiler-architecture.md)
 is the implementation baseline.
 
-Latest pointer-helper graph migration (source AA5E4452…) expands owned
+Latest invocation-termination migration (source CCFE45DE…, Compiler A4B234CB…)
+removes termination as a trigger for whole-module SPIR-V reconstruction. Owned
+CFGs retain termination, SSA and ordered effects while target joins/latches make
+continuing and nested exits legal. Explicit deferrals and remaining pointer/query
+families retain adapters; WGSL termination still uses its structured path.
+Twenty-eight new contracts, maintenance 2149/2149, independent format 233/233,
+frozen 41-input replay and input/output validation 82/82 pass; 689 repeated
+artifacts match. GPU attempts are 94 PASS/52 ERROR: current wgpu/Naga rejects
+variable-pointer capabilities (10), demote capability (6) or terminate extension
+(36); those errors have no successful readback. Successful raw words and raster
+pixels match fixed expectations. Full research and consumers remain open; see
+[integrated checks](../tools/compiler-validation/README.md) for evidence limits.
+
+Previous pointer-helper graph migration (source AA5E4452…) expands owned
 pointer-argument helpers with the existing canonical CFG inliner. Caller SSA IDs,
 captured argument addresses, return joins, lexical diagnostics and native memory
 operands survive; borrowed caller/callee graphs are copied. Private helpers are

@@ -5,7 +5,53 @@ See the [current pipeline/target map](../../docs/compiler-architecture.md) and
 records the original PR baseline, not verification of later source changes;
 `renewal-evidence.json` records the cleanup follow-up.
 
-Latest pointer-helper graph migration (source AA5E4452…) expands owned
+Latest invocation-termination migration: source
+`CCFE45DE6B2F10EF22056ABFE85399FD27610B5496D578DAFE849ADC5DD646D0`,
+Compiler `A4B234CB580CF527F7A8FBF1E0D49300AA566DA800EBB179D2D702857E8FF8B4`.
+Owned CFG termination no longer forces a whole-module SPIR-V adapter. Distinct
+selection joins preserve nested continue exits, former break-if exits and already
+evaluated SSA edge arguments; common latches keep the continue construct free of
+termination. Zero-backedge loops retain target structural labels and typed Phi
+incoming values. Twenty-eight new contracts cover stale declaration bodies,
+kill/terminate, repeated/nested loops, skipped merge effects, zero/multiple
+backedges, origins, borrowed graph preservation and explicit deferrals.
+
+Passed: maintenance 2149/2149, independent 184 outputs + 49 generated native
+inputs = 233/233, frozen 41-input replay and 82/82 input/output validation, 689
+repeated artifacts identical. Five Compiler DLL copies match. Compared with the
+pointer batch, 212/218 SPIR-V artifacts match and six outputs change; native inputs
+in that comparison are unchanged. Export/replay/GPU builds report no warnings or
+errors. Toolchain 0.0.22 supplies spirv-val 2026.2; reports retain per-case target
+environments, options and hashes.
+
+GPU: 146 isolated attempts, 94 PASS/52 ERROR. Successful storage raw words and
+R32Uint pixels match fixed oracles on Intel HD Graphics 620/Vulkan compatibility.
+Current wgpu/Naga rejects VariablePointersStorageBuffer (10 attempts),
+DemoteToHelperInvocation (6), or SPV_KHR_terminate_invocation (36), before readback.
+Keep these as errors: independent validity does not establish consumer support.
+Generated WGSL for explicit termination passes, while its SPIR-V extension remains
+unsupported by this consumer. Prior pointer source-WGSL native aborts remain open
+and were not rerun here. No baseline GPU reproduction classifies new errors as
+pre-existing.
+
+Failure history retained: missing test namespace; 44 PASS/22 FAIL from selection
+boundaries; 48 PASS/18 FAIL from nested continue exits; then 66/66 and 75/75 pass.
+The first independent run was 231/233: two new fixtures incorrectly raised the
+SPIR-V version without rebuilding the entry interface. They now preserve the
+original version and declare the terminate extension; corrected full tests and
+233/233 validation pass. The failed inputs, manifests, TRX and logs remain intact.
+
+Workspace-specific commands, reports and source manifests are recorded under
+`.work/compiler-architecture-first/canonical-termination-*`, with the handoff and
+`record-canonical-termination-evidence.py` checking current source, raw baseline,
+executed artifacts, reports and DLL identities. Previous ab5c4b8 CI passed Ubuntu
+compiler 2121/2121, WASM publish and Node managed-host 22 fixtures; those results
+belong to that previous source. Current-source real browser GPU, SDK/Linux/AOT,
+mesh GPU and remaining historical corpus/descriptor/GPU matrix have not run.
+Remaining pointer/query adapters, WGSL target, frontend/LLVM, initialization/mesh
+and feature policy work still belongs to the original full roadmap.
+
+Previous pointer-helper graph migration (source AA5E4452…) expands owned
 pointer-argument helpers with the existing canonical CFG inliner. Caller SSA IDs,
 captured argument addresses, return joins, lexical diagnostics and native memory
 operands survive; borrowed caller/callee graphs are copied. Private helpers are

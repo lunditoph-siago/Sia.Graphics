@@ -52,10 +52,7 @@ internal static class ShaderTargetLowering
         // Ordinary graphs reach integer/entry/layout preparation without reconstruction.
         bool legacy = canonical.Declarations.Functions.Any(f => f.ReturnType is ShaderType.Pointer
                 || f.Arguments.Any(a => a.Type is ShaderType.Pointer)
-                && (f.Stage is null || f.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.RayQuery })))
-            || canonical.Functions.Values.Any(g => g.Blocks.Any(b => b.Terminator is ControlFlowTerminator.InvocationKill))
-            || canonical.Declarations.Functions.Any(f => canonical.DeferredFunctions.ContainsKey(f.Name)
-                && InvocationTerminationControlFlow.NeedsRelocation(f.Body));
+                && (f.Stage is null || f.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.RayQuery })));
         if (legacy) {
             var module = StructuredControlFlowLowering.Run(canonical);
             module = HelperInliner.RunQueries(module);
@@ -67,6 +64,7 @@ internal static class ShaderTargetLowering
             module = InvocationTerminationControlFlow.Run(module, DiagnosticStage.SpirvWrite);
             canonical = SpirvControlFlowLowering.Capture(module);
         }
+        canonical = InvocationTerminationControlFlow.PrepareSpirv(canonical, DiagnosticStage.SpirvWrite);
         return SpirvIntegerArithmeticLowering.Run(canonical, integerDivisionChecks);
     }
 

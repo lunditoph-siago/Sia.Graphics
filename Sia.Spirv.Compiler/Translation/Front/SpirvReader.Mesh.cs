@@ -160,7 +160,7 @@ public static partial class SpirvReader
                     Statement mapped = statement;
                     if (statement is Statement.Declare d)
                     {
-                        result.Statements.Add(new Statement.Declare(d.Name, d.Type, null));
+                        result.Statements.Add(d with { Initializer = null, Initialize = false });
                         if (d.Initializer is null) continue;
                         mapped = new Statement.Store(new Expression.Reference(d.Name, d.Type), d.Initializer);
                     }

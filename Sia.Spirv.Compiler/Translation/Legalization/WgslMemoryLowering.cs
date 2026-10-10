@@ -1,6 +1,6 @@
 using Sia.Spirv.Compiler.Translation.IR;
 
-namespace Sia.Spirv.Compiler.Translation.Back;
+namespace Sia.Spirv.Compiler.Translation.Legalization;
 
 /// <summary>Express native memory operations without weakening their requirements.</summary>
 internal sealed class WgslMemoryLowering(Module input)
@@ -72,7 +72,7 @@ internal sealed class WgslMemoryLowering(Module input)
         var calls = module.Functions.ToDictionary(f => f.Name, _ => new HashSet<string>(StringComparer.Ordinal), StringComparer.Ordinal);
         void Expr(Expression e, HashSet<string> found)
         {
-            if (e is Expression.Call call && calls.ContainsKey(call.Function)) found.Add(call.Function);
+            if (e is Expression.Call call && call.Binding != CallBinding.Builtin && calls.ContainsKey(call.Function)) found.Add(call.Function);
             IEnumerable<Expression> children = e switch
             {
                 Expression.Call c => c.Arguments, Expression.Unary u => [u.Operand], Expression.Load l => [l.Pointer],
@@ -121,6 +121,7 @@ internal sealed class WgslMemoryLowering(Module input)
     }
     private Expression Call(Expression.Call call)
     {
+        if (call.Binding == CallBinding.Function) return call with { Arguments = call.Arguments.Select(Expr).ToArray() };
         if (call.MemoryAccess is { } access)
         {
             int pointerIndex = call.Function is "coopStore" or "coopStoreT" ? 1 : 0;
@@ -177,7 +178,7 @@ internal sealed class WgslMemoryLowering(Module input)
         var exit = new Block(); exit.Statements.Add(new Statement.Store(observed, old)); exit.Statements.Add(new Statement.Break());
         var loop = new Block();
         loop.Statements.Add(new Statement.Declare(resultName, resultType,
-            new Expression.Call("atomicCompareExchangeWeak", [pointer, expected, desired], resultType), false));
+            new Expression.Call("atomicCompareExchangeWeak", [pointer, expected, desired], resultType, CallBinding.Builtin), false));
         loop.Statements.Add(new Statement.If(done, exit, new()));
         helper.Body.Statements.Add(new Statement.Declare(observedName, call.Type, new Expression.Construct(call.Type, [])));
         helper.Body.Statements.Add(new Statement.Loop(loop, new()));
@@ -274,6 +275,7 @@ internal sealed class WgslMemoryLowering(Module input)
     private Block Body(Block block)
     {
         var copy = new Block();
+        copy.DiagnosticFilters.AddRange(block.DiagnosticFilters);
         foreach (var s in block.Statements) copy.Statements.Add(s switch
         {
             Statement.Nested n => n with { Body = Body(n.Body) }, Statement.Declare d => d with { Initializer = d.Initializer is null ? null : Expr(d.Initializer) },

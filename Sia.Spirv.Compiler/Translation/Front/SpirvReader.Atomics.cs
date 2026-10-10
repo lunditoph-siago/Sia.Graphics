@@ -174,7 +174,7 @@ public static partial class SpirvReader
             if (IsNullPointer(place) && place.Type is ShaderType.Pointer { Base: ShaderType.Scalar scalar } nullPointer)
                 place = new Expression.Construct(nullPointer with { Base = new ShaderType.Atomic(scalar) }, []);
             if (place.Type is not ShaderType.Pointer { Base: ShaderType.Atomic } pointer) throw Error("Atomic memory was not upgraded to an atomic type.");
-            return new Expression.Call(name, new Expression[] { new Expression.Unary("&", place, pointer) }.Concat(arguments).ToArray(), result) { AtomicMemory = memory };
+            return new Expression.Call(name, new Expression[] { new Expression.Unary("&", place, pointer) }.Concat(arguments).ToArray(), result, CallBinding.Builtin) { AtomicMemory = memory };
         }
         private Expression LowerAtomic(Op op, uint[] a)
         {
@@ -218,7 +218,7 @@ public static partial class SpirvReader
                 Op.AtomicAnd => "textureAtomicAnd", Op.AtomicOr => "textureAtomicOr", Op.AtomicXor => "textureAtomicXor", _ => throw Error("Unsupported image atomic opcode.")
             };
             var arguments = new List<Expression> { texture, coordinate }; if (layer is not null) arguments.Add(layer); arguments.Add(Value(a[5]));
-            return new Expression.Call(name, arguments, new ShaderType.Void()) { AtomicMemory = memory };
+            return new Expression.Call(name, arguments, new ShaderType.Void(), CallBinding.Builtin) { AtomicMemory = memory };
         }
     }
 }

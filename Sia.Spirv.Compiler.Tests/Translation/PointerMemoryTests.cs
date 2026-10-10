@@ -11,6 +11,12 @@ public class PointerMemoryTests
     {
         var binary = mode == "select" ? PointerSelectionTests.Fixture(kind, false, qualified)
             : PointerPhiTests.Fixture(kind, mode == "hybrid" ? "nested" : mode, qualified, iterations);
+        return StorePointers(binary, mode, qualified, privateSlot, slotVolatile, version);
+    }
+
+    internal static SpirvBinary StorePointers(SpirvBinary binary, string mode, bool qualified = false,
+        bool privateSlot = false, bool slotVolatile = false, uint version = 0)
+    {
         var code = binary.Instructions.ToList(); uint next = binary.Bound;
         SpirvInstruction I(Op op, params uint[] operands) => new((ushort)op, operands);
         var pointerTypes = code.Where(i => (Op)i.Opcode == Op.TypePointer).Select(i => i.Operands[0]).ToHashSet();

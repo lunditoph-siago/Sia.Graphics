@@ -35,6 +35,7 @@ internal abstract record SExpression(SourceSpan Span)
 internal sealed class SBlock
 {
     public List<SStatement> Statements { get; } = [];
+    public List<IR.DiagnosticFilter> DiagnosticFilters { get; } = [];
 }
 internal abstract record SStatement
 {

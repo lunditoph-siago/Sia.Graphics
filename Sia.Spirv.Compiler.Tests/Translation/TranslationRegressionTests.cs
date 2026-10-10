@@ -213,13 +213,14 @@ public class TranslationRegressionTests
     }
 
     [Fact]
-    public void FunctionPointerSubobjectUsesTemporaryAndCopiesResultBack()
+    public void FunctionPointerSubobjectIsExpandedWithoutCopyingItsPointee()
     {
         const string source = "fn mutate(p: ptr<function, i32>) { *p = 9; } fn f() -> i32 { var a = array<i32, 2>(1, 2); mutate(&a[1]); return a[1]; }";
         var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(source));
-        var variables = binary.Instructions.Where(i => (Op)i.Opcode == Op.Variable).Select(i => i.Operands[1]).ToHashSet();
-        var call = Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.FunctionCall);
-        Assert.Contains(call.Operands[3], variables);
+        Assert.DoesNotContain(binary.Instructions, i => (Op)i.Opcode == Op.FunctionCall);
+        var nine = Assert.Single(binary.Instructions, i => (Op)i.Opcode == Op.Constant && i.Operands[2] == 9).Operands[1];
+        var addresses = binary.Instructions.Where(i => (Op)i.Opcode == Op.AccessChain).Select(i => i.Operands[1]).ToHashSet();
+        Assert.Contains(binary.Instructions, i => (Op)i.Opcode == Op.Store && addresses.Contains(i.Operands[0]) && i.Operands[1] == nine);
         Assert.DoesNotContain(binary.Instructions, i => (Op)i.Opcode == Op.Capability && i.Operands[0] == 4442);
         var f = WgslReader.Parse(ShaderTranslator.SpirvToWgsl(binary.ToBytes())); ModuleValidator.Validate(f);
     }

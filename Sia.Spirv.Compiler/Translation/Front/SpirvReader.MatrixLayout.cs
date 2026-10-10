@@ -290,7 +290,7 @@ public static partial class SpirvReader
                     Expression.Access a => new Expression.Access(Expr(a.Base), Expr(a.Index), type) { Span = a.Span },
                     Expression.Swizzle s => new Expression.Swizzle(Expr(s.Vector), s.Components, type) { Span = s.Span },
                     Expression.Select s => new Expression.Select(Expr(s.Condition), Expr(s.Accept), Expr(s.Reject)) { Span = s.Span },
-                    Expression.Call c => new Expression.Call(c.Function, c.Arguments.Select(Expr).ToArray(), type) { Span = c.Span, AtomicMemory = c.AtomicMemory, MemoryAccess = c.MemoryAccess },
+                    Expression.Call c => new Expression.Call(c.Function, c.Arguments.Select(Expr).ToArray(), type) { Binding = c.Binding, Span = c.Span, AtomicMemory = c.AtomicMemory, MemoryAccess = c.MemoryAccess },
                     _ => throw Error("Unsupported explicit matrix-layout expression.")
                 };
             }
@@ -322,12 +322,12 @@ public static partial class SpirvReader
                             // host ABI; do not carry buffer member qualifiers
                             // into newly introduced snapshots.
                             var node = Memory(Logical(d.Type));
-                            block.Statements.Add(new Statement.Declare(d.Name, node.Physical, null));
+                            block.Statements.Add(d with { Type = node.Physical, Initializer = null, Initialize = false });
                             var target = new Expression.Reference(d.Name, new ShaderType.Pointer(d.Type, AddressSpace.Function));
                             locations[d.Name] = new(new Expression.Reference(d.Name, new ShaderType.Pointer(node.Physical, AddressSpace.Function)), node);
                             if (d.Initializer is not null) Store(block, target, d.Initializer, null);
                         }
-                        else block.Statements.Add(new Statement.Declare(d.Name, Logical(d.Type), d.Initializer is null ? null : Expr(d.Initializer), false));
+                        else block.Statements.Add(d with { Type = Logical(d.Type), Initializer = d.Initializer is null ? null : Expr(d.Initializer), Mutable = false });
                         break;
                     case Statement.Store s: Store(block, s.Target, s.Value, s.MemoryAccess); break;
                     case Statement.Nested n: block.Statements.Add(new Statement.Nested(Body(n.Body))); break;

@@ -23,7 +23,7 @@ public static partial class SpirvReader
                     Op.GroupNonUniformBitwiseAnd or Op.GroupNonUniformLogicalAnd => "And", Op.GroupNonUniformBitwiseOr or Op.GroupNonUniformLogicalOr => "Or", _ => "Xor"
                 };
                 string prefix = a[3] switch { 0 => "subgroup", 1 when operation is "Add" or "Mul" => "subgroupInclusive", 2 when operation is "Add" or "Mul" => "subgroupExclusive", _ => throw Error("Unsupported subgroup scan or clustered reduction.") };
-                return new Expression.Call(prefix + operation, [Value(a[4])], type);
+                return new Expression.Call(prefix + operation, [Value(a[4])], type, CallBinding.Builtin);
             }
             string name = op switch
             {
@@ -35,7 +35,7 @@ public static partial class SpirvReader
             };
             int length = SubgroupBuiltins.Indexed(name) || op == Op.GroupNonUniformQuadSwap ? 5 : 4;
             Count(length, length);
-            return new Expression.Call(name, SubgroupBuiltins.Indexed(name) ? [Value(a[3]), Value(a[4])] : [Value(a[3])], type);
+            return new Expression.Call(name, SubgroupBuiltins.Indexed(name) ? [Value(a[3]), Value(a[4])] : [Value(a[3])], type, CallBinding.Builtin);
         }
     }
 }

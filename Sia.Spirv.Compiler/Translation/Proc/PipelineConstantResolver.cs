@@ -152,12 +152,12 @@ public static class PipelineConstantResolver
             Expression Child(Expression e) { var result = Expr(e); changed |= result.Override; return result.Value; }
             Expression mapped = input switch
             {
-                Expression.Literal => input,
+                Expression.Literal or Expression.HelperInvocation => input,
                 Expression.Reference reference => new Expression.Reference(reference.Name, Type(reference.Type)),
                 Expression.Load l => new Expression.Load(Child(l.Pointer)) { MemoryAccess = l.MemoryAccess },
                 Expression.Unary u => new Expression.Unary(u.Operator, Child(u.Operand), Type(u.Type)),
                 Expression.Binary b => new Expression.Binary(b.Operator, Child(b.Left), Child(b.Right), Type(b.Type)),
-                Expression.Call c => new Expression.Call(c.Function, c.Arguments.Select(Child).ToArray(), Type(c.Type)) { AtomicMemory = c.AtomicMemory, MemoryAccess = c.MemoryAccess },
+                Expression.Call c => new Expression.Call(c.Function, c.Arguments.Select(Child).ToArray(), Type(c.Type)) { Binding = c.Binding, AtomicMemory = c.AtomicMemory, MemoryAccess = c.MemoryAccess },
                 Expression.Construct c => new Expression.Construct(Type(c.Type), c.Components.Select(Child).ToArray()),
                 Expression.Convert c => new Expression.Convert(Type(c.Type), Child(c.Operand), c.Bitcast),
                 Expression.Access a => new Expression.Access(Child(a.Base), Child(a.Index), Type(a.Type)),
@@ -176,13 +176,14 @@ public static class PipelineConstantResolver
             var outer = locals;
             if (nested) locals = new(locals, StringComparer.Ordinal);
             var output = new Block();
+            output.DiagnosticFilters.AddRange(input.DiagnosticFilters);
             Expression E(Expression e) => Expr(e).Value;
             foreach (var statement in input.Statements)
             {
                 Statement mapped;
                 if (statement is Statement.Declare d)
                 {
-                    mapped = new Statement.Declare(d.Name, Type(d.Type), d.Initializer is null ? null : E(d.Initializer), d.Mutable);
+                    mapped = d with { Type = Type(d.Type), Initializer = d.Initializer is null ? null : E(d.Initializer) };
                     locals.Add(d.Name);
                 }
                 else if (statement is Statement.Loop l)

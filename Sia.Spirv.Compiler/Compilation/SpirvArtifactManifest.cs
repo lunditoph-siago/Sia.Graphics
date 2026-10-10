@@ -23,7 +23,8 @@ internal sealed record SpirvArtifactManifest(
     string? SpirvFile = null,
     string? SpirvSha256 = null,
     string? LayoutSha256 = null,
-    SpirvBufferRequirements? BufferRequirements = null);
+    SpirvBufferRequirements? BufferRequirements = null,
+    string? CompilationTargetSha256 = null);
 
 internal sealed record SpirvManifestWorkgroupSize(uint X, uint Y, uint Z);
 

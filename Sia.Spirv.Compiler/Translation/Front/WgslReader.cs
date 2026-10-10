@@ -1,4 +1,5 @@
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.Proc;
 
 namespace Sia.Spirv.Compiler.Translation.Front;
 
@@ -95,6 +96,8 @@ public static partial class WgslReader
                 scopes.Pop();
             }
             currentFunction = null;
+            UniformityAnalysis.Validate(module);
+            PointerAliasAnalysis.ValidateSource(module);
             return module;
         }
 

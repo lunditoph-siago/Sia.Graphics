@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Translation.Legalization;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -56,15 +57,33 @@ public class MatrixHelperTests
 
     private static SpirvBinary PointerFixture(string source, bool rowMajor, uint capability)
     {
-        var module = WgslReader.Parse(source);
-        var writer = typeof(SpirvWriter).GetNestedType("Writer", System.Reflection.BindingFlags.NonPublic)!;
-        var instance = Activator.CreateInstance(writer, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
-            null, [module, new SpirvWriteOptions()], null)!;
-        var binary = (SpirvBinary)writer.GetMethod("Write")!.Invoke(instance, null)!;
+        // This is a native SPIR-V alias fixture, not legal authored WGSL.
+        // Parse distinct roots, then introduce the native alias explicitly in IR.
+        string spare = capability == 4442 ? "var<workgroup> sia_alias_fixture:Data;"
+            : "@group(0) @binding(2) var<storage,read_write> sia_alias_fixture:Data;";
+        string distinct = source.Replace("@compute", spare + "@compute", StringComparison.Ordinal)
+            .Replace("nested(column,column,", "nested(column,&sia_alias_fixture.matrix[0u],", StringComparison.Ordinal)
+            .Replace("edit(&data.matrix,&data.matrix,", "edit(&data.matrix,&sia_alias_fixture.matrix,", StringComparison.Ordinal);
+        var module = WgslReader.Parse(distinct);
+        var entry = module.Functions.Single(f => f.Stage is not null); int aliases = 0;
+        for (int i = 0; i < entry.Body.Statements.Count; i++) {
+            if (entry.Body.Statements[i] is not Statement.Declare { Initializer: Expression.Call { Function: "nested" or "edit" } call } declaration) continue;
+            entry.Body.Statements[i] = declaration with { Initializer = call with { Arguments = [call.Arguments[0], call.Arguments[0], call.Arguments[2]] } };
+            aliases++;
+        }
+        Assert.Equal(1, aliases); Assert.Equal(1, module.Globals.RemoveAll(g => g.Name == "sia_alias_fixture"));
+        var binary = SpirvWriter.Emit(SpirvPhysicalLayoutLowering.Prepare(module));
         binary = Layout(binary, rowMajor);
         var code = binary.Instructions.ToList(); code.Insert(1, new((ushort)Op.Capability, [capability]));
         code.Insert(code.FindIndex(i => (Op)i.Opcode == Op.MemoryModel), new((ushort)Op.Extension, SpirvBinary.StringWords("SPV_KHR_variable_pointers")));
         return new() { Version = binary.Version, Bound = binary.Bound, Instructions = code };
+    }
+
+    [Fact]
+    public void AuthoredAliasedMatrixHelperSourceIsRejectedBeforeNativeFixtureConstruction()
+    {
+        var error = Assert.Throws<ShaderException>(() => WgslReader.Parse(HelperSource));
+        Assert.Equal(DiagnosticStage.Validation, error.Diagnostic.Stage); Assert.Contains("alias violation", error.Message);
     }
 
     internal static SpirvBinary WholeHelperFixture(bool rowMajor, bool workgroup)

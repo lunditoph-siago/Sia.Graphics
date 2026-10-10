@@ -18,7 +18,7 @@ public static partial class SpirvWriter
                 uint[] args = call.Arguments.Select(Value).ToArray();
                 // The pinned WGSL extension uses T for row-major memory.
                 uint layout = owner.Constant(Expression.U32(call.Function.EndsWith('T') ? 0u : 1u));
-                var memory = AccessMemory(call.Arguments[load ? 0 : 1], call.MemoryAccess, load);
+                var memory = call.MemoryAccess;
                 if (load) return Result(Op.CooperativeMatrixLoadKHR, call.Type, new[] { args[0], layout, args[1] }.Concat(MemoryOperands(memory)).ToArray());
                 Add(Op.CooperativeMatrixStoreKHR, new[] { args[1], args[0], layout, args[2] }.Concat(MemoryOperands(memory)).ToArray()); return 0;
             }

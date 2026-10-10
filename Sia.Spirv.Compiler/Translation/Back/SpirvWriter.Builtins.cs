@@ -11,30 +11,19 @@ public static partial class SpirvWriter
         {
             private uint Call(Expression.Call call)
             {
-                if (owner.functions.TryGetValue(call.Function, out var function))
+                if (call.Binding != CallBinding.Builtin && owner.functions.TryGetValue(call.Function, out var function))
                 {
                     owner.functionCalls[functionId].Add(function.Id);
-                    var callArgs = new List<uint>(); var copies = new List<(uint Address, uint Scratch, ShaderType Type)>();
-                    for (int i = 0; i < call.Arguments.Count; i++)
-                    {
-                        uint value = Value(call.Arguments[i]);
-                        if (function.Function.Arguments[i].Type is ShaderType.Pointer { Space: AddressSpace.Function, Base: not ShaderType.RayQuery } pointer)
-                        {
-                            uint scratch = Variable(pointer.Base); Add(Op.Store, scratch, Result(Op.Load, pointer.Base, value));
-                            copies.Add((value, scratch, pointer.Base)); value = scratch;
-                        }
-                        callArgs.Add(value);
-                    }
-                    uint result = Result(Op.FunctionCall, call.Type, new uint[] { function.Id }.Concat(callArgs).ToArray());
-                    foreach (var copy in copies) Add(Op.Store, copy.Address, Result(Op.Load, copy.Type, copy.Scratch));
-                    return result;
+                    // Target legalization expands calls that need pointer adaptation.
+                    // Serialization must retain the supplied address identity.
+                    return Result(Op.FunctionCall, call.Type, new uint[] { function.Id }.Concat(call.Arguments.Select(Value)).ToArray());
                 }
                 string name = call.Function;
                 if (call.MemoryAccess is { } memory && name is "atomicLoad" or "atomicStore")
                 {
                     uint pointer = Value(call.Arguments[0]);
-                    if (name == "atomicLoad") return MemoryLoad(pointer, call.Type, AccessMemory(call.Arguments[0], memory));
-                    MemoryStore(pointer, Value(call.Arguments[1]), AccessMemory(call.Arguments[0], memory, load: false)); return 0;
+                    if (name == "atomicLoad") return MemoryLoad(pointer, call.Type, memory);
+                    MemoryStore(pointer, Value(call.Arguments[1]), memory); return 0;
                 }
                 if (name is "coopLoad" or "coopLoadT" or "coopStore" or "coopStoreT" or "coopMultiplyAdd") return Cooperative(call);
                 if (name.StartsWith("spirvRayQuery", StringComparison.Ordinal))
@@ -53,16 +42,8 @@ public static partial class SpirvWriter
                 uint[] args = call.Arguments.Select(Value).ToArray();
                 if (SubgroupBuiltins.Contains(name)) return Subgroup(call, args);
                 if (name is "pack4xI8" or "pack4xU8" or "pack4xI8Clamp" or "pack4xU8Clamp" or "unpack4xI8" or "unpack4xU8" or "dot4I8Packed" or "dot4U8Packed") return PackedInteger(name, call.Type, args);
-                if (name is "storageBarrier" or "workgroupBarrier" or "textureBarrier" or "subgroupBarrier")
-                { Barrier(name == "storageBarrier", name == "workgroupBarrier", name == "textureBarrier", name == "subgroupBarrier"); return 0; }
-                if (name == "workgroupUniformLoad")
-                {
-                    Barrier(false, true, false);
-                    uint value = call.Arguments[0].Type is ShaderType.Pointer { Base: ShaderType.Atomic }
-                        ? Result(Op.AtomicLoad, call.Type, args[0], owner.Constant(Expression.U32(2)), owner.Constant(Expression.U32(VolatileAccess(call.Arguments[0]) ? 32768u : 0u)))
-                        : LoadWorkgroup(args[0], call.Type, AccessMemory(call.Arguments[0], null));
-                    Barrier(false, true, false); return value;
-                }
+                if (name is "storageBarrier" or "workgroupBarrier" or "textureBarrier" or "subgroupBarrier" or "workgroupUniformLoad")
+                    throw owner.Error("Synchronization builtin was not legalized.", call.Span);
                 if (name == "select")
                 {
                     if (call.Type is ShaderType.Vector v && call.Arguments[2].Type is ShaderType.Scalar) args[2] = Splat(args[2], new ShaderType.Vector(v.Size, ShaderType.Bool));
@@ -180,8 +161,7 @@ public static partial class SpirvWriter
             {
                 if (call.Arguments[0].Type is not ShaderType.Pointer pointer || pointer.Base is not ShaderType.Atomic atomic) throw owner.Error("Atomic builtin needs an atomic pointer.");
                 uint address = Value(call.Arguments[0]);
-                bool workgroup = pointer.Space is AddressSpace.Workgroup or AddressSpace.TaskPayload;
-                var (scope, semantics, unequal) = AtomicOperands(call, workgroup);
+                var (scope, semantics, unequal) = AtomicOperands(call);
                 uint[] args = call.Arguments.Skip(1).Select(Value).ToArray();
                 if (call.Function == "atomicStore") { Add(Op.AtomicStore, address, scope, semantics, args[0]); return 0; }
                 if (call.Function == "atomicCompareExchangeWeak")
@@ -206,14 +186,14 @@ public static partial class SpirvWriter
                 };
                 return Result(op, call.Type, new uint[] { address, scope, semantics }.Concat(args).ToArray());
             }
-            private (uint Scope, uint Semantics, uint Unequal) AtomicOperands(Expression.Call call, bool workgroup = false)
+            private (uint Scope, uint Semantics, uint Unequal) AtomicOperands(Expression.Call call)
             {
-                uint scope = call.AtomicMemory?.Scope ?? (workgroup ? 2u : owner.VulkanMemoryModel ? 5u : 1u);
+                var memory = call.AtomicMemory ?? throw owner.Error("Atomic operands were not prepared.", call.Span);
+                uint scope = memory.Scope;
                 if (scope == 1) owner.usesDeviceScope = true;
-                uint semantics = call.AtomicMemory?.Semantics ?? 0;
-                uint unequal = call.AtomicMemory?.UnequalSemantics ?? semantics;
-                if (VolatileAccess(call.Arguments[0])) { semantics |= 32768; unequal |= 32768; }
-                if (((semantics | (call.AtomicMemory?.UnequalSemantics ?? 0)) & 16) != 0) owner.usesSequentialMemoryOrder = true;
+                uint semantics = memory.Semantics;
+                uint unequal = memory.UnequalSemantics ?? semantics;
+                if (((semantics | (memory.UnequalSemantics ?? 0)) & 16) != 0) owner.usesSequentialMemoryOrder = true;
                 return (owner.Constant(Expression.U32(scope)), owner.Constant(Expression.U32(semantics)),
                     owner.Constant(Expression.U32(unequal)));
             }

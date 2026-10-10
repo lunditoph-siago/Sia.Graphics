@@ -12,11 +12,12 @@ public static partial class ModuleValidator
             Require(!compare || call.AtomicMemory?.UnequalSemantics is not null,
                 "Native compare/exchange requires equal and unequal memory semantics.", call.Span);
             if (call.AtomicMemory is not { } memory) return;
-            Require(!functions.ContainsKey(call.Function) && (call.Function.StartsWith("atomic", StringComparison.Ordinal)
-                || call.Function.StartsWith("textureAtomic", StringComparison.Ordinal) || compare),
+            Require((call.Binding == CallBinding.Builtin || !functions.ContainsKey(call.Function)) && (call.Function.StartsWith("atomic", StringComparison.Ordinal)
+                || call.Function.StartsWith("textureAtomic", StringComparison.Ordinal) || compare
+                || call.Function == "workgroupUniformLoad" && call.Arguments.Count == 1 && call.Arguments[0].Type is ShaderType.Pointer { Base: ShaderType.Atomic, Space: AddressSpace.Workgroup }),
                 "Native atomic memory operands require an atomic operation.", call.Span);
             Require(memory.Scope <= 5, "Unsupported atomic memory scope.", call.Span);
-            Require(memory.Scope != 5 || module.VulkanMemoryModel, "Queue-family scope requires the Vulkan memory model.", call.Span);
+            Require(memory.Scope != 5 || UsesVulkanMemoryModel, "Queue-family scope requires the Vulkan memory model.", call.Span);
             if (memory.Scope == 2) Restrict(WorkgroupStages);
             Require(memory.UnequalSemantics is null || compare || call.Function == "atomicCompareExchangeWeak",
                 "Unequal memory semantics require compare/exchange.", call.Span);
@@ -27,8 +28,10 @@ public static partial class ModuleValidator
                 Require((semantics & ~(orders | classes | 8192u | 16384u | 32768u)) == 0,
                     "Unknown atomic memory semantics bits.", call.Span);
                 Require(order == 0 || (order & (order - 1)) == 0, "Atomic memory semantics specify multiple memory orders.", call.Span);
-                Require(!module.VulkanMemoryModel || order != 16, "Sequentially consistent order is unavailable with the Vulkan memory model.", call.Span);
-                Require((semantics & (4096 | 8192 | 16384 | 32768)) == 0 || module.VulkanMemoryModel,
+                Require(!UsesVulkanMemoryModel || order != 16, module.VulkanMemoryModel
+                    ? "Sequentially consistent order is unavailable with the Vulkan memory model."
+                    : "Sequentially consistent atomic order is incompatible with the required Vulkan memory model.", call.Span);
+                Require((semantics & (4096 | 8192 | 16384 | 32768)) == 0 || UsesVulkanMemoryModel,
                     "Output, availability, visibility and volatile semantics require the Vulkan memory model.", call.Span);
                 Require((semantics & (8192 | 16384)) == 0 || (semantics & classes) != 0,
                     "Availability and visibility semantics require a memory class.", call.Span);

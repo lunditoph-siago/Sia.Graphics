@@ -1,4 +1,5 @@
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 
 namespace Sia.Spirv.Compiler.Translation.Front;
 
@@ -11,6 +12,7 @@ public static partial class WgslReader
         {
             if (newScope) scopes.Push(new(StringComparer.Ordinal));
             var body = new Block();
+            body.DiagnosticFilters.AddRange(source.DiagnosticFilters);
             foreach (var statement in source.Statements) LowerStatement(statement, body);
             if (newScope) scopes.Pop();
             return body;
@@ -40,6 +42,10 @@ public static partial class WgslReader
                     else
                     {
                         bool mutable = declaration.Kind == "var";
+                        // WGSL initializes constructible locals at each dynamic declaration.
+                        // Keep that operation explicit before CFG expansion/hoisting; native
+                        // reader declarations already retain their original memory operations.
+                        if (mutable && initializer is null && CanonicalTypes.Data(type)) initializer = new Expression.Construct(type, []) { Span = declaration.Span };
                         block.Statements.AddRange(prelude.Statements);
                         block.Statements.Add(new Statement.Declare(declaration.Name, type, initializer, mutable));
                         symbol = new(new Expression.Reference(declaration.Name, mutable ? new ShaderType.Pointer(type, AddressSpace.Function) : type), mutable, mutable);
@@ -108,6 +114,9 @@ public static partial class WgslReader
                 case SStatement.Loop l:
                     loopDepth++; scopes.Push(new(StringComparer.Ordinal));
                     Block loopBody = Body(l.Body, false), tail = new(); Expression? breakIf = null;
+                    // Continuing is a nested compound scope; loop-body declarations
+                    // remain visible until a declaration in continuing shadows them.
+                    scopes.Push(new(StringComparer.Ordinal));
                     for (int index = 0; index < l.Continuing.Statements.Count; index++)
                     {
                         var statement = l.Continuing.Statements[index];
@@ -115,6 +124,8 @@ public static partial class WgslReader
                             breakIf = Materialize(Eval(b.Condition, tail), ShaderType.Bool);
                         else LowerStatement(statement, tail);
                     }
+                    tail.DiagnosticFilters.AddRange(l.Continuing.DiagnosticFilters);
+                    scopes.Pop();
                     block.Statements.Add(new Statement.Loop(loopBody, tail, breakIf)); scopes.Pop(); loopDepth--; break;
                 case SStatement.Switch s:
                     Expression selector = Eval(s.Selector, block);

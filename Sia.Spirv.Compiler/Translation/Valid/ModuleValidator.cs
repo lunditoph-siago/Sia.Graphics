@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 
 namespace Sia.Spirv.Compiler.Translation.Valid;
 
@@ -13,7 +14,27 @@ public static partial class ModuleValidator
         new Validator(module).Run();
     }
 
-    private sealed partial class Validator(Module module)
+    // Temporary structured native-input adapter. Native pointer parameter address
+    // spaces are verified on expanded CFG; retain the legacy public WGSL gate.
+    internal static void ValidateNative(Module module) => new Validator(module, allowNativePointerParameters: true).Run();
+
+    internal static void ValidateNative(Module module, IReadOnlyDictionary<string, ControlFlowFunction> graphs)
+    {
+        var reachable = graphs.ToDictionary(p => p.Key, p => {
+            if (Proc.ControlFlowAnalysis.Reachable(p.Value).Count == p.Value.Blocks.Count) return p.Value;
+            var copy = p.Value.Copy(); Proc.ControlFlowAnalysis.RemoveUnreachable(copy); return copy;
+        }, StringComparer.Ordinal);
+        foreach (var graph in reachable.Values) ControlFlowVerifier.Validate(graph, module);
+        new Validator(module, allowNativePointerParameters: true).Run(reachable);
+    }
+
+    internal static void Validate(CanonicalModule module, bool native = false)
+    {
+        ControlFlowVerifier.Validate(module);
+        new Validator(module.Declarations, allowNativePointerParameters: native).Run(module.Functions);
+    }
+
+    private sealed partial class Validator(Module module, bool allowNativePointerParameters = false)
     {
         private const int Vertex = 1, Fragment = 2, Compute = 4, Task = 8, Mesh = 16, WorkgroupStages = Compute | Task | Mesh, AllStages = 31;
         private readonly Dictionary<string, Variable> globals = new(StringComparer.Ordinal);
@@ -33,7 +54,7 @@ public static partial class ModuleValidator
         private ShaderException Error(string message, SourceSpan span = default) => new(DiagnosticStage.Validation, message, span);
         private void Require(bool condition, string message, SourceSpan span = default) { if (!condition) throw Error(message, span); }
 
-        public void Run()
+        public void Run(IReadOnlyDictionary<string, ControlFlowFunction>? graphs = null)
         {
             DiagnosticFilters(module.DiagnosticFilters);
             foreach (string enable in module.Enables) Require(WgslExtensions.Enable(enable), "Unknown or unimplemented WGSL enable extension.");
@@ -108,11 +129,17 @@ public static partial class ModuleValidator
                 {
                     Type(argument.Type);
                     Require(argument.Type is not ShaderType.RayQuery, "Ray queries cannot be passed by value.");
-                    Require(argument.Type is not ShaderType.Pointer pointer || pointer.Space is AddressSpace.Function or AddressSpace.Private, "Function pointer parameters require function or private address space in the reference version.");
+                    Require(allowNativePointerParameters || argument.Type is not ShaderType.Pointer pointer || pointer.Space is AddressSpace.Function or AddressSpace.Private, "Function pointer parameters require function or private address space in the reference version.");
                     Require(!RuntimeSized(argument.Type) && !ContainsAtomic(argument.Type), "Function parameter cannot contain unsized or atomic data.");
                     Require(scopes.Peek().TryAdd(argument.Name, new(argument.Type, false, false)), "Duplicate parameter name.");
                 }
-                bool fallthrough = Body(f.Body, false);
+                bool fallthrough;
+                if (graphs?.TryGetValue(f.Name, out var graph) == true) {
+                    Require(graph.Signature.Name == f.Name && graph.Signature.ReturnType == f.ReturnType
+                        && graph.Signature.Arguments.SequenceEqual(f.Arguments), "Canonical graph signature mismatch.");
+                    CanonicalBody(graph); fallthrough = false;
+                }
+                else fallthrough = Body(f.Body, false);
                 Require(f.ReturnType is ShaderType.Void || !fallthrough, "Function can reach its end without returning a value.");
                 scopes.Pop();
                 if (f.Stage is ShaderStage stage) Entry(f, stage);

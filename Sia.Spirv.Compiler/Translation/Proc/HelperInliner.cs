@@ -3,16 +3,18 @@ using Sia.Spirv.Compiler.Translation.IR;
 namespace Sia.Spirv.Compiler.Translation.Proc;
 
 /// <summary>Expand helpers while retaining the identity of their pointer arguments.</summary>
-internal sealed class QueryHelperInliner
+internal sealed class HelperInliner
 {
     private readonly Dictionary<string, ShaderFunction> helpers;
     private readonly HashSet<string> names = new(StringComparer.Ordinal);
     private readonly HashSet<string> expanding = new(StringComparer.Ordinal);
     private readonly string kind;
+    private readonly IReadOnlyList<DiagnosticFilter> moduleFilters;
     private int next;
-    private QueryHelperInliner(Module module, Func<ShaderFunction, bool> select, string kind)
+    private HelperInliner(Module module, Func<ShaderFunction, bool> select, string kind)
     {
         this.kind = kind;
+        moduleFilters = module.DiagnosticFilters;
         helpers = module.Functions.Where(select).ToDictionary(f => f.Name, StringComparer.Ordinal);
         foreach (var name in module.Constants.Select(c => c.Name).Concat(module.Globals.Select(g => g.Name))
             .Concat(module.Structures.Select(s => s.Name)).Concat(module.Functions.Select(f => f.Name))) names.Add(name);
@@ -22,7 +24,7 @@ internal sealed class QueryHelperInliner
             Reserve(f.Body);
         }
     }
-    public static Module Run(Module module) => Run(module,
+    public static Module RunQueries(Module module) => Run(module,
         f => f.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.RayQuery }), "query");
 
     // Native derived Storage/Workgroup pointers may require capabilities that
@@ -31,18 +33,22 @@ internal sealed class QueryHelperInliner
     public static Module RunNonFunctionPointers(Module module, IReadOnlySet<string>? specialized = null) => Run(module,
         f => f.Stage is null && (f.Arguments.Any(a => a.Type is ShaderType.Pointer { Space: not AddressSpace.Function }) || specialized?.Contains(f.Name) == true), "pointer");
 
-    private static Module Run(Module module, Func<ShaderFunction, bool> select, string kind)
+    public static Module RunPointers(Module module) => Run(module,
+        f => f.Stage is null && f.Arguments.Any(a => a.Type is ShaderType.Pointer), "pointer", preserveUncalled: true);
+
+    private static Module Run(Module module, Func<ShaderFunction, bool> select, string kind, bool preserveUncalled = false)
     {
-        var pass = new QueryHelperInliner(module, select, kind);
+        var pass = new HelperInliner(module, select, kind);
         if (pass.helpers.Count == 0) return module;
+        var called = module.Functions.SelectMany(f => ControlFlowAnalysis.Calls(f.Body)).ToHashSet(StringComparer.Ordinal);
         var output = new Module { VulkanMemoryModel = module.VulkanMemoryModel, WorkgroupInitializationRequired = module.WorkgroupInitializationRequired }; output.Enables.UnionWith(module.Enables); output.DiagnosticFilters.AddRange(module.DiagnosticFilters);
         output.Structures.AddRange(module.Structures); output.Constants.AddRange(module.Constants); output.Globals.AddRange(module.Globals);
-        foreach (var f in module.Functions.Where(f => !pass.helpers.ContainsKey(f.Name)))
+        foreach (var f in module.Functions.Where(f => !pass.helpers.ContainsKey(f.Name) || preserveUncalled && !called.Contains(f.Name)))
         {
             var copy = new ShaderFunction(f.Name) { Stage = f.Stage, ReturnType = f.ReturnType, ReturnBinding = f.ReturnBinding,
                 TaskPayload = f.TaskPayload, MeshOutput = f.MeshOutput,
                 WorkgroupSize = f.WorkgroupSize.ToArray(), EarlyDepthTest = f.EarlyDepthTest, ConservativeDepth = f.ConservativeDepth,
-                Body = pass.Body(f.Body, new(false)) };
+                Body = pass.Body(f.Body, new(false, f.DiagnosticFilters, module.DiagnosticFilters)) };
             copy.Arguments.AddRange(f.Arguments); copy.DiagnosticFilters.AddRange(f.DiagnosticFilters); output.Functions.Add(copy);
         }
         return output;
@@ -61,11 +67,16 @@ internal sealed class QueryHelperInliner
                 case Statement.Switch sw: foreach (var c in sw.Cases) Reserve(c.Body); break;
             }
     }
-    private sealed class Context(bool rename)
+    private sealed class Context(bool rename, IReadOnlyList<DiagnosticFilter> functionFilters, IReadOnlyList<DiagnosticFilter> moduleFilters)
     {
         public bool Rename { get; } = rename;
         public Expression.Reference? ReturnValue, Returned;
         private readonly Stack<Dictionary<string, string>> scopes = new();
+        private readonly Stack<IReadOnlyList<DiagnosticFilter>> diagnosticScopes = [];
+        public void PushDiagnostics(IReadOnlyList<DiagnosticFilter> filters) => diagnosticScopes.Push(filters);
+        public void PopDiagnostics() => diagnosticScopes.Pop();
+        public DiagnosticSeverity Severity(DiagnosticFilter filter) => diagnosticScopes.SelectMany(s => s).Concat(functionFilters).Concat(moduleFilters)
+            .FirstOrDefault(f => f.Namespace == filter.Namespace && f.Rule == filter.Rule)?.Severity ?? DiagnosticSeverity.Error;
         public void Push() => scopes.Push(new(StringComparer.Ordinal));
         public void Pop() => scopes.Pop();
         public void Add(string old, string name) => scopes.Peek().Add(old, name);
@@ -101,6 +112,7 @@ internal sealed class QueryHelperInliner
     private Block Body(Block input, Context context, bool scope = true)
     {
         if (scope) context.Push(); var output = new Block();
+        output.DiagnosticFilters.AddRange(input.DiagnosticFilters); context.PushDiagnostics(input.DiagnosticFilters);
         foreach (var statement in input.Statements)
         {
             Statement mapped;
@@ -110,7 +122,7 @@ internal sealed class QueryHelperInliner
                 case Statement.Declare d:
                     Expression? initializer = d.Initializer is null ? null : E(d.Initializer);
                     string name = context.Rename ? Fresh() : d.Name; context.Add(d.Name, name);
-                    mapped = new Statement.Declare(name, d.Type, initializer, d.Mutable); break;
+                    mapped = d with { Name = name, Initializer = initializer }; break;
                 case Statement.Store s:
                     Expression target = E(s.Target); var valuePrelude = new Block(); Expression value = Expr(s.Value, context, valuePrelude);
                     if (valuePrelude.Statements.Count != 0) target = CapturePlace(target, output);
@@ -123,9 +135,11 @@ internal sealed class QueryHelperInliner
                 case Statement.Switch sw:
                     mapped = new Statement.Switch(E(sw.Selector), sw.Cases.Select(c => c with { Body = Body(c.Body, context) }).ToArray()); break;
                 case Statement.Loop l:
+                    context.PushDiagnostics(l.Body.DiagnosticFilters);
                     context.Push(); Block body = Body(l.Body, context, false); context.Push(); Block tail = Body(l.Continuing, context, false);
+                    context.PushDiagnostics(l.Continuing.DiagnosticFilters);
                     Expression? breakIf = l.BreakIf is null ? null : Expr(l.BreakIf, context, tail);
-                    context.Pop(); context.Pop(); mapped = new Statement.Loop(body, tail, breakIf); break;
+                    context.PopDiagnostics(); context.Pop(); context.Pop(); context.PopDiagnostics(); mapped = new Statement.Loop(body, tail, breakIf); break;
                 case Statement.Return r when context.Returned is not null:
                     if (r.Value is not null) output.Statements.Add(new Statement.Store(context.ReturnValue!, E(r.Value)));
                     output.Statements.Add(new Statement.Store(context.Returned, Expression.Bool(true))); mapped = new Statement.Break(); break;
@@ -136,20 +150,24 @@ internal sealed class QueryHelperInliner
             if (context.Returned is not null && mapped is Statement.Nested or Statement.If or Statement.Switch or Statement.Loop)
                 output.Statements.Add(ReturnBreak(context.Returned));
         }
-        if (scope) context.Pop(); return output;
+        context.PopDiagnostics(); if (scope) context.Pop(); return output;
     }
     private static Statement.If ReturnBreak(Expression returned)
     {
         var exit = new Block(); exit.Statements.Add(new Statement.Break());
         return new(new Expression.Load(returned), exit, new());
     }
-    private Expression Inline(Expression.Call call, Expression[] args, Block prelude)
+    private Expression Inline(Expression.Call call, Expression[] args, Block prelude, Context caller)
     {
         var f = helpers[call.Function];
         if (!expanding.Add(f.Name)) throw Error($"Recursive {kind} helper calls cannot be inlined.");
         if (f.Stage is not null || args.Length != f.Arguments.Count) throw Error($"Invalid {kind} helper call.");
-        if (f.DiagnosticFilters.Count != 0) throw Error($"{char.ToUpperInvariant(kind[0]) + kind[1..]} helper diagnostic filters require block diagnostic lowering before inlining.");
-        var context = new Context(true); context.Push(); var body = new Block();
+        var context = new Context(true, f.DiagnosticFilters, moduleFilters); context.Push(); context.PushDiagnostics(f.Body.DiagnosticFilters);
+        var body = new Block();
+        var defaults = new[] { new DiagnosticFilter(DiagnosticSeverity.Error, "derivative_uniformity"), new DiagnosticFilter(DiagnosticSeverity.Error, "subgroup_uniformity") };
+        foreach (var filter in f.Body.DiagnosticFilters.Concat(f.DiagnosticFilters).Concat(moduleFilters).Concat(defaults).DistinctBy(f => (f.Namespace, f.Rule)))
+            if (caller.Severity(filter) != filter.Severity || f.Body.DiagnosticFilters.Concat(f.DiagnosticFilters).Any(f => f.Namespace == filter.Namespace && f.Rule == filter.Rule))
+                body.DiagnosticFilters.Add(filter);
         for (int i = 0; i < args.Length; i++)
         {
             string name = Fresh(); context.Add(f.Arguments[i].Name, name);
@@ -181,7 +199,7 @@ internal sealed class QueryHelperInliner
             body.Statements.Add(new Statement.Switch(Expression.U32(0), [new([], true, region)]));
             prelude.Statements.Add(new Statement.Nested(body));
         }
-        context.Pop(); expanding.Remove(f.Name);
+        context.PopDiagnostics(); context.Pop(); expanding.Remove(f.Name);
         return result is null ? new Expression.Construct(new ShaderType.Void(), []) : new Expression.Load(result);
     }
     private Expression[] Values(IReadOnlyList<Expression> values, Context context, Block prelude, bool freeze = false)
@@ -197,7 +215,7 @@ internal sealed class QueryHelperInliner
         switch (input)
         {
             case Expression.Reference r: result = r with { Name = context.Name(r.Name) }; break;
-            case Expression.Literal: result = input; break;
+            case Expression.Literal or Expression.HelperInvocation: result = input; break;
             case Expression.Load l: result = l with { Pointer = E(l.Pointer) }; break;
             case Expression.Unary u: result = u with { Operand = E(u.Operand) }; break;
             case Expression.Convert c: result = c with { Operand = E(c.Operand) }; break;
@@ -205,8 +223,9 @@ internal sealed class QueryHelperInliner
             case Expression.Swizzle s: result = s with { Vector = E(s.Vector) }; break;
             case Expression.Construct c: result = c with { Components = Values(c.Components, context, prelude) }; break;
             case Expression.Call c:
-                var args = Values(c.Arguments, context, prelude, helpers.ContainsKey(c.Function));
-                result = helpers.ContainsKey(c.Function) ? Inline(c, args, prelude) : c with { Arguments = args }; break;
+                bool inline = c.Binding != CallBinding.Builtin && helpers.ContainsKey(c.Function);
+                var args = Values(c.Arguments, context, prelude, inline);
+                result = inline ? Inline(c, args, prelude, context) : c with { Arguments = args }; break;
             case Expression.Binary b:
             {
                 var left = E(b.Left); var rightPrelude = new Block(); var right = Expr(b.Right, context, rightPrelude);

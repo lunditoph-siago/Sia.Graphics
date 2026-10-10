@@ -6,25 +6,25 @@ public static partial class ModuleValidator
 {
     private sealed partial class Validator
     {
-        private static readonly HashSet<string> FloatUnary = new("acos acosh asin asinh atan atanh ceil cos cosh degrees exp exp2 floor fract inverseSqrt log log2 quantizeToF16 radians round saturate sin sinh sqrt tan tanh trunc".Split(' '), StringComparer.Ordinal);
-        private static readonly HashSet<string> IntegerUnary = new("countLeadingZeros countOneBits countTrailingZeros firstLeadingBit firstTrailingBit reverseBits".Split(' '), StringComparer.Ordinal);
         private static bool Float(ShaderType type) => Scalar(type)?.Kind is ScalarKind.Float or ScalarKind.AbstractFloat;
         private static bool ScalarVector(ShaderType type) => type is ShaderType.Scalar or ShaderType.Vector;
         private ShaderType Call(Expression.Call call)
         {
             ShaderType[] args = call.Arguments.Select(Expr).ToArray(); string name = call.Function;
-            AtomicMemory(call);
-            CallMemoryAccess(call);
             void Count(int count) => Require(args.Length == count, $"'{name}' requires {count} arguments.", call.Span);
             void AllSame() { foreach (var arg in args.Skip(1)) Same(arg, args[0], $"'{name}' argument types differ.", call.Span); }
             void FloatData() => Require(Float(args[0]) && ScalarVector(args[0]), $"'{name}' requires floating-point scalar/vector data.", call.Span);
-            if (functions.TryGetValue(name, out var callee))
+            if (call.Binding != CallBinding.Builtin && functions.TryGetValue(name, out var callee))
             {
+                Require(call.AtomicMemory is null && call.MemoryAccess is null, "User function calls cannot carry builtin memory metadata.", call.Span);
                 Require(callee.Stage is null && function is not null, "Entry points cannot be called; calls require a function body.", call.Span);
                 Count(callee.Arguments.Count);
                 for (int i = 0; i < args.Length; i++) Same(args[i], callee.Arguments[i].Type, "Function argument type mismatch.", call.Span);
                 calls[function!.Name].Add(name); return callee.ReturnType;
             }
+            Require(call.Binding != CallBinding.Function, "Unknown resolved function call.", call.Span);
+            AtomicMemory(call);
+            CallMemoryAccess(call);
             if (name is "coopLoad" or "coopLoadT" or "coopStore" or "coopStoreT" or "coopMultiplyAdd") return Cooperative(call, args);
             if (name.StartsWith("spirvRayQuery", StringComparison.Ordinal))
             {
@@ -123,8 +123,8 @@ public static partial class ModuleValidator
             if (name is "isNan" or "isInf") { Count(1); FloatData(); return args[0] is ShaderType.Vector v ? new ShaderType.Vector(v.Size, ShaderType.Bool) : ShaderType.Bool; }
             if (name.StartsWith("dpdx", StringComparison.Ordinal) || name.StartsWith("dpdy", StringComparison.Ordinal) || name.StartsWith("fwidth", StringComparison.Ordinal))
             { Count(1); FloatData(); Restrict(Fragment); return args[0]; }
-            if (FloatUnary.Contains(name)) { Count(1); FloatData(); return args[0]; }
-            if (IntegerUnary.Contains(name)) { Count(1); Require(Integer(args[0]) && ScalarVector(args[0]), "Bit builtin requires integer data.", call.Span); return args[0]; }
+            if (ShaderBuiltinEffects.IsFloatUnary(name)) { Count(1); FloatData(); return args[0]; }
+            if (ShaderBuiltinEffects.IsIntegerUnary(name)) { Count(1); Require(Integer(args[0]) && ScalarVector(args[0]), "Bit builtin requires integer data.", call.Span); return args[0]; }
             if (name is "abs" or "sign")
             { Count(1); Require(Numeric(args[0]) && ScalarVector(args[0]) && (name == "abs" || Scalar(args[0])?.Kind != ScalarKind.Uint), "Invalid signed math operand.", call.Span); return args[0]; }
             if (name is "min" or "max" or "clamp")

@@ -3,6 +3,7 @@ using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
 using Sia.Spirv.Compiler.Translation.Spirv;
+using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Tests;
 
@@ -62,14 +63,40 @@ public class SpirvTests
     public void ComputeStorePreservesInvocationIdAndBinding()
     {
         var module = SpirvReader.Parse(ComputeStore().ToBytes());
-        string wgsl = WgslWriter.Write(module);
+        string wgsl = WgslWriter.Emit(module);
         Assert.Contains("@builtin(global_invocation_id)", wgsl);
         Assert.Contains("@group(2) @binding(3)", wgsl);
         Assert.Contains("@workgroup_size(64u, 1u, 1u)", wgsl);
-        Assert.Contains("g11.m0[r22] = r23;", wgsl);
+        var statements = module.Functions.SelectMany(f => f.Body.Statements).ToArray();
+        var definitions = statements.OfType<Statement.Declare>().Where(d => d.Initializer is not null)
+            .ToDictionary(d => d.Name, d => d.Initializer!);
+        foreach (var writes in statements.OfType<Statement.Store>()
+            .Where(s => s.Target is Expression.Reference { Type: ShaderType.Pointer { Space: AddressSpace.Function } })
+            .GroupBy(s => Assert.IsType<Expression.Reference>(s.Target).Name)) {
+            var write = Assert.Single(writes); Assert.False(definitions.ContainsKey(writes.Key));
+            definitions.Add(writes.Key, write.Value);
+        }
+        Expression Resolve(Expression value) => value is Expression.Reference reference && definitions.TryGetValue(reference.Name, out var initializer)
+            ? Resolve(initializer) : value;
+        var store = Assert.Single(statements.OfType<Statement.Store>(), s => s.Target is Expression.Access {
+            Base: Expression.Member { Name: "m0", Base: Expression.Reference { Name: "g11" } } });
+        var indexValue = Resolve(Assert.IsType<Expression.Access>(store.Target).Index);
+        var index = Assert.IsType<Expression.Access>(Assert.IsType<Expression.Load>(indexValue).Pointer);
+        Assert.Equal(0u, Assert.IsType<Expression.Literal>(index.Index).Value);
+        Assert.Equal("g10", Assert.IsType<Expression.Reference>(Assert.IsType<Expression.Load>(Resolve(index.Base)).Pointer).Name);
+        var sum = Assert.IsType<Expression.Binary>(Resolve(store.Value)); Assert.Equal("+", sum.Operator);
+        Assert.Equal(indexValue, Resolve(sum.Left)); Assert.Equal(1u, Assert.IsType<Expression.Literal>(sum.Right).Value);
         var main = module.Functions.Single(f => f.Stage is not null);
         Assert.Equal(ShaderStage.Compute, main.Stage);
         Assert.Single(main.Arguments);
+        var deferrals = new List<CanonicalDeferral>(); _ = CanonicalShaderPipeline.Run(module, deferrals: deferrals);
+        Assert.Empty(deferrals);
+        string canonical = WgslWriter.Write(module);
+        Assert.Contains("@builtin(global_invocation_id)", canonical);
+        Assert.Contains("@group(2) @binding(3)", canonical);
+        Assert.Contains("@workgroup_size(64u, 1u, 1u)", canonical);
+        ModuleValidator.Validate(WgslReader.Parse(canonical));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
     }
 
     internal static SpirvBinary ComputeStore() => Binary(
@@ -97,12 +124,24 @@ public class SpirvTests
             I(Op.ULessThan, 3, 22, 20, 7), I(Op.LoopMerge, 15, 14, 0), I(Op.BranchConditional, 22, 13, 15),
             I(Op.Label, 13), I(Op.Branch, 14), I(Op.Label, 14), I(Op.Branch, 12),
             I(Op.Label, 15), I(Op.Return), I(Op.FunctionEnd));
-        string wgsl = WgslWriter.Write(SpirvReader.Parse(binary.ToBytes()));
+        var module = SpirvReader.Parse(binary.ToBytes());
+        string wgsl = WgslWriter.Emit(module);
         Assert.Contains("loop {", wgsl); Assert.Contains("continuing {", wgsl);
-        int snapshot = wgsl.IndexOf("let edge_14_12_21", StringComparison.Ordinal);
-        int firstCopy = wgsl.IndexOf("r20 = edge_14_12_20", StringComparison.Ordinal);
-        Assert.True(snapshot >= 0 && snapshot < firstCopy, wgsl);
+        // Both old values must be captured before either loop-carried value changes.
+        var loop = Assert.Single(module.Functions.SelectMany(f => f.Body.Statements).OfType<Statement.Loop>());
+        var tail = loop.Continuing.Statements; Assert.Equal(4, tail.Count);
+        var first = Assert.IsType<Statement.Declare>(tail[0]); var second = Assert.IsType<Statement.Declare>(tail[1]);
+        var a = Assert.IsType<Statement.Store>(tail[2]); var b = Assert.IsType<Statement.Store>(tail[3]);
+        Assert.Equal(Assert.IsType<Expression.Reference>(Assert.IsType<Expression.Load>(second.Initializer).Pointer).Name,
+            Assert.IsType<Expression.Reference>(a.Target).Name);
+        Assert.Equal(Assert.IsType<Expression.Reference>(Assert.IsType<Expression.Load>(first.Initializer).Pointer).Name,
+            Assert.IsType<Expression.Reference>(b.Target).Name);
+        Assert.Equal(first.Name, Assert.IsType<Expression.Reference>(a.Value).Name);
+        Assert.Equal(second.Name, Assert.IsType<Expression.Reference>(b.Value).Name);
         Assert.Contains("break;", wgsl);
+        var deferrals = new List<CanonicalDeferral>();
+        _ = CanonicalShaderPipeline.Run(module, deferrals: deferrals); Assert.Empty(deferrals);
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
     }
 
     [Fact]

@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Translation.Legalization;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -103,10 +104,7 @@ public class PointerSelectionTests
         main.Body.Statements.Add(new Statement.Store(Index(output, Expression.U32(2), ShaderType.U32), new Expression.Load(Field(memory, "tail", ShaderType.U32))));
         module.Functions.Add(main);
         // Keep actual native pointer selection and helper parameters in inputs.
-        var writer = typeof(SpirvWriter).GetNestedType("Writer", System.Reflection.BindingFlags.NonPublic)!;
-        var instance = Activator.CreateInstance(writer, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
-            null, [module, new SpirvWriteOptions()], null)!;
-        var binary = (SpirvBinary)writer.GetMethod("Write")!.Invoke(instance, null)!;
+        var binary = SpirvWriter.Emit(SpirvPhysicalLayoutLowering.Prepare(module));
         var code = binary.Instructions.ToList(); code.Insert(1, new((ushort)Op.Capability, [shared || kind == "cross" || descriptors && kind != "descriptor-same" ? 4442u : 4441u]));
         return new() { Version = binary.Version, Bound = binary.Bound, Instructions = code };
     }

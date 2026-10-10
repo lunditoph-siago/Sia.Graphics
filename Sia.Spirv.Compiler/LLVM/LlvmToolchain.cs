@@ -91,16 +91,19 @@ public sealed class LlvmToolchain
         int optimizationLevel,
         string targetEnvironment,
         SpirvShaderStage shaderStage)
+        => Compile(inputPath, outputPath, optimizationLevel, new Compilation.SpirvCompilationTarget {
+            Environment = targetEnvironment,
+            Version = targetEnvironment == "vulkan1.3" ? 0x00010600u : 0x00010500u
+        }, shaderStage);
+
+    public void Compile(string inputPath, string outputPath, int optimizationLevel,
+        Compilation.SpirvCompilationTarget target, SpirvShaderStage shaderStage)
     {
+        ArgumentNullException.ThrowIfNull(target);
+        target.Validate(offline: true);
         ValidateOptimizationLevel(optimizationLevel);
         var targetStage = LlvmIrEmitter.GetTargetStage(shaderStage);
-        var triple = targetEnvironment switch {
-            "vulkan1.2" => $"spirv1.5-vulkan1.2-{targetStage}",
-            "vulkan1.3" => $"spirv1.6-vulkan1.3-{targetStage}",
-            _ => throw new ArgumentException(
-                $"Target environment '{targetEnvironment}' is not supported.",
-                nameof(targetEnvironment))
-        };
+        var triple = $"spirv1.{(target.Version >> 8) & 255}-{target.Environment}-{targetStage}";
         // The SPIR-V backend inserts structured merge instructions before its
         // late code-motion passes. Enabling llc optimization can then move a
         // speculatable instruction between OpSelectionMerge and its branch,

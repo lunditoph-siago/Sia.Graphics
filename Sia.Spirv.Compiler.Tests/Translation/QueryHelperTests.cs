@@ -59,7 +59,7 @@ public class QueryHelperTests
     public void NestedReturnsShortCircuitAndOperandOrderHaveValidLowerings()
     {
         var input = WgslReader.Parse(ControlSource); ModuleValidator.Validate(input);
-        var output = QueryHelperInliner.Run(input); ModuleValidator.Validate(output);
+        var output = HelperInliner.RunQueries(input); ModuleValidator.Validate(output);
         Assert.DoesNotContain(output.Functions, f => f.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.RayQuery }));
         Assert.Equal(5, input.Functions.Count); // The pass does not mutate its input.
         string wgsl = WgslWriter.Write(input); ModuleValidator.Validate(WgslReader.Parse(wgsl));
@@ -84,8 +84,13 @@ public class QueryHelperTests
     public void HelperDiagnosticFiltersAreNotSilentlyDropped()
     {
         var module = WgslReader.Parse("enable wgpu_ray_query; @diagnostic(off,derivative_uniformity) fn helper(q:ptr<function,ray_query>){} @compute @workgroup_size(1) fn main(){var q:ray_query; helper(&q);}");
-        Assert.Contains("diagnostic", Assert.Throws<ShaderException>(() => WgslWriter.Write(module)).Message);
-        Assert.Contains("diagnostic", Assert.Throws<ShaderException>(() => SpirvWriter.Write(module)).Message);
+        var expanded = HelperInliner.RunQueries(module);
+        Assert.Contains(AllStatements(expanded.Functions.Single(f => f.Stage is not null).Body),
+            s => s is Statement.Nested n && n.Body.DiagnosticFilters.Contains(new(DiagnosticSeverity.Off, "derivative_uniformity")));
+        Assert.Contains("@diagnostic(off, derivative_uniformity)", WgslWriter.Write(module));
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+        ModuleValidator.Validate(SpirvReader.Parse(SpirvWriter.Write(module)));
+        Assert.Single(module.Functions[0].DiagnosticFilters);
     }
 
     [Fact]
@@ -129,7 +134,7 @@ public class QueryHelperTests
         string wgsl = WgslWriter.Write(SpirvReader.Parse(binary));
         Assert.DoesNotContain("spirvRayQuery", wgsl);
         ModuleValidator.Validate(WgslReader.Parse(wgsl));
-        var lowered = QueryStateLowering.Run(QueryHelperInliner.Run(module));
+        var lowered = QueryStateLowering.Run(HelperInliner.RunQueries(module));
         ModuleValidator.Validate(lowered);
         var stores = AllStatements(lowered.Functions.Single(f => f.Name == "main").Body).OfType<Statement.Store>()
             .Where(s => s.Target is Expression.Reference r && r.Name.StartsWith("sia_query_state_", StringComparison.Ordinal)).ToArray();
@@ -146,7 +151,7 @@ public class QueryHelperTests
         module.Structures.Add(structure);
         module.Functions.Single(f => f.Name == "main").Body.Statements.Add(new Statement.Declare("value", structure,
             new Expression.Construct(structure, [Expression.U32(1)]), false));
-        var output = QueryStateLowering.Run(QueryHelperInliner.Run(module));
+        var output = QueryStateLowering.Run(HelperInliner.RunQueries(module));
         Assert.DoesNotContain(AllStatements(output.Functions.Single(f => f.Name == "main").Body),
             s => s is Statement.Declare { Name: "sia_query_state_0" });
         ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));

@@ -15,6 +15,7 @@ public static partial class ModuleValidator
                 ShaderType result = expression switch
                 {
                     Expression.Literal literal => Literal(literal),
+                    Expression.HelperInvocation => HelperInvocation(),
                     Expression.Reference reference => Reference(reference),
                     Expression.Load load => Load(load),
                     Expression.Unary unary => Unary(unary),
@@ -32,6 +33,11 @@ public static partial class ModuleValidator
                 return result;
             }
             finally { expressionDepth--; }
+        }
+
+        private ShaderType HelperInvocation()
+        {
+            Restrict(Fragment); return ShaderType.Bool;
         }
 
         private ShaderType Literal(Expression.Literal literal)
@@ -77,6 +83,8 @@ public static partial class ModuleValidator
         }
         private Variable Place(Expression expression) => expression switch
         {
+            Expression.Select { Type: ShaderType.Pointer p } when allowNativePointerParameters
+                => new(p.Base, true, (p.Access & StorageAccess.Write) != 0, p.Space),
             Expression.Reference r => Lookup(r.Name),
             Expression.Unary { Operator: "*" } u when u.Operand.Type is ShaderType.Pointer p => new(p.Base, true, (p.Access & StorageAccess.Write) != 0, p.Space),
             Expression.Access a => Place(a.Base) with { Type = DataType(a.Type) },
@@ -235,7 +243,8 @@ public static partial class ModuleValidator
             ShaderType condition = Expr(select.Condition), accept = Expr(select.Accept), reject = Expr(select.Reject);
             Same(accept, reject, "Select alternatives have different types.", select.Span);
             Require(condition == ShaderType.Bool || accept is ShaderType.Vector v && condition == new ShaderType.Vector(v.Size, ShaderType.Bool), "Select condition shape mismatch.", select.Span);
-            Require(accept is ShaderType.Scalar or ShaderType.Vector, "Select requires scalar/vector alternatives.", select.Span); return accept;
+            Require(accept is ShaderType.Scalar or ShaderType.Vector || allowNativePointerParameters && accept is ShaderType.Pointer,
+                "Select requires scalar/vector alternatives.", select.Span); return accept;
         }
     }
 }

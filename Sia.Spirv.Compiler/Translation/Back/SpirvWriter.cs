@@ -1,11 +1,15 @@
 using Sia.Spirv.Compiler.Translation.IR;
 using Sia.Spirv.Compiler.Translation.Spirv;
+using Sia.Spirv.Compiler.Compilation;
+using Sia.Spirv.Compiler.Translation.Legalization;
 
 namespace Sia.Spirv.Compiler.Translation.Back;
 
 public sealed record SpirvWriteOptions(bool AdjustCoordinateSpace = true, bool ClampFragmentDepth = true,
     bool ZeroInitializeWorkgroupMemory = true, bool EmitIntegerDivisionChecks = true)
 {
+    /// <summary>Explicit target contract. Null retains the legacy writer's automatic version/unrestricted feature policy.</summary>
+    public SpirvCompilationTarget? Target { get; init; }
     /// <summary>Resolve WGSL overrides before writing. Keys are explicit decimal IDs or names for overrides without IDs.</summary>
     public IReadOnlyDictionary<string, double>? PipelineConstants { get; init; }
     /// <summary>Emit unresolved workgroup sizes with LocalSizeId. Vulkan targets require maintenance4 (Vulkan 1.3), or equivalent target support.</summary>
@@ -14,28 +18,16 @@ public sealed record SpirvWriteOptions(bool AdjustCoordinateSpace = true, bool C
 
 public static partial class SpirvWriter
 {
-    public static byte[] Write(Module module, SpirvWriteOptions? options = null)
-    {
-        Valid.ModuleValidator.Validate(module);
-        if (options?.PipelineConstants is { } values) module = Proc.PipelineConstantResolver.Resolve(module, values);
-        module = Proc.QueryHelperInliner.Run(module);
-        module = Proc.QueryHelperInliner.RunNonFunctionPointers(module);
-        Valid.ModuleValidator.Validate(module);
-        return new Writer(module, options ?? new()).Write().ToBytes();
-    }
-    public static uint[] WriteWords(Module module, SpirvWriteOptions? options = null)
-    {
-        Valid.ModuleValidator.Validate(module);
-        if (options?.PipelineConstants is { } values) module = Proc.PipelineConstantResolver.Resolve(module, values);
-        module = Proc.QueryHelperInliner.Run(module);
-        module = Proc.QueryHelperInliner.RunNonFunctionPointers(module);
-        Valid.ModuleValidator.Validate(module);
-        return new Writer(module, options ?? new()).Write().ToWords();
-    }
+    internal static SpirvBinary Emit(SpirvPhysicalLayout prepared) => new Writer(prepared.Module, prepared).Write();
 
-    private sealed partial class Writer(Module module, SpirvWriteOptions options)
+    internal static SpirvBinary Emit(SpirvEntryPointLowering.Result prepared)
+        => Emit(prepared.PhysicalLayout);
+
+    private sealed partial class Writer(Module module, SpirvPhysicalLayout preparedLayout)
     {
-        private SpirvWriteOptions Options => options;
+        private readonly SpirvPhysicalLayout physicalLayout = preparedLayout;
+        private SpirvEntryAbi EntryAbi => physicalLayout.EntryAbi ?? throw Error("Missing prepared entry ABI.");
+        private uint OutputVersion => EntryAbi.Version;
         private bool VulkanMemoryModel => module.VulkanMemoryModel;
         private bool UsesVulkanMemoryModel => VulkanMemoryModel || capabilities.Contains(5345);
         private uint nextId = 1;
@@ -55,19 +47,15 @@ public static partial class SpirvWriter
         private readonly Dictionary<string, uint> functionTypes = new(StringComparer.Ordinal);
         private readonly Dictionary<string, uint> imageTypes = new(StringComparer.Ordinal);
         private readonly HashSet<string> decorationKeys = new(StringComparer.Ordinal);
-        private readonly HashSet<ShaderType> bufferTypes = [];
         private readonly Dictionary<string, Symbol> globals = new(StringComparer.Ordinal);
         private readonly Dictionary<string, (uint Id, ShaderFunction Function)> functions = new(StringComparer.Ordinal);
         private readonly Dictionary<string, uint> constantIds = new(StringComparer.Ordinal);
-        private readonly HashSet<uint> specializationIds = module.Constants.Where(c => c.IsOverride && c.OverrideId is not null).Select(c => c.OverrideId!.Value).ToHashSet();
-        private uint nextSpecializationId;
         private uint? glsl;
         private bool usesDeviceScope;
         private bool usesSequentialMemoryOrder;
-        private bool meshShaderModule;
         private readonly HashSet<uint> moduleVariableIds = [];
         private readonly Dictionary<uint, HashSet<uint>> functionGlobalUses = [], functionCalls = [];
-        private sealed record Symbol(uint Id, ShaderType Type, bool Place, uint Storage = 7, bool BufferWrapper = false, ShaderType? PhysicalType = null, UniformLocation? UniformLocation = null, MemoryDecorations? MemoryRequirement = null);
+        private sealed record Symbol(uint Id, ShaderType Type, bool Place, uint Storage = 7, bool BufferWrapper = false, ShaderType? PhysicalType = null);
         private ShaderException Error(string message, SourceSpan span = default) => new(DiagnosticStage.SpirvWrite, message, span);
         private uint Id() => nextId++;
         private static SpirvInstruction I(Op op, params uint[] args) => new((ushort)op, args);
@@ -85,15 +73,13 @@ public static partial class SpirvWriter
             if (UsesVulkanMemoryModel && module.Globals.Any(g => g.Space == AddressSpace.TaskPayload
                 && ((g.MemoryDecorations | TypeMemory(g.Type)) & MemoryDecorations.Coherent) != 0))
                 throw Error("Coherent task-payload memory requires a supported non-private lowering.");
-            bool PerPrimitive(ShaderType type) => type is ShaderType.Structure s && s.Members.Any(m => m.Binding?.PerPrimitive == true || PerPrimitive(m.Type));
-            meshShaderModule = module.Enables.Contains("wgpu_mesh_shader") || module.Functions.Any(f => f.Stage is ShaderStage.Task or ShaderStage.Mesh)
-                || module.Globals.Any(g => g.Space == AddressSpace.TaskPayload)
-                || module.Structures.Any(s => s.Members.Any(m => m.Binding?.PerPrimitive == true))
-                || module.Functions.Any(f => f.ReturnBinding?.PerPrimitive == true || PerPrimitive(f.ReturnType)
-                    || f.Arguments.Any(a => a.Binding?.PerPrimitive == true || PerPrimitive(a.Type)));
-            if (meshShaderModule) { capabilities.Add(5283); extensions.Add("SPV_EXT_mesh_shader"); }
-            foreach (var global in module.Globals.Where(g => g.Space is AddressSpace.Uniform or AddressSpace.Storage or AddressSpace.Immediate)) MarkBufferType(global.Type);
+            capabilities.UnionWith(EntryAbi.Capabilities); extensions.UnionWith(EntryAbi.Extensions);
             foreach (var function in module.Functions) functions.Add(function.Name, (Id(), function));
+            foreach (var entry in module.Functions.Where(f => EntryAbi.Entries.ContainsKey(f.Name))) {
+                if (!physicalLayout.EntryWrappers.TryGetValue(entry.Name, out var wrapper)) continue;
+                var signature = wrapper.Function.Graph.Signature;
+                functions.Add(signature.Name, (Id(), signature));
+            }
             foreach (var constant in module.Constants)
             {
                 if (IsAbstract(constant.Type)) continue;
@@ -105,20 +91,14 @@ public static partial class SpirvWriter
                 if (variable.Space == AddressSpace.Function) throw Error("Function-space module variable.");
                 uint storage = Storage(variable.Space);
                 bool buffer = variable.Space is AddressSpace.Uniform or AddressSpace.Storage or AddressSpace.Immediate;
-                bool wrap = buffer && variable.Type is not ShaderType.BindingArray && !(variable.Type is ShaderType.Structure structure && TypeLayout.Of(structure).IsRuntimeSized);
+                var layout = physicalLayout.Globals[variable.Name];
+                bool wrap = layout.BufferWrapper;
                 if (buffer && variable.Type is ShaderType.BindingArray bufferArray)
                 {
                     if (bufferArray.Element is not ShaderType.Structure) throw Error("Buffer binding array elements currently require a structure.");
                 }
-                ShaderType physical = variable.Space == AddressSpace.Uniform ? UniformType(variable.Type) : variable.Space == AddressSpace.Workgroup ? WorkgroupType(variable.Type) : variable.Type;
-                MarkBufferTypeIfNeeded(physical, buffer);
-                ShaderType type = physical;
-                if (wrap)
-                {
-                    var block = new ShaderType.Structure("SpirvBlock_" + variable.Name, [new StructMember("value", type, Offset: 0)]);
-                    MarkBufferType(block);
-                    uint blockId = Type(block); Decorate(blockId, 2); type = block;
-                }
+                ShaderType physical = layout.PhysicalType, type = layout.DeclarationType;
+                if (wrap) Decorate(Type(type), 2);
                 uint typeId = Type(type), pointer = Pointer(typeId, storage), id = Id();
                 if (buffer && !wrap) Decorate(type is ShaderType.BindingArray array ? Type(array.Element) : typeId, 2);
                 if (variable.Initializer is not null)
@@ -145,7 +125,10 @@ public static partial class SpirvWriter
                 }
             }
             foreach (var function in module.Functions) EmitFunction(functions[function.Name].Id, function);
-            foreach (var function in module.Functions.Where(f => f.Stage is not null)) EmitEntryPoint(function);
+            foreach (var function in module.Functions.Where(f => f.Stage is not null || EntryAbi.Entries.ContainsKey(f.Name))) {
+                if (!physicalLayout.EntryWrappers.TryGetValue(function.Name, out var wrapper)) throw Error("Entry wrapper was not prepared by target legalization.");
+                EmitEntryPoint(wrapper);
+            }
             if (capabilities.Contains(5345) && usesSequentialMemoryOrder)
                 throw Error("Sequentially consistent memory order is unavailable with the required Vulkan memory model.");
             if (capabilities.Contains(5345) && usesDeviceScope) capabilities.Add(5346);
@@ -155,7 +138,7 @@ public static partial class SpirvWriter
             if (glsl is uint import) all.Add(I(Op.ExtInstImport, new uint[] { import }.Concat(SpirvBinary.StringWords("GLSL.std.450")).ToArray()));
             all.Add(I(Op.MemoryModel, 0, capabilities.Contains(5345) ? 3u : 1u)); all.AddRange(entryPoints); all.AddRange(executionModes);
             all.AddRange(debug); all.AddRange(annotations); all.AddRange(declarations); all.AddRange(bodies);
-            return new() { Version = meshShaderModule ? 0x00010400u : 0x00010300u, Bound = nextId, Instructions = all };
+            return new() { Version = OutputVersion, Bound = nextId, Instructions = all };
         }
 
         private static bool IsAbstract(ShaderType type) => type switch
@@ -179,7 +162,7 @@ public static partial class SpirvWriter
             if (type is ShaderType.Sampler { Comparison: true }) return Type(new ShaderType.Sampler());
             if (type is ShaderType.RayQuery { VertexReturn: true }) return Type(new ShaderType.RayQuery());
             if (type is ShaderType.AccelerationStructure { VertexReturn: true }) return Type(new ShaderType.AccelerationStructure());
-            if (type is ShaderType.Pointer pointer) return Pointer(Type(pointer.Space == AddressSpace.Workgroup ? WorkgroupType(pointer.Base) : pointer.Base), Storage(pointer.Space));
+            if (type is ShaderType.Pointer pointer) return Pointer(Type(pointer.Base), Storage(pointer.Space));
             if (type is ShaderType.Atomic atomic)
             {
                 if (atomic.Component.Kind == ScalarKind.Float)
@@ -220,7 +203,7 @@ public static partial class SpirvWriter
                     if (array.OverrideLength is string length) declarations.Add(I(Op.TypeArray, id, Type(array.Element), SpecializationLength(length)));
                     else if (array.Length is uint count) declarations.Add(I(Op.TypeArray, id, Type(array.Element), Constant(Expression.U32(count))));
                     else declarations.Add(I(Op.TypeRuntimeArray, id, Type(array.Element)));
-                    if (bufferTypes.Contains(type)) Decorate(id, 6, array.Stride ?? TypeLayout.Of(array.Element).Stride); break;
+                    if (physicalLayout.Buffers.TryGetValue(type, out var arrayLayout)) Decorate(id, 6, arrayLayout.ArrayStride!.Value); break;
                 case ShaderType.BindingArray array:
                     if (array.Element is not (ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure or ShaderType.Structure)) throw Error("Unsupported binding array element.");
                     if (array.OverrideLength is string bindingLength) declarations.Add(I(Op.TypeArray, id, Type(array.Element), SpecializationLength(bindingLength)));
@@ -241,21 +224,16 @@ public static partial class SpirvWriter
                             if ((memory & MemoryDecorations.Coherent) != 0) MemberDecorate(id, (uint)index, 23);
                             if ((memory & MemoryDecorations.Volatile) != 0) MemberDecorate(id, (uint)index, 21);
                         }
-                    if (!bufferTypes.Contains(type)) break;
-                    uint offset = 0;
-                    for (int index = 0; index < structure.Members.Count; index++)
+                    if (!physicalLayout.Buffers.TryGetValue(type, out var structureLayout)) break;
+                    for (int index = 0; index < structureLayout.Members.Count; index++)
                     {
-                        var member = structure.Members[index]; var layout = TypeLayout.Of(member.Type);
-                        offset = member.Offset ?? TypeLayout.RoundUp(member.Alignment ?? layout.Alignment, offset);
-                        MemberDecorate(id, (uint)index, 35, offset);
-                        ShaderType element = member.Type;
-                        while (element is ShaderType.Array arr) element = arr.Element;
-                        if (element is ShaderType.Matrix m)
+                        var member = structureLayout.Members[index];
+                        MemberDecorate(id, (uint)index, 35, member.Offset);
+                        if (member.MatrixStride is uint stride)
                         {
                             MemberDecorate(id, (uint)index, 5);
-                            MemberDecorate(id, (uint)index, 7, TypeLayout.Of(new ShaderType.Vector(m.Rows, m.Component)).Stride);
+                            MemberDecorate(id, (uint)index, 7, stride);
                         }
-                        offset = checked(offset + (member.Size ?? layout.Size));
                     }
                     break;
                 case ShaderType.Sampler: declarations.Add(I(Op.TypeSampler, id)); break;
@@ -280,14 +258,6 @@ public static partial class SpirvWriter
                 default: throw Error($"Unsupported SPIR-V type {type}.");
             }
             types.Add(type, id); return id;
-        }
-
-        private void MarkBufferType(ShaderType type)
-        {
-            if (!bufferTypes.Add(type)) return;
-            if (type is ShaderType.Array array) MarkBufferType(array.Element);
-            if (type is ShaderType.BindingArray bindingArray) MarkBufferType(bindingArray.Element);
-            if (type is ShaderType.Structure structure) foreach (var member in structure.Members) MarkBufferType(member.Type);
         }
 
         private uint Null(ShaderType type)
@@ -327,21 +297,12 @@ public static partial class SpirvWriter
         }
         private uint Override(ShaderConstant constant)
         {
-            Expression value = constant.Value ?? throw Error($"Override '{constant.Name}' has no default; supply PipelineConstants to resolve its value.");
-            if (!ConstantEvaluator.TryEvaluate(value, out var evaluated) || evaluated is not Expression.Literal literal) throw Error("Dependent override defaults require PipelineConstants resolution before SPIR-V writing.");
-            uint ordinary = Constant(literal), id = Id();
+            var metadata = EntryAbi.Overrides[constant.Name];
+            uint ordinary = Constant(metadata.Default), id = Id();
             var source = declarations.First(i => i.Operands.Length > 1 && i.Operands[1] == ordinary && (Op)i.Opcode is Op.Constant or Op.ConstantTrue or Op.ConstantFalse);
             Op op = (Op)source.Opcode switch { Op.ConstantTrue => Op.SpecConstantTrue, Op.ConstantFalse => Op.SpecConstantFalse, _ => Op.SpecConstant };
-            declarations.Add(I(op, new uint[] { Type(constant.Type), id }.Concat(source.Operands[2..]).ToArray()));
-            uint overrideId;
-            if (constant.OverrideId is uint explicitId) overrideId = explicitId;
-            else
-            {
-                while (specializationIds.Contains(nextSpecializationId)) nextSpecializationId++;
-                if (nextSpecializationId > ushort.MaxValue) throw Error("No available 16-bit specialization constant ID.");
-                overrideId = nextSpecializationId++; specializationIds.Add(overrideId);
-            }
-            Decorate(id, 1, overrideId); return id;
+            declarations.Add(I(op, new uint[] { Type(metadata.Type), id }.Concat(source.Operands[2..]).ToArray()));
+            Decorate(id, 1, metadata.SpecId); return id;
         }
         private uint FunctionType(ShaderType result, IEnumerable<ShaderType> arguments)
         {

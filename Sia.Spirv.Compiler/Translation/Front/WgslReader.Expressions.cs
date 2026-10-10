@@ -224,7 +224,7 @@ public static partial class WgslReader
             {
                 if (name.Templates.Count != 0 || arguments.Length != function.Arguments.Count || function.Stage is not null) throw Error("Invalid function call.", source.Span);
                 arguments = arguments.Select((e, i) => Materialize(e, function.Arguments[i].Type)).ToArray();
-                var call = new Expression.Call(name.Text, arguments, function.ReturnType);
+                var call = new Expression.Call(name.Text, arguments, function.ReturnType) { Binding = CallBinding.Function, Span = source.Span };
                 return function.ReturnType is ShaderType.Void ? call : Snapshot(call, block);
             }
             if (IsTypeName(name.Text)) return Constructor(name, arguments);

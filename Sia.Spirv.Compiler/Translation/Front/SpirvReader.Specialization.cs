@@ -83,7 +83,7 @@ public static partial class SpirvReader
                     result = new Expression.Convert(type, V(0)); break;
                 case Op.QuantizeToF16:
                     Arity(1); SpecSame(type, V(0).Type); SpecSame(ShaderType.F32, SpecComponent(type));
-                    result = new Expression.Call("quantizeToF16", [V(0)], type); break;
+                    result = new Expression.Call("quantizeToF16", [V(0)], type, CallBinding.Builtin); break;
                 case Op.SNegate:
                     Arity(1); SpecIntegerShape(type, V(0).Type);
                     result = SpecWrap(op, V(0), null, type); break;

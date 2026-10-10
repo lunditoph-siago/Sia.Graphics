@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Translation.Legalization;
 using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -49,10 +50,7 @@ public class ReadOnlyPointerSelectionTests
         main.Body.Statements.Add(new Statement.Store(Index(results, Expression.U32(1), ShaderType.U32), new Expression.Binary("+", old, Expression.U32(100), ShaderType.U32)));
         main.Body.Statements.Add(new Statement.Store(Index(results, Expression.U32(2), ShaderType.U32), new Expression.Load(Field(input, "tail", ShaderType.U32))));
         module.Functions.Add(main);
-        var writer = typeof(SpirvWriter).GetNestedType("Writer", System.Reflection.BindingFlags.NonPublic)!;
-        var instance = Activator.CreateInstance(writer, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
-            null, [module, new SpirvWriteOptions()], null)!;
-        var binary = (SpirvBinary)writer.GetMethod("Write")!.Invoke(instance, null)!;
+        var binary = SpirvWriter.Emit(SpirvPhysicalLayoutLowering.Prepare(module));
         var code = binary.Instructions.ToList(); code.Insert(1, new((ushort)Op.Capability, [4442u]));
         return new() { Version = binary.Version, Bound = binary.Bound, Instructions = code };
     }

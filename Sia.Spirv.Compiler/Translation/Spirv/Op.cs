@@ -69,6 +69,7 @@ internal enum Op : ushort
     GroupNonUniformBitwiseAnd = 359, GroupNonUniformBitwiseOr = 360, GroupNonUniformBitwiseXor = 361,
     GroupNonUniformLogicalAnd = 362, GroupNonUniformLogicalOr = 363, GroupNonUniformLogicalXor = 364,
     GroupNonUniformQuadBroadcast = 365, GroupNonUniformQuadSwap = 366,
+    TerminateInvocation = 4416, DemoteToHelperInvocation = 5380, IsHelperInvocation = 5381,
     AtomicFAddEXT = 6035,
     TypeRayQueryKHR = 4472, RayQueryInitializeKHR = 4473, RayQueryTerminateKHR = 4474,
     RayQueryGenerateIntersectionKHR = 4475, RayQueryConfirmIntersectionKHR = 4476, RayQueryProceedKHR = 4477,

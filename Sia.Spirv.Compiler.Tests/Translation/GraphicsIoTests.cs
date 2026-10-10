@@ -68,7 +68,14 @@ public class GraphicsIoTests
         ModuleValidator.Validate(module);
         var entry = module.Functions.Single(f => f.Stage == ShaderStage.Vertex);
         Assert.Equal(ShaderType.U32, Assert.Single(entry.Arguments).Type);
-        Assert.Contains(entry.Body.Statements, s => s is Statement.Store { Value: Expression.Convert { Bitcast: true, Type: var type } } && type == ShaderType.I32);
+        // Canonical values materialize the conversion once before the IO store.
+        var conversion = Assert.Single(entry.Body.Statements.OfType<Statement.Declare>(),
+            d => d.Initializer is Expression.Convert { Bitcast: true, Type: var type } && type == ShaderType.I32);
+        Assert.Equal(Assert.Single(entry.Arguments).Name,
+            Assert.IsType<Expression.Reference>(Assert.IsType<Expression.Convert>(conversion.Initializer).Operand).Name);
+        Assert.Contains(entry.Body.Statements, s => s is Statement.Store {
+            Target: Expression.Reference { Type: ShaderType.Pointer { Base: var type, Space: AddressSpace.Private } },
+            Value: Expression.Reference value } && type == ShaderType.I32 && value.Name == conversion.Name);
         var result = Assert.IsType<ShaderType.Structure>(entry.ReturnType);
         Assert.Equal(useClip || wholeStore, result.Members.Any(m => m.Binding?.Builtin == "clip_distances"));
         string output = WgslWriter.Write(module);

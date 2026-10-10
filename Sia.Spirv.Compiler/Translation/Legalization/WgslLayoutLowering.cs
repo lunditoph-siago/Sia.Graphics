@@ -1,6 +1,6 @@
 using Sia.Spirv.Compiler.Translation.IR;
 
-namespace Sia.Spirv.Compiler.Translation.Back;
+namespace Sia.Spirv.Compiler.Translation.Legalization;
 
 /// <summary>Lower explicit array strides and discover enables required by WGSL types.</summary>
 internal sealed class WgslLayoutLowering
@@ -99,7 +99,7 @@ internal sealed class WgslLayoutLowering
             Expression.Load l => new Expression.Load(Expr(l.Pointer)) { Span = l.Span, MemoryAccess = l.MemoryAccess },
             Expression.Unary u => new Expression.Unary(u.Operator, Expr(u.Operand), type) { Span = u.Span },
             Expression.Binary b => new Expression.Binary(b.Operator, Expr(b.Left), Expr(b.Right), type) { Span = b.Span },
-            Expression.Call c => new Expression.Call(c.Function, c.Arguments.Select(Expr).ToArray(), type) { Span = c.Span, AtomicMemory = c.AtomicMemory, MemoryAccess = c.MemoryAccess },
+            Expression.Call c => new Expression.Call(c.Function, c.Arguments.Select(Expr).ToArray(), type) { Binding = c.Binding, Span = c.Span, AtomicMemory = c.AtomicMemory, MemoryAccess = c.MemoryAccess },
             Expression.Construct c => Construct(c, type),
             Expression.Convert c => new Expression.Convert(type, Expr(c.Operand), c.Bitcast) { Span = c.Span },
             Expression.Access a => Access(a),
@@ -135,10 +135,11 @@ internal sealed class WgslLayoutLowering
     private Block Body(Block input)
     {
         var result = new Block();
+        result.DiagnosticFilters.AddRange(input.DiagnosticFilters);
         foreach (var statement in input.Statements) result.Statements.Add(statement switch
         {
             Statement.Nested n => new Statement.Nested(Body(n.Body)),
-            Statement.Declare d => new Statement.Declare(d.Name, Type(d.Type), d.Initializer is null ? null : Expr(d.Initializer), d.Mutable),
+            Statement.Declare d => d with { Type = Type(d.Type), Initializer = d.Initializer is null ? null : Expr(d.Initializer) },
             Statement.Store s => s with { Target = Expr(s.Target), Value = Expr(s.Value) },
             Statement.Evaluate e => new Statement.Evaluate(Expr(e.Value)),
             Statement.If i => new Statement.If(Expr(i.Condition), Body(i.Accept), Body(i.Reject)),

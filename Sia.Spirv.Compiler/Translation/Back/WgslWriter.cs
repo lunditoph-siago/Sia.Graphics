@@ -6,17 +6,7 @@ namespace Sia.Spirv.Compiler.Translation.Back;
 
 public static partial class WgslWriter
 {
-    public static string Write(Module module)
-    {
-        Valid.ModuleValidator.Validate(module);
-        module = Proc.QueryHelperInliner.Run(module);
-        module = Proc.QueryStateLowering.Run(module);
-        module = WgslMemoryLowering.Run(module);
-        Valid.ModuleValidator.Validate(module);
-        if (module.Constants.Any(c => (c.IsOverride || c.IsSpecialization) && c.Type is ShaderType.Scalar { Kind: ScalarKind.Sint or ScalarKind.Uint, Width: 8 }))
-            throw new ShaderException(DiagnosticStage.WgslWrite, "64-bit integer specialization constants require PipelineConstantResolver resolution before WGSL writing.");
-        return new Writer().Write(WgslLayoutLowering.Run(module));
-    }
+    internal static string Emit(Module module) => new Writer().Write(module);
     private static bool IsAbstract(ShaderType type) => type switch
     {
         ShaderType.Scalar { Kind: ScalarKind.AbstractInt or ScalarKind.AbstractFloat } => true,
@@ -97,10 +87,10 @@ public static partial class WgslWriter
             Expression.Unary { Operator: "&" } u => Address(u, E),
             Expression.Unary u => $"({u.Operator}{E(u.Operand)})",
             Expression.Binary b => $"({E(b.Left)} {b.Operator} {E(b.Right)})",
-            Expression.Call { Function: "isNan" or "isInf" } c => Classification(c, E),
-            Expression.Call { Function: "coopLoad" or "coopLoadT" or "coopStore" or "coopStoreT" } c => CooperativeMemory(c, E),
-            Expression.Call c when RayQueryTypes.RawGetterType(c.Function) is not null => RawRayGetter(c, E),
-            Expression.Call c when c.Function.StartsWith("spirvRayQuery", StringComparison.Ordinal) => RawRayCall(c, E),
+            Expression.Call { Binding: not CallBinding.Function, Function: "isNan" or "isInf" } c => Classification(c, E),
+            Expression.Call { Binding: not CallBinding.Function, Function: "coopLoad" or "coopLoadT" or "coopStore" or "coopStoreT" } c => CooperativeMemory(c, E),
+            Expression.Call c when c.Binding != CallBinding.Function && RayQueryTypes.RawGetterType(c.Function) is not null => RawRayGetter(c, E),
+            Expression.Call c when c.Binding != CallBinding.Function && c.Function.StartsWith("spirvRayQuery", StringComparison.Ordinal) => RawRayCall(c, E),
             Expression.Call c => $"{c.Function}({string.Join(", ", c.Arguments.Select(E))})",
             Expression.Construct { Type: ShaderType.Array { OverrideLength: not null } } => throw new ShaderException(DiagnosticStage.WgslWrite, "Override-sized array zero values require pipeline constant resolution."),
             Expression.Construct { Type: ShaderType.CooperativeMatrix, Components.Count: > 0 } => throw new ShaderException(DiagnosticStage.WgslWrite, "WGSL cooperative matrix constructors cannot express a scalar splat."),
@@ -314,7 +304,7 @@ public static partial class WgslWriter
                 if (function.EarlyDepthTest) Line($"@early_depth_test({function.ConservativeDepth ?? "force"})");
                 string args = string.Join(", ", function.Arguments.Select(a => $"{Binding(a.Binding)}{a.Name}: {TypeName(a.Type)}"));
                 string result = function.ReturnType is ShaderType.Void ? "" : $" -> {Binding(function.ReturnBinding)}{TypeName(function.ReturnType)}";
-                Open($"fn {function.Name}({args}){result}");
+                OpenBlock($"fn {function.Name}({args}){result}", function.Body);
                 Body(function.Body);
                 Close();
             }
@@ -324,13 +314,16 @@ public static partial class WgslWriter
 
         private static string Filter(DiagnosticFilter filter) => $"{filter.Severity.ToString().ToLowerInvariant()}, {(filter.Namespace is null ? "" : filter.Namespace + ".")}{filter.Rule}";
 
+        private void OpenBlock(string prefix, Block block) => Open(prefix + (block.DiagnosticFilters.Count == 0 ? ""
+            : " " + string.Join(" ", block.DiagnosticFilters.Select(f => $"@diagnostic({Filter(f)})"))));
+
         private void Body(Block block)
         {
             foreach (var statement in InlinePendingArrayArguments(block.Statements))
             {
                 switch (statement)
                 {
-                    case Statement.Nested nested: Open(""); Body(nested.Body); Close(); break;
+                    case Statement.Nested nested: OpenBlock("", nested.Body); Body(nested.Body); Close(); break;
                     case Statement.Declare d:
                         if (d.Type is ShaderType.Array { OverrideLength: not null })
                             throw new ShaderException(DiagnosticStage.WgslWrite, "Writing snapshots of override-sized arrays requires pipeline constant resolution.", d.Span);
@@ -338,14 +331,14 @@ public static partial class WgslWriter
                     case Statement.Store s: Line($"{Expr(s.Target)} = {Expr(s.Value)};"); break;
                     case Statement.Evaluate e: Line((e.Value.Type is ShaderType.Void ? "" : "_ = ") + Expr(e.Value) + ";"); break;
                     case Statement.If i:
-                        Open($"if ({Expr(i.Condition)})"); Body(i.Accept); Close();
-                        if (i.Reject.Statements.Count != 0) { Open("else"); Body(i.Reject); Close(); }
+                        OpenBlock($"if ({Expr(i.Condition)})", i.Accept); Body(i.Accept); Close();
+                        if (i.Reject.Statements.Count != 0 || i.Reject.DiagnosticFilters.Count != 0) { OpenBlock("else", i.Reject); Body(i.Reject); Close(); }
                         break;
                     case Statement.Loop l:
-                        Open("loop"); Body(l.Body);
-                        if (l.Continuing.Statements.Count != 0 || l.BreakIf is not null)
+                        OpenBlock("loop", l.Body); Body(l.Body);
+                        if (l.Continuing.Statements.Count != 0 || l.Continuing.DiagnosticFilters.Count != 0 || l.BreakIf is not null)
                         {
-                            Open("continuing"); Body(l.Continuing);
+                            OpenBlock("continuing", l.Continuing); Body(l.Continuing);
                             if (l.BreakIf is not null) Line($"break if {Expr(l.BreakIf)};");
                             Close();
                         }
@@ -355,7 +348,7 @@ public static partial class WgslWriter
                         foreach (var c in s.Cases)
                         {
                             string labels = string.Join(", ", c.Values.Select(Expr).Concat(c.IsDefault ? ["default"] : Array.Empty<string>()));
-                            Open((c.Values.Count == 0 ? "default" : "case " + labels) + ":"); Body(c.Body); Close();
+                            OpenBlock((c.Values.Count == 0 ? "default" : "case " + labels) + ":", c.Body); Body(c.Body); Close();
                         }
                         Close(); break;
                     case Statement.Return r: Line(r.Value is null ? "return;" : "return " + Expr(r.Value) + ";"); break;

@@ -24,9 +24,10 @@ public static partial class CompilerHost
         var compiler = new SpirvCompiler();
         int passed = 0;
         foreach (var entry in root.GetProperty("entries").EnumerateArray()) {
-            var module = compiler.CompileModule(assembly, entry.GetProperty("token").GetInt32(), intrinsics);
-            var wgsl = WgslWriter.Write(module);
-            var spirv = SpirvWriter.Write(module);
+            var request = new SpirvModuleCompilationRequest(assembly, entry.GetProperty("token").GetInt32(), intrinsics);
+            var module = compiler.CompileModule(request);
+            var wgsl = WgslWriter.Write(module, request.Target);
+            var spirv = SpirvWriter.Write(module, new() { Target = request.Target });
             if (wgsl != entry.GetProperty("wgsl").GetString()
                 || !spirv.AsSpan().SequenceEqual(entry.GetProperty("spirv").GetBytesFromBase64()))
                 throw new InvalidOperationException(entry.GetProperty("name").GetString() + ": host/native mismatch");

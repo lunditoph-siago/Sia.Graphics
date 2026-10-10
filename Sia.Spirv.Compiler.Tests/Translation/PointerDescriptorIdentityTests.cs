@@ -7,6 +7,36 @@ namespace Sia.Spirv.Compiler.Translation.Tests;
 
 public class PointerDescriptorIdentityTests
 {
+    internal static SpirvBinary StorageClassCollisionFixture()
+    {
+        // %12 is a valid result ID and also the StorageBuffer operand of
+        // OpTypePointer. A type declaration must never shadow that variable.
+        SpirvInstruction I(Op op, params uint[] operands) => new((ushort)op, operands);
+        return new SpirvBinary { Version = 0x10300, Bound = 27, Instructions = [
+            I(Op.Capability, 1), I(Op.Capability, 4441), I(Op.Capability, 30),
+            I(Op.MemoryModel, 0, 1), I(Op.EntryPoint, 5, 16, 1852399981, 0), I(Op.ExecutionMode, 16, 17, 1, 1, 1),
+            I(Op.Decorate, 9, 6, 4), I(Op.Decorate, 10, 2), I(Op.MemberDecorate, 10, 0, 35, 0),
+            I(Op.Decorate, 12, 33, 0), I(Op.Decorate, 12, 34, 0),
+            I(Op.TypeInt, 1, 32, 0), I(Op.TypeBool, 2), I(Op.TypeVoid, 3), I(Op.TypeFunction, 4, 3),
+            I(Op.Constant, 1, 5, 0), I(Op.Constant, 1, 6, 1), I(Op.Constant, 1, 7, 2), I(Op.ConstantTrue, 2, 8),
+            I(Op.TypeRuntimeArray, 9, 1), I(Op.TypeStruct, 10, 9), I(Op.TypeArray, 11, 10, 7),
+            I(Op.TypePointer, 13, 12, 11), I(Op.TypePointer, 14, 12, 10), I(Op.TypePointer, 15, 12, 1), I(Op.Variable, 13, 12, 12),
+            I(Op.Function, 3, 16, 0, 4), I(Op.Label, 17),
+            I(Op.AccessChain, 15, 18, 12, 5, 5, 5), I(Op.Load, 1, 19, 18), I(Op.CopyObject, 1, 20, 19),
+            I(Op.AccessChain, 14, 21, 12, 19), I(Op.AccessChain, 14, 22, 12, 20),
+            I(Op.AccessChain, 15, 23, 21, 5, 5), I(Op.AccessChain, 15, 24, 22, 5, 5),
+            I(Op.Select, 15, 25, 8, 23, 24), I(Op.Load, 1, 26, 25), I(Op.Store, 23, 26), I(Op.Return), I(Op.FunctionEnd)
+        ] };
+    }
+
+    [Fact]
+    public void StorageBufferVariableIdMayEqualStorageClassNumber()
+    {
+        var module = SpirvReader.Parse(StorageClassCollisionFixture().ToBytes());
+        ModuleValidator.Validate(module);
+        ModuleValidator.Validate(WgslReader.Parse(WgslWriter.Write(module)));
+    }
+
     internal static SpirvBinary Fixture(string kind, string mode, string index = "shared", bool full = false, bool comparison = true, bool privateSlot = false)
     {
         var original = comparison ? PointerComparisonTests.Fixture(kind, mode, "other", 32, privateSlot)

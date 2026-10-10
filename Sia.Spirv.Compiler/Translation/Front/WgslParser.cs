@@ -180,7 +180,9 @@ internal sealed class WgslParser(string source)
 
     private SBlock Block()
     {
-        Enter(); Expect("{"); var block = new SBlock();
+        Enter(); var attributes = Attributes();
+        if (attributes.Any(a => a.DiagnosticFilter is null)) throw Error("Only diagnostic attributes are allowed on compound statements.");
+        Expect("{"); var block = new SBlock(); block.DiagnosticFilters.AddRange(attributes.Select(a => a.DiagnosticFilter!));
         while (!Eat("}"))
         {
             if (Current.Kind == TokenKind.End) throw Error("Unterminated statement block.");
@@ -194,6 +196,13 @@ internal sealed class WgslParser(string source)
     {
         Enter(); SStatement result;
         if (Current.Text == "{") result = new SStatement.Nested(Block());
+        else if (Current.Text == "@") {
+            var attributes = Attributes();
+            if (attributes.Any(a => a.DiagnosticFilter is null) || Current.Text is not ("{" or "if" or "switch" or "loop" or "for" or "while"))
+                throw Error("Diagnostic attributes require a compound or control-flow statement.");
+            var scope = new SBlock(); scope.DiagnosticFilters.AddRange(attributes.Select(a => a.DiagnosticFilter!));
+            scope.Statements.Add(Statement()); result = new SStatement.Nested(scope);
+        }
         else if (Current.Text is "var" or "let" or "const") { result = new SStatement.Declaration(Declaration([])); Expect(";"); }
         else if (Eat("return")) { result = new SStatement.Return(Current.Text == ";" ? null : Expression()); Expect(";"); }
         else if (Eat("break")) { result = new SStatement.Break(Eat("if") ? Expression() : null); Expect(";"); }
@@ -221,7 +230,9 @@ internal sealed class WgslParser(string source)
         }
         else if (Eat("loop"))
         {
-            Expect("{"); var body = new SBlock(); var continuing = new SBlock();
+            var attributes = Attributes();
+            if (attributes.Any(a => a.DiagnosticFilter is null)) throw Error("Only diagnostic attributes are allowed on loop bodies.");
+            Expect("{"); var body = new SBlock(); body.DiagnosticFilters.AddRange(attributes.Select(a => a.DiagnosticFilter!)); var continuing = new SBlock();
             while (!Eat("}"))
             {
                 if (Eat("continuing")) { continuing = Block(); Expect("}"); break; }
@@ -232,7 +243,9 @@ internal sealed class WgslParser(string source)
         }
         else if (Eat("switch"))
         {
-            SExpression selector = Expression(); Expect("{"); var cases = new List<SCase>();
+            SExpression selector = Expression(); var attributes = Attributes();
+            if (attributes.Any(a => a.DiagnosticFilter is null)) throw Error("Only diagnostic attributes are allowed on switch bodies.");
+            Expect("{"); var cases = new List<SCase>();
             while (!Eat("}"))
             {
                 bool isDefault = Eat("default"); var values = new List<SExpression>();
@@ -243,9 +256,14 @@ internal sealed class WgslParser(string source)
                     {
                         if (Eat("default")) isDefault = true;
                         else values.Add(Expression());
-                    } while (Eat(",") && Current.Text is not (":" or "{"));
+                    } while (Eat(",") && Current.Text is not (":" or "{" or "@"));
                 }
-                Eat(":"); cases.Add(new(values, isDefault, Block()));
+                Eat(":"); var body = Block();
+                if (attributes.Count != 0) {
+                    var scope = new SBlock(); scope.DiagnosticFilters.AddRange(attributes.Select(a => a.DiagnosticFilter!));
+                    scope.Statements.Add(new SStatement.Nested(body)); body = scope;
+                }
+                cases.Add(new(values, isDefault, body));
             }
             result = new SStatement.Switch(selector, cases);
         }

@@ -7,7 +7,7 @@ using Sia.WebGPU;
 
 namespace SiaGpuDiagnostics;
 
-internal static class CompilerGpuTests
+internal static partial class CompilerGpuTests
 {
     [ModuleInitializer]
     internal static void Initialize() => TestModules.Register("compiler", registry => {
@@ -24,10 +24,18 @@ internal static class CompilerGpuTests
     private static async Task Run(TestContext context, string name, string variant) {
         var assembly = Asset("shaders.dll"); var core = Asset("intrinsics.dll");
         var kernel = new SpirvFrontend().Analyze(assembly, core).Kernels.Single(k => k.Name==name);
+        context.Capture.Resources.Add(new {
+            kernel.QualifiedName, kernel.MetadataToken, Variant = variant,
+            ShaderAssemblySha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(assembly)),
+            IntrinsicAssemblySha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(core)),
+            TargetIdentity = variant.StartsWith("direct", StringComparison.Ordinal) ? SpirvCompilationTarget.Default.Identity : null,
+            KernelAbi = SpirvKernelAbi.WebGpu.ToString()
+        });
         string source; byte[]? spirv;
         if (variant.StartsWith("direct", StringComparison.Ordinal)) {
-            var module = new SpirvCompiler().CompileModule(assembly, kernel.MetadataToken, core);
-            source = WgslWriter.Write(module); spirv = variant.EndsWith("spirv", StringComparison.Ordinal) ? SpirvWriter.Write(module) : null;
+            var request = new SpirvModuleCompilationRequest(assembly, kernel.MetadataToken, core);
+            var module = new SpirvCompiler().CompileModule(request);
+            source = WgslWriter.Write(module, request.Target); spirv = variant.EndsWith("spirv", StringComparison.Ordinal) ? SpirvWriter.Write(module, new() { Target = request.Target }) : null;
         } else {
             string file = kernel.QualifiedName;
             source = Encoding.UTF8.GetString(Asset(file+".wgsl"));

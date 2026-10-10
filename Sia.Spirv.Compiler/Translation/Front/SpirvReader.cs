@@ -7,13 +7,20 @@ public static partial class SpirvReader
 {
     public static Module Parse(ReadOnlySpan<byte> bytes, SpirvReadOptions? options = null) => ReadBinary(SpirvBinary.Parse(bytes), options);
     public static Module Parse(ReadOnlySpan<uint> words, SpirvReadOptions? options = null) => ReadBinary(SpirvBinary.Parse(words), options);
-    private static Module ReadBinary(SpirvBinary binary, SpirvReadOptions? options)
+    internal static Module ReadBinary(SpirvBinary binary, SpirvReadOptions? options = null,
+        ICollection<CanonicalPassTrace>? traces = null, ICollection<CanonicalDeferral>? deferrals = null)
     {
+        if (CanReadCanonicalFlow(binary, out var deferred)) {
+            var result = new Reader(binary, options ?? new(), new HashSet<uint>(), new Dictionary<uint, string>(), directCanonicalFlow: true)
+                .Read(out deferred, traces, deferrals);
+            if (result is not null) return result;
+        }
+        if (deferred is not null) deferrals?.Add(new("<SPIR-V>", deferred));
         var normalized = PointerPhiLowering.RunWithHelpers(binary, out var helpers, out var snapshots);
-        return new Reader(normalized, options ?? new(), helpers, snapshots).Read();
+        return new Reader(normalized, options ?? new(), helpers, snapshots).Read(out _)!;
     }
 
-    private sealed partial class Reader(SpirvBinary binary, SpirvReadOptions options, IReadOnlySet<uint> specializedHelpers, IReadOnlyDictionary<uint, string> descriptorSnapshots)
+    private sealed partial class Reader(SpirvBinary binary, SpirvReadOptions options, IReadOnlySet<uint> specializedHelpers, IReadOnlyDictionary<uint, string> descriptorSnapshots, bool directCanonicalFlow = false)
     {
         private readonly Module module = new() { WorkgroupInitializationRequired = false };
         private readonly Dictionary<uint, ShaderType> types = [];
@@ -31,6 +38,8 @@ public static partial class SpirvReader
         private readonly HashSet<uint> defined = [];
         private readonly HashSet<string> accessedInterfaceBuiltins = new(StringComparer.Ordinal);
         private readonly Dictionary<uint, string> imports = [];
+        private readonly HashSet<string> declaredExtensions = new(StringComparer.Ordinal);
+        private readonly HashSet<uint> declaredCapabilities = [];
         private bool variablePointers;
         private bool fullVariablePointers;
         private bool pointerSelection;
@@ -46,9 +55,21 @@ public static partial class SpirvReader
             if (current.Operands.Length < minimum || maximum is int max && current.Operands.Length > max)
                 throw Error($"Invalid operand count for {(Op)current.Opcode}.");
         }
+        private void ValidateInvocationFeature(Op op)
+        {
+            if (op is Op.DemoteToHelperInvocation or Op.IsHelperInvocation && !declaredCapabilities.Contains(5379))
+                throw Error("Helper demotion requires capability 5379.");
+            string? extension = op switch {
+                Op.DemoteToHelperInvocation or Op.IsHelperInvocation => "SPV_EXT_demote_to_helper_invocation",
+                Op.TerminateInvocation => "SPV_KHR_terminate_invocation",
+                _ => null
+            };
+            if (extension is not null && binary.Version < 0x10600 && !declaredExtensions.Contains(extension))
+                throw Error($"{op} requires extension '{extension}' before SPIR-V 1.6.");
+        }
         private void Define(uint id)
         {
-            if (id == 0 || id >= binary.Bound) throw Error($"ID %{id} exceeds header bound {binary.Bound}.");
+            if (id == 0 || id >= binary.Bound) throw Error($"ID %{id} exceeds {(directCanonicalFlow ? "original header bound" : "header bound")} {binary.Bound}.");
             if (!defined.Add(id)) throw Error($"ID %{id} is defined twice.");
         }
         private ShaderType Type(uint id) => types.TryGetValue(id, out var type) ? type : throw Error($"Undefined type %{id}.");
@@ -64,8 +85,9 @@ public static partial class SpirvReader
             return result.Length == 0 ? "unnamed" : char.IsAsciiDigit(result[0]) || WgslKeywords.IsReserved(result) ? "n_" + result : result;
         }
 
-        public Module Read()
+        public Module? Read(out string? deferred, ICollection<CanonicalPassTrace>? traces = null, ICollection<CanonicalDeferral>? deferrals = null)
         {
+            deferred = null;
             // Names/decorations precede types in logical SPIR-V layout.
             foreach (var instruction in binary.Instructions)
             {
@@ -114,12 +136,16 @@ public static partial class SpirvReader
                     case Op.String: Count(2); Define(a[0]); break;
                     case Op.Extension:
                         string extension = SpirvBinary.ReadString(a, out _);
+                        declaredExtensions.Add(extension);
+                        if (extension is "SPV_EXT_demote_to_helper_invocation" or "SPV_KHR_terminate_invocation") break;
                         if (extension == "SPV_KHR_variable_pointers") break;
                         if (extension is not ("SPV_KHR_storage_buffer_storage_class" or "SPV_KHR_vulkan_memory_model" or "SPV_KHR_16bit_storage" or "SPV_EXT_descriptor_indexing" or "SPV_KHR_non_semantic_info" or "SPV_KHR_multiview" or "SPV_KHR_shader_draw_parameters" or "SPV_KHR_fragment_shader_barycentric" or "SPV_NV_fragment_shader_barycentric" or "SPV_EXT_shader_atomic_float_add" or "SPV_EXT_shader_image_int64" or "SPV_KHR_ray_query" or "SPV_KHR_ray_tracing_position_fetch" or "SPV_KHR_cooperative_matrix" or "SPV_EXT_mesh_shader"))
                             throw Error($"Unsupported SPIR-V extension '{extension}'.");
                         break;
                     case Op.Capability:
                         Count(1, 1);
+                        declaredCapabilities.Add(a[0]);
+                        if (a[0] == 5379) break; // DemoteToHelperInvocation
                         if (a[0] is 4441 or 4442) { variablePointers = true; fullVariablePointers |= a[0] == 4442; break; }
                         if (a[0] is >= 62 and <= 68) break;
                         if (a[0] == 12) break; // Int64Atomics; the scalar and atomic instructions are checked separately.
@@ -262,11 +288,18 @@ public static partial class SpirvReader
             UpgradeAtomicGlobals();
             UpgradeComparisonResources();
             PrepareMeshEntries();
-            ResolveFunctions();
+            deferred = ResolveFunctions(traces);
+            if (deferred is not null) return null;
             AddEntryPoints();
-            Module result = matrixLayouts.Count != 0 || variablePointers ? Proc.QueryHelperInliner.RunNonFunctionPointers(module,
+            Module result = directCanonicalFlow ? CanonicalShaderPipeline.Run(module, traces, deferrals,
+                (graph, input) => Valid.NativePointerValidator.Validate(graph, input, fullVariablePointers), nativeGraphs)
+                : matrixLayouts.Count != 0 || variablePointers ? Proc.HelperInliner.RunNonFunctionPointers(module,
                 specializedHelpers.Select(id => functions[id].Name).ToHashSet(StringComparer.Ordinal)) : module;
-            if (pointerSelection) result = new PointerSelectionLowering(this, result, fullVariablePointers).Run();
+            if (directCanonicalFlow) result = Proc.HelperInliner.RunNonFunctionPointers(result);
+            if (pointerSelection) result = new Legalization.PointerSelectionLowering(result, DiagnosticStage.SpirvParse,
+                nativeVariablePointers: true, fullVariablePointers: fullVariablePointers,
+                descriptorSnapshots: descriptorSnapshotNames, memoryLoad: MemoryLoad, memoryStore: MemoryStore,
+                aggregateCopy: (body, pointer, value, load, memory) => AtomicAggregateCopy(body, pointer, value, load, memory)).Run();
             return matrixLayouts.Count == 0 ? result : new MatrixLayoutLowering(result, matrixLayouts).Run();
         }
 
@@ -456,7 +489,7 @@ public static partial class SpirvReader
                     }
                 }
                 InitializeMeshEntryControl(entry, function);
-                function.Body.Statements.Add(new Statement.Evaluate(new Expression.Call(callee.Name, [], new ShaderType.Void())));
+                function.Body.Statements.Add(new Statement.Evaluate(new Expression.Call(callee.Name, [], new ShaderType.Void(), CallBinding.Function)));
                 if (entry.Stage == ShaderStage.Task) function.Body.Statements.Add(new Statement.Return(new Expression.Load(taskDispatchSize!)));
                 AdjustMeshPosition(entry, function);
                 if (options.AdjustCoordinateSpace)

@@ -20,7 +20,7 @@ public static partial class SpirvReader
                 || selector.Type != ShaderType.U32 || Convert.ToUInt32(selector.Value) > 1) throw Error("Ray intersection selector must be constant zero or one.");
             string rawName = "spirv" + operation;
             if (!RayQueryTypes.RawGetterResult(rawName, type)) throw Error("Ray query getter result type mismatch.");
-            return new Expression.Call(rawName, [RayPointer(query), Expression.U32(Convert.ToUInt32(selector.Value))], type);
+            return new Expression.Call(rawName, [RayPointer(query), Expression.U32(Convert.ToUInt32(selector.Value))], type, CallBinding.Builtin);
         }
     }
 }

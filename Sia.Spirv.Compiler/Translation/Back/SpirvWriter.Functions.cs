@@ -40,6 +40,7 @@ public static partial class SpirvWriter
             }
             public void Emit()
             {
+                if (owner.physicalLayout.ControlFlow.TryGetValue(function.Name, out var graph)) { EmitCanonical(graph); return; }
                 uint signature = owner.FunctionType(function.ReturnType, function.Arguments.Select(a => a.Type));
                 var header = new List<SpirvInstruction> { I(Op.Function, owner.Type(function.ReturnType), functionId, 0, signature) };
                 owner.Name(functionId, function.Name); scopes.Push(new(StringComparer.Ordinal));
@@ -71,33 +72,33 @@ public static partial class SpirvWriter
                     {
                         case Statement.Nested n: Body(n.Body); break;
                         case Statement.Declare d:
-                            if (d.Type is ShaderType.Pointer { Space: AddressSpace.Uniform } && d.Initializer is { } alias && NeedsUniformConversion(alias))
-                            {
-                                var location = UniformPlace(alias);
-                                if (!scopes.Peek().TryAdd(d.Name, new(0, d.Type, false, UniformLocation: location))) throw owner.Error("Duplicate local declaration.");
-                                break;
-                            }
                             uint id;
                             if (d.Mutable)
                             {
                                 id = Variable(d.Type, d.Name);
-                                if (d.Type is ShaderType.RayQuery) InitializeRayQueryState(id);
-                                else
+                                if (d.Initialize && d.Type is ShaderType.RayQuery) InitializeRayQueryState(id);
+                                else if (d.Initialize)
                                 {
                                     uint initializer = d.Initializer is null ? owner.Null(d.Type) : Value(d.Initializer);
                                     Add(Op.Store, id, initializer);
                                 }
                             }
                             else id = Value(d.Initializer ?? throw owner.Error("let has no initializer."));
-                            MemoryDecorations? requirement = !d.Mutable && d.Type is ShaderType.Pointer && d.Initializer is { } pointerInitializer
-                                ? PointerMemory(pointerInitializer) : null;
-                            if (!scopes.Peek().TryAdd(d.Name, new(id, d.Type, d.Mutable, MemoryRequirement: requirement))) throw owner.Error("Duplicate local declaration.");
+                            if (!scopes.Peek().TryAdd(d.Name, new(id, d.Type, d.Mutable))) throw owner.Error("Duplicate local declaration.");
                             break;
                         case Statement.Store s:
                             uint pointer = Place(s.Target); uint value = Value(s.Value);
-                            if (IsWorkgroupPlace(s.Target)) value = ConvertWorkgroupValue(value, s.Value.Type, true);
-                            MemoryStore(pointer, value, AccessMemory(s.Target, s.MemoryAccess, load: false)); break;
+                            MemoryStore(pointer, value, s.MemoryAccess); break;
                         case Statement.Evaluate e: Value(e.Value); break;
+                        case Statement.MeshStore store:
+                            uint output = owner.MeshOutput(store.Field);
+                            owner.functionGlobalUses[functionId].Add(output);
+                            uint outputIndex = Value(store.Index), outputValue = Value(store.Value);
+                            uint outputPointer = owner.Id();
+                            Add(Op.AccessChain, owner.Pointer(owner.Type(store.Field.Type), 3), outputPointer, output, outputIndex);
+                            Add(Op.Store, outputPointer, outputValue); break;
+                        case Statement.MeshSetOutputs counts: Add(Op.SetMeshOutputsEXT, Value(counts.Vertices), Value(counts.Primitives)); break;
+                        case Statement.TaskDispatch dispatch: TaskDispatch(dispatch); break;
                         case Statement.If i: If(i); break;
                         case Statement.Loop l: Loop(l); break;
                         case Statement.Switch s: Switch(s); break;
@@ -110,9 +111,16 @@ public static partial class SpirvWriter
                         case Statement.Continue:
                             if (!continueTargets.TryPeek(out uint next)) throw owner.Error("continue outside a loop.");
                             Branch(next); break;
-                        case Statement.Kill: Add(Op.Kill); terminated = true; break;
-                        case Statement.Barrier b: if (b.NativeMemory is { } control) NativeBarrier(control); else Barrier(b.Storage, b.Workgroup, b.Texture, b.Subgroup); break;
-                        case Statement.MemoryBarrier b: if (b.NativeMemory is { } memory) NativeBarrier(memory); else Barrier(b.Storage, b.Workgroup, b.Texture, b.Subgroup, true); break;
+                        case Statement.Kill:
+                            owner.capabilities.Add(5379);
+                            if (owner.OutputVersion < 0x10600) owner.extensions.Add("SPV_EXT_demote_to_helper_invocation");
+                            Add(Op.DemoteToHelperInvocation); break;
+                        case Statement.InvocationKill kill:
+                            if (kill.ExplicitTermination && owner.OutputVersion < 0x10600) owner.extensions.Add("SPV_KHR_terminate_invocation");
+                            Add(kill.ExplicitTermination ? Op.TerminateInvocation : Op.Kill); terminated = true; break;
+                        case Statement.Unreachable: Add(Op.Unreachable); terminated = true; break;
+                        case Statement.Barrier b: NativeBarrier(b.NativeMemory ?? throw owner.Error("Control barrier operands were not prepared.", b.Span)); break;
+                        case Statement.MemoryBarrier b: NativeBarrier(b.NativeMemory ?? throw owner.Error("Memory barrier operands were not prepared.", b.Span)); break;
                         default: throw owner.Error("Unsupported statement.", statement.Span);
                     }
                 }
@@ -220,27 +228,27 @@ public static partial class SpirvWriter
 
             private uint Value(Expression expression)
             {
+                // Preserve aggregate zero as OpConstantNull. Expanding it to a fixed
+                // list of components would bind a subsequently specialized array
+                // to its default length instead of retaining its zero-value meaning.
+                if (expression is Expression.Construct { Components.Count: 0 } zero && zero.Type is ShaderType.Array or ShaderType.Structure)
+                    return owner.Null(zero.Type);
                 if (ConstantEvaluator.TryEvaluateRuntime(expression, out var constant)) return owner.Constant(constant);
                 switch (expression)
                 {
+                    case Expression.HelperInvocation:
+                        owner.capabilities.Add(5379);
+                        if (owner.OutputVersion < 0x10600) owner.extensions.Add("SPV_EXT_demote_to_helper_invocation");
+                        return Result(Op.IsHelperInvocation, ShaderType.Bool);
                     case Expression.Reference r:
                         var symbol = Lookup(r.Name);
-                        if (symbol.UniformLocation is not null) throw owner.Error("Converted uniform pointer requires a direct dereference or alias.", r.Span);
-                        if (NeedsUniformConversion(r)) return UniformRead(r);
-                        if (symbol.Place && symbol.Storage == 4) return LoadWorkgroup(Place(r), symbol.Type, AccessMemory(r, null));
                         return symbol.Place ? MemoryLoad(r, symbol.Type) : symbol.Id;
                     case Expression.Load load:
-                        if (NeedsUniformConversion(load.Pointer))
-                        {
-                            return UniformRead(load.Pointer, load.MemoryAccess);
-                        }
-                        return IsWorkgroupPlace(load.Pointer) ? LoadWorkgroup(Place(load.Pointer), load.Type, AccessMemory(load.Pointer, load.MemoryAccess)) : MemoryLoad(load.Pointer, load.Type, load.MemoryAccess);
+                        return MemoryLoad(load.Pointer, load.Type, load.MemoryAccess);
                     case Expression.Unary { Operator: "&" } address:
-                        if (NeedsUniformConversion(address.Operand)) throw owner.Error("Passing a uniform pointer requiring matrix layout conversion is not supported yet.", address.Span);
                         return Place(address.Operand);
                     case Expression.Unary { Operator: "*" } dereference:
-                        if (NeedsUniformConversion(dereference)) return UniformRead(dereference);
-                        return IsWorkgroupPlace(dereference) ? LoadWorkgroup(Value(dereference.Operand), DataType(dereference.Type), AccessMemory(dereference, null)) : MemoryLoad(Value(dereference.Operand), DataType(dereference.Type), AccessMemory(dereference, null));
+                        return MemoryLoad(Value(dereference.Operand), DataType(dereference.Type), null);
                     case Expression.Unary unary:
                         if (unary.Type is ShaderType.Matrix unaryMatrix)
                         {
@@ -278,8 +286,6 @@ public static partial class SpirvWriter
                             if (owner.nonUniformValues.Contains(bindingPointer)) owner.NonUniform(bindingValue, bindingArray.Element);
                             return bindingValue;
                         }
-                        if (NeedsUniformConversion(access)) return UniformRead(access);
-                        if (IsWorkgroupPlace(access)) return LoadWorkgroup(Place(access), DataType(access.Type), AccessMemory(access, null));
                         if (IsPlace(access)) return MemoryLoad(access, DataType(access.Type));
                         uint aggregate = Value(access.Base), index = Value(access.Index);
                         if (access.Base.Type is ShaderType.Vector) return Result(Op.VectorExtractDynamic, access.Type, aggregate, index);
@@ -289,13 +295,12 @@ public static partial class SpirvWriter
                         uint ptr = Result(Op.AccessChain, new ShaderType.Pointer(access.Type, AddressSpace.Function), scratch, index);
                         return Result(Op.Load, access.Type, ptr);
                     case Expression.Member member:
-                        if (NeedsUniformConversion(member)) return UniformRead(member);
-                        if (IsWorkgroupPlace(member)) return LoadWorkgroup(Place(member), DataType(member.Type), AccessMemory(member, null));
                         if (IsPlace(member)) return MemoryLoad(member, DataType(member.Type));
                         return Result(Op.CompositeExtract, member.Type, Value(member.Base), MemberIndex(member.Base.Type, member.Name));
                     case Expression.Swizzle swizzle:
                         uint source = Value(swizzle.Vector);
                         var selectors = swizzle.Components.Select(c => (uint)("xyzw".IndexOf(c) >= 0 ? "xyzw".IndexOf(c) : "rgba".IndexOf(c))).ToArray();
+                        if (selectors.Length == 1) return Result(Op.CompositeExtract, swizzle.Type, source, selectors[0]);
                         return Result(Op.VectorShuffle, swizzle.Type, new uint[] { source, source }.Concat(selectors).ToArray());
                     case Expression.Select select:
                         uint condition = Value(select.Condition), accept = Value(select.Accept), reject = Value(select.Reject);
@@ -347,29 +352,8 @@ public static partial class SpirvWriter
                         "<<" => Op.ShiftLeftLogical, ">>" => signed ? Op.ShiftRightArithmetic : Op.ShiftRightLogical,
                         _ => throw owner.Error("Unsupported binary operator.", binary.Span)
                     };
-                    if (owner.Options.EmitIntegerDivisionChecks && !floating && binary.Operator is "/" or "%") right = CheckedDivisor(left, right, a, signed);
-                }
-                if (binary.Operator == "%" && signed)
-                {
-                    uint quotient = Result(Op.SDiv, binary.Type, left, right);
-                    uint product = Result(Op.IMul, binary.Type, right, quotient);
-                    return Result(Op.ISub, binary.Type, left, product);
                 }
                 return Result(op, binary.Type, left, right);
-            }
-            private uint CheckedDivisor(uint numerator, uint divisor, ShaderType type, bool signed)
-            {
-                ShaderType boolType = type is ShaderType.Vector v ? new ShaderType.Vector(v.Size, ShaderType.Bool) : ShaderType.Bool;
-                uint zero = owner.Null(type), one = One(type);
-                uint invalid = Result(Op.IEqual, boolType, divisor, zero);
-                if (signed)
-                {
-                    uint min = LiteralSplat(Scalar(type).Width switch { 2 => (object)short.MinValue, 8 => long.MinValue, _ => int.MinValue }, type), minusOne = LiteralSplat(-1, type);
-                    uint isMin = Result(Op.IEqual, boolType, numerator, min), isMinusOne = Result(Op.IEqual, boolType, divisor, minusOne);
-                    uint overflow = boolType is ShaderType.Vector ? Result(Op.Select, boolType, isMin, isMinusOne, owner.Null(boolType)) : Result(Op.LogicalAnd, boolType, isMin, isMinusOne);
-                    invalid = boolType is ShaderType.Vector ? Result(Op.Select, boolType, invalid, LiteralSplat(true, boolType), overflow) : Result(Op.LogicalOr, boolType, invalid, overflow);
-                }
-                return Result(Op.Select, type, invalid, one, divisor);
             }
             private uint LiteralSplat(object value, ShaderType type)
             {
@@ -420,14 +404,6 @@ public static partial class SpirvWriter
                 return Result(op, to, value);
             }
 
-            private void Barrier(bool storage, bool workgroup, bool texture, bool subgroup = false, bool memoryOnly = false)
-            {
-                if (subgroup) owner.capabilities.Add(61);
-                uint scope = owner.Constant(Expression.U32(subgroup ? 3u : 2u));
-                // Vulkan supports workgroup memory with subgroup scope, not the Kernel-only SubgroupMemory class.
-                uint semantics = owner.Constant(Expression.U32(8u | (storage ? 0x40u : 0) | (workgroup || subgroup ? 0x100u : 0) | (texture ? 0x800u : 0)));
-                if (memoryOnly) Add(Op.MemoryBarrier, scope, semantics); else Add(Op.ControlBarrier, scope, scope, semantics);
-            }
             private void NativeBarrier(SpirvBarrierMemory barrier)
             {
                 if (barrier.Scope == 1) owner.usesDeviceScope = true;

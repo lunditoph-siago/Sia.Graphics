@@ -1,4 +1,5 @@
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 using Sia.Spirv.Compiler.Translation.Spirv;
 
 namespace Sia.Spirv.Compiler.Translation.Front;
@@ -27,7 +28,10 @@ public static partial class SpirvReader
             Define(a[1]);
             if (!functionTypes.TryGetValue(a[3], out var signature) || signature[0] != a[0]) throw Error("Invalid function signature.");
             var function = new ShaderFunction(Name(a[1], "f")) { ReturnType = Type(a[0]) };
-            if (function.ReturnType is ShaderType.Pointer) throw Error("Pointer return values require pointer provenance specialization.");
+            if (function.ReturnType is ShaderType.Pointer) {
+                if (!directCanonicalFlow) throw Error("Pointer return values require pointer provenance specialization.");
+                if (!variablePointers) throw Error("Pointer return requires a variable-pointer capability.");
+            }
             functions.Add(a[1], function); module.Functions.Add(function);
             var raw = new RawFunction(a[1], function, []); rawFunctions.Add(raw);
             RawBlock? block = null;
@@ -47,7 +51,11 @@ public static partial class SpirvReader
                 if (op == Op.FunctionParameter)
                 {
                     Count(2, 2);
-                    if (block is not null || parameter >= signature.Length || signature[parameter++] != a[0]) throw Error("Invalid function parameter.");
+                    if (block is not null || parameter >= signature.Length) throw Error("Invalid function parameter.");
+                    if (signature[parameter++] != a[0])
+                        throw Error(directCanonicalFlow && (Type(a[0]) is ShaderType.Pointer { Base: ShaderType.Pointer }
+                            || Type(signature[parameter - 1]) is ShaderType.Pointer { Base: ShaderType.Pointer })
+                            ? "Pointer slot helper parameter transfer type mismatch." : "Invalid function parameter.");
                     Define(a[1]);
                     ShaderType argumentType = Type(a[0]);
                     // UniformConstant acceleration-structure parameters are
@@ -67,7 +75,7 @@ public static partial class SpirvReader
                     block = new(a[0]); raw.Blocks.Add(block); continue;
                 }
                 if (block is null || block.Terminator is not null) throw Error("Instruction is outside an open basic block.");
-                if (op is Op.Branch or Op.BranchConditional or Op.Switch or Op.Return or Op.ReturnValue or Op.Kill or Op.Unreachable or Op.EmitMeshTasksEXT)
+                if (op is Op.Branch or Op.BranchConditional or Op.Switch or Op.Return or Op.ReturnValue or Op.Kill or Op.TerminateInvocation or Op.Unreachable or Op.EmitMeshTasksEXT)
                 {
                     block.Terminator = current; continue;
                 }
@@ -78,27 +86,36 @@ public static partial class SpirvReader
                 if (HasResult(op))
                 {
                     Count(2); Define(a[1]); ShaderType resultType = Type(a[0]);
-                    if (resultType is ShaderType.Pointer && op is Op.Phi or Op.Load)
+                    if (resultType is ShaderType.Pointer && (op is Op.Load or Op.Phi) && !directCanonicalFlow)
                         throw Error("Merged or loaded pointers require pointer provenance specialization.");
-                    values[a[1]] = new Expression.Reference(Name(a[1], "r"), resultType);
+                    if ((op is Op.Phi or Op.Load) && resultType is ShaderType.Pointer && !variablePointers)
+                        throw Error(op == Op.Phi ? "Pointer phi requires a variable-pointer capability." : "Pointer load requires a variable-pointer capability.");
+                    Expression reference = new Expression.Reference(Name(a[1], "r"), resultType);
+                    values[a[1]] = op == Op.Phi && resultType is ShaderType.Pointer ? new Expression.Unary("*", reference, resultType) : reference;
                     if (op == Op.Variable)
                     {
                         if (resultType is not ShaderType.Pointer pointer || a.Length < 3 || a[2] != 7) throw Error("Invalid local variable.");
                         // Initializers are constants, available before any function is read.
-                        function.Body.Statements.Add(new Statement.Declare(Name(a[1], "r"), pointer.Base, a.Length == 4 ? Value(a[3]) : null));
+                        function.Body.Statements.Add(new Statement.Declare(Name(a[1], "r"), pointer.Base, a.Length == 4 ? Value(a[3]) : null) {
+                            Initialize = a.Length == 4 || pointer.Base is not ShaderType.Pointer && !CanonicalTypes.Data(pointer.Base)
+                        });
                     }
-                    else if (resultType is not (ShaderType.Void or ShaderType.Pointer or ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure) && op != Op.SampledImage)
-                        function.Body.Statements.Add(new Statement.Declare(Name(a[1], "r"), resultType, null));
+                    else if (resultType is not (ShaderType.Void or ShaderType.Pointer or ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure) && op != Op.SampledImage
+                        && !(op == Op.Phi && directCanonicalFlow))
+                        function.Body.Statements.Add(new Statement.Declare(Name(a[1], "r"), resultType, null) { Initialize = false });
                 }
             }
             throw Error("Missing OpFunctionEnd.");
         }
 
-        private static bool HasResult(Op op) => op is not (Op.Store or Op.CopyMemory or Op.ControlBarrier or Op.MemoryBarrier or Op.ImageWrite or Op.AtomicStore or Op.CooperativeMatrixStoreKHR or Op.SetMeshOutputsEXT
+        private static bool HasResult(Op op) => op is not (Op.Store or Op.CopyMemory or Op.ControlBarrier or Op.MemoryBarrier or Op.ImageWrite or Op.AtomicStore or Op.CooperativeMatrixStoreKHR or Op.SetMeshOutputsEXT or Op.DemoteToHelperInvocation
             or Op.RayQueryInitializeKHR or Op.RayQueryTerminateKHR or Op.RayQueryGenerateIntersectionKHR or Op.RayQueryConfirmIntersectionKHR);
 
-        private void ResolveFunctions()
+        private string? ResolveFunctions(ICollection<CanonicalPassTrace>? traces = null)
         {
+            if (directCanonicalFlow) {
+                return ResolveNativeControlFlow(traces);
+            }
             foreach (var raw in rawFunctions)
             {
                 resolvingMeshFunction = raw.Id;
@@ -185,14 +202,22 @@ public static partial class SpirvReader
                             }
                             result.Statements.Add(new Statement.Switch(Value(a[0]), cases)); return block.Merge;
                         case Op.Return: Count(0, 0); result.Statements.Add(new Statement.Return()); return null;
-                        case Op.ReturnValue: Count(1, 1); result.Statements.Add(new Statement.Return(Value(a[0]))); return null;
-                        case Op.Kill: Count(0, 0); result.Statements.Add(new Statement.Kill()); return null;
+                        case Op.ReturnValue:
+                            Count(1, 1); result.Statements.Add(new Statement.Return(Value(a[0])));
+                            return null;
+                        case Op.Kill: case Op.TerminateInvocation:
+                            Count(0, 0); ValidateInvocationFeature((Op)current.Opcode);
+                            result.Statements.Add(new Statement.InvocationKill {
+                                Span = new(current.WordOffset * 4, current.WordCount * 4),
+                                ExplicitTermination = (Op)current.Opcode == Op.TerminateInvocation
+                            }); return null;
                         case Op.EmitMeshTasksEXT:
                             Count(3, 4);
                             LowerTaskEmission(result, a); return null;
-                        // No defined execution can reach this terminator; like the reference frontend,
-                        // omit it. It commonly terminates an otherwise empty merge block.
-                        case Op.Unreachable: Count(0, 0); return null;
+                        case Op.Unreachable:
+                            Count(0, 0); result.Statements.Add(new Statement.Unreachable {
+                                Span = new(current.WordOffset * 4, current.WordCount * 4)
+                            }); return null;
                         default: throw Error("Invalid block terminator.");
                     }
                 }
@@ -219,6 +244,7 @@ public static partial class SpirvReader
                     foreach (var (destination, source) in copies) result.Statements.Add(new Statement.Store(destination, source));
                 }
             }
+            return null;
         }
 
         private void LowerInstruction(Block block)
@@ -229,12 +255,27 @@ public static partial class SpirvReader
             void Result(Expression expression)
             {
                 if (T() is ShaderType.Void) { block.Statements.Add(new Statement.Evaluate(expression)); return; }
+                if (T() is ShaderType.Pointer && (op == Op.FunctionCall || directCanonicalFlow && (op is Op.Select or Op.Load))) {
+                    // Native SSA calls execute exactly once, even when unused or read
+                    // through multiple subsequent operations. Do not substitute a call.
+                    string name = Name(a[1], "r");
+                    var span = new SourceSpan(current.WordOffset * 4, current.WordCount * 4);
+                    block.Statements.Add(new Statement.Declare(name, T(), expression with { Span = span }, false) { Span = span });
+                    values[a[1]] = new Expression.Unary("*", new Expression.Reference(name, T()), T()); return;
+                }
                 if (T() is ShaderType.Pointer or ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure || op == Op.SampledImage) values[a[1]] = expression;
                 else block.Statements.Add(new Statement.Store(Value(a[1]), expression));
             }
             switch (op)
             {
                 case Op.Variable: break;
+                case Op.DemoteToHelperInvocation:
+                    Count(0, 0); ValidateInvocationFeature(op);
+                    block.Statements.Add(new Statement.Kill { Span = new(current.WordOffset * 4, current.WordCount * 4) }); break;
+                case Op.IsHelperInvocation:
+                    Count(2, 2); ValidateInvocationFeature(op);
+                    if (T() != ShaderType.Bool) throw Error("Helper invocation query requires a scalar bool result.");
+                    Result(new Expression.HelperInvocation { Span = new(current.WordOffset * 4, current.WordCount * 4) }); break;
                 case Op.SetMeshOutputsEXT: Count(2, 2); LowerMeshCounts(block, V(0), V(1)); break;
                 case Op.ImageTexelPointer: Count(5, 5); break;
                 case Op.Load:
@@ -251,23 +292,23 @@ public static partial class SpirvReader
                 case Op.RayQueryInitializeKHR:
                     Count(8, 8); AddRayStructure(RayQueryTypes.Descriptor);
                     block.Statements.Add(new Statement.Evaluate(new Expression.Call("spirvRayQueryInitializeKHR",
-                        [RayPointer(V(0)), V(1), V(2), V(3), V(4), V(5), V(6), V(7)], new ShaderType.Void()))); break;
+                        [RayPointer(V(0)), V(1), V(2), V(3), V(4), V(5), V(6), V(7)], new ShaderType.Void(), CallBinding.Builtin))); break;
                 case Op.RayQueryTerminateKHR: case Op.RayQueryConfirmIntersectionKHR:
-                    Count(1, 1); block.Statements.Add(new Statement.Evaluate(new Expression.Call("spirv"+op, [RayPointer(V(0))], new ShaderType.Void()))); break;
+                    Count(1, 1); block.Statements.Add(new Statement.Evaluate(new Expression.Call("spirv"+op, [RayPointer(V(0))], new ShaderType.Void(), CallBinding.Builtin))); break;
                 case Op.RayQueryGenerateIntersectionKHR:
-                    Count(2, 2); block.Statements.Add(new Statement.Evaluate(new Expression.Call("spirvRayQueryGenerateIntersectionKHR", [RayPointer(V(0)), V(1)], new ShaderType.Void()))); break;
+                    Count(2, 2); block.Statements.Add(new Statement.Evaluate(new Expression.Call("spirvRayQueryGenerateIntersectionKHR", [RayPointer(V(0)), V(1)], new ShaderType.Void(), CallBinding.Builtin))); break;
                 case Op.RayQueryProceedKHR:
-                    Count(3, 3); Result(new Expression.Call("spirvRayQueryProceedKHR", [RayPointer(V(2))], ShaderType.Bool)); break;
+                    Count(3, 3); Result(new Expression.Call("spirvRayQueryProceedKHR", [RayPointer(V(2))], ShaderType.Bool, CallBinding.Builtin)); break;
                 case Op.CooperativeMatrixLoadKHR:
-                    var cooperativeLoad = MemoryAccess(5); Result(new Expression.Call(CooperativeMemoryName(true, a[3]), [new Expression.Unary("&", V(2), V(2).Type), V(4)], T()) { MemoryAccess = cooperativeLoad }); break;
+                    var cooperativeLoad = MemoryAccess(5); Result(new Expression.Call(CooperativeMemoryName(true, a[3]), [new Expression.Unary("&", V(2), V(2).Type), V(4)], T(), CallBinding.Builtin) { MemoryAccess = cooperativeLoad }); break;
                 case Op.CooperativeMatrixStoreKHR:
                     var cooperativeStore = MemoryAccess(4); block.Statements.Add(new Statement.Evaluate(new Expression.Call(CooperativeMemoryName(false, a[2]),
-                        [V(1), new Expression.Unary("&", V(0), V(0).Type), V(3)], new ShaderType.Void()) { MemoryAccess = cooperativeStore })); break;
+                        [V(1), new Expression.Unary("&", V(0), V(0).Type), V(3)], new ShaderType.Void(), CallBinding.Builtin) { MemoryAccess = cooperativeStore })); break;
                 case Op.CooperativeMatrixMulAddKHR:
                     Count(5, 6); if (a.Length == 6 && a[5] != 0) throw Error("Unsupported cooperative multiply-add operand flags.");
-                    Result(new Expression.Call("coopMultiplyAdd", [V(2), V(3), V(4)], T())); break;
+                    Result(new Expression.Call("coopMultiplyAdd", [V(2), V(3), V(4)], T(), CallBinding.Builtin)); break;
                 case Op.RayQueryGetRayTMinKHR: case Op.RayQueryGetRayFlagsKHR:
-                    Count(3, 3); Result(new Expression.Call("spirv"+op, [RayPointer(V(2))], T())); break;
+                    Count(3, 3); Result(new Expression.Call("spirv"+op, [RayPointer(V(2))], T(), CallBinding.Builtin)); break;
                 case Op.RayQueryGetIntersectionTypeKHR: case Op.RayQueryGetIntersectionTKHR:
                 case Op.RayQueryGetIntersectionInstanceCustomIndexKHR: case Op.RayQueryGetIntersectionInstanceIdKHR:
                 case Op.RayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetKHR: case Op.RayQueryGetIntersectionGeometryIndexKHR:
@@ -277,6 +318,11 @@ public static partial class SpirvReader
                     Count(4, 4); Result(RayIntersectionValue(op, V(2), V(3), T())); break;
                 case Op.Store:
                     var storeMemory = MemoryAccess(2);
+                    if (directCanonicalFlow && V(0).Type is ShaderType.Pointer { Base: ShaderType.Pointer storedPointer }) {
+                        if (!values.TryGetValue(a[1], out var address)) throw Error("Store references an undefined pointer.");
+                        if (address.Type != storedPointer) throw Error("Stored pointer type mismatch.");
+                        block.Statements.Add(MemoryStore(V(0), new Expression.Unary("&", address, storedPointer), storeMemory)); break;
+                    }
                     if (MeshAggregateCopy(block, V(0), V(1), false, storeMemory)) break;
                     if (AtomicAggregateCopy(block, V(0), V(1), false, storeMemory)) break;
                     MarkInterfaceAggregate(V(0).Type);
@@ -360,7 +406,7 @@ public static partial class SpirvReader
                 case Op.VectorInsertDynamic:
                     Count(5, 5); block.Statements.Add(new Statement.Store(V(1), V(2)));
                     block.Statements.Add(new Statement.Store(Index(V(1), V(4)), V(3))); break;
-                case Op.Transpose: Count(3, 3); Result(new Expression.Call("transpose", [V(2)], T())); break;
+                case Op.Transpose: Count(3, 3); Result(new Expression.Call("transpose", [V(2)], T(), CallBinding.Builtin)); break;
                 case Op.VectorShuffle:
                     Count(5);
                     if (V(2).Type is not ShaderType.Vector v) throw Error("Invalid vector shuffle.");
@@ -372,10 +418,11 @@ public static partial class SpirvReader
                 case Op.FunctionCall:
                     Count(3);
                     if (!functions.TryGetValue(a[2], out var function)) throw Error("Undefined called function.");
+                    if (T() != function.ReturnType) throw Error("Function result type mismatch.");
                     if (a.Length - 3 != function.Arguments.Count) throw Error("Function argument count mismatch.");
                     var arguments = a[3..].Select((id, index) => function.Arguments[index].Type is ShaderType.Pointer
                         ? (Expression)new Expression.Unary("&", Value(id), function.Arguments[index].Type) : Value(id)).ToArray();
-                    Result(new Expression.Call(function.Name, arguments, T())); PropagateTaskTermination(block, a[2]); break;
+                    Result(new Expression.Call(function.Name, arguments, T(), CallBinding.Function)); PropagateTaskTermination(block, a[2]); break;
                 case Op.SNegate:
                     Count(3, 3);
                     var negationType = SpecIntegerType(T(), true);
@@ -412,18 +459,22 @@ public static partial class SpirvReader
                     {
                         if (IsNullPointer(acceptPointer) && !IsNullPointer(rejectPointer)) acceptPointer = new Expression.Construct(rejectPointer.Type, []);
                         if (IsNullPointer(rejectPointer) && !IsNullPointer(acceptPointer)) rejectPointer = new Expression.Construct(acceptPointer.Type, []);
+                        if (directCanonicalFlow) {
+                            acceptPointer = new Expression.Unary("&", acceptPointer, acceptPointer.Type);
+                            rejectPointer = new Expression.Unary("&", rejectPointer, rejectPointer.Type);
+                        }
                     }
                     Result(new Expression.Select(condition, acceptPointer, rejectPointer)); break;
                 case Op.Dot: case Op.OuterProduct:
-                    Count(4, 4); Result(new Expression.Call(op == Op.Dot ? "dot" : "outerProduct", [V(2), V(3)], T())); break;
+                    Count(4, 4); Result(new Expression.Call(op == Op.Dot ? "dot" : "outerProduct", [V(2), V(3)], T(), CallBinding.Builtin)); break;
                 case Op.Any: case Op.All: case Op.IsNan: case Op.IsInf:
-                    Count(3, 3); Result(new Expression.Call(op switch { Op.Any => "any", Op.All => "all", Op.IsNan => "isNan", _ => "isInf" }, [V(2)], T())); break;
+                    Count(3, 3); Result(new Expression.Call(op switch { Op.Any => "any", Op.All => "all", Op.IsNan => "isNan", _ => "isInf" }, [V(2)], T(), CallBinding.Builtin)); break;
                 case Op.BitCount: case Op.BitReverse: case Op.QuantizeToF16:
-                    Count(3, 3); Result(new Expression.Call(op == Op.BitCount ? "countOneBits" : op == Op.BitReverse ? "reverseBits" : "quantizeToF16", [V(2)], T())); break;
+                    Count(3, 3); Result(new Expression.Call(op == Op.BitCount ? "countOneBits" : op == Op.BitReverse ? "reverseBits" : "quantizeToF16", [V(2)], T(), CallBinding.Builtin)); break;
                 case Op.BitFieldInsert:
-                    Count(6, 6); Result(new Expression.Call("insertBits", [V(2), V(3), new Expression.Convert(ShaderType.U32, V(4)), new Expression.Convert(ShaderType.U32, V(5))], T())); break;
+                    Count(6, 6); Result(new Expression.Call("insertBits", [V(2), V(3), new Expression.Convert(ShaderType.U32, V(4)), new Expression.Convert(ShaderType.U32, V(5))], T(), CallBinding.Builtin)); break;
                 case Op.BitFieldSExtract: case Op.BitFieldUExtract:
-                    Count(5, 5); Result(new Expression.Call("extractBits", [V(2), new Expression.Convert(ShaderType.U32, V(3)), new Expression.Convert(ShaderType.U32, V(4))], T())); break;
+                    Count(5, 5); Result(new Expression.Call("extractBits", [V(2), new Expression.Convert(ShaderType.U32, V(3)), new Expression.Convert(ShaderType.U32, V(4))], T(), CallBinding.Builtin)); break;
                 case Op.DPdx: case Op.DPdy: case Op.Fwidth: case Op.DPdxFine: case Op.DPdyFine:
                 case Op.FwidthFine: case Op.DPdxCoarse: case Op.DPdyCoarse: case Op.FwidthCoarse:
                     Count(3, 3); Result(new Expression.Call(op switch
@@ -431,7 +482,7 @@ public static partial class SpirvReader
                         Op.DPdx => "dpdx", Op.DPdy => "dpdy", Op.Fwidth => "fwidth", Op.DPdxFine => "dpdxFine",
                         Op.DPdyFine => "dpdyFine", Op.FwidthFine => "fwidthFine", Op.DPdxCoarse => "dpdxCoarse",
                         Op.DPdyCoarse => "dpdyCoarse", _ => "fwidthCoarse"
-                    }, [V(2)], T())); break;
+                    }, [V(2)], T(), CallBinding.Builtin)); break;
                 case Op.ExtInst:
                     Count(4);
                     if (!imports.TryGetValue(a[2], out string? import) || import != "GLSL.std.450") throw Error("Unsupported extended instruction set.");
@@ -441,9 +492,9 @@ public static partial class SpirvReader
                         ShaderType resultType = T();
                         ShaderType conditionType = resultType is ShaderType.Vector shape ? new ShaderType.Vector(shape.Size, ShaderType.Bool) : ShaderType.Bool;
                         Expression NumberMinMax(string name, Expression left, Expression right) => new Expression.Select(
-                            new Expression.Call("isNan", [left], conditionType), right,
-                            new Expression.Select(new Expression.Call("isNan", [right], conditionType), left,
-                                new Expression.Call(name, [left, right], resultType)));
+                            new Expression.Call("isNan", [left], conditionType, CallBinding.Builtin), right,
+                            new Expression.Select(new Expression.Call("isNan", [right], conditionType, CallBinding.Builtin), left,
+                                new Expression.Call(name, [left, right], resultType, CallBinding.Builtin)));
                         Result(a[3] == 81 ? NumberMinMax("min", NumberMinMax("max", V(4), V(5)), V(6))
                             : NumberMinMax(a[3] == 79 ? "min" : "max", V(4), V(5)));
                         break;
@@ -458,7 +509,7 @@ public static partial class SpirvReader
                         var resultType = new ShaderType.Structure("sia_builtin_result_" + a[1], [new("fract", first), new(secondName, second)], modf ? BuiltinResultKind.Modf : BuiltinResultKind.Frexp);
                         module.Structures.Add(resultType);
                         string name = "sia_builtin_value_" + a[1];
-                        block.Statements.Add(new Statement.Declare(name, resultType, new Expression.Call(modf ? "modf" : "frexp", [input], resultType), false));
+                        block.Statements.Add(new Statement.Declare(name, resultType, new Expression.Call(modf ? "modf" : "frexp", [input], resultType, CallBinding.Builtin), false));
                         var reference = new Expression.Reference(name, resultType);
                         var fraction = new Expression.Member(reference, "fract", first);
                         var whole = new Expression.Member(reference, secondName, second);
@@ -469,10 +520,10 @@ public static partial class SpirvReader
                         else Result(new Expression.Construct(T(), [fraction, whole]));
                         break;
                     }
-                    Result(new Expression.Call(GlslFunction(a[3]), a[4..].Select(Value).ToArray(), T())); break;
+                    Result(new Expression.Call(GlslFunction(a[3]), a[4..].Select(Value).ToArray(), T(), CallBinding.Builtin)); break;
                 case Op.ArrayLength:
                     Count(4, 4); Expression member = Index(V(2), Expression.U32(a[3]));
-                    Result(new Expression.Call("arrayLength", [new Expression.Unary("&", member, member.Type)], T())); break;
+                    Result(new Expression.Call("arrayLength", [new Expression.Unary("&", member, member.Type)], T(), CallBinding.Builtin)); break;
                 case Op.GroupNonUniformAll: case Op.GroupNonUniformAny: case Op.GroupNonUniformBallot:
                 case Op.GroupNonUniformBroadcast: case Op.GroupNonUniformBroadcastFirst:
                 case Op.GroupNonUniformShuffle: case Op.GroupNonUniformShuffleXor: case Op.GroupNonUniformShuffleUp: case Op.GroupNonUniformShuffleDown:
@@ -549,7 +600,7 @@ public static partial class SpirvReader
                     Expression comparison = SpecCast(T(), new Expression.Binary(operation, left, right, operationType));
                     if (op is Op.FUnordEqual or Op.FUnordLessThan or Op.FUnordLessThanEqual or Op.FUnordGreaterThan or Op.FUnordGreaterThanEqual or Op.FOrdNotEqual)
                     {
-                        Expression nan = new Expression.Binary("|", new Expression.Call("isNan", [V(2)], T()), new Expression.Call("isNan", [right], T()), T());
+                        Expression nan = new Expression.Binary("|", new Expression.Call("isNan", [V(2)], T(), CallBinding.Builtin), new Expression.Call("isNan", [right], T(), CallBinding.Builtin), T());
                         comparison = op == Op.FOrdNotEqual ? new Expression.Binary("&", new Expression.Unary("!", nan, T()), comparison, T()) : new Expression.Binary("|", nan, comparison, T());
                     }
                     Result(comparison); break;

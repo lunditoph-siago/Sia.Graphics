@@ -46,7 +46,12 @@ public static partial class SpirvReader
                 .Select(i => i.Operands[0]).ToHashSet();
             var slotTypes = binary.Instructions.Where(i => (Op)i.Opcode == Op.TypePointer && i.Operands.Length == 3 && pointerTypes.Contains(i.Operands[2]))
                 .Select(i => i.Operands[0]).ToHashSet();
-            var pointerDefinitions = binary.Instructions.Where(i => i.Operands.Length >= 2 && pointerTypes.Contains(i.Operands[0]))
+            // Only value-producing instructions have a typed result ID in
+            // operand 1. OpTypePointer puts its storage class there instead;
+            // that number can also be a perfectly valid variable ID.
+            var pointerDefinitions = binary.Instructions.Where(i => i.Operands.Length >= 2 && pointerTypes.Contains(i.Operands[0])
+                && (Op)i.Opcode is Op.Variable or Op.ConstantNull or Op.Undef or Op.Function or Op.FunctionParameter
+                    or Op.FunctionCall or Op.AccessChain or Op.InBoundsAccessChain or Op.PtrAccessChain or Op.CopyObject or Op.Select or Op.Phi or Op.Load)
                 .GroupBy(i => i.Operands[1]).ToDictionary(g => g.Key, g => g.First());
             bool Direct(uint id, HashSet<uint> visited)
             {

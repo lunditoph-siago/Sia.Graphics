@@ -73,7 +73,7 @@ public static partial class SpirvReader
             if (image.StorageFormat is null) args.Add(image.Multisampled ? operands.Sample ?? throw Error("Multisampled fetch requires sample index.") : operands.Level ?? Expression.I32(0));
             else if (operands.Sample is not null || operands.Level is not null) throw Error("Storage image load has sampling operands.");
             ShaderType result = image.Depth ? ShaderType.F32 : new ShaderType.Vector(4, image.Component);
-            Expression call = new Expression.Call("textureLoad", args, result);
+            Expression call = new Expression.Call("textureLoad", args, result, CallBinding.Builtin);
             return image.Depth && Type(a[0]) is ShaderType.Vector v ? new Expression.Construct(v, [call]) : call;
         }
         private Expression ImageStore(uint[] a)
@@ -83,7 +83,7 @@ public static partial class SpirvReader
             var (coordinate, layer) = Coordinates(image, Value(a[1])); var operands = ReadImageOperands(a, 3);
             if (operands != new ImageOperands()) throw Error("Storage image writes with extra operands are not supported yet.");
             var args = new List<Expression> { texture, coordinate }; if (layer is not null) args.Add(layer); args.Add(Value(a[2]));
-            return new Expression.Call("textureStore", args, new ShaderType.Void());
+            return new Expression.Call("textureStore", args, new ShaderType.Void(), CallBinding.Builtin);
         }
         private Expression ImageSample(Op op, uint[] a)
         {
@@ -108,7 +108,7 @@ public static partial class SpirvReader
             if (operands.Ddx is not null) { args.Add(operands.Ddx); args.Add(operands.Ddy!); }
             if (operands.Offset is not null) args.Add(operands.Offset);
             ShaderType result = !gather && (compare || image.Depth) ? ShaderType.F32 : new ShaderType.Vector(4, image.Component);
-            Expression call = new Expression.Call(name, args, result);
+            Expression call = new Expression.Call(name, args, result, CallBinding.Builtin);
             return image.Depth && !compare && !gather && Type(a[0]) is ShaderType.Vector v ? new Expression.Construct(v, [call]) : call;
         }
         private Expression ImageQuery(Op op, uint[] a)
@@ -120,10 +120,10 @@ public static partial class SpirvReader
             ShaderType dimensions = rank == 1 ? ShaderType.U32 : new ShaderType.Vector(rank, ShaderType.U32);
             ShaderType result = name == "textureDimensions" ? dimensions : ShaderType.U32;
             var args = new List<Expression> { texture }; if (op == Op.ImageQuerySizeLod) args.Add(Value(a[3]));
-            Expression query = new Expression.Call(name, args, result);
+            Expression query = new Expression.Call(name, args, result, CallBinding.Builtin);
             if (name == "textureDimensions" && image.Arrayed)
             {
-                query = new Expression.Construct(new ShaderType.Vector(rank + 1, ShaderType.U32), [query, new Expression.Call("textureNumLayers", [texture], ShaderType.U32)]);
+                query = new Expression.Construct(new ShaderType.Vector(rank + 1, ShaderType.U32), [query, new Expression.Call("textureNumLayers", [texture], ShaderType.U32, CallBinding.Builtin)]);
             }
             return query.Type == Type(a[0]) ? query : new Expression.Convert(Type(a[0]), query);
         }

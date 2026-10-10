@@ -17,6 +17,21 @@ public sealed partial class SpirvCompiler
         WriteIndented = true
     };
 
+    public IReadOnlyList<SpirvArtifact> CompileAssembly(SpirvFileCompilationRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.Target);
+        request.Target.Validate(offline: true, wgsl: request.EmitWgsl);
+        var options = new SpirvCompilationOptions {
+            TargetEnvironment = request.Target.Environment, KernelAbi = request.Target.KernelAbi,
+            TargetProfile = request.Target.ResourceLimits, ToolchainDirectory = request.ToolchainDirectory,
+            EmitWgsl = request.EmitWgsl, OptimizationLevel = request.OptimizationLevel,
+            LlvmPasses = request.LlvmPasses, EmitLlvmIr = request.EmitLlvmIr
+        };
+        var artifacts = CompileAssemblyCore(request.AssemblyPath, request.OutputDirectory, options, null, request.Target);
+        WriteArtifactList(request.OutputDirectory, artifacts); return artifacts;
+    }
+
     public IReadOnlyList<SpirvArtifact> CompileAssembly(
         string assemblyPath,
         string outputDirectory,
@@ -31,11 +46,14 @@ public sealed partial class SpirvCompiler
         string assemblyPath,
         string outputDirectory,
         SpirvCompilationOptions? options,
-        string? targetName)
+        string? targetName,
+        SpirvCompilationTarget? target = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
         options ??= new SpirvCompilationOptions();
+        target ??= SpirvCompilationTarget.FromLegacy(options);
+        target.Validate(offline: true, wgsl: options.EmitWgsl);
         if (options.EmitWgsl && options.KernelAbi != SpirvKernelAbi.WebGpu) {
             throw new ArgumentException(
                 "WGSL output requires the WebGPU kernel ABI.", nameof(options));
@@ -51,6 +69,8 @@ public sealed partial class SpirvCompiler
         if (frontend.Kernels.Count == 0) {
             return [];
         }
+        foreach (var kernel in frontend.Kernels)
+            Translation.Legalization.ShaderTargetValidator.ValidateStage(target, kernel.Stage.ToString());
 
         var toolchain = LlvmToolchain.Locate(options.ToolchainDirectory);
         var llvmVersion = toolchain.GetLlvmVersion();
@@ -87,7 +107,8 @@ public sealed partial class SpirvCompiler
                 llvmVersion,
                 spirvToolsVersion,
                 translatorVersion,
-                translatorSha256);
+                translatorSha256,
+                target.Identity);
             var cachedSpirvPath = targetName is null ? spirvPath : GetCachedBinaryPath(manifestPath, spirvPath);
             if (IsCacheHit(
                 manifestPath,
@@ -122,16 +143,18 @@ public sealed partial class SpirvCompiler
                     llvmPath,
                     spirvPath,
                     options.OptimizationLevel,
-                    options.TargetEnvironment,
+                    target,
                     kernel.Stage);
                 toolchain.Validate(spirvPath, options.TargetEnvironment);
                 if (options.KernelAbi == SpirvKernelAbi.WebGpu) {
                     toolchain.OptimizeForWebGpu(spirvPath);
                 }
                 SpirvResourceAccessLowering.Rewrite(spirvPath, kernel);
+                Translation.Legalization.ShaderTargetValidator.ValidateBinary(
+                    Translation.Spirv.SpirvBinary.Parse(File.ReadAllBytes(spirvPath)), target);
                 toolchain.Validate(spirvPath, options.TargetEnvironment);
                 if (options.EmitWgsl) {
-                    ConvertToWgsl(spirvPath, wgslPath);
+                    ConvertToWgsl(spirvPath, wgslPath, target);
                 }
             }
             catch (Exception exception) when (exception is InvalidDataException or IOException) {
@@ -162,6 +185,7 @@ public sealed partial class SpirvCompiler
                 targetName,
                 Path.GetRelativePath(outputDirectory, spirvPath).Replace('\\', '/'),
                 spirvSha256);
+            manifest = manifest with { CompilationTargetSha256 = target.Identity };
             File.WriteAllText(
                 manifestPath,
                 JsonSerializer.Serialize(manifest, s_JsonOptions) + Environment.NewLine,
@@ -399,7 +423,8 @@ public sealed partial class SpirvCompiler
         string llvmVersion,
         string spirvToolsVersion,
         string? translatorVersion,
-        string? translatorSha256)
+        string? translatorSha256,
+        string targetIdentity)
     {
         var compilerVersion = typeof(SpirvCompiler).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0";
@@ -413,6 +438,7 @@ public sealed partial class SpirvCompiler
             compilerVersion,
             compilerHash,
             options.TargetEnvironment,
+            targetIdentity,
             options.KernelAbi,
             options.EmitWgsl,
             options.OptimizationLevel,

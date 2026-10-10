@@ -5,11 +5,12 @@ namespace Sia.Spirv.Compiler.Compilation;
 
 public sealed partial class SpirvCompiler
 {
-    private static void ConvertToWgsl(string spirvPath, string wgslPath)
+    private static void ConvertToWgsl(string spirvPath, string wgslPath, SpirvCompilationTarget target)
     {
         var temporaryPath = $"{wgslPath}.tmp.wgsl";
         try {
-            var wgsl = ShaderTranslator.SpirvToWgsl(File.ReadAllBytes(spirvPath));
+            var module = Translation.Front.SpirvReader.Parse(File.ReadAllBytes(spirvPath));
+            var wgsl = Translation.Back.WgslWriter.Write(module, target);
             File.WriteAllText(temporaryPath, wgsl);
             File.Move(temporaryPath, wgslPath, true);
         }

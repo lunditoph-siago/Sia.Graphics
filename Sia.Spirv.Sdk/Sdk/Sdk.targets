@@ -56,6 +56,8 @@
     <ItemGroup>
       <_SiaSpirvPublishFile Remove="@(_SiaSpirvPublishFile)" />
     </ItemGroup>
+    <Error Condition="!Exists('$(SpirvOutputDirectory)\spirv-artifacts.txt')"
+           Text="The Sia SPIR-V artifact list was not found at '$(SpirvOutputDirectory)\spirv-artifacts.txt'." />
     <ReadLinesFromFile File="$(SpirvOutputDirectory)\spirv-artifacts.txt">
       <Output TaskParameter="Lines" ItemName="_SiaSpirvPublishFile" />
     </ReadLinesFromFile>

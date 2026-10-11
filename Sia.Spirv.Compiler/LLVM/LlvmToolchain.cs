@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using Sia.Spirv;
 
 namespace Sia.Spirv.Compiler.LLVM;
@@ -72,8 +71,8 @@ public sealed class LlvmToolchain
 
     private static string GetDefaultPasses(string inputPath, int optimizationLevel) =>
         optimizationLevel == 0 || ContainsNativeAtomics(inputPath)
-            ? "sroa,mem2reg,structurizecfg,simplifycfg"
-            : "sroa,mem2reg,structurizecfg,simplifycfg,early-cse,sccp,adce," +
+            ? "sroa,mem2reg,lower-switch,structurizecfg,simplifycfg"
+            : "sroa,mem2reg,lower-switch,structurizecfg,simplifycfg,early-cse,sccp,adce," +
               "simplifycfg";
 
     private static string ValidatePasses(string passes)
@@ -92,16 +91,19 @@ public sealed class LlvmToolchain
         int optimizationLevel,
         string targetEnvironment,
         SpirvShaderStage shaderStage)
+        => Compile(inputPath, outputPath, optimizationLevel, new Compilation.SpirvCompilationTarget {
+            Environment = targetEnvironment,
+            Version = targetEnvironment == "vulkan1.3" ? 0x00010600u : 0x00010500u
+        }, shaderStage);
+
+    public void Compile(string inputPath, string outputPath, int optimizationLevel,
+        Compilation.SpirvCompilationTarget target, SpirvShaderStage shaderStage)
     {
+        ArgumentNullException.ThrowIfNull(target);
+        target.Validate(offline: true);
         ValidateOptimizationLevel(optimizationLevel);
         var targetStage = LlvmIrEmitter.GetTargetStage(shaderStage);
-        var triple = targetEnvironment switch {
-            "vulkan1.2" => $"spirv1.5-vulkan1.2-{targetStage}",
-            "vulkan1.3" => $"spirv1.6-vulkan1.3-{targetStage}",
-            _ => throw new ArgumentException(
-                $"Target environment '{targetEnvironment}' is not supported.",
-                nameof(targetEnvironment))
-        };
+        var triple = $"spirv1.{(target.Version >> 8) & 255}-{target.Environment}-{targetStage}";
         // The SPIR-V backend inserts structured merge instructions before its
         // late code-motion passes. Enabling llc optimization can then move a
         // speculatable instruction between OpSelectionMerge and its branch,
@@ -152,20 +154,6 @@ public sealed class LlvmToolchain
         }
     }
 
-    public void ConvertToWgsl(string spirvPath, string wgslPath)
-    {
-        EnsureToolExists(ToolName("naga"));
-        var temporaryPath = $"{wgslPath}.tmp.wgsl";
-        try {
-            Run(ToolName("naga"), spirvPath, temporaryPath);
-            Run(ToolName("naga"), temporaryPath);
-            File.Move(temporaryPath, wgslPath, true);
-        }
-        finally {
-            File.Delete(temporaryPath);
-        }
-    }
-
     public string GetLlvmVersion()
     {
         var output = Run(ToolName("llc"), "--version");
@@ -176,19 +164,6 @@ public sealed class LlvmToolchain
     }
 
     public string GetSpirvToolsVersion() => FirstLine(Run(ToolName("spirv-val"), "--version"));
-
-    public string GetNagaVersion()
-    {
-        EnsureToolExists(ToolName("naga"));
-        return FirstLine(Run(ToolName("naga"), "--version"));
-    }
-
-    public string GetNagaSha256()
-    {
-        EnsureToolExists(ToolName("naga"));
-        using var stream = File.OpenRead(Path.Combine(Directory, ToolName("naga")));
-        return Convert.ToHexString(SHA256.HashData(stream));
-    }
 
     private string Run(string tool, params string[] arguments)
     {

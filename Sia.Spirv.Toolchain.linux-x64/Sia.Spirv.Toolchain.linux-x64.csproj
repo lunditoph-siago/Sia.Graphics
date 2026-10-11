@@ -5,24 +5,20 @@
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
     <IsPackable>true</IsPackable>
     <PackageId>Sia.Spirv.Toolchain.linux-x64</PackageId>
-    <PackageDescription>Prebuilt LLVM 23, SPIRV-Tools, and Naga host toolchain for Linux x64.</PackageDescription>
+    <PackageDescription>Prebuilt LLVM 23 and SPIRV-Tools host toolchain for Linux x64.</PackageDescription>
   </PropertyGroup>
   <ItemGroup>
+    <_RequiredSpirvTool Include="llc;opt;llvm-as;llvm-dis;spirv-as;spirv-dis;spirv-link;spirv-opt;spirv-val" />
+    <_RequiredSpirvLicense Include="LLVM.txt;SPIRV-Tools.txt;SPIRV-Headers.txt" />
     <None Include="ToolchainManifest.json" Pack="true" PackagePath="metadata" />
     <None Include="Sdk\**\*" Pack="true" PackagePath="Sdk" />
     <None Include="buildTransitive\**\*" Pack="true" PackagePath="buildTransitive" />
-    <None Include="..\artifacts\llvm-toolchain-linux-x64\bin\*"
+    <None Include="@(_RequiredSpirvTool->'..\artifacts\llvm-toolchain-linux-x64\bin\%(Identity)')"
           Pack="true"
           PackagePath="tools\linux-x64" />
-    <None Include="..\artifacts\llvm-toolchain-linux-x64\licenses\*.txt"
+    <None Include="@(_RequiredSpirvLicense->'..\artifacts\llvm-toolchain-linux-x64\licenses\%(Identity)')"
           Pack="true"
           PackagePath="licenses" />
-    <None Include="..\artifacts\llvm-toolchain-linux-x64\include\sia_spirv_naga.h"
-          Pack="true"
-          PackagePath="tools\linux-x64\include" />
-    <_RequiredSpirvTool Include="llc;opt;llvm-as;llvm-dis;libsia_spirv_naga.so;naga;spirv-as;spirv-dis;spirv-link;spirv-opt;spirv-val" />
-    <_RequiredSpirvLicense Include="LLVM.txt;Naga.txt;SPIRV-Tools.txt;SPIRV-Headers.txt" />
-    <_RequiredSpirvHeader Include="sia_spirv_naga.h" />
   </ItemGroup>
 
   <Target Name="ValidateSpirvToolchainPackInputs" BeforeTargets="Pack">
@@ -30,7 +26,5 @@
            Text="Required prebuilt tool '%(_RequiredSpirvTool.Identity)' was not found. Build the native toolchain first." />
     <Error Condition="!Exists('..\artifacts\llvm-toolchain-linux-x64\licenses\%(_RequiredSpirvLicense.Identity)')"
            Text="Required native license '%(_RequiredSpirvLicense.Identity)' was not staged. Build the native toolchain first." />
-    <Error Condition="!Exists('..\artifacts\llvm-toolchain-linux-x64\include\%(_RequiredSpirvHeader.Identity)')"
-           Text="Required native header '%(_RequiredSpirvHeader.Identity)' was not staged. Build the native toolchain first." />
   </Target>
 </Project>

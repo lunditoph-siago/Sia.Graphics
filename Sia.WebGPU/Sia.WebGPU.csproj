@@ -24,4 +24,8 @@
     <DefineConstants Condition="'$(SiaWebGpuBackend)' == 'Wgpu'">$(DefineConstants);SIA_WEBGPU_BACKEND_WGPU</DefineConstants>
   </PropertyGroup>
 
+  <ItemGroup Condition="'$(TargetFramework)' == 'net11.0-browser' And ('$(SiaWebGpuBackend)' == 'Dawn' Or '$(SiaWebGpuBackend)' == '')">
+    <ProjectReference Include="..\Sia.Spirv.Compiler\Sia.Spirv.Compiler.csproj" />
+  </ItemGroup>
+
 </Project>

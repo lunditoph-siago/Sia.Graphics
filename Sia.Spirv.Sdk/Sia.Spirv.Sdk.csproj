@@ -5,7 +5,7 @@
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
     <PackageId>Sia.Spirv.Sdk</PackageId>
-    <PackageDescription>MSBuild SDK for compiling C# GPU kernels to SPIR-V and WGSL with LLVM and Naga.</PackageDescription>
+    <PackageDescription>MSBuild SDK for C# GPU compilation with LLVM and the managed Sia shader translator.</PackageDescription>
     <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);CollectSpirvSdkTools</TargetsForTfmSpecificContentInPackage>
   </PropertyGroup>
   <ItemGroup>
@@ -15,23 +15,10 @@
     <None Include="buildTransitive\**\*" Pack="true" PackagePath="buildTransitive" />
   </ItemGroup>
 
-  <Target Name="BuildSpirvNagaBrowser">
-    <PropertyGroup>
-      <_SpirvNagaOutputDirectory>$([System.IO.Path]::GetFullPath('$(BaseIntermediateOutputPath)naga'))</_SpirvNagaOutputDirectory>
-    </PropertyGroup>
-    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\Sia.Spirv.Naga\Build.ps1&quot; -Target Browser -OutputDirectory &quot;$(_SpirvNagaOutputDirectory)&quot;" />
-  </Target>
-
-  <Target Name="CollectSpirvSdkTools" DependsOnTargets="Build;BuildSpirvNagaBrowser">
+  <Target Name="CollectSpirvSdkTools" DependsOnTargets="Build">
     <ItemGroup>
       <TfmSpecificPackageFile Include="..\Sia.Spirv.Tool\bin\$(Configuration)\net11.0\**\*">
-        <PackagePath>tools/net11.0/%(RecursiveDir)%(Filename)%(Extension)</PackagePath>
-      </TfmSpecificPackageFile>
-      <TfmSpecificPackageFile Include="$(_SpirvNagaOutputDirectory)\browser\sia-spirv-naga.wasm">
-        <PackagePath>tools/browser</PackagePath>
-      </TfmSpecificPackageFile>
-      <TfmSpecificPackageFile Include="$(_SpirvNagaOutputDirectory)\browser\sia-spirv-polyfill.js">
-        <PackagePath>tools/browser</PackagePath>
+        <PackagePath>tools/net11.0</PackagePath>
       </TfmSpecificPackageFile>
     </ItemGroup>
   </Target>

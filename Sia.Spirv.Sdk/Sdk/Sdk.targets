@@ -6,7 +6,6 @@
     <SpirvEmitWgsl Condition="'$(SpirvEmitWgsl)' == ''">true</SpirvEmitWgsl>
     <SpirvOptimizationLevel Condition="'$(SpirvOptimizationLevel)' == ''">2</SpirvOptimizationLevel>
     <SpirvCompilerToolPath Condition="'$(SpirvCompilerToolPath)' == ''">$(MSBuildThisFileDirectory)..\tools\net11.0\Sia.Spirv.Tool.dll</SpirvCompilerToolPath>
-    <SpirvBrowserPolyfillDirectory Condition="'$(SpirvBrowserPolyfillDirectory)' == ''">$(MSBuildThisFileDirectory)..\tools\browser</SpirvBrowserPolyfillDirectory>
     <SpirvDotNetHost Condition="'$(DotNetHostPath)' != ''">$(DotNetHostPath)</SpirvDotNetHost>
     <SpirvDotNetHost Condition="'$(SpirvDotNetHost)' == ''">dotnet</SpirvDotNetHost>
     <_SiaSpirvSdkPackageDirectory>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</_SiaSpirvSdkPackageDirectory>
@@ -35,8 +34,6 @@
            Text="The prebuilt Sia SPIR-V host toolchain was not found. Install the spirv-tools workload or reference $(_SiaSpirvToolchainPackageId)." />
     <Error Condition="!Exists('$(SpirvToolchainDirectory)/spirv-val$(SpirvToolExecutableSuffix)')"
            Text="The SPIR-V validator was not found under '$(SpirvToolchainDirectory)'." />
-    <Error Condition="'$(SpirvEmitWgsl)' == 'true' and !Exists('$(SpirvToolchainDirectory)/naga$(SpirvToolExecutableSuffix)')"
-           Text="The Naga shader translator was not found under '$(SpirvToolchainDirectory)'. Install or update the spirv-tools workload." />
     <Error Condition="'$(SpirvPassesFile)' != '' and !Exists('$(SpirvPassesFile)')"
            Text="The SPIR-V pass configuration was not found at '$(SpirvPassesFile)'." />
     <Error Condition="'$(SpirvTargetProfileFile)' != '' and !Exists('$(SpirvTargetProfileFile)')"
@@ -56,12 +53,6 @@
           AfterTargets="Publish"
           DependsOnTargets="CompileSiaSpirvKernels"
           Condition="'$(EnableSpirvCompilation)' == 'true' and '$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true'">
-    <Error
-        Condition="'$(TargetPlatformIdentifier)' == 'browser' and !Exists('$(SpirvBrowserPolyfillDirectory)\sia-spirv-naga.wasm')"
-        Text="The browser Naga Wasm module was not found at '$(SpirvBrowserPolyfillDirectory)\sia-spirv-naga.wasm'. Install or update the spirv-tools workload." />
-    <Error
-        Condition="'$(TargetPlatformIdentifier)' == 'browser' and !Exists('$(SpirvBrowserPolyfillDirectory)\sia-spirv-polyfill.js')"
-        Text="The browser SPIR-V polyfill loader was not found at '$(SpirvBrowserPolyfillDirectory)\sia-spirv-polyfill.js'. Install or update the spirv-tools workload." />
     <ItemGroup>
       <_SiaSpirvPublishArtifact Remove="@(_SiaSpirvPublishArtifact)" />
       <_SiaSpirvPublishFile Remove="@(_SiaSpirvPublishFile)" />
@@ -76,9 +67,6 @@
       <_SiaSpirvPublishArtifact Include="@(_SiaSpirvPublishFile->'$(SpirvOutputDirectory)/%(Identity)')">
         <DestinationPath>%(_SiaSpirvPublishFile.Identity)</DestinationPath>
       </_SiaSpirvPublishArtifact>
-      <_SiaSpirvPublishArtifact
-          Include="$(SpirvBrowserPolyfillDirectory)\sia-spirv-naga.wasm;$(SpirvBrowserPolyfillDirectory)\sia-spirv-polyfill.js"
-          Condition="'$(TargetPlatformIdentifier)' == 'browser'" />
       <_SiaSpirvPublishArtifact Update="@(_SiaSpirvPublishArtifact)"
                                 Condition="'%(_SiaSpirvPublishArtifact.DestinationPath)' == ''">
         <DestinationPath>%(_SiaSpirvPublishArtifact.RecursiveDir)%(_SiaSpirvPublishArtifact.Filename)%(_SiaSpirvPublishArtifact.Extension)</DestinationPath>

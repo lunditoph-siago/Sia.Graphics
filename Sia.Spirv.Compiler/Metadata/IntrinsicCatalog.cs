@@ -9,12 +9,12 @@ public sealed class IntrinsicCatalog : IDisposable
     private const string k_CoreAssemblyFileName = "Sia.Spirv.Core.dll";
     private const string k_SpirvIntrinsicAttributeName = "Sia.Spirv.SpirvIntrinsicAttribute";
 
-    private readonly FileStream? _stream;
+    private readonly Stream? _stream;
     private readonly PEReader? _peReader;
     private readonly MetadataReader? _reader;
     private readonly Dictionary<(string DeclaringType, string Name, string Parameters), IntrinsicKind?> _cache = [];
 
-    private IntrinsicCatalog(FileStream? stream, PEReader? peReader, MetadataReader? reader)
+    private IntrinsicCatalog(Stream? stream, PEReader? peReader, MetadataReader? reader)
     {
         _stream = stream;
         _peReader = peReader;
@@ -34,6 +34,23 @@ public sealed class IntrinsicCatalog : IDisposable
         var stream = File.OpenRead(corePath);
         var peReader = new PEReader(stream, PEStreamOptions.PrefetchEntireImage);
         return new IntrinsicCatalog(stream, peReader, peReader.GetMetadataReader());
+    }
+
+    /// <summary>Read intrinsic metadata supplied by the caller without loading an assembly.</summary>
+    public static IntrinsicCatalog Open(ReadOnlyMemory<byte> assemblyImage)
+    {
+        if (assemblyImage.IsEmpty) return new IntrinsicCatalog(null, null, null);
+        var stream = new MemoryStream(assemblyImage.ToArray(), writable: false);
+        PEReader? peReader = null;
+        try {
+            peReader = new PEReader(stream, PEStreamOptions.PrefetchEntireImage);
+            return new IntrinsicCatalog(stream, peReader, peReader.GetMetadataReader());
+        }
+        catch {
+            peReader?.Dispose();
+            stream.Dispose();
+            throw;
+        }
     }
 
     public IntrinsicKind? Resolve(

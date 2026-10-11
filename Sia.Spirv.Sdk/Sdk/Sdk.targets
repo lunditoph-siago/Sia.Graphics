@@ -68,7 +68,7 @@
     <ItemGroup>
       <ResolvedFileToPublish Include="@(_SiaSpirvPublishFile->'$(SpirvOutputDirectory)/%(Identity)')">
         <RelativePath>$(_SiaSpirvPublishDirectory)/%(_SiaSpirvPublishFile.Identity)</RelativePath>
-        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <CopyToPublishDirectory>IfDifferent</CopyToPublishDirectory>
         <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
       </ResolvedFileToPublish>
     </ItemGroup>

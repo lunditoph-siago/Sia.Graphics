@@ -6,43 +6,59 @@ namespace Sia.Spirv.Compiler.Translation.Proc;
 /// <summary>Promote definitely initialized non-escaping data/address slots into SSA block parameters. Recompute analyses after rewriting.</summary>
 internal static class LocalValuePromotion
 {
+    internal static bool IsDefinitelyAssigned(ControlFlowFunction function, SsaValue slot,
+        IReadOnlyDictionary<int, IReadOnlyList<(ControlFlowBlock Block, ControlFlowEdge Edge)>>? predecessors = null) {
+        predecessors ??= new ControlFlowAnalysisContext(function).Predecessors;
+        var aliases = new HashSet<int> { slot.Id };
+        if (slot.Type is ShaderType.Pointer { Base: ShaderType.Pointer }) {
+            var definitions = function.Blocks.SelectMany(b => b.Instructions).Where(i => i.Result is not null)
+                .ToDictionary(i => i.Result!.Value.Id, i => i.Operation);
+            if (definitions.GetValueOrDefault(slot.Id) is ValueOperation.Symbol symbol)
+                aliases.UnionWith(definitions.Where(p => p.Value is ValueOperation.Symbol s && s.Name == symbol.Name).Select(p => p.Key));
+            bool added;
+            do {
+                added = false;
+                foreach (var (id, operation) in definitions)
+                    if (operation is ValueOperation.Let alias && aliases.Contains(alias.Value.Id)) added |= aliases.Add(id);
+            } while (added);
+        }
+        // Greatest fixed point for definite assignment. The entry starts empty;
+        // every other block intersects its predecessors, including loop backedges.
+        // A dynamic allocation resets the slot at its actual instruction position.
+        var assigned = function.Blocks.ToDictionary(b => b.Id, _ => true);
+        bool Incoming(ControlFlowBlock block) => block.Id != function.Entry && predecessors[block.Id].Count != 0
+            && predecessors[block.Id].All(p => assigned[p.Block.Id]);
+        bool Transfer(ControlFlowBlock block, bool state, bool checkLoads) {
+            foreach (var instruction in block.Instructions) {
+                if (instruction.Result == slot && instruction.Operation is ValueOperation.Local local) state = local.ZeroInitialize;
+                else if (instruction.Operation is ValueOperation.Store store && aliases.Contains(store.Pointer.Id)) state = true;
+                else if (checkLoads && instruction.Operation is ValueOperation.Load load && aliases.Contains(load.Pointer.Id) && !state) return false;
+            }
+            return checkLoads || state;
+        }
+        bool changed;
+        do {
+            changed = false;
+            foreach (var block in function.Blocks) {
+                bool state = Transfer(block, Incoming(block), checkLoads: false);
+                if (assigned[block.Id] != state) { assigned[block.Id] = state; changed = true; }
+            }
+        } while (changed);
+        return function.Blocks.All(block => Transfer(block, Incoming(block), checkLoads: true));
+    }
+
     public static void Run(ControlFlowFunction function, ControlFlowAnalysisContext? analyses = null)
     {
         analyses?.RequireFunction(function);
         var instructions = function.Blocks.SelectMany(b => b.Instructions).ToArray();
         var predecessors = (analyses ?? new ControlFlowAnalysisContext(function)).Predecessors;
-        bool DefinitelyAssigned(SsaValue slot) {
-            // Greatest fixed point for definite assignment. The entry starts empty;
-            // every other block intersects its predecessors, including loop backedges.
-            // A dynamic allocation resets the slot at its actual instruction position.
-            var assigned = function.Blocks.ToDictionary(b => b.Id, _ => true);
-            bool Incoming(ControlFlowBlock block) => block.Id != function.Entry && predecessors[block.Id].Count != 0
-                && predecessors[block.Id].All(p => assigned[p.Block.Id]);
-            bool Transfer(ControlFlowBlock block, bool state, bool checkLoads) {
-                foreach (var instruction in block.Instructions) {
-                    if (instruction.Result == slot && instruction.Operation is ValueOperation.Local local) state = local.ZeroInitialize;
-                    else if (instruction.Operation is ValueOperation.Store store && store.Pointer == slot) state = true;
-                    else if (checkLoads && instruction.Operation is ValueOperation.Load load && load.Pointer == slot && !state) return false;
-                }
-                return checkLoads || state;
-            }
-            bool changed;
-            do {
-                changed = false;
-                foreach (var block in function.Blocks) {
-                    bool state = Transfer(block, Incoming(block), checkLoads: false);
-                    if (assigned[block.Id] != state) { assigned[block.Id] = state; changed = true; }
-                }
-            } while (changed);
-            return function.Blocks.All(block => Transfer(block, Incoming(block), checkLoads: true));
-        }
         var slots = instructions.Where(i => i.Operation is ValueOperation.Local local && i.Result?.Type is ShaderType.Pointer pointer
                 && (CanonicalTypes.Data(pointer.Base) || !local.ZeroInitialize && (pointer.Base is ShaderType.Pointer || CanonicalTypes.Resource(pointer.Base))))
             .Select(i => i.Result!.Value).Where(slot => !function.Blocks.Any(b => b.Terminator!.Operands.Contains(slot)
                 || b.Terminator.Edges.Any(e => e.Arguments.Contains(slot))) && instructions.All(i => !i.Operation.Operands.Contains(slot)
                 || i.Operation is ValueOperation.Load { MemoryAccess: null } load && load.Pointer == slot
                 || i.Operation is ValueOperation.Store { MemoryAccess: null } store && store.Pointer == slot && store.Value != slot)
-                && DefinitelyAssigned(slot))
+                && IsDefinitelyAssigned(function, slot, predecessors))
             .ToDictionary(v => v.Id);
         if (slots.Count == 0) return;
         // Materialize implicit zero only for value promotion. Escaping/qualified

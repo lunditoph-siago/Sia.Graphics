@@ -599,7 +599,8 @@ WGSL parsing and native instruction decoding set it; CFG validation and target
 reconstruction preserve the existing Call/Builtin distinction. Shared call closure,
 effects, alias/uniformity analysis and helper expansion consume that identity.
 User calls are not folded or sent through builtin-specific memory/query lowering
-because their names match a builtin. Public legacy constructors remain name-resolved.
+because their names match a builtin. Public call constructors require an explicit
+`CallBinding`; the former name-resolved constructor has been removed.
 WGSL legalization disambiguates ordinary lexical names that would hide a required
 builtin, retaining types, scoped references and IO/binding metadata. Entry names
 and name-based override contracts are preserved; an unavoidable collision diagnoses
@@ -694,8 +695,9 @@ runs after helper binding before target dispatch. Phi predecessor sets must matc
 all actual native edges, and incoming values must match their declared types.
 Native Function pointer-slot loads/stores now enter the same typed CFG, including
 CopyObject slot aliases and immutable snapshots at each load. Shared promotion
-runs before metadata reconstruction and helper expansion; only allocation-only,
-definitely assigned, non-escaping, unqualified slots migrate at this stage. Modules
+runs before metadata reconstruction and helper expansion for allocation-only,
+definitely assigned, non-escaping, unqualified slots. Qualified slots retain
+explicit memory operations through canonical reference target lowering. Modules
 with pointer loads alone also enter this path. Native load shape/capability checks
 run before promotion and root checks run before address dispatch.
 Function slot helper parameters now bind to actual caller addresses through the
@@ -704,11 +706,18 @@ repeated calls. Shared promotion runs again after expansion, before reconstructi
 metadata; unused expanded slot helpers are retired from that adapter. No pointee
 copy-in/copy-out or second binary provenance solver is introduced. Incompatible
 slot parameter signatures retain their native transfer type-mismatch diagnostic.
-Private/global slots retain explicit preflight deferrals. If shared promotion
-leaves uninitialized, escaped or qualified slot memory, the reader records a
-deferral and uses the original normalizer without reconstructing metadata. This
-temporary exit reuses common IR facts; it does not duplicate binary definite-
-assignment analysis or catch parse exceptions. Slot null/undefined, arithmetic/
+Private pointer slots enter the native CFG as global addresses. Their complete
+calling closure expands before target legalization; one allocation per shader
+invocation preserves shared state across repeated former helper calls. The target
+replaces slot addresses with scalar tag/index memory and captures every field at
+the original load. Later writes cannot change an already loaded address. Each
+generated memory operation retains its original access operands, source span and
+diagnostic filters. Shared definite-assignment includes slot aliases and global
+identity; an uninitialized eligible slot reports a parse error without binary
+normalization. Scalarized slots need no variable-pointer target capability, while
+native capability and storage-root checks still precede address erasure.
+Deferred private-slot users must acquire graph ownership before localization.
+Slot spaces other than Function/Private, null/undefined, arithmetic/
 comparison, atomic/opaque/physical-matrix, descriptor arrays, task terminators
 and native pointer libraries still require migration. A parse error never silently
 selects fallback.

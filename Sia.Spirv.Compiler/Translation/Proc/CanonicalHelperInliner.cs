@@ -19,8 +19,17 @@ internal static class CanonicalHelperInliner
             ? graph.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).OfType<ValueOperation.Call>().Select(c => c.Function)
             : ControlFlowAnalysis.Calls(function.Body);
         var called = module.Functions.SelectMany(Calls).ToHashSet(StringComparer.Ordinal);
+        var privateHelpers = graphs.Where(p => p.Value.Signature.Stage is null && p.Value.Blocks.SelectMany(b => b.Instructions).Any(i =>
+            i.Operation is ValueOperation.Symbol && i.Result?.Type is ShaderType.Pointer { Space: AddressSpace.Private, Base: ShaderType.Pointer }))
+            .Select(p => p.Key).ToHashSet(StringComparer.Ordinal);
+        bool privateChanged;
+        do {
+            privateChanged = false;
+            foreach (var function in module.Functions.Where(f => f.Stage is null))
+                if (Calls(function).Any(privateHelpers.Contains)) privateChanged |= privateHelpers.Add(function.Name);
+        } while (privateChanged);
         var selected = module.Functions.Where(f => f.Stage is null && called.Contains(f.Name)
-            && (f.ReturnType is ShaderType.Pointer || CanonicalTypes.Resource(f.ReturnType)
+            && (privateHelpers.Contains(f.Name) || f.ReturnType is ShaderType.Pointer || CanonicalTypes.Resource(f.ReturnType)
                 || f.Arguments.Any(a => a.Type is ShaderType.Pointer)
                 || graphs.TryGetValue(f.Name, out var resourceGraph)
                     && resourceGraph.Blocks.Any(b => b.Parameters.Any(p => CanonicalTypes.Resource(p.Type)))))
@@ -143,8 +152,10 @@ internal static class CanonicalHelperInliner
             continuation.Instructions.AddRange(site.Block.Instructions.Skip(site.Index + 1)); continuation.Terminator = site.Block.Terminator;
             site.Block.Instructions.RemoveRange(site.Index, site.Block.Instructions.Count - site.Index);
             if (output.SelectionMerges.Remove(site.Block.Id, out int? merge)) output.SelectionMerges.Add(continuation.Id, merge);
-            else if (output.Loops.TryGetValue(site.Block.Id, out var loop) && continuation.Terminator is ControlFlowTerminator.Conditional)
-                output.SelectionMerges.Add(continuation.Id, loop.Merge);
+            else if (output.Loops.ContainsKey(site.Block.Id) && continuation.Terminator is ControlFlowTerminator.Conditional or ControlFlowTerminator.Switch)
+                // The moved loop exit stays inside the loop body. Its merge is
+                // owned by the loop, not by an additional nested selection.
+                output.SelectionMerges.Add(continuation.Id, null);
             var arguments = callee.Arguments.Select((a, i) => (a.Name, Value: call.Arguments[i])).ToDictionary(a => a.Name, a => a.Value, StringComparer.Ordinal);
             int entry = Copy(graph, output, arguments, continuation, site.Instruction.DiagnosticFilters, module);
             output.DiagnosticRanges.AddRange(graph.DiagnosticRanges);

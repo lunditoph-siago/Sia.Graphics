@@ -163,6 +163,10 @@ internal static partial class CompilerGpuTests
         yield return new("NativeSlotSelect", "five", [5], [14, 26]);
         yield return new("NativeSlotStandalone", "zero", [0], [0, 34]);
         yield return new("NativeSlotStandalone", "five", [5], [12, 24]);
+        yield return new("NativeSlotQualifiedMemory", "zero", [0], [2, 34]);
+        yield return new("NativeSlotQualifiedMemory", "five", [5], [14, 26]);
+        yield return new("NativeSlotPrivateMemoryHelpers", "zero", [0], [3, 48]);
+        yield return new("NativeSlotPrivateMemoryHelpers", "five", [5], [22, 42]);
         yield return new("NativeSlotHelper", "zero", [0], [2, 34]);
         yield return new("NativeSlotHelper", "five", [5], [14, 26]);
         yield return new("NativeSlotHelperNested", "zero", [0], [2, 34]);

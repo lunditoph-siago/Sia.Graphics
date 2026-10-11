@@ -1,5 +1,14 @@
 # Integrated compiler checks
 
+`CanonicalReferenceMemoryTests` checks qualified Function and Private pointer
+slots on owned graphs, poisoned declaration Bodies, captured indices after slot
+overwrites, and shared state across nested/repeated helper calls. Every lowered
+memory access retains its flags, span and diagnostic filters. Eligible
+uninitialized slots must fail without invoking binary normalization. The
+`NativeSlotQualifiedMemory` and `NativeSlotPrivateMemoryHelpers` GPU fixtures use
+fixed expected words for inputs 0 and 5. Volatile Function-slot WGSL remains an
+explicit unsupported-target diagnostic; tests retain its native memory operands.
+
 Reference target graph regression coverage lives in
 `CanonicalReferenceTargetTests`, `CanonicalPointerMergeTests` and
 `CanonicalSlotTests`. It checks owned graph input, simultaneous edge snapshots,

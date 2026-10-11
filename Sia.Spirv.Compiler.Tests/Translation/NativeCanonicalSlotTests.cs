@@ -71,14 +71,14 @@ public class NativeCanonicalSlotTests
     }
 
     [Theory] [InlineData(false, false)] [InlineData(false, true)] [InlineData(true, false)]
-    public void QualifiedAndPrivateSlotsRetainTheirExplicitMigrationRoute(bool privateSlot, bool volatileSlot)
+    public void QualifiedAndPrivateSlotsUseNativeControlFlow(bool privateSlot, bool volatileSlot)
     {
         var binary = PointerMemoryTests.StorePointers(NativeCanonicalPointerPhiTests.Fixture(), "native",
             qualified: !privateSlot, privateSlot: privateSlot, slotVolatile: volatileSlot);
         var traces = new List<CanonicalPassTrace>(); var deferrals = new List<CanonicalDeferral>();
         var module = SpirvReader.ReadBinary(binary, traces: traces, deferrals: deferrals);
-        Assert.Contains(deferrals, d => d.Function == "<SPIR-V>" && d.Feature.Contains(privateSlot ? "Private/global" : "qualified", StringComparison.Ordinal));
-        Assert.DoesNotContain(traces, t => t.Pass == "native-cfg-import"); ModuleValidator.Validate(module);
+        Assert.DoesNotContain(deferrals, d => d.Function == "<SPIR-V>");
+        Assert.Contains(traces, t => t.Pass == "native-cfg-import"); ModuleValidator.Validate(module);
         var native = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         if (volatileSlot) {
             Assert.Contains(native.Instructions, i => (Op)i.Opcode == Op.Load && i.Operands.Length > 3 && (i.Operands[3] & 1) != 0);
@@ -110,7 +110,7 @@ public class NativeCanonicalSlotTests
     }
 
     [Fact]
-    public void UninitializedPointerLoadsRetainTheLegacyDiagnosticAndExplicitDeferral()
+    public void UninitializedPointerLoadsFailWithoutBinaryNormalization()
     {
         var binary = StandaloneFixture(); var code = binary.Instructions.ToList();
         var pointers = code.Where(i => (Op)i.Opcode == Op.TypePointer).Select(i => i.Operands[0]).ToHashSet();
@@ -122,14 +122,10 @@ public class NativeCanonicalSlotTests
         code.Insert(position, new((ushort)Op.Load, [slotType[2], loaded, slot]));
         var input = new SpirvBinary { Version = binary.Version, Bound = loaded + 1, Instructions = code }; byte[] original = input.ToBytes();
         var traces = new List<CanonicalPassTrace>(); var deferrals = new List<CanonicalDeferral>();
-        var normalize = typeof(SpirvReader).GetNestedType("PointerPhiLowering", System.Reflection.BindingFlags.NonPublic)!
-            .GetMethod("RunWithHelpers")!;
-        var legacy = Assert.IsType<ShaderException>(Assert.Throws<System.Reflection.TargetInvocationException>(
-            () => normalize.Invoke(null, [input, null, null])).InnerException);
         var error = Assert.Throws<ShaderException>(() => SpirvReader.ReadBinary(input, traces: traces, deferrals: deferrals));
-        Assert.Contains(deferrals, d => d.Function == "<SPIR-V>" && d.Feature.Contains("uninitialized", StringComparison.Ordinal));
+        Assert.DoesNotContain(deferrals, d => d.Function == "<SPIR-V>");
         Assert.DoesNotContain(traces, t => t.Pass == "native-cfg-import"); Assert.Equal(original, input.ToBytes());
-        Assert.Equal(legacy.Diagnostic.Stage, error.Diagnostic.Stage); Assert.Equal(legacy.Message, error.Message);
+        Assert.Equal(DiagnosticStage.SpirvParse, error.Diagnostic.Stage);
         Assert.Contains("no initialized finite provenance", error.Message);
     }
 

@@ -143,17 +143,23 @@ public class CanonicalDeferredHelperTests
         Assert.Equal(call.Arguments[0], memory.Pointer); Assert.Equal(call.Arguments[1], memory.Value); Assert.Equal(1u, memory.MemoryAccess!.Flags);
         Assert.Equal(before, ControlFlowPrinter.Write(main)); ModuleValidator.Validate(output, native: true);
         var prepared = SpirvEntryPointLowering.Run(ShaderTargetLowering.PrepareSpirv(output, null), true, true);
-        Assert.Contains(capability, prepared.PhysicalLayout.EntryAbi!.Capabilities);
+        Assert.DoesNotContain(capability, prepared.PhysicalLayout.EntryAbi!.Capabilities);
         var native = SpirvReader.Parse(SpirvWriter.Emit(prepared).ToBytes());
         Assert.Equal(17u, new CanonicalExecution(native, []).Run().Output[0]);
     }
 
     [Fact]
-    public void FunctionAddressLoadedFromNativePointerSlotIsRejectedBeforeEmission()
+    public void FunctionAddressSlotsLowerToScalarMemoryBeforeNativeEmission()
     {
         var input = QualifiedSlot(AddressSpace.Function);
-        Assert.Contains("Pointer-slot values require storage or workgroup addresses", Assert.Throws<ShaderException>(() =>
-            SpirvEntryPointLowering.Run(ShaderTargetLowering.PrepareSpirv(input, null), true, true)).Message);
+        var target = ShaderTargetLowering.PrepareSpirv(input, null);
+        Assert.DoesNotContain(target.Functions.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions),
+            i => i.Result?.Type is ShaderType.Pointer { Base: ShaderType.Pointer });
+        var prepared = SpirvEntryPointLowering.Run(target, true, true);
+        Assert.DoesNotContain(4441u, prepared.PhysicalLayout.EntryAbi!.Capabilities);
+        Assert.DoesNotContain(4442u, prepared.PhysicalLayout.EntryAbi.Capabilities);
+        var native = SpirvReader.Parse(SpirvWriter.Emit(prepared).ToBytes());
+        Assert.Equal(17u, new CanonicalExecution(native, []).Run().Output[0]);
     }
 
     internal static Sia.Spirv.Compiler.Translation.Spirv.SpirvBinary QualifiedSlotOutput(AddressSpace space)

@@ -19,8 +19,8 @@ public static partial class SpirvReader
             && specializations.Contains(i.Operands[2])))
             deferred = "native specialization-sized arrays still require canonical type migration";
         else if (binary.Instructions.Any(i => (Op)i.Opcode == Op.TypePointer && i.Operands.Length == 3
-            && pointers.Contains(i.Operands[2]) && i.Operands[1] != 7))
-            deferred = "native pointer slots in Private/global memory still require binary provenance normalization";
+            && pointers.Contains(i.Operands[2]) && i.Operands[1] is not (6 or 7)))
+            deferred = "native pointer slots outside Function/Private memory still require binary provenance normalization";
         else if (binary.Instructions.Any(i => (Op)i.Opcode is Op.ConstantNull or Op.Undef && i.Operands.Length >= 2 && pointers.Contains(i.Operands[0])))
             deferred = "native pointer null/undefined still requires binary provenance normalization";
         else if (binary.Instructions.Any(i => (Op)i.Opcode is Op.EmitMeshTasksEXT))

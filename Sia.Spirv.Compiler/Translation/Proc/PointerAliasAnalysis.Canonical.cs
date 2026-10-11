@@ -44,6 +44,12 @@ internal static partial class PointerAliasAnalysis
                         ValueOperation.Member m => Roots(m.Base),
                         ValueOperation.Swizzle s => Roots(s.Vector),
                         ValueOperation.Select s => Roots(s.Accept).Concat(Roots(s.Reject)),
+                        // A loaded address names the stored pointee, not the slot
+                        // allocation. Keep flow-insensitive may-alias roots while
+                        // ordered loads retain their own SSA snapshots.
+                        ValueOperation.Load l when l.Pointer.Type is ShaderType.Pointer { Base: ShaderType.Pointer }
+                            => instructions.Select(i => i.Operation).OfType<ValueOperation.Store>()
+                                .Where(s => Roots(s.Pointer).Overlaps(Roots(l.Pointer))).SelectMany(s => Roots(s.Value)).ToArray(),
                         _ => []
                     };
                     changed |= Add(result, roots);

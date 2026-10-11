@@ -68,12 +68,12 @@ public class NativeCanonicalSlotHelperTests
     }
 
     [Theory] [InlineData(false)] [InlineData(true)]
-    public void QualifiedHelperSlotWritesRetainTheirExplicitMigrationBoundary(bool nested)
+    public void QualifiedHelperSlotWritesUseNativeControlFlow(bool nested)
     {
         var deferrals = new List<CanonicalDeferral>(); var traces = new List<CanonicalPassTrace>();
         var module = SpirvReader.ReadBinary(Fixture(nested, qualified: true), traces: traces, deferrals: deferrals);
-        Assert.Contains(deferrals, d => d.Function == "<SPIR-V>" && d.Feature.Contains("qualified", StringComparison.Ordinal));
-        Assert.DoesNotContain(traces, t => t.Pass == "native-cfg-import");
+        Assert.DoesNotContain(deferrals, d => d.Function == "<SPIR-V>");
+        Assert.Contains(traces, t => t.Pass == "native-cfg-import");
         var output = SpirvBinary.Parse(SpirvWriter.Write(module, SpirvCompilationTarget.Default));
         Assert.Contains(output.Instructions, i => (Op)i.Opcode == Op.Store && i.Operands.Length > 2 && (i.Operands[2] & 1) != 0);
     }

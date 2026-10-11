@@ -137,7 +137,17 @@ public static partial class SpirvReader
                 }
                 nativeGraphs.Add(raw.Function.Name, graph);
             }
-            if (nativeGraphs.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions).Any(i =>
+            var privateHelpers = nativeGraphs.Where(p => p.Value.Blocks.SelectMany(b => b.Instructions).Any(i =>
+                i.Operation is ValueOperation.Symbol && i.Result?.Type is ShaderType.Pointer { Space: AddressSpace.Private, Base: ShaderType.Pointer }))
+                .Select(p => p.Key).ToHashSet(StringComparer.Ordinal);
+            bool privateChanged;
+            do {
+                privateChanged = false;
+                foreach (var (name, graph) in nativeGraphs)
+                    if (graph.Blocks.SelectMany(b => b.Instructions).Any(i => i.Operation is ValueOperation.Call c && privateHelpers.Contains(c.Function)))
+                        privateChanged |= privateHelpers.Add(name);
+            } while (privateChanged);
+            if (privateHelpers.Count != 0 || nativeGraphs.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions).Any(i =>
                 i.Operation is ValueOperation.Call call && call.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.Pointer }))) {
                 // Bind the actual slot address before shared promotion. The same CFG
                 // copier handles void/nested helpers and pointer-return helpers; no
@@ -146,7 +156,7 @@ public static partial class SpirvReader
                 nativeGraphs = new(StringComparer.Ordinal);
                 foreach (var (name, graph) in originalGraphs) {
                     string? before = traces is null ? null : ControlFlowPrinter.Write(graph);
-                    var expanded = CanonicalHelperInliner.Run(graph, module, originalGraphs, expandPointerSlots: true);
+                    var expanded = CanonicalHelperInliner.Run(graph, module, originalGraphs, expandPointerSlots: true, expandFunctions: privateHelpers);
                     LocalValuePromotion.Run(expanded); ControlFlowVerifier.Validate(expanded, module);
                     nativeGraphs.Add(name, expanded);
                     if (traces is not null && !ReferenceEquals(graph, expanded)) slotTraces.Add(new(name,
@@ -155,16 +165,18 @@ public static partial class SpirvReader
                 }
                 var remainingCalls = nativeGraphs.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions)
                     .Select(i => i.Operation).OfType<ValueOperation.Call>().Select(c => c.Function).ToHashSet(StringComparer.Ordinal);
-                foreach (var raw in rawFunctions.Where(f => f.Function.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.Pointer })
-                    && !remainingCalls.Contains(f.Function.Name))) {
+                foreach (var raw in rawFunctions.Where(f => (f.Function.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.Pointer })
+                    || privateHelpers.Contains(f.Function.Name)) && !remainingCalls.Contains(f.Function.Name) && !entries.Any(e => e.Id == f.Id))) {
                     nativeGraphs.Remove(raw.Function.Name); module.Functions.Remove(raw.Function);
                 }
             }
-            if (nativeGraphs.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions).Any(i =>
-                i.Operation is ValueOperation.Local && i.Result?.Type is ShaderType.Pointer { Base: ShaderType.Pointer }
-                || i.Operation is ValueOperation.Load load && load.Pointer.Type is ShaderType.Pointer { Base: ShaderType.Pointer }
-                || i.Operation is ValueOperation.Store store && store.Pointer.Type is ShaderType.Pointer { Base: ShaderType.Pointer }))
-                return "native pointer slots with uninitialized, escaped or qualified memory still require binary provenance normalization";
+            foreach (var graph in nativeGraphs.Values)
+                foreach (var instruction in graph.Blocks.SelectMany(b => b.Instructions))
+                    if (instruction is { Operation: ValueOperation.Local or ValueOperation.Symbol, Result: { Type: ShaderType.Pointer { Base: ShaderType.Pointer } } slot }
+                        && slot.Type is ShaderType.Pointer { Space: AddressSpace.Function or AddressSpace.Private }
+                        && (instruction.Operation is ValueOperation.Local || module.Globals.Any(g => g.Name == ((ValueOperation.Symbol)instruction.Operation).Name))
+                        && !LocalValuePromotion.IsDefinitelyAssigned(graph, slot))
+                        throw new ShaderException(DiagnosticStage.SpirvParse, "Native " + graph.Signature.Name + ": pointer slot has no initialized finite provenance on every incoming path.");
             // Shared validation and passes consume native graphs directly. The
             // public Module is materialized once at the explicit output adapter.
             if (traces is not null) foreach (var trace in slotTraces) traces.Add(trace);

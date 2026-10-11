@@ -10,7 +10,32 @@ Execution amendment, approved by the user on 2026-10-10: remove backward
 compatibility, including public legacy APIs; breaking changes are allowed.
 This supersedes the earlier staged requirement to retain old overload adapters.
 
-Reference target migration, 2026-10-11: source C6A5955C…,
+Qualified slot memory migration, 2026-10-11: Function and Private pointer slots
+now use canonical memory operations and shared reference target lowering. The
+complete Private-slot call closure expands before one invocation-owned location
+is allocated. Loads capture scalar identity and indices at their original site;
+qualified accesses retain memory operands and lexical diagnostics. Eligible
+uninitialized slots fail directly through shared definite-assignment. No public
+compatibility API or dependency was added. Native null/undefined, other slot
+spaces, arithmetic/comparison, atomics/opaque layouts, libraries and remaining
+target/LLVM adapters still need migration. This does not complete the roadmap.
+Frozen source D5C54CF1… / Compiler 16604E4D… passes solution 2338/2338 (zero
+skips), independent formats 382/382, frozen replay 41/41, CLI, Dawn browser library
+and 22+3 managed PE exports; ten Compiler copies match. GPU attempted 64 cases:
+58 pass, two retain the known volatile-WGSL capability error, and four aligned
+slot SPIR-V cases fail with consumer Load/Store operand-count errors. Those four
+also fail using prior Compiler 4E01FC53… on identical native inputs; both old
+outputs pass independent SPIR-V validation. The new paired WGSL cases pass.
+Memory qualifiers remain intact and the GPU command/gate remains failed.
+The first independent run rejected a duplicate TypeFunction in the new test
+input; that input was corrected and the complete final checks rerun. Earlier
+failures, loop-region fixes and changed target-capability assertions are retained
+separately. Evidence and commands are under workspace
+`.work/compiler-architecture-first/reference-memory-*`, consolidated by
+`record-reference-memory-evidence.py`; submission and CI must match this source.
+The earlier reference-target verification below remains historical evidence.
+
+Previous reference target migration, 2026-10-11: source C6A5955C…,
 Compiler 4E01FC53…. Pointer and resource joins now share an owned CFG pass;
 [architecture](compiler-architecture.md) defines the boundary. The structured
 converter no longer encodes reference identities, expands pointer helpers or
@@ -607,8 +632,11 @@ pointer loads alone. Function slot helper arguments now bind to caller addresses
 through the same canonical copier, including void/nested helpers and repeated
 calls, followed by shared promotion before metadata reconstruction. Fully expanded
 slot helpers are removed from that adapter; native signature mismatch diagnostics
-remain explicit. Private/global slots retain explicit preflight deferrals;
-remaining uninitialized, escaped or qualified slots defer based on shared IR facts.
+remain explicit. Qualified Function and Private slots now remain in canonical
+memory; the Private call closure expands before invocation-local target storage
+is introduced. Shared definite-assignment rejects uninitialized eligible slots
+without binary normalization. Captured scalar tags/indices preserve loaded
+addresses across subsequent slot writes, with original access operands retained.
 Null/undefined, arithmetic/comparison, atomic/opaque/physical-matrix, descriptor
 arrays, task terminators and native pointer libraries retain explicit old-route deferrals;
 parse errors do not trigger fallback. Returned callee-local lifetimes, those native

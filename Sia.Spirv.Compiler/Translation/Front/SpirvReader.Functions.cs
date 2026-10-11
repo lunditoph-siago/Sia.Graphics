@@ -56,7 +56,7 @@ public static partial class SpirvReader
                         throw Error(directCanonicalFlow && (Type(a[0]) is ShaderType.Pointer { Base: ShaderType.Pointer }
                             || Type(signature[parameter - 1]) is ShaderType.Pointer { Base: ShaderType.Pointer })
                             ? "Pointer slot helper parameter transfer type mismatch." : "Invalid function parameter.");
-                    Define(a[1]);
+                    Define(a[1]); valueTypeIds.Add(a[1], a[0]);
                     ShaderType argumentType = Type(a[0]);
                     // UniformConstant acceleration-structure parameters are
                     // immutable resource references. Lower them to opaque values,
@@ -85,7 +85,7 @@ public static partial class SpirvReader
                 else block.Instructions.Add(current);
                 if (HasResult(op))
                 {
-                    Count(2); Define(a[1]); ShaderType resultType = Type(a[0]);
+                    Count(2); Define(a[1]); valueTypeIds.Add(a[1], a[0]); ShaderType resultType = Type(a[0]);
                     if (resultType is ShaderType.Pointer && (op is Op.Load or Op.Phi) && !directCanonicalFlow)
                         throw Error("Merged or loaded pointers require pointer provenance specialization.");
                     if ((op is Op.Phi or Op.Load) && resultType is ShaderType.Pointer && !variablePointers)
@@ -111,10 +111,10 @@ public static partial class SpirvReader
         private static bool HasResult(Op op) => op is not (Op.Store or Op.CopyMemory or Op.ControlBarrier or Op.MemoryBarrier or Op.ImageWrite or Op.AtomicStore or Op.CooperativeMatrixStoreKHR or Op.SetMeshOutputsEXT or Op.DemoteToHelperInvocation
             or Op.RayQueryInitializeKHR or Op.RayQueryTerminateKHR or Op.RayQueryGenerateIntersectionKHR or Op.RayQueryConfirmIntersectionKHR);
 
-        private string? ResolveFunctions(ICollection<CanonicalPassTrace>? traces = null)
+        private void ResolveFunctions(ICollection<CanonicalPassTrace>? traces = null)
         {
             if (directCanonicalFlow) {
-                return ResolveNativeControlFlow(traces);
+                ResolveNativeControlFlow(traces); return;
             }
             foreach (var raw in rawFunctions)
             {
@@ -244,7 +244,6 @@ public static partial class SpirvReader
                     foreach (var (destination, source) in copies) result.Statements.Add(new Statement.Store(destination, source));
                 }
             }
-            return null;
         }
 
         private void LowerInstruction(Block block)
@@ -360,6 +359,8 @@ public static partial class SpirvReader
                         else block.Statements.Add(MemoryStore(V(0), MemoryLoad(V(1), copyType, sourceMemory), targetMemory));
                     }
                     break;
+                case Op.PtrEqual: case Op.PtrNotEqual: case Op.PtrDiff:
+                    Result(NativePointerComparison()); break;
                 case Op.PtrAccessChain:
                     Count(4, 4);
                     if (V(2) is not Expression.Access elementAccess || elementAccess.Base.Type is not ShaderType.Pointer { Base: ShaderType.Array })

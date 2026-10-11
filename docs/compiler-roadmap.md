@@ -10,7 +10,28 @@ Execution amendment, approved by the user on 2026-10-10: remove backward
 compatibility, including public legacy APIs; breaking changes are allowed.
 This supersedes the earlier staged requirement to retain old overload adapters.
 
-Qualified slot memory migration, 2026-10-11: Function and Private pointer slots
+Pointer comparison migration, 2026-10-11: eligible native equality, inequality
+and difference now use typed canonical binaries and shared reference target
+lowering. The frontend owns native version/type-ID/stride/capability checks and
+validates aliases after helper binding. Shared address analysis owns comparison
+discovery; the frontend does not call the target pass. The dead nullable
+post-parse fallback protocol is removed. No public API or dependency is added.
+Source DB7D49C4F939… / Compiler A061086F85E4…: solution 2352/2352, zero skips;
+independent formats 392/392; frozen replay 41/41; CLI, Dawn browser library and
+22+3 managed PE exports pass. Ten Compiler copies match. GPU 78/84 pass, including
+all 20 new comparison cases. Six previously reproduced consumer errors remain:
+two volatile WGSL capability errors and four aligned-slot SPIR-V operand-count
+errors. Qualifiers are retained and the aggregate GPU gate remains failed.
+The native-import and helper alias-stage reproductions, test construction fixes,
+and the earlier complete verification before moving comparison discovery into
+shared analysis are retained separately. Final evidence is under workspace
+`.work/compiler-architecture-first/reference-comparison-final-*`, consolidated by
+`record-reference-comparison-final-evidence.py`; submission and CI must bind to
+this source. Pointer arithmetic, null/undefined, descriptor/opaque/native library,
+remaining target/LLVM adapters and complete research/consumer coverage still need
+work. The full roadmap remains active.
+
+Previous qualified slot memory migration, 2026-10-11: Function and Private pointer slots
 now use canonical memory operations and shared reference target lowering. The
 complete Private-slot call closure expands before one invocation-owned location
 is allocated. Loads capture scalar identity and indices at their original site;
@@ -637,7 +658,12 @@ memory; the Private call closure expands before invocation-local target storage
 is introduced. Shared definite-assignment rejects uninitialized eligible slots
 without binary normalization. Captured scalar tags/indices preserve loaded
 addresses across subsequent slot writes, with original access operands retained.
-Null/undefined, arithmetic/comparison, atomic/opaque/physical-matrix, descriptor
+Eligible pointer comparisons now import typed canonical binaries and use the
+shared reference target pass. Native type identity, stride, version and capability
+checks remain at the frontend; comparison helpers bind actual addresses before
+alias validation. Captured root/index identities and lexical diagnostics remain
+owned by the graph. The unused post-parse fallback return protocol is removed.
+Null/undefined, arithmetic, atomic/opaque/physical-matrix, descriptor
 arrays, task terminators and native pointer libraries retain explicit old-route deferrals;
 parse errors do not trigger fallback. Returned callee-local lifetimes, those native
 families, emitter transformations and complete frontend convergence remain pending.

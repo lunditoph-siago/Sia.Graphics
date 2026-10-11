@@ -71,6 +71,13 @@ public static partial class ModuleValidator
                 DiagnosticFilters(instruction.DiagnosticFilters);
                 values.Clear(); var type = instruction.Result?.Type ?? new ShaderType.Void();
                 if (instruction.Operation is ValueOperation.Local or ValueOperation.Symbol or ValueOperation.Let) return;
+                if (instruction.Operation is ValueOperation.Binary { Left.Type: ShaderType.Pointer } comparison) {
+                    Same(comparison.Left.Type, comparison.Right.Type, "Pointer comparison operand types differ.", instruction.Span);
+                    Require(comparison.Operator is "==" or "!=" && type == ShaderType.Bool
+                        || comparison.Operator == "-" && type is ShaderType.Scalar { Kind: ScalarKind.Sint or ScalarKind.Uint },
+                        "Invalid canonical pointer comparison.", instruction.Span);
+                    return;
+                }
                 if (instruction.Operation is ValueOperation.InterfaceLoad or ValueOperation.InterfaceStore) {
                     Type(instruction.Operation is ValueOperation.InterfaceLoad load ? load.Field.Type : ((ValueOperation.InterfaceStore)instruction.Operation).Field.Type);
                     return; // Direction, exact type and def/use are checked by the CFG verifier.

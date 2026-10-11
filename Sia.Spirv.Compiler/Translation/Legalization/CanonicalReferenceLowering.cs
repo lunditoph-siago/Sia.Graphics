@@ -26,9 +26,10 @@ internal static partial class CanonicalReferenceLowering
     {
         bool memory = input.Blocks.SelectMany(b => b.Instructions).Any(i => i.Operation is ValueOperation.Local
             && i.Result?.Type is ShaderType.Pointer { Base: ShaderType.Pointer });
-        lowerPointers |= memory;
+        bool comparisons = PointerAliasAnalysis.HasComparisons(input);
+        lowerPointers |= memory || comparisons;
         bool Reference(ShaderType type) => CanonicalTypes.Resource(type) || lowerPointers && type is ShaderType.Pointer;
-        if (!memory && !input.Blocks.Any(b => b.Parameters.Any(p => Reference(p.Type)))) return input;
+        if (!memory && !comparisons && !input.Blocks.Any(b => b.Parameters.Any(p => Reference(p.Type)))) return input;
         var graph = input.Copy();
         ShaderException Error(string message) => new(DiagnosticStage.Validation, "Canonical reference target in " + input.Signature.Name + ": " + message);
         var definitions = graph.Blocks.SelectMany(b => b.Instructions).Where(i => i.Result is not null).ToDictionary(i => i.Result!.Value.Id);
@@ -50,6 +51,7 @@ internal static partial class CanonicalReferenceLowering
         foreach (var instruction in definitions.Values)
             if (instruction is { Operation: ValueOperation.Load load, Result: { } result } && Slot(load.Pointer) is not null) dynamic.Add(result.Id);
         Shape ShapeFor(SsaValue root, Part[] parts) {
+            if (parts.Length != 0) root = ShapeFor(root, []).Root;
             string identity = definitions[root.Id].Operation is ValueOperation.Symbol symbol ? symbol.Name + ":" + root.Type : "local:" + root.Id;
             string key = identity + ":" + string.Join('/', parts.Select(p => p.Member is { } member ? "m:" + member : "i:" + p.IndexType));
             if (!shapes.TryGetValue(key, out var shape)) {
@@ -212,6 +214,7 @@ internal static partial class CanonicalReferenceLowering
                     }
             }
         }
+        RewriteComparisons(graph, definitions, Choices);
         SsaValue ReferenceValue(ControlFlowBlock block, Choice choice) {
             var root = choice.Shape.Root;
             var value = definitions[root.Id].Operation is ValueOperation.Symbol symbol ? Emit(block, root.Type, symbol) : root;

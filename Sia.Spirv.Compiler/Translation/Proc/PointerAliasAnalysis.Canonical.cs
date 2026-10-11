@@ -5,6 +5,9 @@ namespace Sia.Spirv.Compiler.Translation.Proc;
 
 internal static partial class PointerAliasAnalysis
 {
+    internal static bool HasComparisons(ControlFlowFunction graph) => graph.Blocks.SelectMany(b => b.Instructions)
+        .Any(i => i.Operation is ValueOperation.Binary { Left.Type: ShaderType.Pointer });
+
     internal static Dictionary<int, HashSet<Root>> Origins(Module module, ControlFlowFunction graph)
         => CanonicalAnalysis.ComputeOrigins(module, graph);
     /// <summary>SSA address roots, including loop/merge edge arguments. No target reconstruction is needed.</summary>

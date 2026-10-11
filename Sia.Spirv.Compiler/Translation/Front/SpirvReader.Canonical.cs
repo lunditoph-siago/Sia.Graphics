@@ -25,8 +25,8 @@ public static partial class SpirvReader
             deferred = "native pointer null/undefined still requires binary provenance normalization";
         else if (binary.Instructions.Any(i => (Op)i.Opcode is Op.EmitMeshTasksEXT))
             deferred = "native task terminators still require canonical migration";
-        else if (binary.Instructions.Any(i => (Op)i.Opcode is Op.PtrAccessChain or Op.PtrEqual or Op.PtrNotEqual or Op.PtrDiff))
-            deferred = "native pointer arithmetic/comparison still requires binary provenance normalization";
+        else if (binary.Instructions.Any(i => (Op)i.Opcode is Op.PtrAccessChain))
+            deferred = "native pointer arithmetic still requires binary provenance normalization";
         else if (binary.Instructions.Any(i => (Op)i.Opcode is >= Op.AtomicLoad and <= Op.AtomicXor or Op.AtomicFAddEXT))
             deferred = "native atomics still require typed provenance migration";
         else if (binary.Instructions.Any(i => (Op)i.Opcode is Op.TypeImage or Op.TypeSampler or Op.TypeSampledImage or Op.TypeAccelerationStructureKHR

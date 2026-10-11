@@ -115,6 +115,13 @@ public static partial class ModuleValidator
         {
             ShaderType left = Expr(binary.Left), right = Expr(binary.Right);
             string op = binary.Operator;
+            if (allowNativePointerParameters && left is ShaderType.Pointer && right is ShaderType.Pointer) {
+                Same(left, right, "Pointer comparison operand types differ.", binary.Span);
+                Require(op is "==" or "!=" && binary.Type == ShaderType.Bool
+                    || op == "-" && binary.Type is ShaderType.Scalar { Kind: ScalarKind.Sint or ScalarKind.Uint },
+                    "Invalid native pointer comparison.", binary.Span);
+                return binary.Type;
+            }
             if (left is ShaderType.CooperativeMatrix || right is ShaderType.CooperativeMatrix)
             {
                 if (op is "+" or "-" && left == right) return left;

@@ -1045,6 +1045,15 @@ both target formats. Their typed IR helper returns are not authored WGSL pointer
 return functions; independent GPU expectations cover branches, nested/early-exit
 loops, repeated calls and per-call escaping-local initialization.
 
+The native comparison catalog adds `NativePointerComparison-select`, `-phi`,
+`-loop`, `-slot` and `-helper`, each with zero/five inputs through WGSL and SPIR-V.
+The two output words encode equality/inequality and pointer difference; expected
+words are fixed independently of compiler output. Export their input binaries
+from `NativeCanonicalComparisonTests` in the matching test assembly and validate
+both native inputs and emitted SPIR-V before execution. These cases cover one
+storage allocation, including captured addresses and parameter binding; they do
+not establish cross-binding alias equivalence or full integer-width execution.
+
 Supported runtime regression coverage includes scalar/vector/matrix math,
 same-assembly static helpers, structured stage IO, buffer layouts, workgroup
 arrays, atomics, branches/loops, and texture sample/load. Unsupported CIL,

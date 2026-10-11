@@ -104,6 +104,8 @@ internal sealed class StructuredControlFlowReader
                 return Emit(unary.Type, new ValueOperation.Unary(unary.Operator, Expr(unary.Operand)), unary.Span);
             case Expression.Unary { Operator: "&", Type: ShaderType.Pointer } address:
                 return Place(address.Operand);
+            case Expression.Binary binary when nativeMemory && binary.Left.Type is ShaderType.Pointer && binary.Right.Type is ShaderType.Pointer:
+                return Emit(binary.Type, new ValueOperation.Binary(binary.Operator, Place(binary.Left), Place(binary.Right)), binary.Span);
             case Expression.Binary binary when CanonicalTypes.Data(binary.Type) && CanonicalTypes.Data(binary.Left.Type) && CanonicalTypes.Data(binary.Right.Type):
                 if (binary.Operator is "&&" or "||") return ShortCircuit(binary);
                 var left = Expr(binary.Left); var right = Expr(binary.Right);

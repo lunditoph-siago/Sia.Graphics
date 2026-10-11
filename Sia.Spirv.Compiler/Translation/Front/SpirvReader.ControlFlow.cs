@@ -1,6 +1,5 @@
 using Sia.Spirv.Compiler.Translation.IR;
 using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
-using Sia.Spirv.Compiler.Translation.Legalization;
 using Sia.Spirv.Compiler.Translation.Proc;
 using Sia.Spirv.Compiler.Translation.Spirv;
 using Sia.Spirv.Compiler.Translation.Valid;
@@ -13,7 +12,7 @@ public static partial class SpirvReader
     {
         private Dictionary<string, ControlFlowFunction>? nativeGraphs;
 
-        private string? ResolveNativeControlFlow(ICollection<CanonicalPassTrace>? traces)
+        private void ResolveNativeControlFlow(ICollection<CanonicalPassTrace>? traces)
         {
             // These structured statements supply existing type/effect translation.
             // Native topology and phi identities never pass through Region/Edge copies.
@@ -137,36 +136,38 @@ public static partial class SpirvReader
                 }
                 nativeGraphs.Add(raw.Function.Name, graph);
             }
-            var privateHelpers = nativeGraphs.Where(p => p.Value.Blocks.SelectMany(b => b.Instructions).Any(i =>
-                i.Operation is ValueOperation.Symbol && i.Result?.Type is ShaderType.Pointer { Space: AddressSpace.Private, Base: ShaderType.Pointer }))
+            bool comparisons = nativeGraphs.Values.Any(PointerAliasAnalysis.HasComparisons);
+            var referenceHelpers = nativeGraphs.Where(p => PointerAliasAnalysis.HasComparisons(p.Value)
+                || p.Value.Blocks.SelectMany(b => b.Instructions).Any(i =>
+                    i.Operation is ValueOperation.Symbol && i.Result?.Type is ShaderType.Pointer { Space: AddressSpace.Private, Base: ShaderType.Pointer }))
                 .Select(p => p.Key).ToHashSet(StringComparer.Ordinal);
-            bool privateChanged;
+            bool referencesChanged;
             do {
-                privateChanged = false;
+                referencesChanged = false;
                 foreach (var (name, graph) in nativeGraphs)
-                    if (graph.Blocks.SelectMany(b => b.Instructions).Any(i => i.Operation is ValueOperation.Call c && privateHelpers.Contains(c.Function)))
-                        privateChanged |= privateHelpers.Add(name);
-            } while (privateChanged);
-            if (privateHelpers.Count != 0 || nativeGraphs.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions).Any(i =>
+                    if (graph.Blocks.SelectMany(b => b.Instructions).Any(i => i.Operation is ValueOperation.Call c && referenceHelpers.Contains(c.Function)))
+                        referencesChanged |= referenceHelpers.Add(name);
+            } while (referencesChanged);
+            if (referenceHelpers.Count != 0 || nativeGraphs.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions).Any(i =>
                 i.Operation is ValueOperation.Call call && call.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.Pointer }))) {
-                // Bind the actual slot address before shared promotion. The same CFG
-                // copier handles void/nested helpers and pointer-return helpers; no
-                // pointee copy-in/copy-out or frontend provenance solver is involved.
+                // Bind actual addresses before slot promotion and native comparison
+                // validation. Nested helpers use the shared CFG copier, preserving
+                // address identity and the original order of effects.
                 var originalGraphs = nativeGraphs;
                 nativeGraphs = new(StringComparer.Ordinal);
                 foreach (var (name, graph) in originalGraphs) {
                     string? before = traces is null ? null : ControlFlowPrinter.Write(graph);
-                    var expanded = CanonicalHelperInliner.Run(graph, module, originalGraphs, expandPointerSlots: true, expandFunctions: privateHelpers);
+                    var expanded = CanonicalHelperInliner.Run(graph, module, originalGraphs, expandPointerSlots: true, expandFunctions: referenceHelpers);
                     LocalValuePromotion.Run(expanded); ControlFlowVerifier.Validate(expanded, module);
                     nativeGraphs.Add(name, expanded);
                     if (traces is not null && !ReferenceEquals(graph, expanded)) slotTraces.Add(new(name,
-                        "native-slot-helper-expansion", before!, ControlFlowPrinter.Write(expanded),
+                        comparisons ? "native-reference-helper-expansion" : "native-slot-helper-expansion", before!, ControlFlowPrinter.Write(expanded),
                         "argument snapshots, actual slot addresses and callee effect order", "CFG topology, SSA definitions and call summaries"));
                 }
                 var remainingCalls = nativeGraphs.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions)
                     .Select(i => i.Operation).OfType<ValueOperation.Call>().Select(c => c.Function).ToHashSet(StringComparer.Ordinal);
                 foreach (var raw in rawFunctions.Where(f => (f.Function.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.Pointer })
-                    || privateHelpers.Contains(f.Function.Name)) && !remainingCalls.Contains(f.Function.Name) && !entries.Any(e => e.Id == f.Id))) {
+                    || referenceHelpers.Contains(f.Function.Name)) && !remainingCalls.Contains(f.Function.Name) && !entries.Any(e => e.Id == f.Id))) {
                     nativeGraphs.Remove(raw.Function.Name); module.Functions.Remove(raw.Function);
                 }
             }
@@ -180,7 +181,6 @@ public static partial class SpirvReader
             // Shared validation and passes consume native graphs directly. The
             // public Module is materialized once at the explicit output adapter.
             if (traces is not null) foreach (var trace in slotTraces) traces.Add(trace);
-            return null;
         }
     }
 }

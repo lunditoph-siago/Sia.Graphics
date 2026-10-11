@@ -10,14 +10,12 @@ public static partial class SpirvReader
     internal static Module ReadBinary(SpirvBinary binary, SpirvReadOptions? options = null,
         ICollection<CanonicalPassTrace>? traces = null, ICollection<CanonicalDeferral>? deferrals = null)
     {
-        if (CanReadCanonicalFlow(binary, out var deferred)) {
-            var result = new Reader(binary, options ?? new(), new HashSet<uint>(), new Dictionary<uint, string>(), directCanonicalFlow: true)
-                .Read(out deferred, traces, deferrals);
-            if (result is not null) return result;
-        }
+        if (CanReadCanonicalFlow(binary, out var deferred))
+            return new Reader(binary, options ?? new(), new HashSet<uint>(), new Dictionary<uint, string>(), directCanonicalFlow: true)
+                .Read(traces, deferrals);
         if (deferred is not null) deferrals?.Add(new("<SPIR-V>", deferred));
         var normalized = PointerPhiLowering.RunWithHelpers(binary, out var helpers, out var snapshots);
-        return new Reader(normalized, options ?? new(), helpers, snapshots).Read(out _)!;
+        return new Reader(normalized, options ?? new(), helpers, snapshots).Read();
     }
 
     private sealed partial class Reader(SpirvBinary binary, SpirvReadOptions options, IReadOnlySet<uint> specializedHelpers, IReadOnlyDictionary<uint, string> descriptorSnapshots, bool directCanonicalFlow = false)
@@ -25,6 +23,7 @@ public static partial class SpirvReader
         private readonly Module module = new() { WorkgroupInitializationRequired = false };
         private readonly Dictionary<uint, ShaderType> types = [];
         private readonly Dictionary<uint, Expression> values = [];
+        private readonly Dictionary<uint, uint> valueTypeIds = [];
         private readonly Dictionary<uint, string> names = [];
         private readonly Dictionary<(uint, uint), string> memberNames = [];
         private readonly Dictionary<(uint Id, int Member, uint Decoration), uint[]> decorations = [];
@@ -85,9 +84,8 @@ public static partial class SpirvReader
             return result.Length == 0 ? "unnamed" : char.IsAsciiDigit(result[0]) || WgslKeywords.IsReserved(result) ? "n_" + result : result;
         }
 
-        public Module? Read(out string? deferred, ICollection<CanonicalPassTrace>? traces = null, ICollection<CanonicalDeferral>? deferrals = null)
+        public Module Read(ICollection<CanonicalPassTrace>? traces = null, ICollection<CanonicalDeferral>? deferrals = null)
         {
-            deferred = null;
             // Names/decorations precede types in logical SPIR-V layout.
             foreach (var instruction in binary.Instructions)
             {
@@ -288,8 +286,7 @@ public static partial class SpirvReader
             UpgradeAtomicGlobals();
             UpgradeComparisonResources();
             PrepareMeshEntries();
-            deferred = ResolveFunctions(traces);
-            if (deferred is not null) return null;
+            ResolveFunctions(traces);
             AddEntryPoints();
             Module result = directCanonicalFlow ? CanonicalShaderPipeline.Run(module, traces, deferrals,
                 (graph, input) => Valid.NativePointerValidator.Validate(graph, input, fullVariablePointers), nativeGraphs)
@@ -375,7 +372,7 @@ public static partial class SpirvReader
             Count(3, 4); var a = current.Operands;
             if (Type(a[0]) is not ShaderType.Pointer pointer) throw Error("OpVariable requires a pointer type.");
             if (a[2] == 7) throw Error("Function variable outside a function.");
-            Define(a[1]);
+            Define(a[1]); valueTypeIds.Add(a[1], a[0]);
             AddressSpace space = Space(a[2]);
             // Vulkan 1.0 storage buffers use Uniform + BufferBlock.
             uint pointeeId = binary.Instructions.First(i => (Op)i.Opcode == Op.TypePointer && i.Operands[0] == a[0]).Operands[2];

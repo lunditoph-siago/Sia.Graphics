@@ -11,6 +11,7 @@ internal static class ShaderTargetLowering
     internal static Module ForStructured(CanonicalModule canonical, bool nativeValidation = false)
     {
         if (canonical.Functions.Values.Any(g => g.Blocks.Any(b => b.Parameters.Any(p => p.Type is ShaderType.Pointer || CanonicalTypes.Resource(p.Type))))
+            || canonical.Functions.Values.Any(PointerAliasAnalysis.HasComparisons)
             || canonical.Functions.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions).Any(i => i.Result?.Type is ShaderType.Pointer { Base: ShaderType.Pointer })
             || canonical.Declarations.Functions.Any(f => f.ReturnType is ShaderType.Pointer && canonical.EntryFunctions.Contains(f.Name)))
             canonical = CanonicalHelperInliner.RunReferences(canonical);

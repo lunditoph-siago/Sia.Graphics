@@ -167,6 +167,10 @@ internal static partial class CompilerGpuTests
         yield return new("NativeSlotQualifiedMemory", "five", [5], [14, 26]);
         yield return new("NativeSlotPrivateMemoryHelpers", "zero", [0], [3, 48]);
         yield return new("NativeSlotPrivateMemoryHelpers", "five", [5], [22, 42]);
+        foreach (string mode in new[] { "select", "phi", "loop", "slot", "helper" }) {
+            yield return new("NativePointerComparison-" + mode, "zero", [0], mode == "loop" ? [2, uint.MaxValue] : [1, 0]);
+            yield return new("NativePointerComparison-" + mode, "five", [5], mode == "loop" ? [1, 0] : [2, uint.MaxValue]);
+        }
         yield return new("NativeSlotHelper", "zero", [0], [2, 34]);
         yield return new("NativeSlotHelper", "five", [5], [14, 26]);
         yield return new("NativeSlotHelperNested", "zero", [0], [2, 34]);

@@ -41,6 +41,19 @@ internal static class NativePointerValidator
         foreach (var parameter in graph.Blocks.SelectMany(b => b.Parameters)) Check(parameter);
         foreach (var instruction in graph.Blocks.SelectMany(b => b.Instructions))
             if (instruction.Operation is ValueOperation.Load && instruction.Result is { Type: ShaderType.Pointer } address) Check(address);
+        if (checkOrigins) {
+            var definitions = graph.Blocks.SelectMany(b => b.Instructions).Where(i => i.Result is not null).ToDictionary(i => i.Result!.Value.Id);
+            SsaValue Source(SsaValue value) {
+                while (definitions.GetValueOrDefault(value.Id)?.Operation is ValueOperation.Let alias) value = alias.Value;
+                return value;
+            }
+            foreach (var instruction in definitions.Values)
+                if (instruction.Operation is ValueOperation.Binary { Left.Type: ShaderType.Pointer { Space: AddressSpace.Storage } } binary
+                    && Source(binary.Left) != Source(binary.Right)
+                    && origins[binary.Left.Id].Any(a => a.Global is not null && origins[binary.Right.Id].Any(b => b.Global is not null && a.Global != b.Global)))
+                    throw new ShaderException(DiagnosticStage.SpirvParse,
+                        "Cross-buffer pointer comparison requires address equivalence for potentially aliased bindings.", instruction.Span);
+        }
         foreach (var returned in graph.Blocks.Select(b => b.Terminator).OfType<ControlFlowTerminator.Return>())
             if (returned.Value is { Type: ShaderType.Pointer } address) Check(address);
     }

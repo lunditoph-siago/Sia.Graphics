@@ -717,8 +717,18 @@ identity; an uninitialized eligible slot reports a parse error without binary
 normalization. Scalarized slots need no variable-pointer target capability, while
 native capability and storage-root checks still precede address erasure.
 Deferred private-slot users must acquire graph ownership before localization.
-Slot spaces other than Function/Private, null/undefined, arithmetic/
-comparison, atomic/opaque/physical-matrix, descriptor arrays, task terminators
+Eligible native pointer equality, inequality and difference now import typed
+canonical binary operations. The reader checks version, exact native type IDs,
+storage capability and required pointer stride before erasing source types.
+Comparison helper call closures bind actual addresses before native alias checks.
+Shared reference target lowering compares captured roots and projection indices;
+repeated global symbols share one allocation identity. Difference retains the
+existing zero policy outside one innermost array object. Potentially aliased
+storage bindings require an explicit diagnostic. Generated scalar operations
+retain source spans and diagnostic filters; borrowed graphs are unchanged.
+The reader no longer has a nullable post-parse fallback protocol.
+Slot spaces other than Function/Private, null/undefined, arithmetic,
+atomic/opaque/physical-matrix, descriptor arrays, task terminators
 and native pointer libraries still require migration. A parse error never silently
 selects fallback.
 Native data-helper expansion and layout transformations still require migration.

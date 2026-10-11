@@ -52,13 +52,23 @@ internal static class LocalValuePromotion
         analyses?.RequireFunction(function);
         var instructions = function.Blocks.SelectMany(b => b.Instructions).ToArray();
         var predecessors = (analyses ?? new ControlFlowAnalysisContext(function)).Predecessors;
+        var escaping = function.Blocks.SelectMany(b => b.Terminator!.Operands.Concat(b.Terminator.Edges.SelectMany(e => e.Arguments)))
+            .Select(v => v.Id).ToHashSet();
+        foreach (var instruction in instructions)
+            foreach (var operand in instruction.Operation.Operands)
+                if (!(instruction.Operation is ValueOperation.Load { MemoryAccess: null } load && load.Pointer == operand
+                    || instruction.Operation is ValueOperation.Store { MemoryAccess: null } store && store.Pointer == operand && store.Value != operand))
+                    escaping.Add(operand.Id);
+        // Entry-initialized slots are assigned on every reachable path. Other
+        // allocations still need the full reset-aware definite-assignment proof.
+        var initialized = ControlFlowAnalysis.Reachable(function).Count == function.Blocks.Count
+            ? function.Blocks.Single(b => b.Id == function.Entry).Instructions
+                .Where(i => i.Operation is ValueOperation.Local { ZeroInitialize: true } && i.Result is not null).Select(i => i.Result!.Value.Id).ToHashSet()
+            : [];
         var slots = instructions.Where(i => i.Operation is ValueOperation.Local local && i.Result?.Type is ShaderType.Pointer pointer
                 && (CanonicalTypes.Data(pointer.Base) || !local.ZeroInitialize && (pointer.Base is ShaderType.Pointer || CanonicalTypes.Resource(pointer.Base))))
-            .Select(i => i.Result!.Value).Where(slot => !function.Blocks.Any(b => b.Terminator!.Operands.Contains(slot)
-                || b.Terminator.Edges.Any(e => e.Arguments.Contains(slot))) && instructions.All(i => !i.Operation.Operands.Contains(slot)
-                || i.Operation is ValueOperation.Load { MemoryAccess: null } load && load.Pointer == slot
-                || i.Operation is ValueOperation.Store { MemoryAccess: null } store && store.Pointer == slot && store.Value != slot)
-                && IsDefinitelyAssigned(function, slot, predecessors))
+            .Select(i => i.Result!.Value).Where(slot => !escaping.Contains(slot.Id)
+                && (initialized.Contains(slot.Id) || IsDefinitelyAssigned(function, slot, predecessors)))
             .ToDictionary(v => v.Id);
         if (slots.Count == 0) return;
         // Materialize implicit zero only for value promotion. Escaping/qualified
@@ -110,6 +120,24 @@ internal static class LocalValuePromotion
             }
             return value;
         }
+        // Remove only phis introduced for promoted slots. A single incoming value
+        // (ignoring self edges) needs no loop-carried state; native phis stay intact.
+        var promoted = incoming.Values.Select(v => v.Id).ToHashSet();
+        bool changed;
+        do {
+            changed = false;
+            foreach (var block in function.Blocks)
+                for (int i = block.Parameters.Count - 1; i >= 0; i--) {
+                    var parameter = block.Parameters[i];
+                    if (!promoted.Contains(parameter.Id)) continue;
+                    var values = predecessors[block.Id].Select(p => Resolve(p.Edge.Arguments[i]))
+                        .Where(v => v.Id != parameter.Id).Distinct().Take(2).ToArray();
+                    if (values.Length != 1) continue;
+                    replacements.Add(parameter.Id, values[0]); block.Parameters.RemoveAt(i);
+                    foreach (var predecessor in predecessors[block.Id]) predecessor.Edge.Arguments.RemoveAt(i);
+                    changed = true;
+                }
+        } while (changed);
         foreach (var block in function.Blocks) {
             for (int i = 0; i < block.Instructions.Count; i++) block.Instructions[i] = block.Instructions[i] with { Operation = block.Instructions[i].Operation.Map(Resolve) };
             block.Terminator = block.Terminator!.Map(Resolve);

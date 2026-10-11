@@ -290,10 +290,11 @@ internal static class StructuredControlFlowLowering
                             loop.BreakIf = conditional.Accept.Target == merge ? captured : new Expression.Unary("!", captured, ShaderType.Bool);
                             nextBlock = null; break;
                         }
-                        if (!continuing && loop is not null && id == loop.Header && loop.Merge is int loopMerge
+                        if (!continuing && loop is not null && loop.Merge is int loopMerge
+                            && (id == loop.Header || !function.SelectionMerges.ContainsKey(id))
                             && (conditional.Accept.Target == loopMerge || conditional.Reject.Target == loopMerge)) {
-                            // A loop header's conditional exit belongs to the loop merge;
-                            // it does not require a separate selection merge annotation.
+                            // Native conditional exits anywhere in the loop body may use
+                            // the loop merge without opening a separate selection.
                             body.Statements.Add(new Statement.If(Use(conditional.Condition),
                                 Arm(conditional.Accept, stop, loop, false), Arm(conditional.Reject, stop, loop, false)));
                             nextBlock = null; break;

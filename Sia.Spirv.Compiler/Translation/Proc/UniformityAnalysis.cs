@@ -59,7 +59,10 @@ internal static partial class UniformityAnalysis
         var graphs = new Dictionary<string, ControlFlowFunction>(StringComparer.Ordinal);
         foreach (var function in module.Functions)
             if (StructuredControlFlowReader.TryRead(function, module, out var graph, out var reason)) {
-                ControlFlowAnalysis.RemoveUnreachable(graph!); graphs.Add(function.Name, graph!);
+                ControlFlowAnalysis.RemoveUnreachable(graph!);
+                // This adapter owns the graph. Recover SSA before memory analysis
+                // so materialized SSA temporaries do not become dense local state.
+                LocalValuePromotion.Run(graph!); graphs.Add(function.Name, graph!);
             }
             else deferrals?.Add(new(function.Name, reason!));
         return Analyze(module, graphs);

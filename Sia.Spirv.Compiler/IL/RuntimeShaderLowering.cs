@@ -24,6 +24,7 @@ internal sealed partial class RuntimeShaderLowering(PEReader pe, MetadataReader 
     private readonly Dictionary<IntrinsicKind, Expression> builtins = [];
     private readonly Dictionary<string, ShaderType.Structure> structures = [];
     private readonly Dictionary<(uint Location, bool Flat), Expression> outputs = [];
+    private readonly Dictionary<(uint Location, bool Flat), Expression> inputs = [];
     private ShaderFunction entry = null!;
     private int next;
     private sealed record Value(Expression Expression, bool Place = false, bool ArgumentSlot = false);

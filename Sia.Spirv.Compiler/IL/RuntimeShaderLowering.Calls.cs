@@ -19,15 +19,30 @@ internal sealed partial class RuntimeShaderLowering
             uint component = call.Name switch { "get_X" => 0, "get_Y" => 1, "get_Z" => 2, _ => throw Error(at, "Invalid UInt3 component.") };
             Push(new Expression.Access(vector, Expression.U32(component), ShaderType.U32)); return;
         }
-        if (call.Intrinsic is IntrinsicKind.GlobalInvocationId or IntrinsicKind.LocalInvocationId or IntrinsicKind.WorkGroupId) {
+        if (call.Intrinsic is IntrinsicKind.GlobalInvocationId or IntrinsicKind.LocalInvocationId or IntrinsicKind.WorkGroupId
+            or IntrinsicKind.VertexIndex or IntrinsicKind.InstanceIndex or IntrinsicKind.GetFragmentPosition) {
+            if (call.Intrinsic is IntrinsicKind.VertexIndex or IntrinsicKind.InstanceIndex && entry.Stage != ShaderStage.Vertex
+                || call.Intrinsic == IntrinsicKind.GetFragmentPosition && entry.Stage != ShaderStage.Fragment)
+                throw Error(at, $"{call.Intrinsic} is unavailable in the {entry.Stage} stage.");
+            uint component = call.Intrinsic == IntrinsicKind.GetFragmentPosition ? ConstantIndex(Read(args[0], body), at) : 0;
+            if (component > 3) throw Error(at, "Fragment position component must be between 0 and 3.");
             if (!builtins.TryGetValue(call.Intrinsic.Value, out var expression)) {
-                string name = call.Intrinsic.Value switch { IntrinsicKind.GlobalInvocationId => "global_invocation_id", IntrinsicKind.LocalInvocationId => "local_invocation_id", _ => "workgroup_id" };
-                var type = new ShaderType.Vector(3, ShaderType.U32);
+                string name = call.Intrinsic.Value switch {
+                    IntrinsicKind.GlobalInvocationId => "global_invocation_id", IntrinsicKind.LocalInvocationId => "local_invocation_id",
+                    IntrinsicKind.WorkGroupId => "workgroup_id", IntrinsicKind.VertexIndex => "vertex_index",
+                    IntrinsicKind.InstanceIndex => "instance_index", _ => "position"
+                };
+                ShaderType type = call.Intrinsic.Value switch {
+                    IntrinsicKind.VertexIndex or IntrinsicKind.InstanceIndex => ShaderType.U32,
+                    IntrinsicKind.GetFragmentPosition => new ShaderType.Vector(4, ShaderType.F32),
+                    _ => new ShaderType.Vector(3, ShaderType.U32)
+                };
                 string parameter = "sia_"+name;
                 entry.Arguments.Add(new(parameter, type, new(Builtin: name)));
                 expression = new Expression.Reference(parameter, type); builtins.Add(call.Intrinsic.Value, expression);
             }
-            Push(expression); return;
+            Push(call.Intrinsic == IntrinsicKind.GetFragmentPosition
+                ? new Expression.Access(expression, Expression.U32(component), ShaderType.F32) : expression); return;
         }
         if (call.Intrinsic == IntrinsicKind.Barrier) { body.Statements.Add(new Statement.Barrier(false, true)); return; }
         if (call.Intrinsic == IntrinsicKind.BufferIndex) {
@@ -53,6 +68,20 @@ internal sealed partial class RuntimeShaderLowering
         var values = args.Select((a, i) => call.Intrinsic is null && call.Signature.ParameterTypes[i].IsByReference
             ? a.Place ? Address(a.Expression) : throw Error(at, "By-reference helper argument requires an address.")
             : Read(a, body)).ToArray();
+        if (call.Intrinsic is IntrinsicKind.GetInput or IntrinsicKind.GetFlatInput) {
+            if (entry.Stage is not (ShaderStage.Vertex or ShaderStage.Fragment))
+                throw Error(at, $"{call.Intrinsic} requires a graphics stage.");
+            uint location = ConstantIndex(values[0], at), component = ConstantIndex(values[1], at);
+            if (component > 3) throw Error(at, "Stage input component must be between 0 and 3.");
+            bool flat = call.Intrinsic == IntrinsicKind.GetFlatInput;
+            if (!inputs.TryGetValue((location, flat), out var input)) {
+                var type = new ShaderType.Vector(4, ShaderType.F32);
+                string parameter = Name("input");
+                entry.Arguments.Add(new(parameter, type, new(location, Interpolation: flat ? "flat" : null)));
+                input = new Expression.Reference(parameter, type); inputs.Add((location, flat), input);
+            }
+            Push(new Expression.Access(input, Expression.U32(component), ShaderType.F32)); return;
+        }
         if (call.Intrinsic is IntrinsicKind.SetOutput or IntrinsicKind.SetFlatOutput or IntrinsicKind.SetPosition) {
             bool position = call.Intrinsic == IntrinsicKind.SetPosition;
             uint location = position ? uint.MaxValue : ConstantIndex(values[0], at);

@@ -50,35 +50,26 @@
   </Target>
 
   <Target Name="PublishSiaSpirvArtifacts"
-          AfterTargets="Publish"
+          AfterTargets="ComputeFilesToPublish"
           DependsOnTargets="CompileSiaSpirvKernels"
           Condition="'$(EnableSpirvCompilation)' == 'true' and '$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true'">
     <ItemGroup>
-      <_SiaSpirvPublishArtifact Remove="@(_SiaSpirvPublishArtifact)" />
       <_SiaSpirvPublishFile Remove="@(_SiaSpirvPublishFile)" />
     </ItemGroup>
-    <ReadLinesFromFile File="$(SpirvOutputDirectory)\spirv-artifacts.txt"
-                       Condition="Exists('$(SpirvOutputDirectory)\spirv-artifacts.txt')">
+    <ReadLinesFromFile File="$(SpirvOutputDirectory)\spirv-artifacts.txt">
       <Output TaskParameter="Lines" ItemName="_SiaSpirvPublishFile" />
     </ReadLinesFromFile>
-    <ItemGroup>
-      <_SiaSpirvPublishArtifact Include="$(SpirvOutputDirectory)\**\*"
-                                Condition="!Exists('$(SpirvOutputDirectory)\spirv-artifacts.txt')" />
-      <_SiaSpirvPublishArtifact Include="@(_SiaSpirvPublishFile->'$(SpirvOutputDirectory)/%(Identity)')">
-        <DestinationPath>%(_SiaSpirvPublishFile.Identity)</DestinationPath>
-      </_SiaSpirvPublishArtifact>
-      <_SiaSpirvPublishArtifact Update="@(_SiaSpirvPublishArtifact)"
-                                Condition="'%(_SiaSpirvPublishArtifact.DestinationPath)' == ''">
-        <DestinationPath>%(_SiaSpirvPublishArtifact.RecursiveDir)%(_SiaSpirvPublishArtifact.Filename)%(_SiaSpirvPublishArtifact.Extension)</DestinationPath>
-      </_SiaSpirvPublishArtifact>
-    </ItemGroup>
     <PropertyGroup>
-      <_SiaSpirvPublishDirectory>$(PublishDir)spirv</_SiaSpirvPublishDirectory>
-      <_SiaSpirvPublishDirectory Condition="'$(TargetPlatformIdentifier)' == 'browser'">$(PublishDir)wwwroot\spirv</_SiaSpirvPublishDirectory>
+      <_SiaSpirvPublishDirectory>spirv</_SiaSpirvPublishDirectory>
+      <_SiaSpirvPublishDirectory Condition="'$(TargetPlatformIdentifier)' == 'browser'">wwwroot/spirv</_SiaSpirvPublishDirectory>
     </PropertyGroup>
-    <Copy SourceFiles="@(_SiaSpirvPublishArtifact)"
-          DestinationFiles="@(_SiaSpirvPublishArtifact->'$(_SiaSpirvPublishDirectory)\%(DestinationPath)')"
-          SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <ResolvedFileToPublish Include="@(_SiaSpirvPublishFile->'$(SpirvOutputDirectory)/%(Identity)')">
+        <RelativePath>$(_SiaSpirvPublishDirectory)/%(_SiaSpirvPublishFile.Identity)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
   </Target>
 
   <Import Project="Sdk.targets"

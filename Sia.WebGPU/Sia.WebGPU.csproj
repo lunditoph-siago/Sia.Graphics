@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Sia.RenderGraph\Sia.RenderGraph.csproj" />
+    <ProjectReference Include="..\Sia.Spirv.Compiler\Sia.Spirv.Compiler.csproj" />
     <ProjectReference Include="..\Sia.WebGPU.Generators\Sia.WebGPU.Generators.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
@@ -23,9 +24,5 @@
     <DefineConstants Condition="'$(SiaWebGpuBackend)' == 'Dawn' Or '$(SiaWebGpuBackend)' == ''">$(DefineConstants);SIA_WEBGPU_BACKEND_DAWN</DefineConstants>
     <DefineConstants Condition="'$(SiaWebGpuBackend)' == 'Wgpu'">$(DefineConstants);SIA_WEBGPU_BACKEND_WGPU</DefineConstants>
   </PropertyGroup>
-
-  <ItemGroup Condition="'$(TargetFramework)' == 'net11.0-browser' And ('$(SiaWebGpuBackend)' == 'Dawn' Or '$(SiaWebGpuBackend)' == '')">
-    <ProjectReference Include="..\Sia.Spirv.Compiler\Sia.Spirv.Compiler.csproj" />
-  </ItemGroup>
 
 </Project>

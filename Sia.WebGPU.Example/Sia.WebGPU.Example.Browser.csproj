@@ -71,7 +71,7 @@
   <Import Project="..\Sia.WebGPU.Native\build\net461\Sia.WebGPU.Native.targets" />
 
   <Target Name="AssembleSiaWebGpuSite"
-          AfterTargets="Publish;PublishSiaSpirvArtifacts"
+          AfterTargets="Publish"
           Condition="'$(_SiaWebGpuSiteRootPublishDir)' != ''">
     <MSBuild
       Projects="$(MSBuildProjectFullPath)"

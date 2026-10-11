@@ -16,10 +16,14 @@
   </ItemGroup>
 
   <Target Name="CollectSpirvSdkTools" DependsOnTargets="Build">
+    <MSBuild Projects="@(ProjectReference)"
+             Targets="PublishItemsOutputGroup"
+             Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="_SpirvSdkToolFile" />
+    </MSBuild>
     <ItemGroup>
-      <TfmSpecificPackageFile Include="..\Sia.Spirv.Tool\bin\$(Configuration)\net11.0\**\*">
-        <PackagePath>tools/net11.0</PackagePath>
-      </TfmSpecificPackageFile>
+      <TfmSpecificPackageFile Include="@(_SpirvSdkToolFile)"
+                              PackagePath="tools/$(TargetFramework)/%(_SpirvSdkToolFile.TargetPath)" />
     </ItemGroup>
   </Target>
 </Project>

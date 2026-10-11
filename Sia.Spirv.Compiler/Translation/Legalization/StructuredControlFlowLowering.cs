@@ -5,10 +5,10 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Temporary target adapter: lower verified SSA CFG to the existing structured writer representation.</summary>
+/// <summary>Materialize a legalized SSA CFG in the structured target representation.</summary>
 internal static class StructuredControlFlowLowering
 {
-    /// <summary>Explicit compatibility boundary for consumers not yet migrated to graphs.</summary>
+    /// <summary>Explicit representation boundary for consumers requiring structured target data.</summary>
     public static Module Run(CanonicalModule canonical, bool nativeValidation = false)
     {
         var input = canonical.Declarations;
@@ -17,20 +17,11 @@ internal static class StructuredControlFlowLowering
         output.Enables.UnionWith(input.Enables); output.DiagnosticFilters.AddRange(input.DiagnosticFilters);
         foreach (var function in input.Functions)
             output.Functions.Add(canonical.Functions.TryGetValue(function.Name, out var graph) ? Run(graph, input) : function);
-        var remainingCalls = output.Functions.SelectMany(f => ControlFlowAnalysis.Calls(f.Body)).ToHashSet(StringComparer.Ordinal);
-        output.Functions.RemoveAll(f => f.Stage is null && f.ReturnType is ShaderType.Pointer
-            && canonical.EntryFunctions.Contains(f.Name) && !remainingCalls.Contains(f.Name));
-        if (canonical.Functions.Values.Any(g => g.Blocks.Any(b => b.Parameters.Any(p => p.Type is ShaderType.Pointer)))) {
-            // Until target address dispatch consumes graphs, preserve its existing
-            // expansion-before-dispatch order at this explicit adapter boundary.
-            output = HelperInliner.RunPointers(output);
-            output = new PointerSelectionLowering(output).Run();
-        }
         if (nativeValidation) ModuleValidator.ValidateNative(output); else ModuleValidator.Validate(output);
         return output;
     }
 
-    public static ShaderFunction Run(ControlFlowFunction function, Module module, bool relocateTerminatingContinuing = false)
+    public static ShaderFunction Run(ControlFlowFunction function, Module module)
     {
         var signature = function.Signature;
         var output = new ShaderFunction(signature.Name) {
@@ -39,7 +30,11 @@ internal static class StructuredControlFlowLowering
             EarlyDepthTest = signature.EarlyDepthTest, ConservativeDepth = signature.ConservativeDepth
         };
         output.Arguments.AddRange(signature.Arguments); output.DiagnosticFilters.AddRange(signature.DiagnosticFilters);
-        output.Body.DiagnosticFilters.AddRange(signature.Body.DiagnosticFilters);
+        output.Body.DiagnosticFilters.AddRange(function.BodyDiagnosticFilters);
+        foreach (var filters in function.DiagnosticRanges) {
+            var range = new Block(); range.DiagnosticFilters.AddRange(filters);
+            output.Body.Statements.Add(new Statement.Nested(range));
+        }
         var names = module.Globals.Select(g => g.Name).Concat(module.Constants.Select(c => c.Name))
             .Concat(module.Structures.Select(s => s.Name)).Concat(module.Functions.Select(f => f.Name))
             .Concat(signature.Arguments.Select(a => a.Name)).ToHashSet(StringComparer.Ordinal);
@@ -69,7 +64,14 @@ internal static class StructuredControlFlowLowering
         foreach (var value in function.Blocks.SelectMany(b => b.Parameters.Concat(b.Instructions.Where(i => i.Result is not null).Select(i => i.Result!.Value)))) {
             if (value.Type is ShaderType.Pointer && definitions.TryGetValue(value.Id, out var instruction) && instruction.Operation is ValueOperation.Local) {
                 var type = ((ShaderType.Pointer)value.Type).Base; string name = Fresh();
-                output.Body.Statements.Add(new Statement.Declare(name, type, null) { Initialize = false }); expressions.Add(value.Id, Place(name, type));
+                if (type is not ShaderType.RayQuery)
+                    output.Body.Statements.Add(new Statement.Declare(name, type, null) { Initialize = false });
+                expressions.Add(value.Id, Place(name, type));
+            }
+            else if (value.Type is ShaderType.Pointer && definitions.TryGetValue(value.Id, out var aliasDefinition)
+                && aliasDefinition.Operation is ValueOperation.Let) {
+                string name = ValueName(aliasDefinition);
+                expressions.Add(value.Id, new Expression.Unary("*", new Expression.Reference(name, value.Type), value.Type));
             }
             else if (CanonicalTypes.Data(value.Type)) {
                 bool parameter = !definitions.TryGetValue(value.Id, out var definition);
@@ -81,14 +83,11 @@ internal static class StructuredControlFlowLowering
                 }
                 else expressions.Add(value.Id, new Expression.Reference(name, value.Type));
             }
-            else if (value.Type is not ShaderType.Pointer && function.Blocks.Any(b => b.Parameters.Contains(value)))
-                throw new ShaderException(DiagnosticStage.Validation, "Pointer or opaque block parameters require further target legalization.");
+            else if (function.Blocks.Any(b => b.Parameters.Contains(value)))
+                throw new ShaderException(DiagnosticStage.Validation, "Reference block parameters require prior target legalization.");
         }
-        CanonicalPointerLowering? pointerParameters = null;
-        pointerParameters = new CanonicalPointerLowering(function, output.Body, Fresh, Use);
         Expression Use(SsaValue value) {
             if (expressions.TryGetValue(value.Id, out var expression)) return expression;
-            if (pointerParameters?.IsParameter(value) == true) return pointerParameters.Address(value);
             var instruction = definitions[value.Id];
             expression = instruction.Operation switch {
                 ValueOperation.Symbol symbol when value.Type is ShaderType.Pointer && signature.Arguments.Any(a => a.Name == symbol.Name)
@@ -110,12 +109,10 @@ internal static class StructuredControlFlowLowering
             var body = new Block(); var snapshots = new List<(Expression Target, Expression Value)>();
             for (int i = 0; i < edge.Arguments.Count; i++) {
                 var argument = edge.Arguments[i]; var parameter = blocks[edge.Target].Parameters[i];
-                var copies = parameter.Type is ShaderType.Pointer ? pointerParameters.EdgeValues(argument, parameter)
-                    : [(((Expression.Load)Use(parameter)).Pointer as Expression.Reference ?? throw new InvalidOperationException("Expected scalar phi slot."), Use(argument))];
-                foreach (var (target, value) in copies) {
-                    string name = Fresh(); body.Statements.Add(new Statement.Declare(name, value.Type, value, false));
-                    snapshots.Add((target, new Expression.Reference(name, value.Type)));
-                }
+                var target = ((Expression.Load)Use(parameter)).Pointer;
+                var value = Use(argument);
+                string name = Fresh(); body.Statements.Add(new Statement.Declare(name, value.Type, value, false));
+                snapshots.Add((target, new Expression.Reference(name, value.Type)));
             }
             foreach (var (target, value) in snapshots) body.Statements.Add(new Statement.Store(target, value));
             return body;
@@ -125,9 +122,15 @@ internal static class StructuredControlFlowLowering
             var body = new Block();
             for (int instructionIndex = 0; instructionIndex < block.Instructions.Count; instructionIndex++) {
                 var instruction = block.Instructions[instructionIndex];
-                if (instruction.Operation is ValueOperation.Local) continue;
+                if (instruction.Operation is ValueOperation.Local) {
+                    if (instruction.Result is { Type: ShaderType.Pointer { Base: ShaderType.RayQuery query } } handle)
+                        // Query state starts fresh at the original allocation,
+                        // including each loop iteration. Never hoist that reset.
+                        body.Statements.Add(new Statement.Declare(((Expression.Reference)Use(handle)).Name, query, null) { Span = instruction.Span });
+                    continue;
+                }
                 var emission = body;
-                if (instruction.DiagnosticFilters.Count != 0 && instruction.Operation is not (ValueOperation.Literal or ValueOperation.Symbol)) {
+                if (instruction.DiagnosticFilters.Count != 0) {
                     emission = new Block(); emission.DiagnosticFilters.AddRange(instruction.DiagnosticFilters);
                     body.Statements.Add(new Statement.Nested(emission));
                 }
@@ -156,7 +159,7 @@ internal static class StructuredControlFlowLowering
                 }
                 if (instruction.Operation is ValueOperation.Builtin { ReturnType: ShaderType.Void } voidBuiltin) {
                     emission.Statements.Add(new Statement.Evaluate(new Expression.Call(voidBuiltin.Function, voidBuiltin.Arguments.Select(CallArgument).ToArray(), voidBuiltin.ReturnType, CallBinding.Builtin)
-                                                { AtomicMemory = voidBuiltin.AtomicMemory,MemoryAccess = voidBuiltin.MemoryAccess,Span = instruction.Span }) { Span = instruction.Span }); continue;
+                                                { AtomicMemory = voidBuiltin.AtomicMemory,MemoryAccess = voidBuiltin.MemoryAccess, ImageAccess = voidBuiltin.ImageAccess,Span = instruction.Span }) { Span = instruction.Span }); continue;
                 }
                 var result = instruction.Result!.Value;
                 if (!CanonicalTypes.Data(result.Type)) {
@@ -167,8 +170,10 @@ internal static class StructuredControlFlowLowering
                     if (result.Type is ShaderType.Pointer && instruction.Operation is ValueOperation.Let) {
                         // Retain explicit address formation for target legality, even when the alias is unused.
                         // Access indices have already been captured as SSA values before this declaration.
-                        emission.Statements.Add(new Statement.Declare(Fresh(), result.Type,
-                            new Expression.Unary("&", address, result.Type) { Span = instruction.Span }, false) { Span = instruction.Span });
+                        var alias = (ValueOperation.Let)instruction.Operation;
+                        string name = ((Expression.Reference)((Expression.Unary)address).Operand).Name;
+                        emission.Statements.Add(new Statement.Declare(name, result.Type,
+                            new Expression.Unary("&", Use(alias.Value), result.Type) { Span = instruction.Span }, false) { Span = instruction.Span });
                     }
                     continue;
                 }
@@ -189,7 +194,7 @@ internal static class StructuredControlFlowLowering
                     ValueOperation.Call call => new Expression.Call(call.Function, call.Arguments.Select(CallArgument).ToArray(), call.ReturnType, CallBinding.Function)
                                                 { AtomicMemory = call.AtomicMemory,MemoryAccess = call.MemoryAccess },
                     ValueOperation.Builtin builtin => new Expression.Call(builtin.Function, builtin.Arguments.Select(CallArgument).ToArray(), result.Type, CallBinding.Builtin)
-                                                { AtomicMemory = builtin.AtomicMemory,MemoryAccess = builtin.MemoryAccess },
+                                                { AtomicMemory = builtin.AtomicMemory,MemoryAccess = builtin.MemoryAccess, ImageAccess = builtin.ImageAccess },
                     _ => throw new ShaderException(DiagnosticStage.Validation, "Unsupported value in CFG target adapter.")
                 };
                 var destination = Use(result);
@@ -263,23 +268,7 @@ internal static class StructuredControlFlowLowering
                     var loopBody = Sequence(id, region.Continuing, nested, loopEntry: true);
                     var tail = region.Continuing is int target ? Sequence(target, id, nested, continuing: true) : new Block();
                     breakTargets.Pop(); ResetExit(region.Merge, body);
-                    if (relocateTerminatingContinuing && ContainsInvocationKill(tail)) {
-                        // SSA values shared by body and continuing already have function-scope
-                        // storage. Execute the old tail at the next header, except on first entry.
-                        // Body continue still targets this loop; body break never runs the tail.
-                        string name = Fresh(); var first = Place(name, ShaderType.Bool);
-                        body.Statements.Add(new Statement.Declare(name, ShaderType.Bool, Expression.Bool(true)));
-                        var initial = new Block(); initial.Statements.Add(new Statement.Store(first, Expression.Bool(false)));
-                        if (nested.BreakIf is not null) {
-                            var exit = new Block(); exit.Statements.Add(new Statement.Break());
-                            tail.Statements.Add(new Statement.If(nested.BreakIf, exit, new()));
-                        }
-                        var relocated = new Block(); relocated.DiagnosticFilters.AddRange(loopBody.DiagnosticFilters);
-                        relocated.Statements.Add(new Statement.If(new Expression.Load(first), initial, tail));
-                        relocated.Statements.AddRange(loopBody.Statements);
-                        body.Statements.Add(new Statement.Loop(relocated, new()));
-                    }
-                    else body.Statements.Add(new Statement.Loop(loopBody, tail, nested.BreakIf));
+                    body.Statements.Add(new Statement.Loop(loopBody, tail, nested.BreakIf));
                     PropagateExit(body);
                     nextBlock = region.Merge; continue;
                 }
@@ -343,7 +332,7 @@ internal static class StructuredControlFlowLowering
                         nextBlock = done; break;
                     case ControlFlowTerminator.Return returned:
                         if (continuing) throw Invalid("return from continuing region");
-                        body.Statements.Add(new Statement.Return(returned.Value is { } value ? CallArgument(value) : null)); nextBlock = null; break;
+                        body.Statements.Add(new Statement.Return(returned.Value is { } value ? CallArgument(value) : null) { Span = returned.Span }); nextBlock = null; break;
                     case ControlFlowTerminator.Unreachable unreachable:
                         body.Statements.Add(new Statement.Unreachable { Span = unreachable.Span }); nextBlock = null; break;
                     case ControlFlowTerminator.InvocationKill kill:
@@ -368,10 +357,4 @@ internal static class StructuredControlFlowLowering
         public Expression? BreakIf { get; set; }
     }
 
-    private static bool ContainsInvocationKill(Block body) => body.Statements.Any(s => s switch {
-        Statement.InvocationKill => true, Statement.Nested n => ContainsInvocationKill(n.Body),
-        Statement.If i => ContainsInvocationKill(i.Accept) || ContainsInvocationKill(i.Reject),
-        Statement.Switch sw => sw.Cases.Any(c => ContainsInvocationKill(c.Body)),
-        Statement.Loop l => ContainsInvocationKill(l.Body) || ContainsInvocationKill(l.Continuing), _ => false
-    });
 }

@@ -8,11 +8,42 @@ public static partial class SpirvReader
     private sealed partial class Reader
     {
         private static bool AtomicInstruction(Op op) => op is >= Op.AtomicLoad and <= Op.AtomicXor or Op.AtomicFAddEXT;
-        private readonly Dictionary<uint, (uint Type, uint Image, uint Coordinate, uint Sample)> imageTexelPointers = [];
+        private sealed class ImageTexel(uint type, uint image, uint coordinate, uint sample)
+        {
+            public uint Type { get; } = type;
+            public uint Image { get; } = image;
+            public uint Coordinate { get; } = coordinate;
+            public uint Sample { get; } = sample;
+            public Expression? ImageValue { get; set; }
+            public Expression? CoordinateValue { get; set; }
+            public Expression? SampleValue { get; set; }
+        }
+        private readonly Dictionary<uint, ImageTexel> imageTexelPointers = [];
         private readonly HashSet<uint> imagePointerTypes = [];
-        private readonly HashSet<uint> imageAtomicResults = [];
         private readonly Dictionary<ShaderType, ShaderType> atomicDataTypes = [];
         private int atomicCopyCounter;
+
+        private void ReadNativeImageAtomics()
+        {
+            // Decode native texel identities only. Shared legalization derives
+            // target image access from the resolved SSA operation and resource.
+            foreach (var instruction in binary.Instructions.Where(i => (Op)i.Opcode == Op.ImageTexelPointer)) {
+                current = instruction; Count(5, 5); var a = instruction.Operands;
+                if (!imagePointerTypes.Contains(a[0])) throw Error("Image texel pointer requires Image storage class.");
+                imageTexelPointers.Add(a[1], new(a[0], a[2], a[3], a[4]));
+            }
+            bool changed;
+            do {
+                changed = false;
+                foreach (var instruction in binary.Instructions.Where(i => (Op)i.Opcode == Op.CopyObject)) {
+                    current = instruction; Count(3, 3); var a = instruction.Operands;
+                    if (!imageTexelPointers.ContainsKey(a[1]) && imageTexelPointers.TryGetValue(a[2], out var texel)) {
+                        if (a[0] != texel.Type) throw Error("Image texel pointer copy type mismatch.");
+                        imageTexelPointers.Add(a[1], texel); changed = true;
+                    }
+                }
+            } while (changed);
+        }
 
         private void UpgradeAtomicGlobals()
         {
@@ -24,7 +55,7 @@ public static partial class SpirvReader
             {
                 current = instruction; Count(5, 5); var a = instruction.Operands;
                 if (!imagePointerTypes.Contains(a[0])) throw Error("Image texel pointer requires Image storage class.");
-                imageTexelPointers.Add(a[1], (a[0], a[2], a[3], a[4]));
+                imageTexelPointers.Add(a[1], new(a[0], a[2], a[3], a[4]));
             }
             var pending = binary.Instructions.Where(i => (Op)i.Opcode is Op.AccessChain or Op.InBoundsAccessChain or Op.PtrAccessChain or Op.CopyObject
                 || (Op)i.Opcode == Op.Select && types.GetValueOrDefault(i.Operands[0]) is ShaderType.Pointer).ToList();
@@ -57,22 +88,19 @@ public static partial class SpirvReader
                 uint pointer = a[op == Op.AtomicStore ? 0 : 2];
                 if (imageTexelPointers.TryGetValue(pointer, out var imagePointer))
                 {
-                    if (op is Op.AtomicLoad or Op.AtomicStore or Op.AtomicExchange or Op.AtomicCompareExchange or Op.AtomicCompareExchangeWeak or Op.AtomicIIncrement or Op.AtomicIDecrement or Op.AtomicISub or Op.AtomicFAddEXT)
-                        throw Error("Image atomic opcode has no WGSL equivalent.");
                     if (!pointers.TryGetValue(imagePointer.Image, out var imageLocations) || imageLocations.Length != 1) throw Error("Image atomic must reference a global texture or binding array.");
                     var imageLocation = imageLocations[0];
                     var imageGlobal = globals[imageLocation.Root];
                     ShaderType UpgradeImage(ShaderType type) => type switch
                     {
-                        ShaderType.Image image when image.Access == StorageAccess.ReadWrite || image.Access == (StorageAccess.ReadWrite | StorageAccess.Atomic) => image with { Access = StorageAccess.ReadWrite | StorageAccess.Atomic },
+                        ShaderType.Image image => image with { Access = image.Access | StorageAccess.Atomic },
                         ShaderType.BindingArray array => array with { Element = UpgradeImage(array.Element) },
-                        _ => throw Error("Image atomics require read-write storage textures.")
+                        _ => throw Error("Image atomics require storage textures.")
                     };
                     var variable = imageGlobal.Variable with { Type = UpgradeImage(imageGlobal.Variable.Type) };
                     module.Globals[module.Globals.IndexOf(imageGlobal.Variable)] = variable;
                     globals[imageLocation.Root] = (variable, imageGlobal.Storage, imageGlobal.Binding);
                     values[imageLocation.Root] = new Expression.Reference(variable.Name, variable.Type);
-                    imageAtomicResults.Add(a[1]);
                     continue;
                 }
                 if (!pointers.TryGetValue(pointer, out var locations)) throw Error("Atomic pointer must resolve to storage, workgroup or task payload memory.");
@@ -171,6 +199,10 @@ public static partial class SpirvReader
             new(ConstantUint(scopeId), ConstantUint(semanticsId), unequal is uint id ? ConstantUint(id) : null);
         private Expression AtomicCall(string name, Expression place, IReadOnlyList<Expression> arguments, ShaderType result, SpirvAtomicMemory? memory = null)
         {
+            if (directCanonicalFlow && memory is not null && place.Type is ShaderType.Pointer { Base: ShaderType.Scalar } nativePointer)
+                return new Expression.Call(name, new Expression[] { new Expression.Unary("&", place, nativePointer) }.Concat(arguments).ToArray(), result, CallBinding.Builtin) {
+                    AtomicMemory = memory, Span = new(current.WordOffset * 4, current.WordCount * 4)
+                };
             if (IsNullPointer(place) && place.Type is ShaderType.Pointer { Base: ShaderType.Scalar scalar } nullPointer)
                 place = new Expression.Construct(nullPointer with { Base = new ShaderType.Atomic(scalar) }, []);
             if (place.Type is not ShaderType.Pointer { Base: ShaderType.Atomic } pointer) throw Error("Atomic memory was not upgraded to an atomic type.");
@@ -203,22 +235,34 @@ public static partial class SpirvReader
 
         private Expression LowerImageAtomic(Op op, uint[] a)
         {
-            Count(6, 6); var memory = AtomicMemory(a[3], a[4]);
-            var texel = imageTexelPointers[a[2]];
-            if (ConstantUint(texel.Sample) != 0) throw Error("Image atomic sample must be zero.");
-            Expression texture = Value(texel.Image);
-            if (texture.Type is not ShaderType.Image image || image.Component != Type(a[0])) throw Error("Invalid image atomic scalar type.");
+            if (op == Op.AtomicCompareExchangeWeak) throw Error("OpAtomicCompareExchangeWeak requires the unsupported Kernel capability; shader modules must use OpAtomicCompareExchange.");
+            int count = op == Op.AtomicStore ? 4 : op is Op.AtomicLoad or Op.AtomicIIncrement or Op.AtomicIDecrement ? 5 : op == Op.AtomicCompareExchange ? 8 : 6;
+            Count(count, count); int pointer = op == Op.AtomicStore ? 0 : 2;
+            var memory = AtomicMemory(a[pointer + 1], a[pointer + 2], op == Op.AtomicCompareExchange ? a[5] : null);
+            var texel = imageTexelPointers[a[pointer]];
+            Expression texture = texel.ImageValue ?? Value(texel.Image);
+            if (texture.Type is not ShaderType.Image image || op != Op.AtomicStore && image.Component != Type(a[0])) throw Error("Invalid image atomic scalar type.");
             if (Type(texel.Type) is not ShaderType.Pointer { Base: ShaderType.Scalar pointee } || pointee != image.Component) throw Error("Image texel pointer scalar type mismatch.");
+            if (op == Op.AtomicFAddEXT ? image.Component != ShaderType.F32
+                : op is not (Op.AtomicLoad or Op.AtomicStore or Op.AtomicExchange) && image.Component.Kind is not (ScalarKind.Sint or ScalarKind.Uint))
+                throw Error("Image atomic opcode is incompatible with its scalar type.");
             if (op is Op.AtomicSMin or Op.AtomicSMax ? image.Component.Kind != ScalarKind.Sint : op is Op.AtomicUMin or Op.AtomicUMax && image.Component.Kind != ScalarKind.Uint)
                 throw Error("Image atomic opcode signedness mismatch.");
-            var (coordinate, layer) = Coordinates(image, Value(texel.Coordinate));
+            var (coordinate, layer) = Coordinates(image, texel.CoordinateValue ?? Value(texel.Coordinate));
             string name = op switch
             {
-                Op.AtomicIAdd => "textureAtomicAdd", Op.AtomicSMin or Op.AtomicUMin => "textureAtomicMin", Op.AtomicSMax or Op.AtomicUMax => "textureAtomicMax",
+                Op.AtomicLoad => "textureAtomicLoad", Op.AtomicStore => "textureAtomicStore", Op.AtomicExchange => "textureAtomicExchange",
+                Op.AtomicCompareExchange => "textureAtomicCompareExchange", Op.AtomicIIncrement => "textureAtomicIncrement", Op.AtomicIDecrement => "textureAtomicDecrement",
+                Op.AtomicISub => "textureAtomicSub", Op.AtomicIAdd or Op.AtomicFAddEXT => "textureAtomicAdd", Op.AtomicSMin or Op.AtomicUMin => "textureAtomicMin", Op.AtomicSMax or Op.AtomicUMax => "textureAtomicMax",
                 Op.AtomicAnd => "textureAtomicAnd", Op.AtomicOr => "textureAtomicOr", Op.AtomicXor => "textureAtomicXor", _ => throw Error("Unsupported image atomic opcode.")
             };
-            var arguments = new List<Expression> { texture, coordinate }; if (layer is not null) arguments.Add(layer); arguments.Add(Value(a[5]));
-            return new Expression.Call(name, arguments, new ShaderType.Void(), CallBinding.Builtin) { AtomicMemory = memory };
+            var arguments = new List<Expression> { texture, coordinate }; if (layer is not null) arguments.Add(layer);
+            if (image.Multisampled) arguments.Add(texel.SampleValue ?? Value(texel.Sample));
+            if (op == Op.AtomicCompareExchange) { arguments.Add(Value(a[7])); arguments.Add(Value(a[6])); }
+            else if (op is not (Op.AtomicLoad or Op.AtomicIIncrement or Op.AtomicIDecrement)) arguments.Add(Value(a[op == Op.AtomicStore ? 3 : 5]));
+            return new Expression.Call(name, arguments, op == Op.AtomicStore ? new ShaderType.Void() : image.Component, CallBinding.Builtin) {
+                AtomicMemory = memory, Span = new(current.WordOffset * 4, current.WordCount * 4)
+            };
         }
     }
 }

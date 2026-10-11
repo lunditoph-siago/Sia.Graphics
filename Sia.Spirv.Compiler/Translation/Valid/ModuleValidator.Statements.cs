@@ -29,7 +29,8 @@ public static partial class ModuleValidator
                         if (declaration.Type is ShaderType.RayQuery) Require(declaration.Mutable && declaration.Initializer is null, "Ray queries require uninitialized mutable locals.", statement.Span);
                         if (declaration.Initializer is not null) Same(Expr(declaration.Initializer), declaration.Type, "Local initializer type mismatch.", statement.Span);
                         else Require(declaration.Mutable, "Immutable local needs an initializer.", statement.Span);
-                        Require(scopes.Peek().TryAdd(declaration.Name, new(declaration.Type, declaration.Mutable, declaration.Mutable)), "Duplicate local name.", statement.Span); break;
+                        bool handleResource = !declaration.Mutable && declaration.Initializer is not null && HandleResource(declaration.Initializer);
+                        Require(scopes.Peek().TryAdd(declaration.Name, new(declaration.Type, declaration.Mutable, declaration.Mutable, HandleResource: handleResource)), "Duplicate local name.", statement.Span); break;
                     case Statement.Store store:
                         Expr(store.Target); ShaderType value = Expr(store.Value); var place = Place(store.Target);
                         MemoryAccess(store.MemoryAccess, place.Space, false, store.Span);
@@ -50,8 +51,9 @@ public static partial class ModuleValidator
                         Require(!continuing, "Task dispatch is forbidden in continuing.", dispatch.Span);
                         Restrict(Task);
                         Same(Expr(dispatch.Dimensions), new ShaderType.Vector(3, ShaderType.U32), "Task dispatch dimensions must be vec3u.", dispatch.Span);
-                        Require(module.Globals.Any(g => g.Name == dispatch.Payload && g.Space == AddressSpace.TaskPayload), "Task dispatch requires task-payload memory.", dispatch.Span);
-                        payloadUses[function!.Name].Add(dispatch.Payload); next = false; break;
+                        Require(dispatch.Payload is null || module.Globals.Any(g => g.Name == dispatch.Payload && g.Space == AddressSpace.TaskPayload), "Task dispatch requires task-payload memory.", dispatch.Span);
+                        if (dispatch.Payload is { } payload) payloadUses[function!.Name].Add(payload);
+                        next = false; break;
                     case Statement.If branch:
                         Same(Expr(branch.Condition), ShaderType.Bool, "If condition must be boolean.", statement.Span);
                         bool accept = Body(branch.Accept, continuing: continuing), reject = Body(branch.Reject, continuing: continuing);

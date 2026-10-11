@@ -26,7 +26,7 @@ internal static class OverrideExpressions
             }
             bool result = value switch
             {
-                Expression.Literal => true, Expression.Reference r => Reference(r),
+                Expression.Literal or Expression.Undefined => true, Expression.Reference r => Reference(r),
                 Expression.Unary u => Child(u.Operand), Expression.Binary b => Child(b.Left) && Child(b.Right),
                 Expression.Construct c => c.Components.All(Child), Expression.Convert c => Child(c.Operand),
                 Expression.Access a => Child(a.Base) && Child(a.Index), Expression.Member m => Child(m.Base),

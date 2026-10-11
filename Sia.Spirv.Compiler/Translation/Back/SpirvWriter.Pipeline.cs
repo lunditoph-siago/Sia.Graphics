@@ -22,7 +22,7 @@ public static partial class SpirvWriter
             throw new ShaderException(DiagnosticStage.SpirvWrite, "LocalSizeId requires Vulkan 1.3 or an explicit universal target.");
         var prepared = ShaderTargetLowering.ForSpirv(module, options.PipelineConstants, options.EmitIntegerDivisionChecks,
             options.AdjustCoordinateSpace, options.ClampFragmentDepth, options.ZeroInitializeWorkgroupMemory, options.UseLocalSizeId, target.Version);
-        ShaderTargetValidator.ValidateModule(prepared.Module, target);
+        ShaderTargetValidator.ValidateModule(prepared.PhysicalLayout.Canonical, target);
         var binary = Emit(prepared);
         ShaderTargetValidator.ValidateBinary(binary, target);
         return binary;

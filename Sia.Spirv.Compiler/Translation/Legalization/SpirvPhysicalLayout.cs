@@ -1,5 +1,8 @@
 using System.Collections.Frozen;
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
+using Sia.Spirv.Compiler.Translation.Proc;
+using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
@@ -19,8 +22,13 @@ internal sealed record SpirvPhysicalLayout(Module Module,
         = FrozenDictionary<string, string>.Empty;
     internal IReadOnlyDictionary<string, SpirvEntryWrapper> EntryWrappers { get; init; }
         = FrozenDictionary<string, SpirvEntryWrapper>.Empty;
-    internal IReadOnlyDictionary<(ShaderType Logical, bool ToPhysical), ShaderFunction> WorkgroupConversions { get; init; }
-        = FrozenDictionary<(ShaderType, bool), ShaderFunction>.Empty;
+    internal IReadOnlyDictionary<(ShaderType From, ShaderType To), ShaderFunction> ValueConversions { get; init; }
+        = FrozenDictionary<(ShaderType, ShaderType), ShaderFunction>.Empty;
+    internal IReadOnlyDictionary<ShaderType, ShaderType> BufferTypes { get; init; }
+        = FrozenDictionary<ShaderType, ShaderType>.Empty;
+    // A validation view over the existing graph owner, not another graph snapshot.
+    internal CanonicalModule Canonical => new(Module, ControlFlow.ToDictionary(p => p.Key, p => p.Value.Graph, StringComparer.Ordinal),
+        DeferredControlFlow, Module.Functions.Where(f => f.Stage is not null).Select(f => f.Name).ToHashSet(StringComparer.Ordinal));
 }
 
 internal sealed record SpirvGlobalLayout(ShaderType PhysicalType, ShaderType DeclarationType, bool BufferWrapper);
@@ -30,7 +38,32 @@ internal sealed record SpirvBufferMemberLayout(uint Offset, uint? MatrixStride);
 internal static class SpirvPhysicalLayoutLowering
 {
     internal static SpirvPhysicalLayout Prepare(Module module, bool useLocalSizeId = false, uint? version = null)
+        => Prepare(SpirvControlFlowLowering.Capture(module), useLocalSizeId, version);
+
+    internal static SpirvPhysicalLayout Prepare(CanonicalModule canonical, bool useLocalSizeId = false, uint? version = null)
     {
+        ControlFlowVerifier.Validate(canonical);
+        var module = canonical.Declarations;
+        var graphs = new Dictionary<string, ControlFlowFunction>(StringComparer.Ordinal);
+        var deferred = canonical.DeferredFunctions.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+        var adapters = new Dictionary<string, ShaderFunction>(StringComparer.Ordinal);
+        var effects = ShaderEffectAnalysis.Compute(canonical);
+        foreach (var pair in canonical.Functions) {
+            var graph = pair.Value.Copy();
+            if (SpirvControlFlowLowering.TryPrepare(graph, module, out var reason, effects)) graphs.Add(pair.Key, graph);
+            else {
+                // Only a target-deferred executable graph crosses this adapter.
+                // The borrowed declaration Body may be empty or obsolete.
+                adapters.Add(pair.Key, ShaderTargetLowering.ForStructured(graph, module)); deferred.Add(pair.Key, reason!);
+            }
+        }
+        if (adapters.Count != 0) {
+            var adapted = new Module { VulkanMemoryModel = module.VulkanMemoryModel, WorkgroupInitializationRequired = module.WorkgroupInitializationRequired };
+            adapted.Structures.AddRange(module.Structures); adapted.Globals.AddRange(module.Globals); adapted.Constants.AddRange(module.Constants);
+            adapted.Enables.UnionWith(module.Enables); adapted.DiagnosticFilters.AddRange(module.DiagnosticFilters);
+            adapted.Functions.AddRange(module.Functions.Select(f => adapters.GetValueOrDefault(f.Name, f)));
+            module = adapted;
+        }
         var uniform = new Dictionary<ShaderType, ShaderType>();
         var workgroup = new Dictionary<ShaderType, ShaderType>();
         var bufferTypes = new HashSet<ShaderType>();
@@ -93,10 +126,7 @@ internal static class SpirvPhysicalLayoutLowering
             ShaderType physical = logical;
             if (logical is ShaderType.Array array) {
                 ShaderType element = Workgroup(array.Element);
-                if (element != array.Element || bufferTypes.Contains(array)) {
-                    uint? identityStride = array.Stride is null ? TypeLayout.Of(array.Element).Stride : null;
-                    physical = array with { Element = element, Stride = identityStride };
-                }
+                physical = array with { Element = element, Stride = null };
             }
             else if (logical is ShaderType.Structure structure) {
                 var members = structure.Members.Select(m => m with { Type = Workgroup(m.Type) }).ToArray();
@@ -162,7 +192,17 @@ internal static class SpirvPhysicalLayoutLowering
         foreach (var global in module.Globals) { Type(global.Type); if (global.Initializer is { } initializer) Expr(initializer); }
         foreach (var constant in module.Constants) { Type(constant.Type); if (constant.Value is { } value) Expr(value); }
         foreach (var function in module.Functions) {
-            Type(function.ReturnType); foreach (var argument in function.Arguments) Type(argument.Type); Body(function.Body);
+            Type(function.ReturnType); foreach (var argument in function.Arguments) Type(argument.Type);
+            if (graphs.TryGetValue(function.Name, out var graph))
+                foreach (var block in graph.Blocks) {
+                    foreach (var parameter in block.Parameters) Type(parameter.Type);
+                    foreach (var instruction in block.Instructions) {
+                        if (instruction.Result is { } result) Type(result.Type);
+                        foreach (var operand in instruction.Operation.Operands) Type(operand.Type);
+                    }
+                    foreach (var operand in block.Terminator!.Operands.Concat(block.Terminator.Edges.SelectMany(e => e.Arguments))) Type(operand.Type);
+                }
+            else Body(function.Body);
         }
         foreach (var physical in workgroup.Values.ToArray()) workgroup.TryAdd(physical, physical);
         var buffers = new Dictionary<ShaderType, SpirvBufferLayout>();
@@ -181,7 +221,8 @@ internal static class SpirvPhysicalLayoutLowering
         }
         var prepared = new SpirvPhysicalLayout(module, globals.ToFrozenDictionary(StringComparer.Ordinal), uniform.ToFrozenDictionary(), workgroup.ToFrozenDictionary(),
             buffers.ToFrozenDictionary(), fields.ToFrozenDictionary(), flattened.ToFrozenSet());
-        prepared = SpirvUniformAccessLowering.Run(SpirvWorkgroupAccessLowering.Run(SpirvWorkgroupValueLowering.Run(prepared, workgroup.Keys.ToArray())));
-        return SpirvEntryMetadataLowering.Prepare(SpirvEntryWrapperLowering.Prepare(SpirvControlFlowLowering.Prepare(prepared with { Module = SpirvSynchronizationLowering.Run(prepared.Module) })), useLocalSizeId, version);
+        prepared = SpirvUniformAccessLowering.Run(prepared, graphs, deferred);
+        prepared = SpirvValueLayoutLowering.Run(prepared, graphs, workgroup.Keys.ToArray());
+        return SpirvEntryMetadataLowering.Prepare(SpirvEntryWrapperLowering.Prepare(SpirvControlFlowLowering.Prepare(prepared, graphs)), useLocalSizeId, version);
     }
 }

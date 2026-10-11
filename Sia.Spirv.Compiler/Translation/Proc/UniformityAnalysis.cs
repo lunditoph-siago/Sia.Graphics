@@ -70,8 +70,9 @@ internal static partial class UniformityAnalysis
 
     internal static IReadOnlyDictionary<string, ControlFlowFunction> PrepareGraphs(Module module, IReadOnlyDictionary<string, ControlFlowFunction> graphs)
     {
-        graphs = graphs.ToDictionary(p => p.Key, p => CanonicalHelperInliner.Run(p.Value, module), StringComparer.Ordinal);
-        foreach (var graph in graphs.Values) ControlFlowVerifier.Validate(graph, module);
+        var effects = ShaderEffectAnalysis.Compute(module, graphs);
+        graphs = graphs.ToDictionary(p => p.Key, p => CanonicalHelperInliner.Run(p.Value, module, graphs, calleeEffects: effects), StringComparer.Ordinal);
+        foreach (var graph in graphs.Values) ControlFlowVerifier.Validate(graph, module, calleeEffects: effects);
         return graphs;
     }
 
@@ -129,6 +130,7 @@ internal static partial class UniformityAnalysis
         if (name is "subgroupShuffleUp" or "subgroupShuffleDown" or "subgroupShuffleXor" && arguments.Length > 1)
             require(arguments[1], rule, name + " index");
         bool nonuniform = rule is not null || (ShaderBuiltinEffects.For(name) & ShaderEffects.Atomic) != 0
+            || ShaderBuiltinEffects.IsQuery(name)
             || name == "textureLoad" && firstType is ShaderType.Image { Access: var access } && (access & StorageAccess.Write) != 0
             || !ShaderBuiltinEffects.IsKnown(name);
         return Join(arguments.Prepend(control).Concat(nonuniform ? [nonUniform] : []).ToArray());

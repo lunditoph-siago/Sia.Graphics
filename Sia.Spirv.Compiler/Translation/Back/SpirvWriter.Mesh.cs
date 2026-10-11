@@ -24,9 +24,13 @@ public static partial class SpirvWriter
             {
                 uint dimensions = Value(dispatch.Dimensions);
                 uint[] counts = Enumerable.Range(0, 3).Select(i => Result(Op.CompositeExtract, ShaderType.U32, dimensions, (uint)i)).ToArray();
-                uint payload = owner.globals[dispatch.Payload].Id;
-                owner.functionGlobalUses[functionId].Add(payload);
-                Add(Op.EmitMeshTasksEXT, [.. counts, payload]); terminated = true;
+                if (dispatch.Payload is { } name) {
+                    uint payload = owner.globals[name].Id;
+                    owner.functionGlobalUses[functionId].Add(payload);
+                    Add(Op.EmitMeshTasksEXT, [.. counts, payload]);
+                }
+                else Add(Op.EmitMeshTasksEXT, counts);
+                terminated = true;
             }
         }
     }

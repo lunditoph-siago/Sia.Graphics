@@ -42,5 +42,28 @@ public static partial class ModuleValidator
                 "Atomic workgroup uniform loads require atomic memory operands.", call.Span);
             MemoryAccess(call.MemoryAccess, ((ShaderType.Pointer)call.Arguments[index].Type).Space, load, call.Span);
         }
+
+        private void ImageAccess(Expression.Call call)
+        {
+            if (call.ImageAccess is not { } memory) return;
+            Require(call.Binding == CallBinding.Builtin && call.Function is "textureLoad" or "textureStore"
+                && call.AtomicMemory is null && call.MemoryAccess is null, "Image access operands require an ordinary texture load/store.", call.Span);
+            uint flags = memory.Flags;
+            Require((flags & ~SpirvImageAccess.SupportedFlags) == 0, "Unsupported image access flags.", call.Span);
+            Require(((flags & 256) != 0) == memory.AvailableScope.HasValue && ((flags & 512) != 0) == memory.VisibleScope.HasValue,
+                "Image scope operands do not match their flags.", call.Span);
+            Require((flags & 3840) == 0 || UsesVulkanMemoryModel, "Image memory operands require the Vulkan memory model.", call.Span);
+            Require((flags & 768) == 0 || (flags & 1024) != 0, "Image availability/visibility requires NonPrivateTexel.", call.Span);
+            Require((flags & (call.Function == "textureLoad" ? 256u : 512u)) == 0, "Image availability requires a write and visibility requires a read.", call.Span);
+            Require((flags & 12288) != 12288, "SignExtend and ZeroExtend cannot be combined.", call.Span);
+            Require((flags & 4096) == 0 || call.Arguments.FirstOrDefault()?.Type is ShaderType.Image { Component.Kind: ScalarKind.Sint or ScalarKind.Uint },
+                "SignExtend requires integer texels.", call.Span);
+            Require((flags & 8192) == 0 || call.Arguments.FirstOrDefault()?.Type is ShaderType.Image { Component.Kind: ScalarKind.Uint },
+                "ZeroExtend requires unsigned integer texels.", call.Span);
+            foreach (uint scope in new[] { memory.AvailableScope, memory.VisibleScope }.OfType<uint>()) {
+                Require(scope is >= 1 and <= 5, "Unsupported image memory scope.", call.Span);
+                if (scope == 2) Restrict(WorkgroupStages);
+            }
+        }
     }
 }

@@ -21,20 +21,23 @@ internal sealed class PointerSelectionLowering(Module module, DiagnosticStage st
     {
         string name; do name = "sia_pointer_value_" + next++; while (!names.Add(name)); return name;
     }
-    public Module Run()
+    public Module Run(IReadOnlySet<string>? selectedFunctions = null)
     {
         foreach (var name in module.Globals.Select(g => g.Name).Concat(module.Constants.Select(c => c.Name))
             .Concat(module.Structures.Select(s => s.Name)).Concat(module.Functions.Select(f => f.Name))) names.Add(name);
         foreach (var function in module.Functions)
         {
             foreach (var argument in function.Arguments) names.Add(argument.Name);
-            Reserve(function.Body);
+            if (selectedFunctions is null || selectedFunctions.Contains(function.Name)) Reserve(function.Body);
         }
         var output = new Module { VulkanMemoryModel = module.VulkanMemoryModel, WorkgroupInitializationRequired = module.WorkgroupInitializationRequired };
         output.Structures.AddRange(module.Structures); output.Constants.AddRange(module.Constants); output.Globals.AddRange(module.Globals);
         output.Enables.UnionWith(module.Enables); output.DiagnosticFilters.AddRange(module.DiagnosticFilters);
         foreach (var function in module.Functions)
         {
+            if (selectedFunctions is not null && !selectedFunctions.Contains(function.Name)) {
+                output.Functions.Add(function); continue;
+            }
             aliases = new(StringComparer.Ordinal);
             var copy = new ShaderFunction(function.Name) {
                 Stage = function.Stage, ReturnType = function.ReturnType, ReturnBinding = function.ReturnBinding,

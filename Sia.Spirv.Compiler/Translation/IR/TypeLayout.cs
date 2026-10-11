@@ -42,7 +42,7 @@ public readonly record struct TypeLayout(uint Alignment, uint Size, bool IsRunti
         uint size = 0, alignment = 1; bool runtime = false;
         for (int i = 0; i < structure.Members.Count; i++)
         {
-            var member = structure.Members[i]; var layout = Of(member.Type);
+            var member = structure.Members[i]; var layout = member.MatrixLayout is { } matrix ? Of(member.Type, matrix) : Of(member.Type);
             uint memberAlignment = member.Alignment ?? layout.Alignment;
             if (memberAlignment < layout.Alignment || (memberAlignment & (memberAlignment - 1)) != 0 || memberAlignment == 0)
                 throw new ShaderException(DiagnosticStage.Validation, "Member alignment must be a power of two at least as large as its type alignment.");
@@ -56,5 +56,22 @@ public readonly record struct TypeLayout(uint Alignment, uint Size, bool IsRunti
             size = checked(offset + memberSize); alignment = System.Math.Max(alignment, memberAlignment); runtime = layout.IsRuntimeSized;
         }
         return new(alignment, RoundUp(alignment, size), runtime);
+    }
+
+    internal static TypeLayout Of(ShaderType type, MatrixStorageLayout matrix)
+    {
+        if (type is ShaderType.Matrix m) {
+            var vector = Of(new ShaderType.Vector(matrix.RowMajor ? m.Columns : m.Rows, m.Component));
+            if (matrix.Stride < vector.Size || matrix.Stride % vector.Alignment != 0)
+                throw new ShaderException(DiagnosticStage.Validation, "Native matrix stride is incompatible with its vector layout.");
+            return new(vector.Alignment, checked(matrix.Stride * (uint)(matrix.RowMajor ? m.Rows : m.Columns)));
+        }
+        if (type is ShaderType.Array a) {
+            var element = Of(a.Element, matrix); uint stride = a.Stride ?? element.Stride;
+            if (a.OverrideLength is not null || element.IsRuntimeSized || stride < element.Size || stride % element.Alignment != 0)
+                throw new ShaderException(DiagnosticStage.Validation, "Invalid native matrix array layout.");
+            return new(element.Alignment, checked(stride * (a.Length ?? 1)), a.Length is null);
+        }
+        throw new ShaderException(DiagnosticStage.Validation, "Matrix storage layout requires a matrix or matrix array member.");
     }
 }

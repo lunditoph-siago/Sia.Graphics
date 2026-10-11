@@ -1,5 +1,6 @@
 using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 using Sia.Spirv.Compiler.Translation.Spirv;
 using Sia.Spirv.Compiler.Translation.Proc;
 
@@ -20,15 +21,44 @@ internal static class ShaderTargetValidator
     }
 
     public static void ValidateModule(Module module, SpirvCompilationTarget target, bool wgsl = false, bool resources = true)
+        => ValidateModule(module, target, wgsl, resources, null);
+
+    internal static void ValidateModule(CanonicalModule canonical, SpirvCompilationTarget target)
+        => ValidateModule(canonical.Declarations, target, false, true, canonical.Functions);
+
+    private static void ValidateModule(Module module, SpirvCompilationTarget target, bool wgsl, bool resources,
+        IReadOnlyDictionary<string, ControlFlowFunction>? graphs)
     {
         target.Validate(wgsl: wgsl);
-        foreach (var function in module.Functions) ValidateInvocationRequirements(function.Body, target, wgsl);
+        foreach (var function in module.Functions)
+            if (graphs?.TryGetValue(function.Name, out var graph) == true) {
+                foreach (var block in graph.Blocks) {
+                    foreach (var instruction in block.Instructions) {
+                        if (instruction.Operation is ValueOperation.Demote or ValueOperation.HelperInvocation)
+                            ValidateInvocationFeature("SPV_EXT_demote_to_helper_invocation", true, instruction.Span, target, wgsl);
+                        if (instruction.Operation is ValueOperation.Builtin { AtomicMemory: { } atomic })
+                            ValidateMemoryOrder(atomic.Semantics | (atomic.UnequalSemantics ?? 0), instruction.Span, target, wgsl);
+                        if (instruction.Operation is ValueOperation.Builtin { ImageAccess: { } image })
+                            ValidateImageVersion(image, instruction.Span, target, wgsl);
+                        if (instruction.Operation is ValueOperation.Barrier { NativeMemory: { } barrier })
+                            ValidateMemoryOrder(barrier.Semantics, instruction.Span, target, wgsl);
+                    }
+                    if (block.Terminator is ControlFlowTerminator.InvocationKill { ExplicitTermination: true } kill)
+                        ValidateInvocationFeature("SPV_KHR_terminate_invocation", false, kill.Span, target, wgsl);
+                }
+            }
+            else ValidateRequirements(function.Body, target, wgsl);
         foreach (var function in module.Functions.Where(f => f.Stage is not null)) ValidateStage(target, function.Stage!.Value.ToString());
         if (target.KernelAbi == SpirvKernelAbi.WebGpu && module.Globals.Any(g => g.Space == AddressSpace.Immediate))
             throw new ShaderException(DiagnosticStage.Validation, "WebGPU ABI does not allow immediate/push-constant resources.");
         foreach (var entry in module.Functions.Where(f => resources && f.Stage is not null)) {
-            var functions = ControlFlowAnalysis.CalledFunctions(module, [entry.Name]);
-            var used = module.Functions.Where(f => functions.Contains(f.Name)).SelectMany(f => UsedGlobals(f, module)).ToHashSet(StringComparer.Ordinal);
+            var functions = ControlFlowAnalysis.CalledFunctions(module, [entry.Name], graphs);
+            var globalNames = module.Globals.Select(g => g.Name).ToHashSet(StringComparer.Ordinal);
+            var used = module.Functions.Where(f => functions.Contains(f.Name)).SelectMany(f =>
+                graphs?.TryGetValue(f.Name, out var graph) == true
+                    ? graph.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).OfType<ValueOperation.Symbol>()
+                        .Select(s => s.Name).Where(n => globalNames.Contains(n) && !f.Arguments.Any(a => a.Name == n))
+                    : UsedGlobals(f, module)).ToHashSet(StringComparer.Ordinal);
             var buffers = module.Globals.Where(g => used.Contains(g.Name) && g.Space is AddressSpace.Storage or AddressSpace.Uniform).ToArray();
             long Count(AddressSpace space) => buffers.Where(g => g.Space == space).Sum(g => g.Type is ShaderType.BindingArray array
                 ? (long)(array.Length ?? throw new ShaderException(DiagnosticStage.Validation, "Resource limits require a resolved descriptor array length.")) : 1L);
@@ -55,20 +85,39 @@ internal static class ShaderTargetValidator
 
     public static void ValidateWgslInvocationFeatures(Module module)
     {
-        foreach (var function in module.Functions) ValidateInvocationRequirements(function.Body, null, wgsl: true);
+        foreach (var function in module.Functions) ValidateRequirements(function.Body, null, wgsl: true);
     }
 
-    private static void ValidateInvocationRequirements(Block block, SpirvCompilationTarget? target, bool wgsl = false)
+    internal static void ValidateWgslInvocationFeatures(CanonicalModule canonical)
     {
-        void Feature(string extension, bool demotion, SourceSpan span) {
-            if (wgsl || target is null) return;
-            if (demotion && target.AllowedCapabilities is { } capabilities && !capabilities.Any(capability => capability == 5379))
-                throw new ShaderException(DiagnosticStage.SpirvWrite, "Target does not allow SPIR-V capability 5379.", span);
-            if (target.Version < 0x10600 && target.AllowedExtensions is { } extensions
-                && !extensions.Any(e => StringComparer.Ordinal.Equals(e, extension)))
-                throw new ShaderException(DiagnosticStage.SpirvWrite, "Target does not allow SPIR-V extension " + extension + ".", span);
+        foreach (var function in canonical.Declarations.Functions) {
+            if (!canonical.Functions.TryGetValue(function.Name, out var graph)) {
+                ValidateRequirements(function.Body, null, wgsl: true); continue;
+            }
+            foreach (var instruction in graph.Blocks.SelectMany(b => b.Instructions))
+                if (instruction.Operation is ValueOperation.HelperInvocation)
+                    throw new ShaderException(DiagnosticStage.WgslWrite,
+                        "Dynamic helper invocation queries cannot be represented in WGSL.", instruction.Span);
         }
+    }
+
+    private static void ValidateInvocationFeature(string extension, bool demotion, SourceSpan span, SpirvCompilationTarget? target, bool wgsl)
+    {
+        if (wgsl || target is null) return;
+        if (demotion && target.AllowedCapabilities is { } capabilities && !capabilities.Any(capability => capability == 5379))
+            throw new ShaderException(DiagnosticStage.SpirvWrite, "Target does not allow SPIR-V capability 5379.", span);
+        if (target.Version < 0x10600 && target.AllowedExtensions is { } extensions
+            && !extensions.Any(e => StringComparer.Ordinal.Equals(e, extension)))
+            throw new ShaderException(DiagnosticStage.SpirvWrite, "Target does not allow SPIR-V extension " + extension + ".", span);
+    }
+
+    private static void ValidateRequirements(Block block, SpirvCompilationTarget? target, bool wgsl = false)
+    {
+        void Feature(string extension, bool demotion, SourceSpan span) => ValidateInvocationFeature(extension, demotion, span, target, wgsl);
         void Expr(Expression expression) {
+            if (expression is Expression.Call { ImageAccess: { } image }) ValidateImageVersion(image, expression.Span, target, wgsl);
+            if (expression is Expression.Call { AtomicMemory: { } atomic })
+                ValidateMemoryOrder(atomic.Semantics | (atomic.UnequalSemantics ?? 0), expression.Span, target, wgsl);
             if (expression is Expression.HelperInvocation) {
                 if (wgsl) throw new ShaderException(DiagnosticStage.WgslWrite,
                     "Dynamic helper invocation queries cannot be represented in WGSL.", expression.Span);
@@ -83,6 +132,8 @@ internal static class ShaderTargetValidator
             foreach (var child in children) Expr(child);
         }
         foreach (var statement in block.Statements) {
+            if (statement is Statement.Barrier { NativeMemory: { } barrier })
+                ValidateMemoryOrder(barrier.Semantics, statement.Span, target, wgsl);
             string? extension = statement switch {
                 Statement.Kill => "SPV_EXT_demote_to_helper_invocation",
                 Statement.InvocationKill { ExplicitTermination: true } => "SPV_KHR_terminate_invocation",
@@ -94,18 +145,33 @@ internal static class ShaderTargetValidator
                 case Statement.Store store: Expr(store.Target); Expr(store.Value); break;
                 case Statement.Evaluate evaluate: Expr(evaluate.Value); break;
                 case Statement.Return { Value: { } value }: Expr(value); break;
-                case Statement.Nested nested: ValidateInvocationRequirements(nested.Body, target, wgsl); break;
+                case Statement.Nested nested: ValidateRequirements(nested.Body, target, wgsl); break;
                 case Statement.If branch:
                     Expr(branch.Condition);
-                    ValidateInvocationRequirements(branch.Accept, target, wgsl); ValidateInvocationRequirements(branch.Reject, target, wgsl); break;
+                    ValidateRequirements(branch.Accept, target, wgsl); ValidateRequirements(branch.Reject, target, wgsl); break;
                 case Statement.Loop loop:
-                    ValidateInvocationRequirements(loop.Body, target, wgsl); ValidateInvocationRequirements(loop.Continuing, target, wgsl);
+                    ValidateRequirements(loop.Body, target, wgsl); ValidateRequirements(loop.Continuing, target, wgsl);
                     if (loop.BreakIf is { } condition) Expr(condition); break;
                 case Statement.Switch selection:
                     Expr(selection.Selector);
-                    foreach (var arm in selection.Cases) ValidateInvocationRequirements(arm.Body, target, wgsl); break;
+                    foreach (var arm in selection.Cases) ValidateRequirements(arm.Body, target, wgsl); break;
             }
         }
+    }
+
+    private static void ValidateMemoryOrder(uint semantics, SourceSpan span, SpirvCompilationTarget? target, bool wgsl)
+    {
+        if (!wgsl && target is { Environment: "vulkan1.2" or "vulkan1.3" } && (semantics & 16) != 0)
+            throw new ShaderException(DiagnosticStage.SpirvWrite,
+                "Sequentially consistent memory order is unavailable in Vulkan targets; select universal SPIR-V to retain it.", span);
+    }
+
+    private static void ValidateImageVersion(SpirvImageAccess access, SourceSpan span, SpirvCompilationTarget? target, bool wgsl)
+    {
+        if (wgsl || target is null) return;
+        uint required = (access.Flags & 16384) != 0 ? 0x10600u : (access.Flags & 12288) != 0 ? 0x10400u : 0;
+        if (target.Version < required)
+            throw new ShaderException(DiagnosticStage.SpirvWrite, "Selected SPIR-V version cannot preserve the native image access operands.", span);
     }
 
     // Resolve lexical shadowing before attributing a reference to a module resource.

@@ -44,15 +44,30 @@ public static partial class ModuleValidator
         private readonly Dictionary<string, HashSet<string>> payloadUses = new(StringComparer.Ordinal);
         private readonly HashSet<ShaderType> checkedTypes = new(ReferenceEqualityComparer.Instance);
         private readonly HashSet<ShaderType> visitingTypes = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<ShaderType.Array, HashSet<MatrixStorageLayout>> matrixArrayLayouts = MatrixArrayLayouts(module);
         private readonly HashSet<string> arrayLengthOverrides = new(StringComparer.Ordinal);
         private readonly Stack<Dictionary<string, Variable>> scopes = new();
         private readonly Stack<BreakTarget> breaks = new();
         private ShaderFunction? function;
         private int loopDepth, expressionDepth;
-        private sealed record Variable(ShaderType Type, bool Place, bool Writable, AddressSpace Space = AddressSpace.Function);
+        private sealed record Variable(ShaderType Type, bool Place, bool Writable, AddressSpace Space = AddressSpace.Function, bool HandleResource = false);
         private sealed class BreakTarget(bool loop) { public bool Loop { get; } = loop; public bool Used; }
         private ShaderException Error(string message, SourceSpan span = default) => new(DiagnosticStage.Validation, message, span);
         private void Require(bool condition, string message, SourceSpan span = default) { if (!condition) throw Error(message, span); }
+
+        private static Dictionary<ShaderType.Array, HashSet<MatrixStorageLayout>> MatrixArrayLayouts(Module module)
+        {
+            var result = new Dictionary<ShaderType.Array, HashSet<MatrixStorageLayout>>();
+            // A native matrix array's byte stride is interpreted with its owning
+            // member's row/column layout, not the natural layout of matrix values.
+            foreach (var member in module.Structures.SelectMany(s => s.Members))
+                if (member.MatrixLayout is { } matrix)
+                    for (ShaderType type = member.Type; type is ShaderType.Array array; type = array.Element) {
+                        if (!result.TryGetValue(array, out var layouts)) result.Add(array, layouts = []);
+                        layouts.Add(matrix);
+                    }
+            return result;
+        }
 
         public void Run(IReadOnlyDictionary<string, ControlFlowFunction>? graphs = null)
         {
@@ -99,7 +114,10 @@ public static partial class ModuleValidator
                 bool resource = handle || global.Space is AddressSpace.Uniform or AddressSpace.Storage;
                 Require(resource == (global.Binding is not null), "Resource variable requires group/binding, and ordinary variables cannot have one.");
                 if (global.Space is AddressSpace.Uniform or AddressSpace.Storage or AddressSpace.Immediate)
+                {
                     Require(HostShareable(global.Type), "Buffer type is not host-shareable.");
+                    if (global.Type is not ShaderType.BindingArray) _ = TypeLayout.Of(global.Type);
+                }
                 if (ContainsAtomic(global.Type)) Require(global.Space is AddressSpace.Workgroup or AddressSpace.TaskPayload || global.Space == AddressSpace.Storage && (global.Access & StorageAccess.ReadWrite) == StorageAccess.ReadWrite, "Atomic data requires workgroup, task payload or read-write storage memory.");
                 if (RuntimeSized(global.Type)) Require(global.Space == AddressSpace.Storage, "Runtime array requires storage memory.");
                 if (global.Space == AddressSpace.Storage) Require(global.Access is StorageAccess.Read or StorageAccess.ReadWrite || global.Access == (StorageAccess.ReadWrite | StorageAccess.Atomic), "Invalid storage buffer access.");
@@ -109,7 +127,7 @@ public static partial class ModuleValidator
                     Require(global.Space == AddressSpace.Private, "Only private module variables can have initializers.");
                     Require(overrideExpressions.IsValid(global.Initializer), "Global initializer is not a constant or override expression.");
                 }
-                globals.Add(global.Name, new(global.Type, !handle, global.Space != AddressSpace.Uniform && (global.Access & StorageAccess.Write) != 0, global.Space));
+                globals.Add(global.Name, new(global.Type, !handle, global.Space != AddressSpace.Uniform && (global.Access & StorageAccess.Write) != 0, global.Space, handle));
             }
             foreach (var f in module.Functions)
             {
@@ -232,6 +250,8 @@ public static partial class ModuleValidator
                         var layout = TypeLayout.Of(a.Element); uint stride = a.Stride ?? layout.Stride;
                         Require(stride >= layout.Size && stride % layout.Alignment == 0, "Invalid array stride.");
                     }
+                    else if (matrixArrayLayouts.TryGetValue(a, out var matrixLayouts))
+                        foreach (var matrix in matrixLayouts) _ = TypeLayout.Of(a, matrix);
                     else _ = TypeLayout.Of(a);
                     break;
                 case ShaderType.Structure s:
@@ -250,10 +270,14 @@ public static partial class ModuleValidator
                     if (image.StorageFormat is string format)
                     {
                         Require(StorageImageFormats.TryCode(format, out uint code), "Unknown storage image format.");
-                        Same(image.Component, StorageImageFormats.Component(code), "Storage image component does not match its format.");
+                        var formatComponent = StorageImageFormats.Component(code);
+                        Require(image.Component == formatComponent || image.Component.Width == formatComponent.Width
+                            && image.Component.Kind is ScalarKind.Sint or ScalarKind.Uint && formatComponent.Kind is ScalarKind.Sint or ScalarKind.Uint,
+                            "Storage image component does not match its format.");
                     }
-                    Require(image.Access is StorageAccess.Read or StorageAccess.Write or StorageAccess.ReadWrite || image.StorageFormat is not null && image.Access == (StorageAccess.ReadWrite | StorageAccess.Atomic), "Invalid image access.");
-                    Require(!image.Multisampled || image.Dimension == ImageDimension.D2 && !image.Arrayed, "Multisampled images must be non-array 2D.");
+                    Require(image.Access is StorageAccess.Read or StorageAccess.Write or StorageAccess.ReadWrite || image.StorageFormat is not null
+                        && (image.Access & StorageAccess.ReadWrite) != 0 && (image.Access & ~(StorageAccess.ReadWrite | StorageAccess.Atomic)) == 0, "Invalid image access.");
+                    Require(!image.Multisampled || image.Dimension == ImageDimension.D2, "Multisampled images must be 2D.");
                     Require(!image.Arrayed || image.Dimension is ImageDimension.D2 or ImageDimension.Cube, "Invalid arrayed image dimension.");
                     Require(!image.Depth || image.Component == ShaderType.F32 && image.StorageFormat is null && image.Dimension is ImageDimension.D2 or ImageDimension.Cube, "Invalid depth image."); break;
                 case ShaderType.BindingArray a:

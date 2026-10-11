@@ -15,15 +15,17 @@ internal sealed class StructuredControlFlowReader
     private readonly Stack<IReadOnlyList<DiagnosticFilter>> diagnosticScopes = [];
     private readonly HashSet<string> callees;
     private readonly Dictionary<string, ShaderType> symbols;
-    private readonly Dictionary<string, ShaderEffects> calleeEffects;
+    private readonly IReadOnlyDictionary<string, ShaderEffects> calleeEffects;
     private bool nativeMemory;
     private sealed class Unsupported(string feature) : Exception(feature);
-    private StructuredControlFlowReader(ShaderFunction signature, Module module)
+    private StructuredControlFlowReader(ShaderFunction signature, Module module,
+        IReadOnlyDictionary<string, ShaderEffects>? effects = null, bool native = false)
     {
         function = new(signature); current = function.Block(); function.Entry = current.Id;
-        calleeEffects = ShaderEffectAnalysis.Compute(module);
-        callees = module.Functions.Where(f => (f.ReturnType is ShaderType.Void or ShaderType.Pointer || CanonicalTypes.Data(f.ReturnType))
-            && f.Arguments.All(a => CanonicalTypes.Data(a.Type) || a.Type is ShaderType.Pointer))
+        calleeEffects = effects ?? ShaderEffectAnalysis.Compute(module); nativeMemory = native;
+        callees = module.Functions.Where(f => (f.ReturnType is ShaderType.Void or ShaderType.Pointer || CanonicalTypes.Data(f.ReturnType) || CanonicalTypes.Resource(f.ReturnType))
+            && f.Arguments.All(a => CanonicalTypes.Data(a.Type)
+                || a.Type is ShaderType.Pointer or ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure))
             .Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
         symbols = module.Globals.ToDictionary(g => g.Name, g => g.Space == AddressSpace.Handle ? g.Type
             : (ShaderType)new ShaderType.Pointer(g.Type, g.Space, g.Access), StringComparer.Ordinal);
@@ -31,14 +33,15 @@ internal sealed class StructuredControlFlowReader
         foreach (var argument in signature.Arguments) symbols[argument.Name] = argument.Type;
     }
 
-    public static bool TryRead(ShaderFunction input, Module module, out ControlFlowFunction? output, out string? deferredFeature)
+    public static bool TryRead(ShaderFunction input, Module module, out ControlFlowFunction? output, out string? deferredFeature,
+        IReadOnlyDictionary<string, ShaderEffects>? calleeEffects = null, bool native = false)
     {
         output = null; deferredFeature = null;
-        if (!(input.ReturnType is ShaderType.Void or ShaderType.Pointer || CanonicalTypes.Data(input.ReturnType))) {
+        if (!(input.ReturnType is ShaderType.Void or ShaderType.Pointer || CanonicalTypes.Data(input.ReturnType) || CanonicalTypes.Resource(input.ReturnType))) {
             deferredFeature = "unsupported return data"; return false;
         }
         try {
-            var reader = new StructuredControlFlowReader(input, module);
+            var reader = new StructuredControlFlowReader(input, module, calleeEffects, native);
             reader.Body(input.Body);
             // Valid non-void bodies may leave an unreachable merge after returning in both arms.
             // Reachability removes it before verification; live fallthrough is rejected by ModuleValidator.
@@ -91,16 +94,24 @@ internal sealed class StructuredControlFlowReader
                 return Emit(ShaderType.Bool, new ValueOperation.HelperInvocation(), query.Span);
             case Expression.Reference reference:
                 return Reference(reference, place: false);
+            case Expression.Undefined undefined when nativeMemory:
+                return Emit(undefined.Type, new ValueOperation.Undefined(), undefined.Span);
             case Expression.Literal literal when CanonicalTypes.Data(literal.Type):
                 return Emit(literal.Type, new ValueOperation.Literal(literal.Value), literal.Span);
             case Expression.Construct construct when CanonicalTypes.Data(construct.Type):
                 return Emit(construct.Type, new ValueOperation.Construct(construct.Components.Select(Expr).ToArray()), construct.Span);
-            case Expression.Load load when CanonicalTypes.Data(load.Type) || nativeMemory && load.Type is ShaderType.Pointer:
+            case Expression.Construct { Type: ShaderType.Pointer, Components.Count: 0 } construct when nativeMemory:
+                return Emit(construct.Type, new ValueOperation.Construct([]), construct.Span);
+            case Expression.Load load when CanonicalTypes.Data(load.Type) || nativeMemory && (load.Type is ShaderType.Pointer || CanonicalTypes.Resource(load.Type)):
                 return Emit(load.Type, new ValueOperation.Load(Place(load.Pointer), load.MemoryAccess), load.Span);
             case Expression.Unary unary when CanonicalTypes.Data(unary.Type) && unary.Operator is "!" or "~" or "-":
                 return Emit(unary.Type, new ValueOperation.Unary(unary.Operator, Expr(unary.Operand)), unary.Span);
             case Expression.Unary { Operator: "&", Type: ShaderType.Pointer } address:
                 return Place(address.Operand);
+            case Expression.Binary binary when nativeMemory && binary.Left.Type is ShaderType.Pointer && binary.Right.Type is ShaderType.Pointer:
+                return Emit(binary.Type, new ValueOperation.Binary(binary.Operator, Place(binary.Left), Place(binary.Right)), binary.Span);
+            case Expression.Binary { Operator: "+", Type: ShaderType.Pointer } binary when nativeMemory:
+                return Emit(binary.Type, new ValueOperation.Binary("+", Place(binary.Left), Expr(binary.Right)), binary.Span);
             case Expression.Binary binary when CanonicalTypes.Data(binary.Type) && CanonicalTypes.Data(binary.Left.Type) && CanonicalTypes.Data(binary.Right.Type):
                 if (binary.Operator is "&&" or "||") return ShortCircuit(binary);
                 var left = Expr(binary.Left); var right = Expr(binary.Right);
@@ -116,10 +127,10 @@ internal sealed class StructuredControlFlowReader
                 return Emit(member.Type, new ValueOperation.Member(Expr(member.Base), member.Name), member.Span);
             case Expression.Swizzle swizzle when CanonicalTypes.Data(swizzle.Type):
                 return Emit(swizzle.Type, new ValueOperation.Swizzle(Expr(swizzle.Vector), swizzle.Components), swizzle.Span);
-            case Expression.Call call when call.Binding == CallBinding.Function && (CanonicalTypes.Data(call.Type) || call.Type is ShaderType.Pointer) && callees.Contains(call.Function):
+            case Expression.Call call when call.Binding == CallBinding.Function && (CanonicalTypes.Data(call.Type) || call.Type is ShaderType.Pointer || CanonicalTypes.Resource(call.Type)) && callees.Contains(call.Function):
                 return Emit(call.Type, Call(call), call.Span);
             case Expression.Call call when call.Binding == CallBinding.Builtin && ShaderBuiltinEffects.IsKnown(call.Function) && call.Type is not ShaderType.Void:
-                return Emit(call.Type, new ValueOperation.Builtin(call.Function, call.Arguments.Select(Expr).ToArray(), call.Type, call.AtomicMemory, call.MemoryAccess), call.Span);
+                return Emit(call.Type, new ValueOperation.Builtin(call.Function, call.Arguments.Select(Expr).ToArray(), call.Type, call.AtomicMemory, call.MemoryAccess, call.ImageAccess), call.Span);
             case Expression.Select select when CanonicalTypes.Data(select.Type):
                 return Emit(select.Type, new ValueOperation.Select(Expr(select.Condition), Expr(select.Accept), Expr(select.Reject)), select.Span);
             case Expression.Select select when select.Type is ShaderType.Pointer:
@@ -204,16 +215,28 @@ internal sealed class StructuredControlFlowReader
 
     private void Body(Block input, bool scope = true)
     {
+        if (input.DiagnosticFilters.Count != 0 && !ReferenceEquals(input, function.Signature.Body))
+            function.DiagnosticRanges.Add(input.DiagnosticFilters.ToArray());
         diagnosticScopes.Push(input.DiagnosticFilters);
         if (scope) scopes.Push(new(StringComparer.Ordinal));
         foreach (var statement in input.Statements) {
             if (current.Terminator is not null) break;
             switch (statement) {
-                case Statement.Declare declare when CanonicalTypes.Data(declare.Type) || (!declare.Mutable || nativeMemory) && declare.Type is ShaderType.Pointer:
+                case Statement.Declare { Mutable: true, Type: ShaderType.RayQuery, Initializer: null } query:
+                    // Opaque query identity is an allocation, not a zero-valued
+                    // data object or a promotable load/store slot.
+                    var handle = Emit(new ShaderType.Pointer(query.Type, AddressSpace.Function),
+                        new ValueOperation.Local(query.Name, false), query.Span);
+                    scopes.Peek().Add(query.Name, handle); break;
+                case Statement.Declare declare when CanonicalTypes.Data(declare.Type)
+                    || (!declare.Mutable || nativeMemory) && declare.Type is ShaderType.Pointer
+                    || !declare.Mutable && CanonicalTypes.Resource(declare.Type)
+                    || nativeMemory && !declare.Initialize && CanonicalTypes.Resource(declare.Type):
                     if (declare.Mutable) {
                         var initializer = declare.Initializer ?? (declare.Initialize ? new Expression.Construct(declare.Type, []) { Span = declare.Span } : null);
                         SsaValue? value = initializer is null ? null : Expr(initializer);
-                        var local = Emit(new ShaderType.Pointer(declare.Type, AddressSpace.Function), new ValueOperation.Local(declare.Name, declare.Initialize), declare.Span);
+                        var local = Emit(new ShaderType.Pointer(declare.Type, AddressSpace.Function),
+                            new ValueOperation.Local(declare.Name, declare.Initialize && declare.Type is not ShaderType.Pointer), declare.Span);
                         scopes.Peek().Add(declare.Name, local);
                         if (value is { } initial) Add(new(null, new ValueOperation.Store(local, initial), declare.Span));
                     }
@@ -222,7 +245,7 @@ internal sealed class StructuredControlFlowReader
                         scopes.Peek().Add(declare.Name, Emit(declare.Type, new ValueOperation.Let(declare.Name, initial), declare.Span));
                     }
                     break;
-                case Statement.Store store when CanonicalTypes.Data(store.Value.Type) || nativeMemory && store.Value.Type is ShaderType.Pointer:
+                case Statement.Store store when CanonicalTypes.Data(store.Value.Type) || nativeMemory && (store.Value.Type is ShaderType.Pointer || CanonicalTypes.Resource(store.Value.Type)):
                     var target = Place(store.Target); var stored = Expr(store.Value);
                     Add(new(null, new ValueOperation.Store(target, stored, store.MemoryAccess), store.Span)); break;
                 case Statement.Evaluate { Value: Expression.Call { Type: ShaderType.Void } call } when call.Binding == CallBinding.Function && callees.Contains(call.Function):
@@ -230,7 +253,7 @@ internal sealed class StructuredControlFlowReader
                 case Statement.Evaluate { Value: Expression.Call { Type: ShaderType.Void } builtin } when builtin.Binding == CallBinding.Builtin && ShaderBuiltinEffects.IsKnown(builtin.Function):
                     var arguments = builtin.Arguments.Select(Expr).ToArray();
                     Add(new(null, new ValueOperation.Builtin(builtin.Function, arguments, builtin.Type,
-                        builtin.AtomicMemory, builtin.MemoryAccess), builtin.Span)); break;
+                        builtin.AtomicMemory, builtin.MemoryAccess, builtin.ImageAccess), builtin.Span)); break;
                 case Statement.Barrier barrier:
                     Add(new(null, new ValueOperation.Barrier(true, barrier.Storage, barrier.Workgroup, barrier.Texture, barrier.Subgroup,
                         barrier.NativeMemory), barrier.Span)); break;
@@ -285,12 +308,12 @@ internal sealed class StructuredControlFlowReader
                     breaks.Pop(); current = done; break;
                 case Statement.Break: current.Terminator = new ControlFlowTerminator.Branch(new(breaks.Peek())); break;
                 case Statement.Continue: current.Terminator = new ControlFlowTerminator.Branch(new(continues.Peek())); break;
-                case Statement.Return { Value: null }: current.Terminator = new ControlFlowTerminator.Return(); break;
+                case Statement.Return { Value: null } returned: current.Terminator = new ControlFlowTerminator.Return { Span = returned.Span }; break;
                 case Statement.Unreachable unreachable: current.Terminator = new ControlFlowTerminator.Unreachable(unreachable.Span); break;
                 case Statement.InvocationKill kill: current.Terminator = new ControlFlowTerminator.InvocationKill(kill.Span, kill.ExplicitTermination); break;
                 case Statement.Kill kill: Add(new(null, new ValueOperation.Demote(), kill.Span)); break;
-                case Statement.Return returned when returned.Value is { } value && (CanonicalTypes.Data(value.Type) || value.Type is ShaderType.Pointer):
-                    var returnValue = Expr(value); current.Terminator = new ControlFlowTerminator.Return(returnValue); break;
+                case Statement.Return returned when returned.Value is { } value && (CanonicalTypes.Data(value.Type) || value.Type is ShaderType.Pointer || CanonicalTypes.Resource(value.Type)):
+                    var returnValue = Expr(value); current.Terminator = new ControlFlowTerminator.Return(returnValue) { Span = returned.Span }; break;
                 default: throw new Unsupported(statement.GetType().Name);
             }
         }

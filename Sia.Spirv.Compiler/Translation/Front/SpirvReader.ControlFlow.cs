@@ -1,6 +1,5 @@
 using Sia.Spirv.Compiler.Translation.IR;
 using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
-using Sia.Spirv.Compiler.Translation.Legalization;
 using Sia.Spirv.Compiler.Translation.Proc;
 using Sia.Spirv.Compiler.Translation.Spirv;
 using Sia.Spirv.Compiler.Translation.Valid;
@@ -13,8 +12,16 @@ public static partial class SpirvReader
     {
         private Dictionary<string, ControlFlowFunction>? nativeGraphs;
 
-        private string? ResolveNativeControlFlow(ICollection<CanonicalPassTrace>? traces)
+        private void ResolveNativeControlFlow(ICollection<CanonicalPassTrace>? traces)
         {
+            // Native private pointer initializers belong to the invocation,
+            // not to each helper using that slot. Make their stores explicit
+            // before shared definite-assignment and address analysis.
+            bool Undefined(Expression expression) => expression is Expression.Undefined
+                || expression is Expression.Construct c && c.Components.Any(Undefined);
+            var initialSlots = module.Globals.Where(g => g.Space == AddressSpace.Private && g.Initializer is not null
+                && (g.Type is ShaderType.Pointer || Undefined(g.Initializer))).ToArray();
+            foreach (var slot in initialSlots) module.Globals[module.Globals.IndexOf(slot)] = slot with { Initializer = null };
             // These structured statements supply existing type/effect translation.
             // Native topology and phi identities never pass through Region/Edge copies.
             var allocations = rawFunctions.ToDictionary(f => f.Id, f => new Block());
@@ -33,6 +40,9 @@ public static partial class SpirvReader
                         Span = new(b.Terminator!.WordOffset * 4, b.Terminator.WordCount * 4),
                         ExplicitTermination = (Op)b.Terminator.Opcode == Op.TerminateInvocation
                     }));
+                foreach (var block in raw.Blocks.Where(b => b.Terminator is { } t && (Op)t.Opcode == Op.EmitMeshTasksEXT)) {
+                    current = block.Terminator!; raw.Function.Body.Statements.Add(NativeTaskEmission(current.Operands));
+                }
             }
             nativeGraphs = new(StringComparer.Ordinal);
             var slotTraces = new List<CanonicalPassTrace>();
@@ -58,6 +68,12 @@ public static partial class SpirvReader
                         map[block.Id].Parameters.Add(value); reader.NativeBind(Name(a[1], "r"), value);
                     }
                 reader.NativeBody(allocations[raw.Id]);
+                if (entries.Any(e => e.Id == raw.Id)) {
+                    var initial = new Block();
+                    foreach (var slot in initialSlots)
+                        initial.Statements.Add(new Statement.Store(new Expression.Reference(slot.Name, new ShaderType.Pointer(slot.Type, slot.Space, slot.Access)), slot.Initializer!) { Span = slot.Initializer!.Span });
+                    reader.NativeBody(initial);
+                }
                 foreach (var block in raw.Blocks) {
                     reader.NativeBegin(map[block.Id]); reader.NativeBody(block.Body);
                     current = block.Terminator ?? throw Error("Missing native terminator.");
@@ -70,7 +86,8 @@ public static partial class SpirvReader
                             var incoming = Enumerable.Range(0, (operands.Length - 2) / 2)
                                 .Where(i => operands[3 + i * 2] == block.Id).Select(i => operands[2 + i * 2]).ToArray();
                             if (incoming.Length != 1) throw Error(incoming.Length == 0 ? "Missing phi predecessor." : "Duplicate phi predecessor.");
-                            if (!values.TryGetValue(incoming[0], out var expression) || expression.Type != Type(operands[0]))
+                            if (!values.TryGetValue(incoming[0], out var expression) || expression.Type != Type(operands[0])
+                                && !(expression.Type is ShaderType.Pointer from && Type(operands[0]) is ShaderType.Pointer to && from.Base == to.Base && from.Space == to.Space))
                                 throw Error("Undefined or mismatched native phi value.");
                             arguments.Add(expression.Type is ShaderType.Pointer ? reader.NativeAddress(expression) : reader.NativeValue(expression));
                         }
@@ -94,7 +111,7 @@ public static partial class SpirvReader
                             }
                             terminator = new ControlFlowTerminator.Switch(selector, cases, Edge(a[1])); break;
                         case Op.Return:
-                            Count(0, 0); terminator = new ControlFlowTerminator.Return(); break;
+                            Count(0, 0); terminator = new ControlFlowTerminator.Return { Span = new(current.WordOffset * 4, current.WordCount * 4) }; break;
                         case Op.ReturnValue:
                             if (raw.Function.ReturnType is ShaderType.Pointer && a.Length != 1)
                                 throw Error("Invalid native pointer return operands.");
@@ -104,13 +121,16 @@ public static partial class SpirvReader
                                     ? "Native return references an undefined pointer or mismatched pointer type."
                                     : "Native return references an undefined value or mismatched return type.");
                             terminator = new ControlFlowTerminator.Return(returned.Type is ShaderType.Pointer
-                                ? reader.NativeAddress(returned) : reader.NativeValue(returned)); break;
+                                ? reader.NativeAddress(returned) : reader.NativeValue(returned)) { Span = new(current.WordOffset * 4, current.WordCount * 4) }; break;
                         case Op.Unreachable:
                             Count(0, 0); terminator = new ControlFlowTerminator.Unreachable(new(current.WordOffset * 4, current.WordCount * 4)); break;
                         case Op.Kill: case Op.TerminateInvocation:
                             Count(0, 0); ValidateInvocationFeature(op);
                             terminator = new ControlFlowTerminator.InvocationKill(new(current.WordOffset * 4, current.WordCount * 4),
                                 ExplicitTermination: op == Op.TerminateInvocation); break;
+                        case Op.EmitMeshTasksEXT:
+                            var dispatch = NativeTaskEmission(a);
+                            terminator = new ControlFlowTerminator.TaskDispatch(reader.NativeValue(dispatch.Dimensions), dispatch.Payload, dispatch.Span); break;
                         default: throw Error("Native terminator requires canonical migration.");
                     }
                     reader.NativeCurrent.Terminator = terminator;
@@ -121,10 +141,13 @@ public static partial class SpirvReader
                     }
                     else if (block.Merge is uint merge) {
                         if (!map.ContainsKey(merge)) throw Error("Undefined native selection merge block.");
-                        graph.SelectionMerges.Add(map[block.Id].Id, map[merge].Id);
+                        // Pointer selections may have split the native block.
+                        // The native merge belongs to its final terminator.
+                        graph.SelectionMerges.Add(reader.NativeCurrent.Id, map[merge].Id);
                     }
                 }
                 ControlFlowAnalysis.RemoveUnreachable(graph);
+                PointerAccessInference.Run(graph);
                 ControlFlowVerifier.Validate(graph, module);
                 NativePointerValidator.ValidateBeforeExpansion(graph, module, fullVariablePointers);
                 bool slots = graph.Blocks.SelectMany(b => b.Instructions).Any(i => i.Operation is ValueOperation.Local
@@ -137,38 +160,51 @@ public static partial class SpirvReader
                 }
                 nativeGraphs.Add(raw.Function.Name, graph);
             }
-            if (nativeGraphs.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions).Any(i =>
+            bool pointerOperations = nativeGraphs.Values.Any(PointerAliasAnalysis.HasPointerOperations);
+            var referenceHelpers = nativeGraphs.Where(p => PointerAliasAnalysis.HasPointerOperations(p.Value)
+                || p.Value.Blocks.SelectMany(b => b.Instructions).Any(i =>
+                    i.Operation is ValueOperation.Symbol && i.Result?.Type is ShaderType.Pointer { Space: AddressSpace.Private, Base: ShaderType.Pointer }))
+                .Select(p => p.Key).ToHashSet(StringComparer.Ordinal);
+            bool referencesChanged;
+            do {
+                referencesChanged = false;
+                foreach (var (name, graph) in nativeGraphs)
+                    if (graph.Blocks.SelectMany(b => b.Instructions).Any(i => i.Operation is ValueOperation.Call c && referenceHelpers.Contains(c.Function)))
+                        referencesChanged |= referenceHelpers.Add(name);
+            } while (referencesChanged);
+            if (referenceHelpers.Count != 0 || nativeGraphs.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions).Any(i =>
                 i.Operation is ValueOperation.Call call && call.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.Pointer }))) {
-                // Bind the actual slot address before shared promotion. The same CFG
-                // copier handles void/nested helpers and pointer-return helpers; no
-                // pointee copy-in/copy-out or frontend provenance solver is involved.
+                // Bind actual addresses before slot promotion and native comparison
+                // validation. Nested helpers use the shared CFG copier, preserving
+                // address identity and the original order of effects.
                 var originalGraphs = nativeGraphs;
                 nativeGraphs = new(StringComparer.Ordinal);
                 foreach (var (name, graph) in originalGraphs) {
                     string? before = traces is null ? null : ControlFlowPrinter.Write(graph);
-                    var expanded = CanonicalHelperInliner.Run(graph, module, originalGraphs, expandPointerSlots: true);
+                    var expanded = CanonicalHelperInliner.Run(graph, module, originalGraphs, expandPointerSlots: true, expandFunctions: referenceHelpers);
                     LocalValuePromotion.Run(expanded); ControlFlowVerifier.Validate(expanded, module);
                     nativeGraphs.Add(name, expanded);
                     if (traces is not null && !ReferenceEquals(graph, expanded)) slotTraces.Add(new(name,
-                        "native-slot-helper-expansion", before!, ControlFlowPrinter.Write(expanded),
+                        pointerOperations ? "native-reference-helper-expansion" : "native-slot-helper-expansion", before!, ControlFlowPrinter.Write(expanded),
                         "argument snapshots, actual slot addresses and callee effect order", "CFG topology, SSA definitions and call summaries"));
                 }
                 var remainingCalls = nativeGraphs.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions)
                     .Select(i => i.Operation).OfType<ValueOperation.Call>().Select(c => c.Function).ToHashSet(StringComparer.Ordinal);
-                foreach (var raw in rawFunctions.Where(f => f.Function.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.Pointer })
-                    && !remainingCalls.Contains(f.Function.Name))) {
+                foreach (var raw in rawFunctions.Where(f => (f.Function.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.Pointer })
+                    || referenceHelpers.Contains(f.Function.Name)) && !remainingCalls.Contains(f.Function.Name) && !entries.Any(e => e.Id == f.Id))) {
                     nativeGraphs.Remove(raw.Function.Name); module.Functions.Remove(raw.Function);
                 }
             }
-            if (nativeGraphs.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions).Any(i =>
-                i.Operation is ValueOperation.Local && i.Result?.Type is ShaderType.Pointer { Base: ShaderType.Pointer }
-                || i.Operation is ValueOperation.Load load && load.Pointer.Type is ShaderType.Pointer { Base: ShaderType.Pointer }
-                || i.Operation is ValueOperation.Store store && store.Pointer.Type is ShaderType.Pointer { Base: ShaderType.Pointer }))
-                return "native pointer slots with uninitialized, escaped or qualified memory still require binary provenance normalization";
+            foreach (var graph in nativeGraphs.Values)
+                foreach (var instruction in graph.Blocks.SelectMany(b => b.Instructions))
+                    if (instruction is { Operation: ValueOperation.Local or ValueOperation.Symbol, Result: { Type: ShaderType.Pointer { Base: ShaderType.Pointer } } slot }
+                        && slot.Type is ShaderType.Pointer { Space: AddressSpace.Function or AddressSpace.Private }
+                        && (instruction.Operation is ValueOperation.Local || module.Globals.Any(g => g.Name == ((ValueOperation.Symbol)instruction.Operation).Name))
+                        && !LocalValuePromotion.IsDefinitelyAssigned(graph, slot))
+                        throw new ShaderException(DiagnosticStage.SpirvParse, "Native " + graph.Signature.Name + ": pointer slot has no initialized finite provenance on every incoming path.");
             // Shared validation and passes consume native graphs directly. The
             // public Module is materialized once at the explicit output adapter.
             if (traces is not null) foreach (var trace in slotTraces) traces.Add(trace);
-            return null;
         }
     }
 }

@@ -11,6 +11,9 @@ internal static class ControlFlowPrinter
         string V(SsaValue value) => "v" + value.Id.ToString(CultureInfo.InvariantCulture);
         string Edge(ControlFlowEdge edge) => "b" + edge.Target.ToString(CultureInfo.InvariantCulture) + "(" + string.Join(",", edge.Arguments.Select(V)) + ")";
         text.Append("function ").Append(function.Signature.Name).Append(" entry b").Append(function.Entry.ToString(CultureInfo.InvariantCulture)).Append('\n');
+        foreach (var filters in function.DiagnosticRanges.Prepend(function.BodyDiagnosticFilters).Where(r => r.Count != 0))
+            text.Append("diagnostic-range ").Append(string.Join(",", filters.Select(f =>
+                (f.Namespace is null ? "" : f.Namespace + ".") + f.Rule + ":" + f.Severity))).Append('\n');
         foreach (var block in function.Blocks.OrderBy(b => b.Id)) {
             text.Append('b').Append(block.Id.ToString(CultureInfo.InvariantCulture)).Append('(')
                 .Append(string.Join(",", block.Parameters.Select(v => V(v) + ":" + Type(v.Type)))).Append("):");
@@ -29,11 +32,12 @@ internal static class ControlFlowPrinter
                     ValueOperation.Let l => "let " + l.Name + " " + V(l.Value),
                     ValueOperation.Unary u => u.Operator + " " + V(u.Operand), ValueOperation.Binary b => b.Operator + " " + V(b.Left) + "," + V(b.Right),
                     ValueOperation.Convert c => (c.Bitcast ? "bitcast " : "convert ") + V(c.Operand),
+                    ValueOperation.Undefined => "undefined",
                     ValueOperation.Construct c => "construct " + string.Join(",", c.Components.Select(V)),
                     ValueOperation.Select s => "select " + V(s.Condition) + "," + V(s.Accept) + "," + V(s.Reject),
                     ValueOperation.Access a => "access " + V(a.Base) + "," + V(a.Index), ValueOperation.Member m => "member " + V(m.Base) + "." + m.Name,
                     ValueOperation.Swizzle s => "swizzle " + V(s.Vector) + "." + s.Components,
-                    ValueOperation.Builtin b => b.Function + " " + string.Join(",", b.Arguments.Select(V)) + " atomic=" + b.AtomicMemory + " memory=" + b.MemoryAccess,
+                    ValueOperation.Builtin b => b.Function + " " + string.Join(",", b.Arguments.Select(V)) + " atomic=" + b.AtomicMemory + " memory=" + b.MemoryAccess + " image=" + b.ImageAccess,
                     ValueOperation.Barrier b => (b.Control ? "control-barrier" : "memory-barrier") + " storage=" + b.Storage + " workgroup=" + b.Workgroup
                         + " texture=" + b.Texture + " subgroup=" + b.Subgroup + " native=" + b.NativeMemory,
                     ValueOperation.Call c => "call " + c.Function + " " + string.Join(",", c.Arguments.Select(V)) + " callee-effects=" + c.CalleeEffects,

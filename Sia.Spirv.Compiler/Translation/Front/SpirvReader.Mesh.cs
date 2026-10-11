@@ -40,11 +40,13 @@ public static partial class SpirvReader
                 if (emits.Length == 0) continue;
                 if (entries.Any(e => reachable[e.Id].Contains(raw.Id) && e.Stage != ShaderStage.Task)) throw Error("Task emission is only valid in task entry call graphs.");
                 if (emits.Any(e => e!.Operands.Length is < 3 or > 4)) throw Error("Invalid task emission operands.");
-                taskTerminatingFunctions.Add(raw.Id);
+                if (!directCanonicalFlow) taskTerminatingFunctions.Add(raw.Id);
             }
-            bool changed;
-            do { changed = false; foreach (var raw in rawFunctions) if (calls[raw.Id].Any(taskTerminatingFunctions.Contains)) changed |= taskTerminatingFunctions.Add(raw.Id); } while (changed);
-            if (entries.Any(e => e.Stage == ShaderStage.Task))
+            if (!directCanonicalFlow) {
+                bool changed;
+                do { changed = false; foreach (var raw in rawFunctions) if (calls[raw.Id].Any(taskTerminatingFunctions.Contains)) changed |= taskTerminatingFunctions.Add(raw.Id); } while (changed);
+            }
+            if (!directCanonicalFlow && entries.Any(e => e.Stage == ShaderStage.Task))
             {
                 taskTerminated = Private("sia_task_terminated", ShaderType.Bool);
                 taskDispatchSize = Private("sia_task_dispatch_size", new ShaderType.Vector(3, ShaderType.U32));
@@ -182,6 +184,7 @@ public static partial class SpirvReader
         }
         private void PropagateTaskTermination(Block body, uint callee)
         {
+            if (directCanonicalFlow) return;
             if (!taskTerminatingFunctions.Contains(callee)) return;
             if (taskTerminated is null) throw Error("Unreachable task termination needs dead-function elimination.");
             var unwind = new Block(); unwind.Statements.Add(TaskUnwind());
@@ -193,6 +196,21 @@ public static partial class SpirvReader
             body.Statements.Add(new Statement.Store(taskDispatchSize, new Expression.Construct(taskDispatchSize.Type is ShaderType.Pointer p ? p.Base : taskDispatchSize.Type, operands.Take(3).Select(Value).ToArray())));
             body.Statements.Add(new Statement.Store(taskTerminated, Expression.Bool(true)));
             body.Statements.Add(TaskUnwind());
+        }
+        private Statement.TaskDispatch NativeTaskEmission(uint[] operands)
+        {
+            if (operands.Length is < 3 or > 4) throw Error("Invalid task emission operands.");
+            var dimensions = operands.Take(3).Select(Value).ToArray();
+            if (dimensions.Any(d => d.Type != ShaderType.U32)) throw Error("Task emission dimensions must be u32.");
+            string? payload = null;
+            if (operands.Length == 4) {
+                if (!globals.TryGetValue(operands[3], out var variable) || variable.Storage != 5402)
+                    throw Error("Task emission payload is not a task_payload variable.");
+                payload = variable.Variable.Name;
+            }
+            return new(new Expression.Construct(new ShaderType.Vector(3, ShaderType.U32), dimensions), payload) {
+                Span = new(current.WordOffset * 4, current.WordCount * 4)
+            };
         }
         private void InitializeMeshEntryControl(Entry entry, ShaderFunction function)
         {
@@ -272,8 +290,10 @@ public static partial class SpirvReader
             {
                 function.TaskPayload = taskPayloads[entry.Id];
                 function.ReturnType = new ShaderType.Vector(3, ShaderType.U32); function.ReturnBinding = new(Builtin: "mesh_task_size");
-                function.Body.Statements.Add(new Statement.Store(taskTerminated!, Expression.Bool(false)));
-                function.Body.Statements.Add(new Statement.Store(taskDispatchSize!, new Expression.Construct(function.ReturnType, [])));
+                if (!directCanonicalFlow) {
+                    function.Body.Statements.Add(new Statement.Store(taskTerminated!, Expression.Bool(false)));
+                    function.Body.Statements.Add(new Statement.Store(taskDispatchSize!, new Expression.Construct(function.ReturnType, [])));
+                }
             }
             if (entry.Stage != ShaderStage.Mesh) return;
             var info = meshEntries[entry.Id]; function.MeshOutput = info.Variable.Name;

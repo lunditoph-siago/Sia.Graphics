@@ -17,7 +17,7 @@ public static partial class ModuleValidator
             void FloatData() => Require(Float(args[0]) && ScalarVector(args[0]), $"'{name}' requires floating-point scalar/vector data.", call.Span);
             if (call.Binding == CallBinding.Function && functions.TryGetValue(name, out var callee))
             {
-                Require(call.AtomicMemory is null && call.MemoryAccess is null, "User function calls cannot carry builtin memory metadata.", call.Span);
+                Require(call.AtomicMemory is null && call.MemoryAccess is null && call.ImageAccess is null, "User function calls cannot carry builtin memory metadata.", call.Span);
                 Require(callee.Stage is null && function is not null, "Entry points cannot be called; calls require a function body.", call.Span);
                 Count(callee.Arguments.Count);
                 for (int i = 0; i < args.Length; i++) Same(args[i], callee.Arguments[i].Type, "Function argument type mismatch.", call.Span);
@@ -26,6 +26,7 @@ public static partial class ModuleValidator
             Require(call.Binding == CallBinding.Builtin, "Unknown resolved function call.", call.Span);
             AtomicMemory(call);
             CallMemoryAccess(call);
+            ImageAccess(call);
             if (name is "coopLoad" or "coopLoadT" or "coopStore" or "coopStoreT" or "coopMultiplyAdd") return Cooperative(call, args);
             if (name.StartsWith("spirvRayQuery", StringComparison.Ordinal))
             {
@@ -93,9 +94,15 @@ public static partial class ModuleValidator
             if (name.StartsWith("atomic", StringComparison.Ordinal) || name == "spirvAtomicCompareExchange")
             {
                 Count(name == "atomicLoad" ? 1 : name is "atomicCompareExchangeWeak" or "spirvAtomicCompareExchange" ? 3 : 2);
-                Require(args[0] is ShaderType.Pointer { Base: ShaderType.Atomic, Space: AddressSpace.Storage or AddressSpace.Workgroup or AddressSpace.TaskPayload } memory && (memory.Access & StorageAccess.ReadWrite) == StorageAccess.ReadWrite, "Atomic operation requires read-write atomic memory.", call.Span);
+                bool nativeScalar = allowNativePointerParameters && call.AtomicMemory is not null
+                    && args[0] is ShaderType.Pointer { Base: ShaderType.Scalar };
+                Require(args[0] is ShaderType.Pointer { Space: AddressSpace.Storage or AddressSpace.Workgroup or AddressSpace.TaskPayload } memory
+                    && (memory.Base is ShaderType.Atomic || nativeScalar) && (memory.Access & StorageAccess.ReadWrite) == StorageAccess.ReadWrite,
+                    "Atomic operation requires read-write atomic memory.", call.Span);
                 if (((ShaderType.Pointer)args[0]).Space == AddressSpace.TaskPayload && name != "atomicLoad") Restrict(Task);
-                var atomic = (ShaderType.Atomic)((ShaderType.Pointer)args[0]).Base;
+                var atomic = nativeScalar ? new ShaderType.Atomic((ShaderType.Scalar)((ShaderType.Pointer)args[0]).Base)
+                    : (ShaderType.Atomic)((ShaderType.Pointer)args[0]).Base;
+                Type(atomic);
                 foreach (var arg in args.Skip(1)) Same(arg, atomic.Component, "Atomic value type mismatch.", call.Span);
                 if (atomic.Component.Kind == ScalarKind.Float && name is not ("atomicLoad" or "atomicStore"))
                 {
@@ -176,6 +183,12 @@ public static partial class ModuleValidator
             throw Error($"Unsupported builtin '{name}'.", call.Span);
         }
 
+        private bool HandleResource(Expression expression) => expression switch {
+            Expression.Reference reference => Lookup(reference.Name).HandleResource,
+            Expression.Access access => HandleResource(access.Base),
+            _ => false
+        };
+
         private ShaderType Texture(Expression.Call call, ShaderType[] args)
         {
             string name = call.Function; int textureIndex = name == "textureGather" && args.Length > 0 && args[0] is not ShaderType.Image ? 1 : 0;
@@ -185,16 +198,28 @@ public static partial class ModuleValidator
             bool Index(ShaderType t) => t is ShaderType.Scalar && Integer(t);
             if (name.StartsWith("textureAtomic", StringComparison.Ordinal))
             {
-                Require(name is "textureAtomicAdd" or "textureAtomicMin" or "textureAtomicMax" or "textureAtomicAnd" or "textureAtomicOr" or "textureAtomicXor", "Unknown image atomic operation.", call.Span);
-                Require(image.StorageFormat is "r32uint" or "r32sint" or "r64uint" && (image.Access & StorageAccess.Atomic) != 0, "Image atomic requires an atomic r32uint, r32sint or r64uint storage texture.", call.Span);
-                Require(image.StorageFormat != "r64uint" || name is "textureAtomicMin" or "textureAtomicMax", "64-bit image atomics only support min/max.", call.Span);
-                Require(image.Dimension != ImageDimension.Cube && !image.Multisampled && args.Length == (image.Arrayed ? 4 : 3), "Invalid image atomic arguments.", call.Span);
+                bool native = call.AtomicMemory is not null;
+                bool atomicLoad = name == "textureAtomicLoad", atomicStore = name == "textureAtomicStore", atomicCompare = name == "textureAtomicCompareExchange";
+                bool unit = name is "textureAtomicIncrement" or "textureAtomicDecrement";
+                bool wgsl = name is "textureAtomicAdd" or "textureAtomicMin" or "textureAtomicMax" or "textureAtomicAnd" or "textureAtomicOr" or "textureAtomicXor";
+                Require(wgsl || native && (atomicLoad || atomicStore || atomicCompare || unit || name is "textureAtomicExchange" or "textureAtomicSub"), "Unknown image atomic operation.", call.Span);
+                var required = atomicLoad ? StorageAccess.Read : atomicStore ? StorageAccess.Write : StorageAccess.ReadWrite;
+                Require((image.Access & required) == required, "Image atomic access does not permit this operation.", call.Span);
+                bool nativeImage = allowNativePointerParameters && native;
+                Require((image.StorageFormat is "r32uint" or "r32sint" or "r64uint" || native && image.StorageFormat == "r32float")
+                    && ((image.Access & StorageAccess.Atomic) != 0 || nativeImage), "Image atomic requires a compatible atomic scalar storage texture.", call.Span);
+                Require(native || image.StorageFormat != "r64uint" || name is "textureAtomicMin" or "textureAtomicMax", "WGSL 64-bit image atomics only support min/max.", call.Span);
+                Require(image.Component.Kind != ScalarKind.Float || native && (atomicLoad || atomicStore || name is "textureAtomicExchange" or "textureAtomicAdd"), "Invalid floating-point image atomic operation.", call.Span);
+                int sampleIndex = image.Arrayed ? 3 : 2, firstValue = sampleIndex + (image.Multisampled ? 1 : 0);
+                Require(image.Dimension != ImageDimension.Cube && (native || !image.Multisampled) && args.Length == firstValue + (atomicLoad || unit ? 0 : atomicCompare ? 2 : 1), "Invalid image atomic arguments.", call.Span);
                 Require(Scalar(args[1])?.Kind is ScalarKind.Sint or ScalarKind.Uint && (dimensions == 1 ? args[1] is ShaderType.Scalar : args[1] is ShaderType.Vector coordinates && coordinates.Size == dimensions), "Image atomic coordinate shape/type mismatch.", call.Span);
                 if (image.Arrayed) Require(Index(args[2]), "Image atomic array index must be an integer scalar.", call.Span);
-                Same(args[^1], image.Component, "Image atomic value type mismatch.", call.Span);
-                Expression origin = call.Arguments[0] is Expression.Access access ? access.Base : call.Arguments[0];
-                Require(origin is Expression.Reference reference && module.Globals.Any(g => g.Name == reference.Name && g.Space == AddressSpace.Handle), "Image atomic requires a global texture or binding array element.", call.Span);
-                return new ShaderType.Void();
+                if (image.Multisampled) Require(Index(args[sampleIndex]), "Image atomic sample must be an integer scalar.", call.Span);
+                foreach (var value in args.Skip(firstValue)) Same(value, image.Component, "Image atomic value type mismatch.", call.Span);
+                Require(nativeImage || HandleResource(call.Arguments[0]), "Image atomic requires a global texture or binding array element.", call.Span);
+                // Native operations return the original scalar. Source WGSL calls
+                // have no native memory metadata and retain their void signature.
+                return native && !atomicStore && call.Type is not ShaderType.Void ? image.Component : new ShaderType.Void();
             }
             if (name is "textureDimensions" or "textureNumLayers" or "textureNumLevels" or "textureNumSamples")
             {
@@ -205,6 +230,7 @@ public static partial class ModuleValidator
                 return name == "textureDimensions" ? Shape(ShaderType.U32, image.Dimension == ImageDimension.Cube ? 2 : dimensions) : ShaderType.U32;
             }
             bool load = name == "textureLoad", store = name == "textureStore", compare = name.Contains("Compare", StringComparison.Ordinal), gather = name is "textureGather" or "textureGatherCompare";
+            bool nativeAccess = call.ImageAccess is not null;
             if (name == "textureSampleBaseClampToEdge") Require(image.Dimension == ImageDimension.D2 && !image.Arrayed && !image.Depth && image.Component == ShaderType.F32 && args.Length == 3, "Base clamp sampling requires a non-array sampled 2D f32 texture, sampler and coordinates.", call.Span);
             Require(load || store || name is "textureSample" or "textureSampleBias" or "textureSampleLevel" or "textureSampleGrad" or "textureSampleCompare" or "textureSampleCompareLevel" or "textureSampleBaseClampToEdge" or "textureGather" or "textureGatherCompare", "Unknown texture builtin.", call.Span);
             int cursor = textureIndex + 1;
@@ -220,13 +246,16 @@ public static partial class ModuleValidator
             if (load)
             {
                 Require(image.Dimension != ImageDimension.Cube && (image.StorageFormat is null || (image.Access & StorageAccess.Read) != 0), "Texture cannot be loaded.", call.Span);
-                if (image.StorageFormat is null) { Require(args.Length > cursor && Index(args[cursor]), "Missing sample or mip index.", call.Span); cursor++; }
+                if (image.StorageFormat is null || image.Multisampled) { Require(args.Length > cursor && Index(args[cursor]) && args[cursor] is ShaderType.Scalar { Width: 4 }, "Missing 32-bit sample or mip index.", call.Span); cursor++; }
                 Require(args.Length == cursor, "Unexpected textureLoad arguments.", call.Span);
             }
             else if (store)
             {
-                Require(image.StorageFormat is not null && (image.Access & StorageAccess.Write) != 0 && args.Length == cursor + 1, "Texture store requires writable storage texture and a value.", call.Span);
-                Same(args[cursor], new ShaderType.Vector(4, image.Component), "Texture store value type mismatch.", call.Span);
+                Require(image.StorageFormat is not null && (image.Access & StorageAccess.Write) != 0 && args.Length >= cursor + 1, "Texture store requires writable storage texture and a value.", call.Span);
+                if (nativeAccess) NativeTexel(args[cursor], image, call); else Same(args[cursor], new ShaderType.Vector(4, image.Component), "Texture store value type mismatch.", call.Span);
+                cursor++;
+                if (image.Multisampled) { Require(nativeAccess && args.Length > cursor && Index(args[cursor]) && args[cursor] is ShaderType.Scalar { Width: 4 }, "Multisampled image store requires a native 32-bit sample index.", call.Span); cursor++; }
+                Require(args.Length == cursor, "Unexpected textureStore arguments.", call.Span);
                 return new ShaderType.Void();
             }
             else
@@ -238,7 +267,23 @@ public static partial class ModuleValidator
                 Require(args.Length == cursor, "Unexpected sampling arguments.", call.Span);
                 if (name is "textureSample" or "textureSampleBias" or "textureSampleCompare") Restrict(Fragment);
             }
+            if (load && nativeAccess && !image.Depth) { NativeTexel(call.Type, image, call); return call.Type; }
             return compare && !gather || load && image.Depth || !gather && !load && image.Depth ? ShaderType.F32 : new ShaderType.Vector(4, image.Component);
+        }
+
+        private void NativeTexel(ShaderType value, ShaderType.Image image, Expression.Call call)
+        {
+            Require(value is ShaderType.Vector { Size: 4 } vector && vector.Component == image.Component,
+                "Native image texel type mismatch.", call.Span);
+            uint flags = call.ImageAccess!.Flags;
+            var component = ((ShaderType.Vector)value).Component;
+            Require((flags & 4096) == 0 || component.Kind is ScalarKind.Sint or ScalarKind.Uint, "SignExtend requires integer texels.", call.Span);
+            Require((flags & 8192) == 0 || component.Kind == ScalarKind.Uint, "ZeroExtend requires unsigned integer texels.", call.Span);
+            if (image.StorageFormat is string format && StorageImageFormats.TryCode(format, out uint code)
+                && image.Component.Kind is ScalarKind.Sint or ScalarKind.Uint) {
+                bool signed = (flags & 4096) != 0 || (flags & 8192) == 0 && image.Component.Kind == ScalarKind.Sint;
+                Require(signed == (StorageImageFormats.Component(code).Kind == ScalarKind.Sint), "Image access signedness does not match its storage format.", call.Span);
+            }
         }
     }
 }

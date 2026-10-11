@@ -35,12 +35,30 @@ internal static class NativePointerValidator
             // Parameter roots are checked again after the helper binds caller SSA
             // addresses. Descriptor arrays use the explicitly deferred native route.
             if (roots.Any(r => r.Parameter >= 0)) return;
-            Require(roots.Count == 1 && roots.All(r => r.Global is { } name && module.Globals.Any(g => g.Name == name && g.Type is ShaderType.Structure)),
+            Require(roots.Count != 0 && roots.Count(r => !r.IsNull && !r.IsUndefined) <= 1
+                && roots.All(r => r.IsNull || r.IsUndefined || r.Global is { } name && module.Globals.Any(g => g.Name == name && g.Type is ShaderType.Structure)),
                 "VariablePointersStorageBuffer selections must remain within one storage buffer structure.");
         }
         foreach (var parameter in graph.Blocks.SelectMany(b => b.Parameters)) Check(parameter);
         foreach (var instruction in graph.Blocks.SelectMany(b => b.Instructions))
-            if (instruction.Operation is ValueOperation.Load && instruction.Result is { Type: ShaderType.Pointer } address) Check(address);
+            if (instruction.Operation is ValueOperation.Load or ValueOperation.Binary or ValueOperation.Construct && instruction.Result is { Type: ShaderType.Pointer } address) Check(address);
+        if (checkOrigins) {
+            foreach (var instruction in graph.Blocks.SelectMany(b => b.Instructions))
+                if (instruction.Operation is ValueOperation.Binary { Operator: "+", Left.Type: ShaderType.Pointer }
+                    && origins.GetValueOrDefault(instruction.Operation.Operands.First().Id)?.Any(r => r.IsNull) == true)
+                    throw new ShaderException(DiagnosticStage.SpirvParse, "Access chains based on null pointers require separate address semantics.", instruction.Span);
+            var definitions = graph.Blocks.SelectMany(b => b.Instructions).Where(i => i.Result is not null).ToDictionary(i => i.Result!.Value.Id);
+            SsaValue Source(SsaValue value) {
+                while (definitions.GetValueOrDefault(value.Id)?.Operation is ValueOperation.Let alias) value = alias.Value;
+                return value;
+            }
+            foreach (var instruction in definitions.Values)
+                if (instruction.Operation is ValueOperation.Binary { Left.Type: ShaderType.Pointer { Space: AddressSpace.Storage }, Right.Type: ShaderType.Pointer } binary
+                    && Source(binary.Left) != Source(binary.Right)
+                    && origins[binary.Left.Id].Any(a => a.Global is not null && origins[binary.Right.Id].Any(b => b.Global is not null && a.Global != b.Global)))
+                    throw new ShaderException(DiagnosticStage.SpirvParse,
+                        "Cross-buffer pointer comparison requires address equivalence for potentially aliased bindings.", instruction.Span);
+        }
         foreach (var returned in graph.Blocks.Select(b => b.Terminator).OfType<ControlFlowTerminator.Return>())
             if (returned.Value is { Type: ShaderType.Pointer } address) Check(address);
     }

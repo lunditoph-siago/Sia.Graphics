@@ -30,7 +30,7 @@ internal static class SpirvEntryWrapperLowering
             helper.Arguments.AddRange(source.Arguments); helper.DiagnosticFilters.AddRange(source.DiagnosticFilters);
             verification.Functions.Add(helper);
         }
-        var effects = ShaderEffectAnalysis.Compute(verification);
+        var effects = ShaderEffectAnalysis.Compute(verification, layout.ControlFlow.ToDictionary(p => p.Key, p => p.Value.Graph, StringComparer.Ordinal));
         var names = module.Functions.Select(f => f.Name).Concat(module.Globals.Select(g => g.Name))
             .Concat(module.Constants.Select(c => c.Name)).ToHashSet(StringComparer.Ordinal);
         var wrappers = new Dictionary<string, SpirvEntryWrapper>(StringComparer.Ordinal);
@@ -104,8 +104,8 @@ internal static class SpirvEntryWrapperLowering
                 block.Instructions.Add(new(null, new ValueOperation.InterfaceStore(output.Field, value)));
             }
             block.Terminator = entry.Stage == ShaderStage.Task ? new ControlFlowTerminator.Unreachable() : new ControlFlowTerminator.Return();
-            ControlFlowVerifier.Validate(graph, verification);
-            wrappers.Add(entry.Name, new(entry, SpirvControlFlowLowering.Prepare(graph, verification), fields.AsReadOnly(),
+            ControlFlowVerifier.Validate(graph, verification, calleeEffects: effects);
+            wrappers.Add(entry.Name, new(entry, SpirvControlFlowLowering.Prepare(graph, verification, effects), fields.AsReadOnly(),
                 outputs.Any(o => o.Field.Binding.Builtin == "frag_depth"), publication));
         }
         return layout with { EntryWrappers = wrappers.ToFrozenDictionary(StringComparer.Ordinal) };

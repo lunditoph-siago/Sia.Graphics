@@ -99,7 +99,7 @@ internal sealed class WgslLayoutLowering
             Expression.Load l => new Expression.Load(Expr(l.Pointer)) { Span = l.Span, MemoryAccess = l.MemoryAccess },
             Expression.Unary u => new Expression.Unary(u.Operator, Expr(u.Operand), type) { Span = u.Span },
             Expression.Binary b => new Expression.Binary(b.Operator, Expr(b.Left), Expr(b.Right), type) { Span = b.Span },
-            Expression.Call c => new Expression.Call(c.Function, c.Arguments.Select(Expr).ToArray(), type, c.Binding) { Span = c.Span,AtomicMemory = c.AtomicMemory,MemoryAccess = c.MemoryAccess },
+            Expression.Call c => new Expression.Call(c.Function, c.Arguments.Select(Expr).ToArray(), type, c.Binding) { Span = c.Span,AtomicMemory = c.AtomicMemory,MemoryAccess = c.MemoryAccess, ImageAccess = c.ImageAccess },
             Expression.Construct c => Construct(c, type),
             Expression.Convert c => new Expression.Convert(type, Expr(c.Operand), c.Bitcast) { Span = c.Span },
             Expression.Access a => Access(a),
@@ -145,7 +145,7 @@ internal sealed class WgslLayoutLowering
             Statement.If i => new Statement.If(Expr(i.Condition), Body(i.Accept), Body(i.Reject)),
             Statement.Loop l => new Statement.Loop(Body(l.Body), Body(l.Continuing), l.BreakIf is null ? null : Expr(l.BreakIf)),
             Statement.Switch s => new Statement.Switch(Expr(s.Selector), s.Cases.Select(c => c with { Body = Body(c.Body) }).ToArray()),
-            Statement.Return r => new Statement.Return(r.Value is null ? null : Expr(r.Value)),
+            Statement.Return r => r with { Value = r.Value is null ? null : Expr(r.Value) },
             _ => statement
         });
         return result;

@@ -19,19 +19,11 @@ public static partial class SpirvReader
             && specializations.Contains(i.Operands[2])))
             deferred = "native specialization-sized arrays still require canonical type migration";
         else if (binary.Instructions.Any(i => (Op)i.Opcode == Op.TypePointer && i.Operands.Length == 3
-            && pointers.Contains(i.Operands[2]) && i.Operands[1] != 7))
-            deferred = "native pointer slots in Private/global memory still require binary provenance normalization";
-        else if (binary.Instructions.Any(i => (Op)i.Opcode is Op.ConstantNull or Op.Undef && i.Operands.Length >= 2 && pointers.Contains(i.Operands[0])))
-            deferred = "native pointer null/undefined still requires binary provenance normalization";
-        else if (binary.Instructions.Any(i => (Op)i.Opcode is Op.EmitMeshTasksEXT))
-            deferred = "native task terminators still require canonical migration";
-        else if (binary.Instructions.Any(i => (Op)i.Opcode is Op.PtrAccessChain or Op.PtrEqual or Op.PtrNotEqual or Op.PtrDiff))
-            deferred = "native pointer arithmetic/comparison still requires binary provenance normalization";
-        else if (binary.Instructions.Any(i => (Op)i.Opcode is >= Op.AtomicLoad and <= Op.AtomicXor or Op.AtomicFAddEXT))
-            deferred = "native atomics still require typed provenance migration";
-        else if (binary.Instructions.Any(i => (Op)i.Opcode is Op.TypeImage or Op.TypeSampler or Op.TypeSampledImage or Op.TypeAccelerationStructureKHR
-            or Op.TypeRayQueryKHR or Op.TypeCooperativeMatrixKHR || (Op)i.Opcode is Op.MemberDecorate && i.Operands.Length >= 3 && i.Operands[2] is 4 or 5 or 7))
-            deferred = "native opaque or physical matrix types still require frontend migration";
+            && pointers.Contains(i.Operands[2]) && i.Operands[1] is not (6 or 7)))
+            deferred = "native pointer slots outside Function/Private memory still require binary provenance normalization";
+        else if (binary.Instructions.Any(i => (Op)i.Opcode is Op.TypeAccelerationStructureKHR
+            or Op.TypeRayQueryKHR or Op.TypeCooperativeMatrixKHR))
+            deferred = "native opaque types still require frontend migration";
         else {
             var structures = binary.Instructions.Where(i => (Op)i.Opcode == Op.Decorate && i.Operands.Length >= 2 && i.Operands[1] is 2 or 3)
                 .Select(i => i.Operands[0]).ToHashSet();

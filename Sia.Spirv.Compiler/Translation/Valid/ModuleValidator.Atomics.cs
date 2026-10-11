@@ -8,7 +8,7 @@ public static partial class ModuleValidator
     {
         private void AtomicMemory(Expression.Call call)
         {
-            bool compare = call.Function == "spirvAtomicCompareExchange";
+            bool compare = call.Function is "spirvAtomicCompareExchange" or "textureAtomicCompareExchange";
             Require(!compare || call.AtomicMemory?.UnequalSemantics is not null,
                 "Native compare/exchange requires equal and unequal memory semantics.", call.Span);
             if (call.AtomicMemory is not { } memory) return;
@@ -38,8 +38,8 @@ public static partial class ModuleValidator
                 Require((semantics & 8192) == 0 || order is 4 or 8, "MakeAvailable requires release semantics.", call.Span);
                 Require((semantics & 16384) == 0 || order is 2 or 8, "MakeVisible requires acquire semantics.", call.Span);
                 Require(memory.Scope != 4 || order == 0, "Invocation scope requires relaxed memory order.", call.Span);
-                Require(call.Function != "atomicLoad" || order is not (4 or 8), "Atomic load cannot use release semantics.", call.Span);
-                Require(call.Function != "atomicStore" || order is not (2 or 8), "Atomic store cannot use acquire semantics.", call.Span);
+                Require(call.Function is not ("atomicLoad" or "textureAtomicLoad") || order is not (4 or 8), "Atomic load cannot use release semantics.", call.Span);
+                Require(call.Function is not ("atomicStore" or "textureAtomicStore") || order is not (2 or 8), "Atomic store cannot use acquire semantics.", call.Span);
                 if (unequal)
                 {
                     uint equalOrder = memory.Semantics & orders;

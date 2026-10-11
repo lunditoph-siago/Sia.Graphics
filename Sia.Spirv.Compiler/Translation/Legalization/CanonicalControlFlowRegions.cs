@@ -56,6 +56,9 @@ internal static class CanonicalControlFlowRegions
         foreach (var (header, nodes) in loops) graph.Loops[header] = graph.Loops[header] with {
             Merge = Nearest(header, full, id => !nodes.Contains(id))
         };
+        // Topology and loop scopes are fixed here. Selections in the same loop
+        // share postdominance; computing it for every branch repeats the fixed point.
+        var loopPostdominators = new Dictionary<int, Dictionary<int, HashSet<int>>>();
         foreach (var block in graph.Blocks.Where(b => b.Terminator is ControlFlowTerminator.Conditional or ControlFlowTerminator.Switch)) {
             if (graph.Loops.ContainsKey(block.Id)) {
                 // A conditional header may reach the loop exit through an edge-copy
@@ -64,8 +67,11 @@ internal static class CanonicalControlFlowRegions
                 graph.SelectionMerges.Add(block.Id, null); continue;
             }
             var loop = loops.Where(p => p.Value.Contains(block.Id)).OrderBy(p => p.Value.Count).FirstOrDefault();
-            var postdominators = loop.Value is null ? full : Postdominators(graph, loop.Value,
-                [graph.Loops[loop.Key].Continuing!.Value]);
+            var postdominators = full;
+            if (loop.Value is not null && !loopPostdominators.TryGetValue(loop.Key, out postdominators)) {
+                postdominators = Postdominators(graph, loop.Value, [graph.Loops[loop.Key].Continuing!.Value]);
+                loopPostdominators.Add(loop.Key, postdominators);
+            }
             graph.SelectionMerges.Add(block.Id, Nearest(block.Id, postdominators, _ => true));
         }
         return graph;
@@ -122,16 +128,7 @@ internal static class CanonicalControlFlowRegions
             foreach (var (id, outgoing) in successors) if (outgoing.Any(terminating.Contains) && terminating.Add(id)) changed = true;
         } while (changed);
         foreach (int id in scope.Where(id => !terminating.Contains(id))) successors[id] = [exit];
-        var all = scope.Append(exit).ToHashSet(); var result = scope.ToDictionary(id => id, _ => new HashSet<int>(all)); result.Add(exit, [exit]);
-        do {
-            changed = false;
-            foreach (var (id, outgoing) in successors) {
-                var values = new HashSet<int>(result[outgoing[0]]);
-                foreach (int successor in outgoing.Skip(1)) values.IntersectWith(result[successor]);
-                values.Add(id);
-                if (!result[id].SetEquals(values)) { result[id] = values; changed = true; }
-            }
-        } while (changed);
-        return result;
+        successors.Add(exit, []);
+        return ControlFlowAnalysis.IntersectDominators(scope.Append(exit).ToArray(), successors, exit);
     }
 }

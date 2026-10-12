@@ -37,6 +37,3 @@ jobs:
 
       - name: Run tests
         run: dotnet test Sia.Graphics.slnx --configuration Release --blame-hang --blame-hang-timeout 5m
-
-      - name: Run Naga tests
-        run: cargo test --manifest-path Sia.Spirv.Naga/Cargo.toml --locked --release

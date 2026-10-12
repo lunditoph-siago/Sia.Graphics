@@ -49,9 +49,9 @@ if ($HostRuntimeIdentifiers.Count -eq 0) {
 }
 
 $requiredToolNames = @(
-  "llc", "opt", "llvm-as", "llvm-dis", "naga", "spirv-as", "spirv-dis",
+  "llc", "opt", "llvm-as", "llvm-dis", "spirv-as", "spirv-dis",
   "spirv-link", "spirv-opt", "spirv-val")
-$requiredLicenses = @("LLVM.txt", "Naga.txt", "SPIRV-Tools.txt", "SPIRV-Headers.txt")
+$requiredLicenses = @("LLVM.txt", "SPIRV-Tools.txt", "SPIRV-Headers.txt")
 $toolchains = @{
   "win-x64" = @{
     Directory = "artifacts\llvm-toolchain"
@@ -88,7 +88,8 @@ foreach ($hostRid in $HostRuntimeIdentifiers) {
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $projects = [Collections.Generic.List[string]]@(
   "Sia.Spirv.Core\Sia.Spirv.Core.csproj",
-  "Sia.Spirv.Runtime\Sia.Spirv.Runtime.csproj"
+  "Sia.Spirv.Runtime\Sia.Spirv.Runtime.csproj",
+  "Sia.Spirv.Compiler\Sia.Spirv.Compiler.csproj"
 )
 foreach ($hostRid in $HostRuntimeIdentifiers) {
   $projects.Add($toolchains[$hostRid].Project)

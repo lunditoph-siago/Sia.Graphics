@@ -6,19 +6,19 @@ namespace Sia.Spirv.Compiler.Compilation;
 public sealed partial class SpirvCompiler
 {
     public IReadOnlyList<SpirvArtifact> CompileVariants(
-        string assemblyPath,
-        string outputDirectory,
-        IReadOnlyDictionary<string, SpirvTargetProfile> targets,
-        SpirvCompilationOptions? options = null)
+        SpirvFileCompilationRequest request,
+        IReadOnlyDictionary<string, SpirvTargetProfile> targets)
     {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.Target);
+        request.Target.Validate(offline: true, wgsl: request.EmitWgsl);
         SpirvVariantConfiguration.ValidateTargets(targets);
-        options ??= new SpirvCompilationOptions();
         var artifacts = new List<SpirvArtifact>();
         foreach (var (name, profile) in targets.OrderBy(static target => target.Key, StringComparer.Ordinal)) {
             artifacts.AddRange(CompileAssemblyCore(
-                assemblyPath, outputDirectory, options with { TargetProfile = profile }, name));
+                request with { Target = request.Target with { ResourceLimits = profile } }, name));
         }
-        WriteArtifactList(outputDirectory, artifacts);
+        WriteArtifactList(request.OutputDirectory, artifacts);
         return artifacts;
     }
 

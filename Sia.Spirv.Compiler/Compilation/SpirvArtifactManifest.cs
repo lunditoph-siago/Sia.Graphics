@@ -23,7 +23,8 @@ internal sealed record SpirvArtifactManifest(
     string? SpirvFile = null,
     string? SpirvSha256 = null,
     string? LayoutSha256 = null,
-    SpirvBufferRequirements? BufferRequirements = null);
+    SpirvBufferRequirements? BufferRequirements = null,
+    string? CompilationTargetSha256 = null);
 
 internal sealed record SpirvManifestWorkgroupSize(uint X, uint Y, uint Z);
 
@@ -62,4 +63,5 @@ internal sealed record SpirvManifestStageIo(
     string? Interpolation,
     string? Sampling);
 
-internal sealed record SpirvManifestToolchain(string Llvm, string SpirvTools, string? Naga, string? NagaSha256);
+internal sealed record SpirvManifestToolchain(string Llvm, string SpirvTools,
+    string? Translator = null, string? TranslatorSha256 = null);

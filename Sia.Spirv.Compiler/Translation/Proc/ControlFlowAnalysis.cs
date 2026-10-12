@@ -78,20 +78,50 @@ internal static class ControlFlowAnalysis
 
     internal static Dictionary<int, HashSet<int>> Dominators(ControlFlowFunction function,
         IReadOnlyDictionary<int, IReadOnlyList<(ControlFlowBlock Block, ControlFlowEdge Edge)>> predecessors)
+        => IntersectDominators(function.Blocks.Select(b => b.Id).ToArray(),
+            predecessors.ToDictionary(p => p.Key, p => p.Value.Select(v => v.Block.Id).ToArray()), function.Entry);
+
+    // Both dominance directions intersect path sets to a fixed point. Keep the
+    // working sets packed; materialize existing HashSet results only at the boundary.
+    internal static Dictionary<int, HashSet<int>> IntersectDominators(IReadOnlyList<int> ids,
+        IReadOnlyDictionary<int, int[]> incoming, int root)
     {
-        var all = function.Blocks.Select(b => b.Id).ToHashSet();
-        var result = function.Blocks.ToDictionary(b => b.Id, b => b.Id == function.Entry ? new HashSet<int> { b.Id } : new HashSet<int>(all));
+        var positions = ids.Select((id, i) => (id, i)).ToDictionary(p => p.id, p => p.i);
+        var neighbors = ids.Select(id => incoming[id].Select(n => positions[n]).ToArray()).ToArray();
+        int words = (ids.Count + 63) / 64, rootIndex = positions[root];
+        ulong tail = ulong.MaxValue >> ((64 - ids.Count % 64) % 64);
+        var sets = new ulong[ids.Count][];
+        for (int i = 0; i < ids.Count; i++) {
+            sets[i] = new ulong[words];
+            if (i == rootIndex) sets[i][i / 64] = 1UL << (i % 64);
+            else { Array.Fill(sets[i], ulong.MaxValue); sets[i][^1] = tail; }
+        }
         bool changed;
         do {
             changed = false;
-            foreach (var block in function.Blocks.Where(b => b.Id != function.Entry)) {
-                var incoming = predecessors[block.Id];
-                var set = incoming.Count == 0 ? new HashSet<int>() : new HashSet<int>(result[incoming[0].Block.Id]);
-                foreach (var predecessor in incoming.Skip(1)) set.IntersectWith(result[predecessor.Block.Id]);
-                set.Add(block.Id);
-                if (!result[block.Id].SetEquals(set)) { result[block.Id] = set; changed = true; }
+            for (int i = 0; i < ids.Count; i++) {
+                if (i == rootIndex) continue;
+                var edges = neighbors[i];
+                for (int word = 0; word < words; word++) {
+                    ulong value = edges.Length == 0 ? 0 : sets[edges[0]][word];
+                    for (int edge = 1; edge < edges.Length; edge++) value &= sets[edges[edge]][word];
+                    if (word == i / 64) value |= 1UL << (i % 64);
+                    if (sets[i][word] != value) { sets[i][word] = value; changed = true; }
+                }
             }
         } while (changed);
+        var result = new Dictionary<int, HashSet<int>>();
+        for (int i = 0; i < ids.Count; i++) {
+            var values = new HashSet<int>();
+            for (int word = 0; word < words; word++) {
+                ulong bits = sets[i][word];
+                while (bits != 0) {
+                    int bit = System.Numerics.BitOperations.TrailingZeroCount(bits);
+                    values.Add(ids[word * 64 + bit]); bits &= bits - 1;
+                }
+            }
+            result.Add(ids[i], values);
+        }
         return result;
     }
     public static void RemoveUnreachable(ControlFlowFunction function)
@@ -139,17 +169,8 @@ internal static class ControlFlowAnalysis
             foreach (var pair in successors) if (pair.Value.Any(reachesExit.Contains)) changed |= reachesExit.Add(pair.Key);
         } while (changed);
         foreach (int id in blocks.Keys.Where(id => !reachesExit.Contains(id))) successors[id] = successors[id].Append(exit).ToArray();
-        var all = blocks.Keys.Append(exit).ToHashSet();
-        var postdominators = blocks.Keys.ToDictionary(id => id, _ => new HashSet<int>(all)); postdominators.Add(exit, [exit]);
-        do {
-            changed = false;
-            foreach (int id in blocks.Keys) {
-                var outgoing = successors[id]; var set = new HashSet<int>(postdominators[outgoing[0]]);
-                foreach (int successor in outgoing.Skip(1)) set.IntersectWith(postdominators[successor]);
-                set.Add(id);
-                if (!postdominators[id].SetEquals(set)) { postdominators[id] = set; changed = true; }
-            }
-        } while (changed);
+        successors.Add(exit, []);
+        var postdominators = IntersectDominators(blocks.Keys.Append(exit).ToArray(), successors, exit);
         var result = blocks.Keys.ToDictionary(id => id, _ => new HashSet<int>());
         foreach (var branch in function.Blocks.Where(b => b.Terminator is ControlFlowTerminator.Conditional or ControlFlowTerminator.Switch)) {
             int merge = postdominators[branch.Id].Where(id => id != branch.Id).MaxBy(id => postdominators[id].Count);

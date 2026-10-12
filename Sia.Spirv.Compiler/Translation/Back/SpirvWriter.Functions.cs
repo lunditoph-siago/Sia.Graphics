@@ -76,8 +76,7 @@ public static partial class SpirvWriter
                             if (d.Mutable)
                             {
                                 id = Variable(d.Type, d.Name);
-                                if (d.Initialize && d.Type is ShaderType.RayQuery) InitializeRayQueryState(id);
-                                else if (d.Initialize)
+                                if (d.Initialize && d.Type is not ShaderType.RayQuery)
                                 {
                                     uint initializer = d.Initializer is null ? owner.Null(d.Type) : Value(d.Initializer);
                                     Add(Op.Store, id, initializer);

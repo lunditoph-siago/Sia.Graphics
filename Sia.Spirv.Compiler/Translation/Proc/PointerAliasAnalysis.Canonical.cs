@@ -5,6 +5,10 @@ namespace Sia.Spirv.Compiler.Translation.Proc;
 
 internal static partial class PointerAliasAnalysis
 {
+    internal static bool HasPointerOperations(ControlFlowFunction graph) => graph.Blocks.SelectMany(b => b.Instructions)
+        .Any(i => i.Operation is ValueOperation.Binary { Left.Type: ShaderType.Pointer }
+            || i.Result?.Type is ShaderType.Pointer && i.Operation is ValueOperation.Construct { Components.Count: 0 } or ValueOperation.Undefined);
+
     internal static Dictionary<int, HashSet<Root>> Origins(Module module, ControlFlowFunction graph)
         => CanonicalAnalysis.ComputeOrigins(module, graph);
     /// <summary>SSA address roots, including loop/merge edge arguments. No target reconstruction is needed.</summary>
@@ -37,13 +41,22 @@ internal static partial class PointerAliasAnalysis
                     if (instruction.Result is not { Type: ShaderType.Pointer } result) continue;
                     IEnumerable<Root> roots = instruction.Operation switch {
                         ValueOperation.Local => [new(Local: result.Id + 1)],
+                        ValueOperation.Undefined => [new(IsUndefined: true)],
+                        ValueOperation.Construct { Components.Count: 0 } => [new()],
                         ValueOperation.Symbol s when arguments.TryGetValue(s.Name, out int parameter) => [new(parameter)],
                         ValueOperation.Symbol s when globals.Contains(s.Name) => [new(Global: s.Name)],
                         ValueOperation.Let l => Roots(l.Value),
                         ValueOperation.Access a => Roots(a.Base),
                         ValueOperation.Member m => Roots(m.Base),
+                        ValueOperation.Binary { Operator: "+" } b => Roots(b.Left),
                         ValueOperation.Swizzle s => Roots(s.Vector),
                         ValueOperation.Select s => Roots(s.Accept).Concat(Roots(s.Reject)),
+                        // A loaded address names the stored pointee, not the slot
+                        // allocation. Keep flow-insensitive may-alias roots while
+                        // ordered loads retain their own SSA snapshots.
+                        ValueOperation.Load l when l.Pointer.Type is ShaderType.Pointer { Base: ShaderType.Pointer }
+                            => instructions.Select(i => i.Operation).OfType<ValueOperation.Store>()
+                                .Where(s => Roots(s.Pointer).Overlaps(Roots(l.Pointer))).SelectMany(s => Roots(s.Value)).ToArray(),
                         _ => []
                     };
                     changed |= Add(result, roots);

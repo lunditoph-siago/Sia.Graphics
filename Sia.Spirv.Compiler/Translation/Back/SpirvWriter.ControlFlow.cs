@@ -111,7 +111,7 @@ public static partial class SpirvWriter
                                     arguments[0] = new Expression.Reference(name, image.Type);
                                 }
                                 emitted = Call(new Expression.Call(builtin.Function, arguments, builtin.ReturnType, CallBinding.Builtin)
-                                    { AtomicMemory = builtin.AtomicMemory, MemoryAccess = builtin.MemoryAccess }); break;
+                                    { AtomicMemory = builtin.AtomicMemory, MemoryAccess = builtin.MemoryAccess, ImageAccess = builtin.ImageAccess }); break;
                             case ValueOperation.Call call:
                                 emitted = Call(new Expression.Call(call.Function, call.Arguments.Select(Ref).ToArray(), call.ReturnType, CallBinding.Function)
                                     { AtomicMemory = call.AtomicMemory, MemoryAccess = call.MemoryAccess }); break;

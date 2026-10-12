@@ -22,7 +22,7 @@ internal static class CanonicalShaderPipeline
     public static Module Run(Module input, ICollection<CanonicalPassTrace>? traces = null, ICollection<CanonicalDeferral>? deferrals = null,
         Action<ControlFlowFunction, Module>? verifyFrontend = null,
         IReadOnlyDictionary<string, ControlFlowFunction>? frontendGraphs = null)
-        => StructuredControlFlowLowering.Run(Prepare(input, traces, deferrals, verifyFrontend, frontendGraphs),
+        => ShaderTargetLowering.ForStructured(Prepare(input, traces, deferrals, verifyFrontend, frontendGraphs),
             nativeValidation: verifyFrontend is not null);
 
     public static CanonicalModule Prepare(Module input, ICollection<CanonicalPassTrace>? traces = null,
@@ -39,9 +39,6 @@ internal static class CanonicalShaderPipeline
             deferredFunctions.Add(function, reason); deferrals?.Add(new(function, reason));
         }
         foreach (var function in input.Functions) {
-            if (!entryFunctions.Contains(function.Name) && frontendGraphs?.ContainsKey(function.Name) != true) {
-                Defer(function.Name, "outside shader entry call graph"); continue;
-            }
             ControlFlowFunction? graph = null; string? deferred = null;
             bool native = frontendGraphs?.TryGetValue(function.Name, out graph) == true;
             if (!native && !StructuredControlFlowReader.TryRead(function, input, out graph, out deferred)) {
@@ -80,24 +77,18 @@ internal static class CanonicalShaderPipeline
                 Preserved = ControlFlowAnalyses.All
             });
             ControlFlowVerifier.Validate(graph, input, analyses);
+            before = traces is null ? null : ControlFlowPrinter.Write(graph);
+            ConstantConversionFolding.Run(graph);
+            ControlFlowVerifier.Validate(graph, input, analyses);
+            traces?.Add(new(function.Name, "constant-conversion-folding", before!, ControlFlowPrinter.Write(graph),
+                "CFG topology, predecessor edges, dominance, SSA identities and ordered effects", "converted constant values") {
+                Preserved = ControlFlowAnalyses.All
+            });
             functions.Add(function.Name, graph);
         }
         var result = new CanonicalModule(input, functions.ToFrozenDictionary(StringComparer.Ordinal),
             deferredFunctions.ToFrozenDictionary(StringComparer.Ordinal), entryFunctions.ToFrozenSet(StringComparer.Ordinal));
-        var effects = ShaderEffectAnalysis.Compute(result);
-        foreach (var graph in functions.Values) {
-            string? before = traces is null ? null : ControlFlowPrinter.Write(graph);
-            foreach (var block in graph.Blocks)
-                for (int i = 0; i < block.Instructions.Count; i++)
-                    if (block.Instructions[i].Operation is ValueOperation.Call call
-                        && effects.TryGetValue(call.Function, out var callee) && (block.Instructions[i].Effects & callee) != callee) {
-                        block.Instructions[i] = block.Instructions[i] with { Operation = call with { CalleeEffects = call.CalleeEffects | callee } };
-                    }
-            traces?.Add(new(graph.Signature.Name, "canonical-call-effects", before!, ControlFlowPrinter.Write(graph),
-                "CFG topology, predecessor edges, dominance, argument evaluation order", "call requirement summaries") {
-                Preserved = ControlFlowAnalyses.All
-            });
-        }
+        ShaderEffectAnalysis.RefreshCalls(result, traces);
         ModuleValidator.Validate(result, native: verifyFrontend is not null);
         return result;
     }

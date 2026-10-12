@@ -1,26 +1,53 @@
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 using Sia.Spirv.Compiler.Translation.Proc;
 using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Target pass ordering over structured IR. Passes borrow their input without modifying it.</summary>
+/// <summary>Target pass ordering with explicit adapters for unmigrated families. Passes borrow their input.</summary>
 internal static class ShaderTargetLowering
 {
-    public static Module ForWgsl(Module module)
+    internal static Module ForStructured(CanonicalModule canonical, bool nativeValidation = false)
     {
-        ShaderTargetValidator.ValidateWgslInvocationFeatures(module);
-        ModuleValidator.Validate(module);
-        module = WgslEntryPointLowering.Run(module);
-        ModuleValidator.Validate(module);
-        module = StructuredControlFlowLowering.Run(CanonicalShaderPipeline.Prepare(module));
-        module = HelperInliner.RunPointers(module);
-        module = CollectiveReadRecovery.Run(module);
+        canonical = UndefinedValueLowering.Run(canonical);
+        canonical = AtomicStorageLowering.Run(canonical);
+        canonical = MatrixStorageLowering.Run(canonical);
+        if (canonical.Functions.Values.Any(g => g.Blocks.Any(b => b.Parameters.Any(p => p.Type is ShaderType.Pointer || CanonicalTypes.Resource(p.Type))))
+            || canonical.Functions.Values.Any(PointerAliasAnalysis.HasPointerOperations)
+            || canonical.Functions.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions).Any(i => i.Result?.Type is ShaderType.Pointer { Base: ShaderType.Pointer })
+            || canonical.Declarations.Functions.Any(f => f.ReturnType is ShaderType.Pointer && canonical.EntryFunctions.Contains(f.Name)))
+            canonical = CanonicalHelperInliner.RunTargetHelpers(canonical);
+        if (canonical.Functions.Values.Any(g => g.Blocks.Any(b => b.Terminator is ControlFlowTerminator.TaskDispatch)))
+            canonical = InvocationTerminationControlFlow.PrepareSpirv(canonical, DiagnosticStage.Validation);
+        return StructuredControlFlowLowering.Run(CanonicalReferenceLowering.Run(canonical), nativeValidation);
+    }
+
+    internal static ShaderFunction ForStructured(ControlFlowFunction graph, Module module)
+        => StructuredControlFlowLowering.Run(CanonicalReferenceLowering.Run(UndefinedValueLowering.Run(graph)), module);
+
+    public static Module ForWgsl(Module module)
+        => ForWgsl(CanonicalShaderPipeline.Prepare(module));
+
+    internal static Module ForWgsl(CanonicalModule canonical)
+    {
+        ModuleValidator.Validate(canonical, native: true);
+        ShaderTargetValidator.ValidateWgslInvocationFeatures(canonical);
+        canonical = UndefinedValueLowering.Run(canonical);
+        canonical = AtomicStorageLowering.Run(canonical);
+        canonical = MatrixStorageLowering.Run(canonical);
+        canonical = WgslEntryPointLowering.Run(canonical);
+        canonical = CanonicalReferenceLowering.Run(CanonicalHelperInliner.RunTargetHelpers(canonical, taskDispatch: true));
+        canonical = CollectiveReadRecovery.Run(canonical);
+        UniformityAnalysis.Validate(canonical.Declarations, canonical.Functions, DiagnosticStage.WgslWrite);
+        // Check original non-returning control before WGSL introduces a return.
+        canonical = WgslTerminationLowering.Run(canonical);
+        canonical = WgslImageAtomicLowering.Run(canonical);
+        // Remaining WGSL memory/query/layout passes consume structured target data.
+        // All owned graph semantics stay authoritative until this explicit boundary.
+        var module = StructuredControlFlowLowering.Run(canonical);
         UniformityAnalysis.Validate(module, DiagnosticStage.WgslWrite);
-        module = InvocationTerminationControlFlow.Run(module, DiagnosticStage.WgslWrite);
-        module = WgslTerminationLowering.Run(module);
         ModuleValidator.Validate(module);
-        UniformityAnalysis.Validate(module, DiagnosticStage.WgslWrite);
         PointerAliasAnalysis.Validate(module, DiagnosticStage.WgslWrite);
         module = QueryStateLowering.Run(module);
         ModuleValidator.Validate(module);
@@ -38,24 +65,24 @@ internal static class ShaderTargetLowering
     }
 
     public static Module ForSpirv(Module module, IReadOnlyDictionary<string, double>? pipelineConstants, bool integerDivisionChecks = true)
+        => ForStructured(PrepareSpirv(CanonicalShaderPipeline.Prepare(module), pipelineConstants, integerDivisionChecks));
+
+    internal static CanonicalModule PrepareSpirv(CanonicalModule canonical, IReadOnlyDictionary<string, double>? pipelineConstants, bool integerDivisionChecks = true)
     {
-        module = StructuredControlFlowLowering.Run(CanonicalShaderPipeline.Prepare(module));
-        if (pipelineConstants is { } values) {
-            module = PipelineConstantResolver.Resolve(module, values);
-            ModuleValidator.Validate(module);
-        }
-        module = HelperInliner.RunQueries(module);
-        ModuleValidator.Validate(module);
-        module = HelperInliner.RunNonFunctionPointers(module);
-        ModuleValidator.Validate(module);
-        module = HelperInliner.RunPointers(module);
-        ModuleValidator.Validate(module);
-        module = InvocationTerminationControlFlow.Run(module, DiagnosticStage.SpirvWrite);
-        module = SpirvIntegerArithmeticLowering.Run(module, integerDivisionChecks);
-        return module;
+        // Source-language legality has already run at the frontend boundary.
+        // Native canonical pointer parameters retain their address spaces here.
+        ModuleValidator.Validate(canonical, native: true);
+        canonical = UndefinedValueLowering.Run(canonical);
+        canonical = AtomicStorageLowering.Run(canonical);
+        canonical = MatrixStorageLowering.Run(canonical);
+        if (pipelineConstants is { } values) canonical = PipelineConstantResolver.Resolve(canonical, values);
+        canonical = CanonicalReferenceLowering.Run(CanonicalHelperInliner.RunTargetHelpers(canonical), lowerPointers: false);
+        canonical = InvocationTerminationControlFlow.PrepareSpirv(canonical, DiagnosticStage.SpirvWrite);
+        canonical = SpirvRayQueryLowering.Run(canonical);
+        return SpirvIntegerArithmeticLowering.Run(canonical, integerDivisionChecks);
     }
 
     public static SpirvEntryPointLowering.Result ForSpirv(Module module, IReadOnlyDictionary<string, double>? pipelineConstants,
         bool integerDivisionChecks, bool adjustCoordinateSpace, bool clampFragmentDepth, bool zeroInitializeWorkgroupMemory = true, bool useLocalSizeId = false, uint? version = null)
-        => SpirvEntryPointLowering.Run(ForSpirv(module, pipelineConstants, integerDivisionChecks), adjustCoordinateSpace, clampFragmentDepth, zeroInitializeWorkgroupMemory, useLocalSizeId, version);
+        => SpirvEntryPointLowering.Run(PrepareSpirv(CanonicalShaderPipeline.Prepare(module), pipelineConstants, integerDivisionChecks), adjustCoordinateSpace, clampFragmentDepth, zeroInitializeWorkgroupMemory, useLocalSizeId, version);
 }

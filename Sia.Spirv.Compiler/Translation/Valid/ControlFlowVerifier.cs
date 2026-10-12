@@ -66,7 +66,10 @@ internal static class ControlFlowVerifier
                 Require(blocks.TryGetValue(edge.Target, out var target), "edge to missing block b" + edge.Target);
                 Require(edge.Arguments.Count == target!.Parameters.Count, "merge arity mismatch at b" + edge.Target);
                 for (int i = 0; i < edge.Arguments.Count; i++)
-                    Require(edge.Arguments[i].Type == target.Parameters[i].Type, "merge type mismatch at b" + edge.Target);
+                    Require(edge.Arguments[i].Type == target.Parameters[i].Type
+                        || edge.Arguments[i].Type is ShaderType.Pointer from && target.Parameters[i].Type is ShaderType.Pointer to
+                            && from.Base == to.Base && from.Space == to.Space && (from.Access & to.Access) == to.Access,
+                        "merge type mismatch at b" + edge.Target);
             }
         }
         Require(ControlFlowAnalysis.Reachable(function).Count == blocks.Count, "unreachable block must be removed before SSA verification");
@@ -101,9 +104,10 @@ internal static class ControlFlowVerifier
                 foreach (var operand in instruction.Operation.Operands) Use(operand, block.Id, i);
                 ShaderType? result = instruction.Result?.Type;
                 bool valid = instruction.Operation switch {
+                    ValueOperation.Undefined => result is ShaderType.Pointer || result is not null && CanonicalTypes.Data(result),
                     ValueOperation.Symbol symbol => symbols.TryGetValue(symbol.Name, out var type) && type == result,
                     ValueOperation.Local local => result is ShaderType.Pointer { Space: AddressSpace.Function } p
-                        && (CanonicalTypes.Data(p.Base) || !local.ZeroInitialize && p.Base is ShaderType.Pointer),
+                        && (CanonicalTypes.Data(p.Base) || !local.ZeroInitialize && p.Base is ShaderType.Pointer or ShaderType.RayQuery),
                     ValueOperation.Let let => result == let.Value.Type,
                     ValueOperation.Builtin builtin => ShaderBuiltinEffects.IsKnown(builtin.Function)
                         && (builtin.ReturnType is ShaderType.Void ? result is null : result == builtin.ReturnType),
@@ -144,7 +148,7 @@ internal static class ControlFlowVerifier
                 case ControlFlowTerminator.TaskDispatch dispatch:
                     Require(function.Signature.Stage is null or ShaderStage.Task, "task dispatch requires a task entry", dispatch.Span);
                     Require(dispatch.Dimensions.Type == new ShaderType.Vector(3, ShaderType.U32), "task dispatch dimensions must be vec3u", dispatch.Span);
-                    Require(module.Globals.Any(g => g.Name == dispatch.Payload && g.Space == AddressSpace.TaskPayload), "task dispatch requires task payload", dispatch.Span); break;
+                    Require(dispatch.Payload is null || module.Globals.Any(g => g.Name == dispatch.Payload && g.Space == AddressSpace.TaskPayload), "task dispatch requires task payload", dispatch.Span); break;
             }
         }
     }

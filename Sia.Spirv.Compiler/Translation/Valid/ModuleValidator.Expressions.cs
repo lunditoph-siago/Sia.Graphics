@@ -1,4 +1,5 @@
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 
 namespace Sia.Spirv.Compiler.Translation.Valid;
 
@@ -15,6 +16,7 @@ public static partial class ModuleValidator
                 ShaderType result = expression switch
                 {
                     Expression.Literal literal => Literal(literal),
+                    Expression.Undefined when allowNativePointerParameters && CanonicalTypes.Data(expression.Type) => expression.Type,
                     Expression.HelperInvocation => HelperInvocation(),
                     Expression.Reference reference => Reference(reference),
                     Expression.Load load => Load(load),
@@ -115,6 +117,18 @@ public static partial class ModuleValidator
         {
             ShaderType left = Expr(binary.Left), right = Expr(binary.Right);
             string op = binary.Operator;
+            if (allowNativePointerParameters && left is ShaderType.Pointer && op == "+") {
+                Same(left, binary.Type, "Pointer offset result type differs.", binary.Span);
+                Require(right is ShaderType.Scalar { Kind: ScalarKind.Sint or ScalarKind.Uint }, "Pointer offset must be an integer scalar.", binary.Span);
+                return binary.Type;
+            }
+            if (allowNativePointerParameters && left is ShaderType.Pointer && right is ShaderType.Pointer) {
+                Same(left, right, "Pointer comparison operand types differ.", binary.Span);
+                Require(op is "==" or "!=" && binary.Type == ShaderType.Bool
+                    || op == "-" && binary.Type is ShaderType.Scalar { Kind: ScalarKind.Sint or ScalarKind.Uint },
+                    "Invalid native pointer comparison.", binary.Span);
+                return binary.Type;
+            }
             if (left is ShaderType.CooperativeMatrix || right is ShaderType.CooperativeMatrix)
             {
                 if (op is "+" or "-" && left == right) return left;
@@ -168,6 +182,7 @@ public static partial class ModuleValidator
         private ShaderType Construct(Expression.Construct construct)
         {
             ShaderType type = construct.Type; var args = construct.Components.Select(Expr).ToArray();
+            if (allowNativePointerParameters && type is ShaderType.Pointer && args.Length == 0) return type;
             // SPIR-V OpConstantNull may zero an array whose length is specialized.
             // WGSL rejects its constructor in the frontend; resolve this IR zero
             // value before writing either source constructors or SPIR-V.

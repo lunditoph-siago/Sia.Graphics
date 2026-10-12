@@ -7,6 +7,24 @@ namespace Sia.Spirv.Compiler.Translation.Proc;
 /// Read/write alias analysis is not used to make a user call pure.</summary>
 internal static class ShaderEffectAnalysis
 {
+    // Call summaries are refreshed only on graphs owned by this compilation/pass.
+    internal static void RefreshCalls(CanonicalModule module, ICollection<CanonicalPassTrace>? traces = null)
+    {
+        var effects = Compute(module);
+        foreach (var graph in module.Functions.Values) {
+            string? before = traces is null ? null : ControlFlowPrinter.Write(graph);
+            foreach (var block in graph.Blocks)
+                for (int i = 0; i < block.Instructions.Count; i++)
+                    if (block.Instructions[i].Operation is ValueOperation.Call call
+                        && effects.TryGetValue(call.Function, out var callee) && (call.CalleeEffects & callee) != callee)
+                        block.Instructions[i] = block.Instructions[i] with { Operation = call with { CalleeEffects = call.CalleeEffects | callee } };
+            traces?.Add(new(graph.Signature.Name, "canonical-call-effects", before!, ControlFlowPrinter.Write(graph),
+                "CFG topology, predecessor edges, dominance, argument evaluation order", "call requirement summaries") {
+                Preserved = ControlFlowAnalyses.All
+            });
+        }
+    }
+
     /// <summary>Derive requirements from authoritative graphs and their call closure.
     /// Explicitly deferred bodies retain the structured frontend's conservative facts.</summary>
     public static Dictionary<string, ShaderEffects> Compute(CanonicalModule module)
@@ -15,7 +33,7 @@ internal static class ShaderEffectAnalysis
     public static Dictionary<string, ShaderEffects> Compute(Module module)
         => Compute(module, null);
 
-    private static Dictionary<string, ShaderEffects> Compute(Module module, IReadOnlyDictionary<string, ControlFlowFunction>? graphs)
+    internal static Dictionary<string, ShaderEffects> Compute(Module module, IReadOnlyDictionary<string, ControlFlowFunction>? graphs)
     {
         var functions = module.Functions.ToDictionary(f => f.Name, StringComparer.Ordinal);
         var effects = new Dictionary<string, ShaderEffects>(StringComparer.Ordinal);
@@ -38,7 +56,7 @@ internal static class ShaderEffectAnalysis
                 Expression.Call call => (call.Binding == CallBinding.Builtin ? ShaderBuiltinEffects.For(call.Function)
                     : functions.ContainsKey(call.Function) ? Function(call.Function)
                     : ShaderEffects.ReadMemory | ShaderEffects.WriteMemory | ShaderEffects.UnknownCall)
-                    | ShaderBuiltinEffects.Memory(call.MemoryAccess) | ShaderBuiltinEffects.AtomicMemory(call.AtomicMemory),
+                    | ShaderBuiltinEffects.Memory(call.MemoryAccess) | ShaderBuiltinEffects.AtomicMemory(call.AtomicMemory) | ShaderBuiltinEffects.ImageMemory(call.ImageAccess),
                 Expression.Load load => ShaderEffects.ReadMemory | ShaderBuiltinEffects.Memory(load.MemoryAccess), _ => ShaderEffects.None
             };
             IEnumerable<Expression> children = expression switch {

@@ -51,8 +51,10 @@ public abstract record ShaderType
 public sealed record IoBinding(uint? Location = null, string? Builtin = null,
     string? Interpolation = null, string? Sampling = null, bool Invariant = false, uint? BlendSource = null, bool PerPrimitive = false);
 public sealed record ResourceBinding(uint Group, uint Binding);
+internal sealed record MatrixStorageLayout(uint Stride, bool RowMajor);
 public sealed record StructMember(string Name, ShaderType Type, uint? Offset = null,
     uint? Alignment = null, uint? Size = null, IoBinding? Binding = null)
 {
     public MemoryDecorations MemoryDecorations { get; init; }
+    internal MatrixStorageLayout? MatrixLayout { get; init; }
 }

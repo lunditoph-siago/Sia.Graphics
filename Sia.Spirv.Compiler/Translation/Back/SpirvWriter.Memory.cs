@@ -24,6 +24,18 @@ public static partial class SpirvWriter
         private static bool UsesCooperativeMemoryModel(Module module) => ShaderMemoryRequirements.UsesCooperativeMemoryModel(module);
         private sealed partial class FunctionEmitter
         {
+            private uint[] ImageOperands(SpirvImageAccess? memory, uint spatialMask, uint? spatialValue)
+            {
+                uint mask = spatialMask | (memory?.Flags ?? 0);
+                if (mask == 0) return [];
+                var operands = new List<uint> { mask };
+                if (spatialValue is uint value) operands.Add(value);
+                foreach (uint scope in new[] { memory?.AvailableScope, memory?.VisibleScope }.OfType<uint>()) {
+                    if (scope == 1) owner.usesDeviceScope = true;
+                    operands.Add(owner.Constant(Expression.U32(scope)));
+                }
+                return operands.ToArray();
+            }
             private uint[] MemoryOperands(SpirvMemoryAccess? memory)
                 => owner.MemoryOperands(memory);
             private uint MemoryLoad(uint pointer, ShaderType type, SpirvMemoryAccess? memory) =>

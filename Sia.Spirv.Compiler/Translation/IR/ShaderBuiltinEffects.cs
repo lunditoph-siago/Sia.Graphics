@@ -13,22 +13,27 @@ internal static class ShaderBuiltinEffects
     public static bool IsIntegerUnary(string name) => IntegerUnary.Contains(name);
     public static bool IsPureNumeric(string name) => IsFloatUnary(name) || IsIntegerUnary(name) || Numeric.Contains(name);
     private static readonly HashSet<string> Atomic = new("atomicLoad atomicStore atomicAdd atomicSub atomicMin atomicMax atomicAnd atomicOr atomicXor atomicExchange atomicCompareExchangeWeak spirvAtomicCompareExchange".Split(' '), StringComparer.Ordinal);
-    private static readonly HashSet<string> Texture = new("textureDimensions textureNumLayers textureNumLevels textureNumSamples textureLoad textureStore textureSample textureSampleBias textureSampleLevel textureSampleGrad textureSampleCompare textureSampleCompareLevel textureSampleBaseClampToEdge textureGather textureGatherCompare textureAtomicAdd textureAtomicMin textureAtomicMax textureAtomicAnd textureAtomicOr textureAtomicXor".Split(' '), StringComparer.Ordinal);
+    private static readonly HashSet<string> Texture = new("textureDimensions textureNumLayers textureNumLevels textureNumSamples textureLoad textureStore textureSample textureSampleBias textureSampleLevel textureSampleGrad textureSampleCompare textureSampleCompareLevel textureSampleBaseClampToEdge textureGather textureGatherCompare textureAtomicAdd textureAtomicMin textureAtomicMax textureAtomicAnd textureAtomicOr textureAtomicXor textureAtomicLoad textureAtomicStore textureAtomicExchange textureAtomicCompareExchange textureAtomicIncrement textureAtomicDecrement textureAtomicSub".Split(' '), StringComparer.Ordinal);
     private static readonly HashSet<string> Derivatives = new("dpdx dpdxCoarse dpdxFine dpdy dpdyCoarse dpdyFine fwidth fwidthCoarse fwidthFine".Split(' '), StringComparer.Ordinal);
+    private static readonly HashSet<string> QueryUpdates = new("rayQueryInitialize rayQueryProceed rayQueryTerminate rayQueryConfirmIntersection rayQueryGenerateIntersection spirvRayQueryInitializeKHR spirvRayQueryProceedKHR spirvRayQueryTerminateKHR spirvRayQueryConfirmIntersectionKHR spirvRayQueryGenerateIntersectionKHR".Split(' '), StringComparer.Ordinal);
+    public static bool IsQuery(string name) => QueryUpdates.Contains(name) || RayQueryTypes.RawGetterType(name) is not null
+        || name is "rayQueryGetCandidateIntersection" or "rayQueryGetCommittedIntersection" or "getCandidateHitVertexPositions" or "getCommittedHitVertexPositions";
     public static bool IsKnown(string name) => IsPureNumeric(name) || Atomic.Contains(name) || Texture.Contains(name)
-        || Derivatives.Contains(name) || SubgroupBuiltins.Contains(name)
+        || Derivatives.Contains(name) || SubgroupBuiltins.Contains(name) || IsQuery(name)
         || name is "arrayLength" or "workgroupUniformLoad" or "storageBarrier" or "workgroupBarrier" or "textureBarrier" or "subgroupBarrier";
     public static ShaderEffects For(string name)
     {
         if (IsPureNumeric(name)) return ShaderEffects.None;
         if (name == "arrayLength") return ShaderEffects.ReadMemory;
+        if (IsQuery(name)) return ShaderEffects.Resource | ShaderEffects.ReadMemory
+            | (QueryUpdates.Contains(name) ? ShaderEffects.WriteMemory : ShaderEffects.None);
         if (Atomic.Contains(name)) return ShaderEffects.Atomic | (name == "atomicLoad" ? ShaderEffects.ReadMemory
             : name == "atomicStore" ? ShaderEffects.WriteMemory : ShaderEffects.ReadMemory | ShaderEffects.WriteMemory);
         if (name is "storageBarrier" or "workgroupBarrier" or "textureBarrier" or "subgroupBarrier" or "workgroupUniformLoad")
             return ShaderEffects.ReadMemory | ShaderEffects.WriteMemory | ShaderEffects.Synchronization | ShaderEffects.Convergent | ShaderEffects.MemoryOrdering;
         if (Texture.Contains(name)) return ShaderEffects.Resource
             | (name == "textureStore" ? ShaderEffects.WriteMemory : name.StartsWith("textureAtomic", StringComparison.Ordinal)
-                ? ShaderEffects.ReadMemory | ShaderEffects.WriteMemory | ShaderEffects.Atomic : ShaderEffects.ReadMemory)
+                ? ShaderEffects.Atomic | (name == "textureAtomicLoad" ? ShaderEffects.ReadMemory : name == "textureAtomicStore" ? ShaderEffects.WriteMemory : ShaderEffects.ReadMemory | ShaderEffects.WriteMemory) : ShaderEffects.ReadMemory)
             | (name is "textureSample" or "textureSampleBias" or "textureSampleCompare" ? ShaderEffects.Convergent : ShaderEffects.None);
         if (Derivatives.Contains(name) || SubgroupBuiltins.Contains(name)) return ShaderEffects.Convergent;
         return ShaderEffects.ReadMemory | ShaderEffects.WriteMemory | ShaderEffects.UnknownCall;
@@ -39,6 +44,9 @@ internal static class ShaderBuiltinEffects
     public static ShaderEffects AtomicMemory(SpirvAtomicMemory? memory) => memory is null ? ShaderEffects.None
         : ((memory.Semantics & 30) != 0 ? ShaderEffects.MemoryOrdering : ShaderEffects.None)
         | ((memory.Semantics & 32768) != 0 ? ShaderEffects.Volatile : ShaderEffects.None);
+    public static ShaderEffects ImageMemory(SpirvImageAccess? memory) => memory is null ? ShaderEffects.None
+        : ((memory.Flags & 0x800) != 0 ? ShaderEffects.Volatile : ShaderEffects.None)
+        | ((memory.Flags & 0x700) != 0 ? ShaderEffects.MemoryOrdering : ShaderEffects.None);
     public static ShaderEffects Barrier(bool control) => ShaderEffects.ReadMemory | ShaderEffects.WriteMemory | ShaderEffects.MemoryOrdering
         | (control ? ShaderEffects.Synchronization | ShaderEffects.Convergent : ShaderEffects.None);
 }

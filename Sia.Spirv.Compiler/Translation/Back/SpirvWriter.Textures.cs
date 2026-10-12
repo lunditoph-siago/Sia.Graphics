@@ -47,17 +47,19 @@ public static partial class SpirvWriter
                     if (name == "textureStore")
                     {
                         if (image.StorageFormat == "bgra8unorm") owner.capabilities.Add(56); // StorageImageWriteWithoutFormat
-                        Add(Op.ImageWrite, texture, coordinate, args[next]); return 0;
+                        var tail = ImageOperands(call.ImageAccess, image.Multisampled ? 64u : 0u, image.Multisampled ? args[next + 1] : null);
+                        Add(Op.ImageWrite, new uint[] { texture, coordinate, args[next] }.Concat(tail).ToArray()); return 0;
                     }
-                    ShaderType valueType = new ShaderType.Vector(4, image.Component);
+                    ShaderType valueType = image.Depth ? new ShaderType.Vector(4, image.Component) : call.Type;
                     uint value;
                     if (image.StorageFormat is not null)
                     {
                         if (image.StorageFormat == "bgra8unorm") owner.capabilities.Add(55); // StorageImageReadWithoutFormat
-                        value = Result(Op.ImageRead, valueType, texture, coordinate);
+                        value = Result(Op.ImageRead, valueType, new uint[] { texture, coordinate }
+                            .Concat(ImageOperands(call.ImageAccess, image.Multisampled ? 64u : 0u, image.Multisampled ? args[next] : null)).ToArray());
                     }
-                    else if (image.Multisampled) value = Result(Op.ImageFetch, valueType, texture, coordinate, 64, args[next]);
-                    else value = Result(Op.ImageFetch, valueType, texture, coordinate, 2, args[next]);
+                    else value = Result(Op.ImageFetch, valueType, new uint[] { texture, coordinate }
+                        .Concat(ImageOperands(call.ImageAccess, image.Multisampled ? 64u : 2u, args[next])).ToArray());
                     return image.Depth ? Result(Op.CompositeExtract, call.Type, value, 0) : value;
                 }
                 int cursor = imageIndex + 1;
@@ -113,20 +115,27 @@ public static partial class SpirvWriter
                 uint coordinate = Value(call.Arguments[1]);
                 if (image.Arrayed) coordinate = AppendCoordinate(coordinate, call.Arguments[1].Type, Value(call.Arguments[2]), call.Arguments[2].Type);
                 uint pointerType = owner.Pointer(owner.Type(image.Component), 11), pointer = owner.Id();
-                Add(Op.ImageTexelPointer, pointerType, pointer, address, coordinate, owner.Constant(Expression.U32(0)));
+                uint sample = image.Multisampled ? Value(call.Arguments[image.Arrayed ? 3 : 2]) : owner.Constant(Expression.U32(0));
+                Add(Op.ImageTexelPointer, pointerType, pointer, address, coordinate, sample);
                 if (owner.nonUniformValues.Contains(address)) owner.NonUniform(pointer, image);
                 if (image.Component.Width == 8) owner.capabilities.Add(12);
                 Op op = call.Function switch
                 {
-                    "textureAtomicAdd" => Op.AtomicIAdd,
+                    "textureAtomicLoad" => Op.AtomicLoad, "textureAtomicStore" => Op.AtomicStore, "textureAtomicExchange" => Op.AtomicExchange,
+                    "textureAtomicCompareExchange" => Op.AtomicCompareExchange, "textureAtomicIncrement" => Op.AtomicIIncrement, "textureAtomicDecrement" => Op.AtomicIDecrement,
+                    "textureAtomicSub" => Op.AtomicISub, "textureAtomicAdd" => image.Component.Kind == ScalarKind.Float ? Op.AtomicFAddEXT : Op.AtomicIAdd,
                     "textureAtomicMin" => image.Component.Kind == ScalarKind.Sint ? Op.AtomicSMin : Op.AtomicUMin,
                     "textureAtomicMax" => image.Component.Kind == ScalarKind.Sint ? Op.AtomicSMax : Op.AtomicUMax,
                     "textureAtomicAnd" => Op.AtomicAnd, "textureAtomicOr" => Op.AtomicOr, "textureAtomicXor" => Op.AtomicXor,
                     _ => throw owner.Error("Unsupported image atomic operation.")
                 };
-                var (scope, semantics, _) = AtomicOperands(call);
-                _ = Result(op, image.Component, pointer, scope, semantics, Value(call.Arguments[^1]));
-                return 0;
+                var (scope, semantics, unequal) = AtomicOperands(call);
+                if (op == Op.AtomicFAddEXT) { owner.capabilities.Add(6033); owner.extensions.Add("SPV_EXT_shader_atomic_float_add"); }
+                if (op == Op.AtomicStore) { Add(op, pointer, scope, semantics, Value(call.Arguments[^1])); return 0; }
+                uint old = op is Op.AtomicLoad or Op.AtomicIIncrement or Op.AtomicIDecrement ? Result(op, image.Component, pointer, scope, semantics)
+                    : op == Op.AtomicCompareExchange ? Result(op, image.Component, pointer, scope, semantics, unequal, Value(call.Arguments[^1]), Value(call.Arguments[^2]))
+                    : Result(op, image.Component, pointer, scope, semantics, Value(call.Arguments[^1]));
+                return call.Type is ShaderType.Void ? 0 : old;
             }
 
             private uint FloatArgument(uint value, ShaderType type) => Scalar(type).Kind switch

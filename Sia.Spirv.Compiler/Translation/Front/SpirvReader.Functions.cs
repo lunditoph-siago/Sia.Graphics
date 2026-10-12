@@ -56,12 +56,12 @@ public static partial class SpirvReader
                         throw Error(directCanonicalFlow && (Type(a[0]) is ShaderType.Pointer { Base: ShaderType.Pointer }
                             || Type(signature[parameter - 1]) is ShaderType.Pointer { Base: ShaderType.Pointer })
                             ? "Pointer slot helper parameter transfer type mismatch." : "Invalid function parameter.");
-                    Define(a[1]);
+                    Define(a[1]); valueTypeIds.Add(a[1], a[0]);
                     ShaderType argumentType = Type(a[0]);
-                    // UniformConstant acceleration-structure parameters are
+                    // UniformConstant image/sampler/acceleration parameters are
                     // immutable resource references. Lower them to opaque values,
                     // as WGSL and the managed writer already pass such handles.
-                    if (argumentType is ShaderType.Pointer { Space: AddressSpace.Handle, Base: ShaderType.AccelerationStructure acceleration }) argumentType = acceleration;
+                    if (argumentType is ShaderType.Pointer { Space: AddressSpace.Handle, Base: ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure } handle) argumentType = handle.Base;
                     var arg = new FunctionArgument(Name(a[1], "a"), argumentType);
                     function.Arguments.Add(arg);
                     Expression parameterValue = new Expression.Reference(arg.Name, arg.Type);
@@ -75,6 +75,7 @@ public static partial class SpirvReader
                     block = new(a[0]); raw.Blocks.Add(block); continue;
                 }
                 if (block is null || block.Terminator is not null) throw Error("Instruction is outside an open basic block.");
+                if (op == Op.Undef) { ReadUndefined(); continue; }
                 if (op is Op.Branch or Op.BranchConditional or Op.Switch or Op.Return or Op.ReturnValue or Op.Kill or Op.TerminateInvocation or Op.Unreachable or Op.EmitMeshTasksEXT)
                 {
                     block.Terminator = current; continue;
@@ -85,7 +86,9 @@ public static partial class SpirvReader
                 else block.Instructions.Add(current);
                 if (HasResult(op))
                 {
-                    Count(2); Define(a[1]); ShaderType resultType = Type(a[0]);
+                    Count(2); Define(a[1]); valueTypeIds.Add(a[1], a[0]); ShaderType resultType = Type(a[0]);
+                    if (op is Op.Phi or Op.Select && resultType is ShaderType.Image or ShaderType.Sampler)
+                        throw Error("Shader image and sampler values cannot be phi or select results.");
                     if (resultType is ShaderType.Pointer && (op is Op.Load or Op.Phi) && !directCanonicalFlow)
                         throw Error("Merged or loaded pointers require pointer provenance specialization.");
                     if ((op is Op.Phi or Op.Load) && resultType is ShaderType.Pointer && !variablePointers)
@@ -94,7 +97,9 @@ public static partial class SpirvReader
                     values[a[1]] = op == Op.Phi && resultType is ShaderType.Pointer ? new Expression.Unary("*", reference, resultType) : reference;
                     if (op == Op.Variable)
                     {
+                        Count(3, 4);
                         if (resultType is not ShaderType.Pointer pointer || a.Length < 3 || a[2] != 7) throw Error("Invalid local variable.");
+                        if (a.Length == 4 && !variableInitializers.Contains(a[3])) throw Error("Variable initializer must be a constant or module-scope variable.");
                         // Initializers are constants, available before any function is read.
                         function.Body.Statements.Add(new Statement.Declare(Name(a[1], "r"), pointer.Base, a.Length == 4 ? Value(a[3]) : null) {
                             Initialize = a.Length == 4 || pointer.Base is not ShaderType.Pointer && !CanonicalTypes.Data(pointer.Base)
@@ -111,10 +116,10 @@ public static partial class SpirvReader
         private static bool HasResult(Op op) => op is not (Op.Store or Op.CopyMemory or Op.ControlBarrier or Op.MemoryBarrier or Op.ImageWrite or Op.AtomicStore or Op.CooperativeMatrixStoreKHR or Op.SetMeshOutputsEXT or Op.DemoteToHelperInvocation
             or Op.RayQueryInitializeKHR or Op.RayQueryTerminateKHR or Op.RayQueryGenerateIntersectionKHR or Op.RayQueryConfirmIntersectionKHR);
 
-        private string? ResolveFunctions(ICollection<CanonicalPassTrace>? traces = null)
+        private void ResolveFunctions(ICollection<CanonicalPassTrace>? traces = null)
         {
             if (directCanonicalFlow) {
-                return ResolveNativeControlFlow(traces);
+                ResolveNativeControlFlow(traces); return;
             }
             foreach (var raw in rawFunctions)
             {
@@ -244,7 +249,6 @@ public static partial class SpirvReader
                     foreach (var (destination, source) in copies) result.Statements.Add(new Statement.Store(destination, source));
                 }
             }
-            return null;
         }
 
         private void LowerInstruction(Block block)
@@ -252,10 +256,19 @@ public static partial class SpirvReader
             Op op = (Op)current.Opcode; uint[] a = current.Operands;
             Expression V(int i) => Value(a[i]);
             ShaderType T() => Type(a[0]);
+            Expression Capture(Expression expression, string name)
+            {
+                var span = new SourceSpan(current.WordOffset * 4, current.WordCount * 4);
+                block.Statements.Add(new Statement.Declare(name, expression.Type, expression with { Span = span }, false) { Span = span });
+                return new Expression.Reference(name, expression.Type);
+            }
             void Result(Expression expression)
             {
                 if (T() is ShaderType.Void) { block.Statements.Add(new Statement.Evaluate(expression)); return; }
-                if (T() is ShaderType.Pointer && (op == Op.FunctionCall || directCanonicalFlow && (op is Op.Select or Op.Load))) {
+                if (directCanonicalFlow && T() is ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure) {
+                    values[a[1]] = Capture(expression, Name(a[1], "r")); return;
+                }
+                if (T() is ShaderType.Pointer && (op == Op.FunctionCall || directCanonicalFlow && (op is Op.Select or Op.Load or Op.PtrAccessChain))) {
                     // Native SSA calls execute exactly once, even when unused or read
                     // through multiple subsequent operations. Do not substitute a call.
                     string name = Name(a[1], "r");
@@ -277,7 +290,18 @@ public static partial class SpirvReader
                     if (T() != ShaderType.Bool) throw Error("Helper invocation query requires a scalar bool result.");
                     Result(new Expression.HelperInvocation { Span = new(current.WordOffset * 4, current.WordCount * 4) }); break;
                 case Op.SetMeshOutputsEXT: Count(2, 2); LowerMeshCounts(block, V(0), V(1)); break;
-                case Op.ImageTexelPointer: Count(5, 5); break;
+                case Op.ImageTexelPointer:
+                    Count(5, 5);
+                    if (V(2).Type is not ShaderType.Image texelImage) throw Error("Image texel pointer requires an image.");
+                    if (V(4).Type is not ShaderType.Scalar { Kind: ScalarKind.Sint or ScalarKind.Uint }) throw Error("Image texel sample must be an integer scalar.");
+                    if (!texelImage.Multisampled && ConstantUint(a[4]) != 0) throw Error("Non-multisampled image texel sample must be zero.");
+                    if (directCanonicalFlow) {
+                        var texel = imageTexelPointers[a[1]];
+                        texel.ImageValue = Capture(V(2), "sia_texel_image_" + a[1]);
+                        texel.CoordinateValue = Capture(V(3), "sia_texel_coordinate_" + a[1]);
+                        texel.SampleValue = Capture(V(4), "sia_texel_sample_" + a[1]);
+                    }
+                    break;
                 case Op.Load:
                     var loadMemory = MemoryAccess(3);
                     if (MeshAggregateCopy(block, V(2), V(1), true, loadMemory)) break;
@@ -360,7 +384,10 @@ public static partial class SpirvReader
                         else block.Statements.Add(MemoryStore(V(0), MemoryLoad(V(1), copyType, sourceMemory), targetMemory));
                     }
                     break;
+                case Op.PtrEqual: case Op.PtrNotEqual: case Op.PtrDiff:
+                    Result(NativePointerComparison()); break;
                 case Op.PtrAccessChain:
+                    if (directCanonicalFlow) { Result(NativePointerArithmetic()); break; }
                     Count(4, 4);
                     if (V(2) is not Expression.Access elementAccess || elementAccess.Base.Type is not ShaderType.Pointer { Base: ShaderType.Array })
                         throw Error("Pointer arithmetic requires normalized array-element provenance.");
@@ -378,10 +405,10 @@ public static partial class SpirvReader
                     for (int i = 3; i < a.Length; i++)
                     {
                         Expression index = V(i);
-                        if ((matrixLayouts.Count != 0 || variablePointers) && index is not Expression.Literal)
+                        if ((directCanonicalFlow || Legalization.MatrixStorageLowering.HasLayout(module) || variablePointers) && index is not Expression.Literal)
                         {
-                            // Layout projections may use this index in several
-                            // scalar accesses; retain AccessChain's evaluation time.
+                            // Native addresses and physical projections retain
+                            // AccessChain's evaluation time across every later use.
                             string indexName = "sia_matrix_index_" + current.WordOffset + "_" + i + "_" + pointerCaptureCounter++;
                             block.Statements.Add(new Statement.Declare(indexName, index.Type, index, false));
                             if (descriptorSnapshots.TryGetValue(a[i], out string? descriptor)) descriptorSnapshotNames[indexName] = descriptor;
@@ -395,7 +422,10 @@ public static partial class SpirvReader
                     for (int i = 3; i < a.Length; i++) extract = Index(extract, Expression.U32(a[i]));
                     Result(extract); break;
                 case Op.CompositeConstruct: Count(2); Result(new Expression.Construct(T(), a[2..].Select(Value).ToArray())); break;
-                case Op.CopyObject: Count(3, 3); Result(V(2)); break;
+                case Op.CopyObject:
+                    Count(3, 3);
+                    if (!directCanonicalFlow || !imageTexelPointers.ContainsKey(a[1])) Result(V(2));
+                    break;
                 case Op.VectorExtractDynamic: Count(4, 4); Result(Index(V(2), V(3))); break;
                 case Op.CompositeInsert:
                     Count(5);
@@ -551,11 +581,12 @@ public static partial class SpirvReader
                 case Op.ImageQuerySize: case Op.ImageQuerySizeLod: case Op.ImageQueryLevels: case Op.ImageQuerySamples:
                     Result(ImageQuery(op, a)); break;
                 case Op.AtomicStore:
-                    Count(4, 4); block.Statements.Add(new Statement.Evaluate(AtomicCall("atomicStore", V(0), [V(3)], new ShaderType.Void(), AtomicMemory(a[1], a[2])))); break;
+                    Count(4, 4); block.Statements.Add(new Statement.Evaluate(imageTexelPointers.ContainsKey(a[0]) ? LowerImageAtomic(op, a)
+                        : AtomicCall("atomicStore", V(0), [V(3)], new ShaderType.Void(), AtomicMemory(a[1], a[2])))); break;
                 case Op.AtomicLoad: case Op.AtomicExchange: case Op.AtomicCompareExchange: case Op.AtomicCompareExchangeWeak:
                 case Op.AtomicIIncrement: case Op.AtomicIDecrement: case Op.AtomicIAdd: case Op.AtomicISub: case Op.AtomicFAddEXT:
                 case Op.AtomicSMin: case Op.AtomicUMin: case Op.AtomicSMax: case Op.AtomicUMax: case Op.AtomicAnd: case Op.AtomicOr: case Op.AtomicXor:
-                    if (a.Length > 2 && imageTexelPointers.ContainsKey(a[2])) block.Statements.Add(new Statement.Evaluate(LowerImageAtomic(op, a)));
+                    if (a.Length > 2 && imageTexelPointers.ContainsKey(a[2])) Result(LowerImageAtomic(op, a));
                     else Result(LowerAtomic(op, a));
                     break;
                 case Op.ControlBarrier:

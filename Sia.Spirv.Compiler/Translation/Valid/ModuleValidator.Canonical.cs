@@ -8,7 +8,7 @@ public static partial class ModuleValidator
     // Reuse the same expression/memory signature rules for structured and SSA IR.
     // SSA ownership, dominance and symbol identity are checked by ControlFlowVerifier.
     internal static Action<ControlFlowInstruction> CanonicalInstructions(Module module, ControlFlowFunction graph)
-        => new Validator(module).Canonical(graph);
+        => new Validator(module, allowNativePointerParameters: true).Canonical(graph);
 
     private sealed partial class Validator
     {
@@ -23,7 +23,8 @@ public static partial class ModuleValidator
                 foreach (var value in block.Instructions) instruction(value);
                 if (block.Terminator is ControlFlowTerminator.InvocationKill) checker.Restrict(Fragment);
                 if (block.Terminator is ControlFlowTerminator.TaskDispatch dispatch) {
-                    checker.Restrict(Task); checker.payloadUses[graph.Signature.Name].Add(dispatch.Payload);
+                    checker.Restrict(Task);
+                    if (dispatch.Payload is { } payload) checker.payloadUses[graph.Signature.Name].Add(payload);
                 }
             }
             stages[graph.Signature.Name] &= checker.stages[graph.Signature.Name];
@@ -37,7 +38,7 @@ public static partial class ModuleValidator
             function = graph.Signature;
             foreach (var global in module.Globals)
                 globals.Add(global.Name, new(global.Type, global.Space != AddressSpace.Handle,
-                    global.Space != AddressSpace.Uniform && (global.Access & StorageAccess.Write) != 0, global.Space));
+                    global.Space != AddressSpace.Uniform && (global.Access & StorageAccess.Write) != 0, global.Space, global.Space == AddressSpace.Handle));
             foreach (var constant in module.Constants) globals.Add(constant.Name, new(constant.Type, false, false));
             foreach (var f in module.Functions.Append(function).DistinctBy(f => f.Name)) {
                 functions.Add(f.Name, f); calls.Add(f.Name, new(StringComparer.Ordinal)); stages.Add(f.Name, AllStages);
@@ -70,7 +71,21 @@ public static partial class ModuleValidator
             return instruction => {
                 DiagnosticFilters(instruction.DiagnosticFilters);
                 values.Clear(); var type = instruction.Result?.Type ?? new ShaderType.Void();
-                if (instruction.Operation is ValueOperation.Local or ValueOperation.Symbol or ValueOperation.Let) return;
+                if (instruction.Operation is ValueOperation.Local or ValueOperation.Symbol or ValueOperation.Let or ValueOperation.Undefined) return;
+                if (type is ShaderType.Pointer && instruction.Operation is ValueOperation.Construct { Components.Count: 0 }) return;
+                if (instruction.Operation is ValueOperation.Binary { Left.Type: ShaderType.Pointer } comparison) {
+                    if (comparison.Operator == "+") {
+                        Same(comparison.Left.Type, type, "Pointer offset result type differs.", instruction.Span);
+                        Require(comparison.Right.Type is ShaderType.Scalar { Kind: ScalarKind.Sint or ScalarKind.Uint },
+                            "Pointer offset must be an integer scalar.", instruction.Span);
+                        return;
+                    }
+                    Same(comparison.Left.Type, comparison.Right.Type, "Pointer comparison operand types differ.", instruction.Span);
+                    Require(comparison.Operator is "==" or "!=" && type == ShaderType.Bool
+                        || comparison.Operator == "-" && type is ShaderType.Scalar { Kind: ScalarKind.Sint or ScalarKind.Uint },
+                        "Invalid canonical pointer comparison.", instruction.Span);
+                    return;
+                }
                 if (instruction.Operation is ValueOperation.InterfaceLoad or ValueOperation.InterfaceStore) {
                     Type(instruction.Operation is ValueOperation.InterfaceLoad load ? load.Field.Type : ((ValueOperation.InterfaceStore)instruction.Operation).Field.Type);
                     return; // Direction, exact type and def/use are checked by the CFG verifier.
@@ -111,7 +126,7 @@ public static partial class ModuleValidator
                     ValueOperation.Swizzle s => new Expression.Swizzle(Operand(s.Vector), s.Components, type),
                     ValueOperation.Load l => new Expression.Load(Operand(l.Pointer)) { MemoryAccess = l.MemoryAccess },
                     ValueOperation.Call c => new Expression.Call(c.Function, c.Arguments.Select(Operand).ToArray(), c.ReturnType, CallBinding.Function) { AtomicMemory = c.AtomicMemory,MemoryAccess = c.MemoryAccess },
-                    ValueOperation.Builtin b => new Expression.Call(b.Function, b.Arguments.Select(Operand).ToArray(), b.ReturnType, CallBinding.Builtin) { AtomicMemory = b.AtomicMemory,MemoryAccess = b.MemoryAccess },
+                    ValueOperation.Builtin b => new Expression.Call(b.Function, b.Arguments.Select(Operand).ToArray(), b.ReturnType, CallBinding.Builtin) { AtomicMemory = b.AtomicMemory,MemoryAccess = b.MemoryAccess, ImageAccess = b.ImageAccess },
                     _ => throw Error("Unsupported canonical instruction.", instruction.Span)
                 };
                 Same(Expr(expression with { Span = instruction.Span }), type, "Canonical result type mismatch.", instruction.Span);

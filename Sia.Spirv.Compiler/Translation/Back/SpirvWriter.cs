@@ -246,6 +246,8 @@ public static partial class SpirvWriter
                     else if (image.StorageFormat is string format && StorageImageFormats.Extended(ImageFormat(format))) capabilities.Add(49);
                     if (image.Dimension == ImageDimension.D1) capabilities.Add(image.StorageFormat is null ? 43u : 44u);
                     if (image.Dimension == ImageDimension.Cube && image.Arrayed) capabilities.Add(45);
+                    if (image.Multisampled && image.StorageFormat is not null) capabilities.Add(27); // StorageImageMultisample
+                    if (image.Multisampled && image.Arrayed) capabilities.Add(48); // ImageMSArray
                     uint[] imageOperands = [Type(image.Component), (uint)image.Dimension, image.Depth ? 1u : 0u,
                         image.Arrayed ? 1u : 0u, image.Multisampled ? 1u : 0u, image.StorageFormat is null ? 1u : 2u,
                         image.StorageFormat is null ? 0u : ImageFormat(image.StorageFormat)];

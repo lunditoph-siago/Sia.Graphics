@@ -57,6 +57,8 @@ public abstract record Expression(ShaderType Type)
     public sealed record Literal(object Value, ShaderType ValueType) : Expression(ValueType);
     // Temporary structured adapter for the ordered canonical helper-state read.
     internal sealed record HelperInvocation() : Expression(ShaderType.Bool);
+    // Native frontend adapter; a target chooses a concrete value only after validation.
+    internal sealed record Undefined(ShaderType ValueType) : Expression(ValueType);
     /// <summary>Variable references denote places; loads are explicit.</summary>
     public sealed record Reference(string Name, ShaderType ValueType) : Expression(ValueType);
     public sealed record Load(Expression Pointer) : Expression(Pointer.Type is ShaderType.Pointer p ? p.Base : Pointer.Type)
@@ -71,6 +73,7 @@ public abstract record Expression(ShaderType Type)
         public SpirvAtomicMemory? AtomicMemory { get; init; }
         /// <summary>Native ordinary/cooperative memory access, including accesses to upgraded atomic places.</summary>
         public SpirvMemoryAccess? MemoryAccess { get; init; }
+        internal SpirvImageAccess? ImageAccess { get; init; }
     }
     public sealed record Construct(ShaderType ValueType, IReadOnlyList<Expression> Components) : Expression(ValueType);
     public sealed record Convert(ShaderType ValueType, Expression Operand, bool Bitcast = false) : Expression(ValueType);
@@ -113,7 +116,7 @@ public abstract record Statement
     public sealed record Evaluate(Expression Value) : Statement;
     internal sealed record MeshStore(MeshOutputField Field, Expression Index, Expression Value) : Statement;
     internal sealed record MeshSetOutputs(Expression Vertices, Expression Primitives) : Statement;
-    internal sealed record TaskDispatch(Expression Dimensions, string Payload) : Statement;
+    internal sealed record TaskDispatch(Expression Dimensions, string? Payload) : Statement;
     public sealed record If(Expression Condition, Block Accept, Block Reject) : Statement;
     public sealed record Loop(Block Body, Block Continuing, Expression? BreakIf = null) : Statement;
     public sealed record Switch(Expression Selector, IReadOnlyList<SwitchCase> Cases) : Statement;

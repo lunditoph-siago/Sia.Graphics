@@ -5,6 +5,10 @@ internal sealed class ControlFlowFunction(ShaderFunction signature)
 {
     public ShaderFunction Signature { get; } = signature;
     public List<ControlFlowBlock> Blocks { get; } = [];
+    public IReadOnlyList<DiagnosticFilter> BodyDiagnosticFilters { get; private set; } = signature.Body.DiagnosticFilters.ToArray();
+    // Declared block settings also survive when a range contains no instruction.
+    // Executable settings remain on instructions; empty ranges cannot affect them.
+    public List<IReadOnlyList<DiagnosticFilter>> DiagnosticRanges { get; } = [];
     // Frontends retain known structured boundaries as verified CFG facts, without
     // retaining source statements. Null boundaries were removed as unreachable.
     public Dictionary<int, int?> SelectionMerges { get; } = [];
@@ -19,9 +23,11 @@ internal sealed class ControlFlowFunction(ShaderFunction signature)
         Blocks.Add(block); return block;
     }
 
-    internal ControlFlowFunction Copy()
+    internal ControlFlowFunction Copy(ShaderFunction? signature = null)
     {
-        var output = new ControlFlowFunction(Signature) { Entry = Entry, nextValue = nextValue, nextBlock = nextBlock };
+        var output = new ControlFlowFunction(signature ?? Signature) { Entry = Entry, nextValue = nextValue, nextBlock = nextBlock };
+        output.BodyDiagnosticFilters = BodyDiagnosticFilters.ToArray();
+        output.DiagnosticRanges.AddRange(DiagnosticRanges.Select(r => (IReadOnlyList<DiagnosticFilter>)r.ToArray()));
         ControlFlowEdge Edge(ControlFlowEdge edge) => new(edge.Target, edge.Arguments);
         foreach (var block in Blocks) {
             var copy = new ControlFlowBlock(block.Id);
@@ -72,7 +78,7 @@ internal sealed record ControlFlowInstruction(SsaValue? Result, ValueOperation O
         ValueOperation.InterfaceStore => ShaderEffects.WriteMemory | ShaderEffects.Resource,
         ValueOperation.MeshSetOutputs => ShaderEffects.WriteMemory | ShaderEffects.Convergent,
         ValueOperation.Builtin builtin => ShaderBuiltinEffects.For(builtin.Function) | ShaderBuiltinEffects.Memory(builtin.MemoryAccess)
-            | ShaderBuiltinEffects.AtomicMemory(builtin.AtomicMemory),
+            | ShaderBuiltinEffects.AtomicMemory(builtin.AtomicMemory) | ShaderBuiltinEffects.ImageMemory(builtin.ImageAccess),
         ValueOperation.Barrier barrier => ShaderBuiltinEffects.Barrier(barrier.Control),
         ValueOperation.Demote => ShaderEffects.Convergent | ShaderEffects.HelperDemotion,
         ValueOperation.HelperInvocation => ShaderEffects.Convergent | ShaderEffects.ReadInvocationState,
@@ -86,6 +92,7 @@ internal sealed record ControlFlowInstruction(SsaValue? Result, ValueOperation O
 internal abstract record ValueOperation
 {
     public sealed record Literal(object Value) : ValueOperation;
+    public sealed record Undefined : ValueOperation;
     public sealed record Symbol(string Name) : ValueOperation;
     public sealed record Local(string Name, bool ZeroInitialize = true) : ValueOperation;
     public sealed record Let(string Name, SsaValue Value) : ValueOperation;
@@ -98,7 +105,7 @@ internal abstract record ValueOperation
     public sealed record Member(SsaValue Base, string Name) : ValueOperation;
     public sealed record Swizzle(SsaValue Vector, string Components) : ValueOperation;
     public sealed record Builtin(string Function, IReadOnlyList<SsaValue> Arguments, ShaderType ReturnType,
-        SpirvAtomicMemory? AtomicMemory = null, SpirvMemoryAccess? MemoryAccess = null) : ValueOperation;
+        SpirvAtomicMemory? AtomicMemory = null, SpirvMemoryAccess? MemoryAccess = null, SpirvImageAccess? ImageAccess = null) : ValueOperation;
     public sealed record Call(string Function, IReadOnlyList<SsaValue> Arguments, ShaderType ReturnType,
         SpirvAtomicMemory? AtomicMemory = null, SpirvMemoryAccess? MemoryAccess = null, ShaderEffects CalleeEffects = ShaderEffects.None) : ValueOperation;
     public sealed record Load(SsaValue Pointer, SpirvMemoryAccess? MemoryAccess = null) : ValueOperation;
@@ -149,8 +156,11 @@ internal abstract record ControlFlowTerminator
     public sealed record Branch(ControlFlowEdge Edge) : ControlFlowTerminator;
     public sealed record Conditional(SsaValue Condition, ControlFlowEdge Accept, ControlFlowEdge Reject) : ControlFlowTerminator;
     public sealed record Switch(SsaValue Selector, IReadOnlyList<ControlFlowCase> Cases, ControlFlowEdge Default) : ControlFlowTerminator;
-    public sealed record Return(SsaValue? Value = null) : ControlFlowTerminator;
-    public sealed record TaskDispatch(SsaValue Dimensions, string Payload, SourceSpan Span = default) : ControlFlowTerminator;
+    public sealed record Return(SsaValue? Value = null) : ControlFlowTerminator
+    {
+        public SourceSpan Span { get; init; }
+    }
+    public sealed record TaskDispatch(SsaValue Dimensions, string? Payload, SourceSpan Span = default) : ControlFlowTerminator;
     public sealed record Unreachable(SourceSpan Span = default) : ControlFlowTerminator;
     public sealed record InvocationKill(SourceSpan Span = default, bool ExplicitTermination = false) : ControlFlowTerminator;
     public ShaderEffects Effects => this is TaskDispatch ? ShaderBuiltinEffects.Barrier(true) | ShaderEffects.InvocationTermination
@@ -164,6 +174,6 @@ internal abstract record ControlFlowTerminator
     };
     public ControlFlowTerminator Map(Func<SsaValue, SsaValue> value) => this switch {
         Conditional c => c with { Condition = value(c.Condition) }, Switch s => s with { Selector = value(s.Selector) },
-        Return { Value: { } v } => new Return(value(v)), TaskDispatch d => d with { Dimensions = value(d.Dimensions) }, _ => this
+        Return { Value: { } v } r => r with { Value = value(v) }, TaskDispatch d => d with { Dimensions = value(d.Dimensions) }, _ => this
     };
 }

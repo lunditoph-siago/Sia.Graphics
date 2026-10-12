@@ -9,7 +9,10 @@ namespace Sia.Spirv.Compiler.Translation.Proc;
 /// WGSL legality consumes these facts; native SPIR-V aliases remain representable.</summary>
 internal static partial class PointerAliasAnalysis
 {
-    internal sealed record Root(int Parameter = -1, string? Global = null, int Local = 0);
+    internal sealed record Root(int Parameter = -1, string? Global = null, int Local = 0, bool IsUndefined = false)
+    {
+        public bool IsNull => !IsUndefined && Parameter < 0 && Global is null && Local == 0;
+    }
     private sealed record Binding(HashSet<Root> Roots, bool Place);
     private sealed record Summary(HashSet<Root> Reads, HashSet<Root> Writes);
 

@@ -105,7 +105,7 @@ internal static partial class UniformityAnalysis
                             if (instruction.Result is { } local) foreach (var root in Roots(local)) memory[root] = allocation.ZeroInitialize ? control : Join(control, nonUniform);
                             result = control; break;
                         case ValueOperation.Load load: result = Read(load.Pointer, control, memory); break;
-                        case ValueOperation.HelperInvocation: result = Join(control, nonUniform); break;
+                        case ValueOperation.HelperInvocation or ValueOperation.Undefined: result = Join(control, nonUniform); break;
                         case ValueOperation.Store store: Store(store.Pointer, Value(store.Value), control, memory); result = control; break;
                         case ValueOperation.Call call:
                             result = Call(call, instruction, ref control, memory, callExits[block.Id]);

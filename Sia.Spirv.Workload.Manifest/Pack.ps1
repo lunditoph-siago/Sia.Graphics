@@ -25,16 +25,13 @@ if ([string]::IsNullOrWhiteSpace($DotNetPath)) {
   }
 }
 if ([string]::IsNullOrWhiteSpace($SdkFeatureBand)) {
-  $sdkVersion = (& $DotNetPath --version).Trim()
+  $SdkFeatureBand = (& $DotNetPath msbuild `
+    (Join-Path $PSScriptRoot "SdkFeatureBand.targets") `
+    -target:ResolveSiaSdkFeatureBand `
+    -getProperty:SiaSpirvSdkFeatureBand).Trim()
   if ($LASTEXITCODE -ne 0) {
-    throw "Failed to determine the .NET SDK version."
+    throw "Failed to determine the .NET SDK feature band."
   }
-  $featureBandMatch = [Regex]::Match(
-    $sdkVersion, '^\d+\.\d+\.\d+(?:-[^.]+\.\d+)?')
-  if (!$featureBandMatch.Success) {
-    throw "Could not derive an SDK feature band from '$sdkVersion'."
-  }
-  $SdkFeatureBand = $featureBandMatch.Value
 }
 if ($HostRuntimeIdentifiers.Count -eq 0) {
   $HostRuntimeIdentifiers = if ($IsWindows) {

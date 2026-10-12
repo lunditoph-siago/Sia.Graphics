@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text.RegularExpressions;
 
 namespace Sia.Spirv.Bootstrap;
 
@@ -9,17 +8,17 @@ internal sealed record DotNetSdk(
     string Version,
     string FeatureBand)
 {
-    private static readonly Regex s_FeatureBandPattern = new(
-        @"^\d+\.\d+\.\d+(?:-[^.]+\.\d+)?",
-        RegexOptions.CultureInvariant);
-
     public static async Task<DotNetSdk> DiscoverAsync(
         string dotnetPath,
         CancellationToken cancellationToken)
     {
         var version = (await RunAndCaptureAsync(
             dotnetPath, ["--version"], cancellationToken)).Trim();
-        var featureBand = GetFeatureBand(version);
+        var featureBand = (await RunAndCaptureAsync(
+            dotnetPath, ["msbuild",
+                Path.Combine(AppContext.BaseDirectory, "SdkFeatureBand.targets"),
+                "-target:ResolveSiaSdkFeatureBand",
+                "-getProperty:SiaSpirvSdkFeatureBand"], cancellationToken)).Trim();
         var installedSdks = await RunAndCaptureAsync(
             dotnetPath, ["--list-sdks"], cancellationToken);
         var sdkDirectory = GetSdkDirectory(installedSdks, version);
@@ -27,16 +26,6 @@ internal sealed record DotNetSdk(
             ?? throw new InvalidOperationException(
                 $"Could not determine the .NET root from '{sdkDirectory}'.");
         return new DotNetSdk(dotnetPath, rootDirectory, version, featureBand);
-    }
-
-    internal static string GetFeatureBand(string sdkVersion)
-    {
-        var match = s_FeatureBandPattern.Match(sdkVersion);
-        if (!match.Success) {
-            throw new InvalidOperationException(
-                $"Could not derive an SDK feature band from '{sdkVersion}'.");
-        }
-        return match.Value;
     }
 
     internal static string GetSdkDirectory(string installedSdks, string sdkVersion)

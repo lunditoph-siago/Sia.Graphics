@@ -1,0 +1,26 @@
+<Project>
+  <Import Project="$(MSBuildToolsPath)/Microsoft.NETCoreSdk.BundledVersions.props"
+          Condition="'$(NETCoreSdkVersion)' == ''" />
+  <UsingTask TaskName="GetSiaSdkFeatureBand"
+             TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <SdkVersion ParameterType="System.String" Required="true" />
+      <SdkDirectory ParameterType="System.String" Required="true" />
+      <FeatureBand ParameterType="System.String" Output="true" />
+    </ParameterGroup>
+    <Task>
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        System.Reflection.Assembly.LoadFrom(System.IO.Path.Combine(SdkDirectory, "Microsoft.Deployment.DotNet.Releases.dll"));
+        var sdk = System.Reflection.Assembly.LoadFrom(System.IO.Path.Combine(SdkDirectory, "Microsoft.NET.Sdk.WorkloadManifestReader.dll"));
+        var type = sdk.GetType("Microsoft.NET.Sdk.WorkloadManifestReader.SdkFeatureBand", true);
+        FeatureBand = System.Activator.CreateInstance(type, SdkVersion).ToString();
+      ]]></Code>
+    </Task>
+  </UsingTask>
+  <Target Name="ResolveSiaSdkFeatureBand" Condition="'$(SiaSpirvSdkFeatureBand)' == ''">
+    <GetSiaSdkFeatureBand SdkVersion="$(NETCoreSdkVersion)" SdkDirectory="$(MSBuildToolsPath)">
+      <Output TaskParameter="FeatureBand" PropertyName="SiaSpirvSdkFeatureBand" />
+    </GetSiaSdkFeatureBand>
+  </Target>
+</Project>

@@ -7,8 +7,8 @@ readonly source_directory="${1:-$repository_root/artifacts/spirv-tools}"
 readonly build_directory="${2:-$repository_root/artifacts/spirv-tools-build-linux-x64}"
 readonly install_directory="${3:-$repository_root/artifacts/llvm-toolchain-linux-x64}"
 readonly headers_directory="$source_directory/external/spirv-headers"
-readonly expected_tools_commit="0539c81f69a3daeb706fd3477dca61435b475156"
-readonly expected_headers_commit="ad9184e76a66b1001c29db9b0a3e87f646c64de0"
+readonly expected_tools_commit="ef96ed763b43b59b33b31b362f09a02b729fa1c9"
+readonly expected_headers_commit="496543121ce6419f23d6fa5d7194ba66c36212d2"
 
 if [[ ! -f "$source_directory/CMakeLists.txt" ]]; then
   echo "SPIRV-Tools source was not found at '$source_directory'." >&2

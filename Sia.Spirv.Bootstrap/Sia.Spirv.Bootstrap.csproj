@@ -11,6 +11,9 @@
     <PackageDescription>Bootstraps and installs the Sia LLVM SPIR-V workload for a .NET SDK.</PackageDescription>
   </PropertyGroup>
   <ItemGroup>
+    <None Include="..\Sia.Spirv.Workload.Manifest\SdkFeatureBand.targets"
+          Link="SdkFeatureBand.targets"
+          CopyToOutputDirectory="PreserveNewest" />
     <AssemblyMetadata Include="SiaSpirvPackageVersion" Value="$(PackageVersion)" />
     <EmbeddedResource Include="..\Sia.Spirv.Workload.Manifest\WorkloadManifest.targets"
                       Link="WorkloadManifest.targets"

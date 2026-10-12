@@ -13,10 +13,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DOTNET_SDK_VERSION: 11.0.100-rc.1.26425.128
   LLVM_COMMIT: 10eea834e26333cb0d3e71e75faa536144ecc099
-  SPIRV_TOOLS_COMMIT: 0539c81f69a3daeb706fd3477dca61435b475156
-  SPIRV_HEADERS_COMMIT: ad9184e76a66b1001c29db9b0a3e87f646c64de0
+  SPIRV_TOOLS_COMMIT: ef96ed763b43b59b33b31b362f09a02b729fa1c9
+  SPIRV_HEADERS_COMMIT: 496543121ce6419f23d6fa5d7194ba66c36212d2
   NATIVE_BUILD_REVISION: 2
 
 jobs:
@@ -26,6 +25,16 @@ jobs:
       version: ${{ steps.release.outputs.version }}
       feature_band: ${{ steps.release.outputs.feature_band }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Resolve .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.x
+
       - name: Resolve release version
         id: release
         shell: pwsh
@@ -36,14 +45,15 @@ jobs:
             throw 'Publishing requires a version tag such as v0.1.0-preview.1.'
           }
           $version = '${{ github.ref_name }}'.Substring(1)
-          $match = [Regex]::Match(
-            $env:DOTNET_SDK_VERSION,
-            '^\d+\.\d+\.\d+(?:-[^.]+\.\d+)?')
-          if (!$match.Success) {
-            throw "Could not derive a feature band from '$env:DOTNET_SDK_VERSION'."
+          $featureBand = (dotnet msbuild `
+            Sia.Spirv.Workload.Manifest/SdkFeatureBand.targets `
+            -target:ResolveSiaSdkFeatureBand `
+            -getProperty:SiaSpirvSdkFeatureBand).Trim()
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Failed to determine the .NET SDK feature band.'
           }
           "version=$version" >> $env:GITHUB_OUTPUT
-          "feature_band=$($match.Value)" >> $env:GITHUB_OUTPUT
+          "feature_band=$featureBand" >> $env:GITHUB_OUTPUT
 
   native:
     needs: prepare
@@ -198,7 +208,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+          dotnet-version: 11.x
 
       - name: Build managed shader translator
         run: dotnet build Sia.Spirv.Tool/Sia.Spirv.Tool.csproj -c Release
@@ -366,7 +376,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+          dotnet-version: 11.x
 
       - name: Install compiler WebAssembly workload
         run: dotnet workload install wasm-tools
@@ -477,7 +487,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+          dotnet-version: 11.x
 
       - name: Download packages
         uses: actions/download-artifact@v8
@@ -574,7 +584,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+          dotnet-version: 11.x
 
       - name: NuGet login
         uses: NuGet/login@v1

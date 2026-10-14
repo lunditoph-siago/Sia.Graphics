@@ -8,7 +8,6 @@
     <ItemGroup>
       <NativeFileReference Include="$(_SiaGraphicsCanvasRoot)Canvas.c" />
       <Content Include="$(_SiaGraphicsCanvasRoot)Canvas.library.js" Kind="js-library" />
-      <_WasmPInvokeModules Include="__Internal_emscripten" />
     </ItemGroup>
   </Target>
   <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm'">

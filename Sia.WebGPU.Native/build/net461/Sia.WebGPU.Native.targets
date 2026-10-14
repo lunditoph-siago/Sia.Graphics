@@ -1,16 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm'">
-    <SiaWebGpuCachePath Condition="'$(SiaWebGpuCachePath)' == ''">$([MSBuild]::NormalizePath('$(BaseIntermediateOutputPath)siawebgpu-cache'))</SiaWebGpuCachePath>
-    <WasmCachePath Condition="'$(WasmCachePath)' == ''">$(SiaWebGpuCachePath)</WasmCachePath>
-    <EmccFlags Condition="'$(_SiaWebGpuPortConfigured)' != 'true'">$(EmccFlags) --use-port=emdawnwebgpu:cpp_bindings=false</EmccFlags>
-    <_SiaWebGpuPortConfigured>true</_SiaWebGpuPortConfigured>
-  </PropertyGroup>
-
-  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm'">
-    <NativeFileReference Include="$(MSBuildThisFileDirectory)..\..\ports\siawebgpu\src\siawebgpu_dawn.c" />
-  </ItemGroup>
-
   <PropertyGroup Condition="'$(RuntimeIdentifier)' != 'browser-wasm'">
     <_SiaWebGPUNative_IsWindows Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'">true</_SiaWebGPUNative_IsWindows>
     <_SiaWebGPUNative_IsMacOS Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))' == 'true'">true</_SiaWebGPUNative_IsMacOS>

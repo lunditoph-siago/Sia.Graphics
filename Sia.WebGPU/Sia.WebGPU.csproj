@@ -12,6 +12,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="Sia.WebGPU.targets" />
+    <None Include="Sia.WebGPU.targets" Pack="true" PackagePath="buildTransitive" />
     <ProjectReference Include="..\Sia.RenderGraph\Sia.RenderGraph.csproj" />
     <ProjectReference Include="..\Sia.Spirv.Compiler\Sia.Spirv.Compiler.csproj" />
     <ProjectReference Include="..\Sia.WebGPU.Generators\Sia.WebGPU.Generators.csproj"

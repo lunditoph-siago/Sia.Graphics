@@ -17,13 +17,9 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private const int k_InitialWidth = 1280;
     private const int k_InitialHeight = 720;
     private const int k_UniformSize = 64;
-#if SIA_SPIRV_ASSETS
-    private const uint k_TextureBinding = 0;
-    private const uint k_UniformBinding = 1;
-#else
-    private const uint k_UniformBinding = 0;
-    private const uint k_TextureBinding = 1;
-#endif
+    private bool _useSpirvShaders = false;
+    private uint UniformBinding => _useSpirvShaders ? 1u : 0u;
+    private uint TextureBinding => _useSpirvShaders ? 0u : 1u;
     private const WGPUTextureFormat k_AccumulationFormat = WGPUTextureFormat.RGBA16Float;
     private readonly WgpuHandle<WGPUTexture>[] _accumulationTextures = new WgpuHandle<WGPUTexture>[2];
     private readonly HashSet<Key> _downKeys = [];
@@ -268,7 +264,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         var entries = stackalloc WGPUBindGroupLayoutEntry[2];
         entries[0] = new WGPUBindGroupLayoutEntry {
             NextInChain = null,
-            Binding = k_UniformBinding,
+            Binding = UniformBinding,
             Visibility = WGPUShaderStage.Fragment,
             BindingArraySize = 0,
             Buffer = new WGPUBufferBindingLayout {
@@ -283,7 +279,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         };
         entries[1] = new WGPUBindGroupLayoutEntry {
             NextInChain = null,
-            Binding = k_TextureBinding,
+            Binding = TextureBinding,
             Visibility = WGPUShaderStage.Fragment,
             BindingArraySize = 0,
             Buffer = default,
@@ -316,41 +312,44 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         };
         _pipelineLayout = Wgpu.CreatePipelineLayout(_device, in pipelineLayoutDescriptor);
 
-#if SIA_SPIRV_ASSETS
-        var shaders = _spirvShaderAssets
-            ?? throw new InvalidOperationException("SPIR-V shader assets were not loaded.");
-        var vertexShader = Wgpu.CreateSpirvShaderModule(
-            _device,
-            shaders.FullscreenVertex,
-            "C# fullscreen vertex");
-        var pathShader = Wgpu.CreateSpirvShaderModule(
-            _device,
-            shaders.PathFragment,
-            "C# path fragment");
-        var presentShader = Wgpu.CreateSpirvShaderModule(
-            _device,
-            shaders.PresentFragment,
-            "C# present fragment");
-        try {
-            _pathPipeline = CreateRenderPipeline(
-                vertexShader,
-                "FullscreenVertex",
-                pathShader,
-                "PathFragment",
-                k_AccumulationFormat);
-            _presentationPipeline = CreateRenderPipeline(
-                vertexShader,
-                "FullscreenVertex",
-                presentShader,
-                "PresentFragment",
-                _surfaceFormat);
+#if BROWSER
+        if (_useSpirvShaders) {
+            var shaders = _spirvShaderAssets
+                ?? throw new InvalidOperationException("SPIR-V shader assets were not loaded.");
+            var vertexShader = Wgpu.CreateSpirvShaderModule(
+                _device,
+                shaders.FullscreenVertex,
+                "C# fullscreen vertex");
+            var pathShader = Wgpu.CreateSpirvShaderModule(
+                _device,
+                shaders.PathFragment,
+                "C# path fragment");
+            var presentShader = Wgpu.CreateSpirvShaderModule(
+                _device,
+                shaders.PresentFragment,
+                "C# present fragment");
+            try {
+                _pathPipeline = CreateRenderPipeline(
+                    vertexShader,
+                    "FullscreenVertex",
+                    pathShader,
+                    "PathFragment",
+                    k_AccumulationFormat);
+                _presentationPipeline = CreateRenderPipeline(
+                    vertexShader,
+                    "FullscreenVertex",
+                    presentShader,
+                    "PresentFragment",
+                    _surfaceFormat);
+            }
+            finally {
+                Wgpu.Release(ref presentShader);
+                Wgpu.Release(ref pathShader);
+                Wgpu.Release(ref vertexShader);
+            }
+            return;
         }
-        finally {
-            Wgpu.Release(ref presentShader);
-            Wgpu.Release(ref pathShader);
-            Wgpu.Release(ref vertexShader);
-        }
-#else
+#endif
         var shader = Wgpu.CreateWgslShaderModule(
             _device,
             CornellBoxShaders.Source,
@@ -372,7 +371,6 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         finally {
             Wgpu.Release(ref shader);
         }
-#endif
     }
 
     private WgpuHandle<WGPURenderPipeline> CreateRenderPipeline(
@@ -483,7 +481,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         var entries = stackalloc WGPUBindGroupEntry[2];
         entries[0] = new WGPUBindGroupEntry {
             NextInChain = null,
-            Binding = k_UniformBinding,
+            Binding = UniformBinding,
             Buffer = Pointer(_uniformBuffer),
             Offset = 0,
             Size = k_UniformSize,
@@ -492,7 +490,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         };
         entries[1] = new WGPUBindGroupEntry {
             NextInChain = null,
-            Binding = k_TextureBinding,
+            Binding = TextureBinding,
             Buffer = null,
             Offset = 0,
             Size = 0,

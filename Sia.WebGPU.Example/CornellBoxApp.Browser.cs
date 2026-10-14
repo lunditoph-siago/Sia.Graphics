@@ -7,10 +7,8 @@ namespace Sia.WebGPU.Example;
 #if BROWSER
 internal sealed partial class CornellBoxApp
 {
-#if SIA_SPIRV_ASSETS
     private const string k_ShaderAssetRoot = "spirv/Sia.WebGPU.Example.";
     private SpirvShaderAssets? _spirvShaderAssets;
-#endif
     private double? _previousAnimationFrameTime;
 
     public async Task RunAsync()
@@ -75,9 +73,8 @@ internal sealed partial class CornellBoxApp
         _surfaceFormat = _target.Format;
         ApplyCanvasFrame(dimensions);
 
-#if SIA_SPIRV_ASSETS
-        _spirvShaderAssets = await LoadSpirvShaderAssetsAsync();
-#endif
+        _useSpirvShaders = GetShaderFormat() == "spirv";
+        if (_useSpirvShaders) _spirvShaderAssets = await LoadSpirvShaderAssetsAsync();
         CreateUniformBuffer();
         CreatePipelines();
         InitializeUi();
@@ -94,7 +91,6 @@ internal sealed partial class CornellBoxApp
         return await request;
     }
 
-#if SIA_SPIRV_ASSETS
     private static async Task<SpirvShaderAssets> LoadSpirvShaderAssetsAsync()
     {
         Console.WriteLine("Loading generated C# SPIR-V shader assets.");
@@ -117,7 +113,9 @@ internal sealed partial class CornellBoxApp
         byte[] FullscreenVertex,
         byte[] PathFragment,
         byte[] PresentFragment);
-#endif
+
+    [JSImport("shaderFormat", "main.js")]
+    private static partial string GetShaderFormat();
 
     private async Task<WgpuHandle<WGPUAdapter>> RequestBrowserAdapterAsync()
     {

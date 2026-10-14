@@ -2,12 +2,23 @@ import { dotnet } from './_framework/dotnet.js';
 import { createCanvas, nextCanvasFrame, disposeCanvas } from './canvas.js';
 
 const canvasMode = new URLSearchParams(location.search).get('canvas') === 'normal' ? 'normal' : 'offscreen';
+const shaderFormat = new URLSearchParams(location.search).get('shader') === 'spirv' ? 'spirv' : 'wgsl';
 const canvasToggle = document.getElementById('canvas-toggle');
+const shaderToggle = document.getElementById('shader-toggle');
 canvasToggle.setAttribute('aria-pressed', String(canvasMode === 'normal'));
+canvasToggle.setAttribute('aria-label', canvasMode === 'normal' ? 'Use OffscreenCanvas' : 'Use ordinary Canvas');
 document.getElementById('canvas-mode').textContent = canvasMode === 'normal' ? 'Canvas' : 'OffscreenCanvas';
+shaderToggle.setAttribute('aria-pressed', String(shaderFormat === 'spirv'));
+shaderToggle.setAttribute('aria-label', shaderFormat === 'spirv' ? 'Use WGSL shaders' : 'Use C# SPIR-V shaders');
+shaderToggle.textContent = shaderFormat === 'spirv' ? 'SPIR-V' : 'WGSL';
 canvasToggle.addEventListener('click', () => {
     const url = new URL(location.href);
     url.searchParams.set('canvas', canvasMode === 'normal' ? 'offscreen' : 'normal');
+    location.assign(url);
+});
+shaderToggle.addEventListener('click', () => {
+    const url = new URL(location.href);
+    url.searchParams.set('shader', shaderFormat === 'spirv' ? 'wgsl' : 'spirv');
     location.assign(url);
 });
 
@@ -86,6 +97,7 @@ window.addEventListener('unhandledrejection', (e) => {
 });
 
 try {
+    if (!navigator.gpu) throw new Error('WebGPU is unavailable. Use a browser and device with WebGPU support.');
     const { runMain, Module, setModuleImports } = await dotnet.create();
 
     Module.print = console.log;
@@ -93,11 +105,12 @@ try {
     setModuleImports('main.js', {
         loadBinaryBase64,
         createCanvas: () => {
-            canvasToggle.hidden = false;
+            document.getElementById('preview-controls').hidden = false;
             return createCanvas();
         },
         nextCanvasFrame, disposeCanvas,
         canvasPresentation: () => canvasMode,
+        shaderFormat: () => shaderFormat,
         setTitle: title => { document.title = title; },
     });
 

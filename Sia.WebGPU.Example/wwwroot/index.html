@@ -24,10 +24,13 @@
             height: 100vh;
         }
 
-        #canvas-toggle {
+        #preview-controls {
             position: fixed;
             top: 12px;
             right: 12px;
+        }
+
+        #preview-controls button {
             padding: 3px 9px;
             border: 1px solid #444;
             border-radius: 2px;
@@ -37,7 +40,7 @@
             cursor: pointer;
         }
 
-        #canvas-toggle[aria-pressed="true"] {
+        #preview-controls button[aria-pressed="true"] {
             background: #e8e8e8;
             color: #000;
         }
@@ -45,8 +48,11 @@
 </head>
 <body id="canvas-host">
     <canvas id="canvas" width="1280" height="720"></canvas>
-    <button id="canvas-toggle" type="button" aria-label="Use ordinary Canvas" aria-pressed="false" hidden>
-        <span id="canvas-mode">OffscreenCanvas</span>
-    </button>
+    <div id="preview-controls" hidden>
+        <button id="canvas-toggle" type="button" aria-label="Use ordinary Canvas" aria-pressed="false">
+            <span id="canvas-mode">OffscreenCanvas</span>
+        </button>
+        <button id="shader-toggle" type="button" aria-label="Use C# SPIR-V shaders" aria-pressed="false">WGSL</button>
+    </div>
 </body>
 </html>

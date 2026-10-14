@@ -14,9 +14,6 @@
   <ItemGroup>
     <Content Include="build/**" PackagePath="build/%(RecursiveDir)%(Filename)%(Extension)" />
     <Content Include="build/**" PackagePath="buildTransitive/%(RecursiveDir)%(Filename)%(Extension)" />
-    <Content Include="ports/**"
-             Exclude="ports/**/__pycache__/**;ports/**/*.pyc"
-             PackagePath="ports/%(RecursiveDir)%(Filename)%(Extension)" />
     <Content Include="_._" PackagePath="lib/net11.0" />
   </ItemGroup>
 

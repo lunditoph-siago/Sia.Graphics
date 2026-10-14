@@ -1,6 +1,14 @@
 import { dotnet } from './_framework/dotnet.js';
 import { createCanvas, nextCanvasFrame, disposeCanvas } from './canvas.js';
-import { canvasMode, shaderFormat, renderScale, bootModuleConfig, loading, ready, failed } from './ui.js';
+import {
+    canvasMode,
+    shaderFormat,
+    renderScale,
+    bootModuleConfig,
+    loading,
+    ready,
+    failed,
+} from './ui.js';
 
 async function loadBinaryBase64(path) {
     const response = await fetch(path);
@@ -78,7 +86,8 @@ window.addEventListener('unhandledrejection', (e) => {
 });
 
 try {
-    if (!navigator.gpu) throw new Error('WebGPU is unavailable. Use a browser and device with WebGPU support.');
+    if (!navigator.gpu)
+        throw new Error('WebGPU is unavailable. Use a browser and device with WebGPU support.');
     dotnet.withModuleConfig(bootModuleConfig);
     const { runMain, Module, setModuleImports } = await dotnet.create();
 
@@ -86,11 +95,18 @@ try {
     Module.printErr = (line) => console.error('[stderr]', line);
     setModuleImports('main.js', {
         loadBinaryBase64,
-        createCanvas: () => { loading('creating renderer'); return createCanvas(renderScale); },
-        nextCanvasFrame, disposeCanvas,
+        createCanvas: () => {
+            loading('creating renderer');
+            return createCanvas(renderScale);
+        },
+        nextCanvasFrame,
+        disposeCanvas,
         canvasPresentation: () => canvasMode,
         shaderFormat: () => shaderFormat,
-        setTitle: title => { document.title = title; ready(); },
+        setTitle: (title) => {
+            document.title = title;
+            ready();
+        },
     });
 
     await runMain();

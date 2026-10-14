@@ -131,7 +131,7 @@ export function createCanvas(renderScale = () => 1) {
                 event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? canvas.clientHeight : 1;
             send('wheel', -event.deltaX * factor, -event.deltaY * factor);
         },
-        { passive: false },
+        { passive: false }
     );
     listen('keydown', (event) => {
         const code = keyCode(event.code);
@@ -159,7 +159,7 @@ export function createCanvas(renderScale = () => 1) {
         () => {
             if (document.hidden) release();
         },
-        { signal: owner.abort.signal },
+        { signal: owner.abort.signal }
     );
     return owner;
 }

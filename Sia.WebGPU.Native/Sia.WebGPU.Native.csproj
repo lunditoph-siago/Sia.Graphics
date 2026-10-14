@@ -59,6 +59,7 @@
       <Tag ParameterType="System.String" Required="true" />
       <RuntimesDir ParameterType="System.String" Required="true" />
       <Force ParameterType="System.Boolean" Required="false" />
+      <NativeFiles ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
     </ParameterGroup>
     <Task>
       <Using Namespace="System.IO" />
@@ -134,6 +135,11 @@
 
           File.WriteAllText(tagFile, Tag);
           try { Directory.Delete(tempRoot, true); } catch { }
+          NativeFiles = platforms.Select(platform => {
+              var item = new Microsoft.Build.Utilities.TaskItem(Path.Combine(RuntimesDir, platform.Rid, "native", platform.Lib));
+              item.SetMetadata("PackagePath", "runtimes/" + platform.Rid + "/native/" + platform.Lib);
+              return item;
+          }).ToArray();
         ]]>
       </Code>
     </Task>
@@ -143,11 +149,8 @@
     <DownloadWgpuBinariesTask
       Tag="$(WgpuReleaseTag)"
       RuntimesDir="$(MSBuildThisFileDirectory)runtimes"
-      Force="$(ForceDownloadWgpuBinaries)" />
-    <ItemGroup>
-      <TfmSpecificPackageFile Include="$(MSBuildThisFileDirectory)runtimes/**"
-                              Exclude="$(MSBuildThisFileDirectory)runtimes/**/.gitkeep;$(MSBuildThisFileDirectory)runtimes/.release-tag;$(MSBuildThisFileDirectory)runtimes/browser-wasm/**"
-                              PackagePath="runtimes/%(RecursiveDir)%(Filename)%(Extension)" />
-    </ItemGroup>
+      Force="$(ForceDownloadWgpuBinaries)">
+      <Output TaskParameter="NativeFiles" ItemName="TfmSpecificPackageFile" />
+    </DownloadWgpuBinariesTask>
   </Target>
 </Project>

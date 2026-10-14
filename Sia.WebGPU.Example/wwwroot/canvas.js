@@ -62,8 +62,8 @@ function modifiers(event) {
         (event.ctrlKey ? 2 : 0) |
         (event.altKey ? 4 : 0) |
         (event.metaKey ? 8 : 0) |
-        (event.getModifierState?.('CapsLock') ? 16 : 0) |
-        (event.getModifierState?.('NumLock') ? 32 : 0)
+        (event.getModifierState?.("CapsLock") ? 16 : 0) |
+        (event.getModifierState?.("NumLock") ? 32 : 0)
     );
 }
 const inputKinds = {
@@ -78,17 +78,18 @@ const inputKinds = {
     keyup: 8,
     text: 9,
 };
-export function createCanvas() {
-    const container = document.getElementById('canvas-host');
-    if (!container) throw new Error('Canvas host is missing');
-    document.getElementById('canvas')?.remove();
-    const canvas = document.createElement('canvas');
-    canvas.id = 'canvas';
+export function createCanvas(renderScale = () => 1) {
+    const container = document.getElementById("canvas-host");
+    if (!container) throw new Error("Canvas host is missing");
+    document.getElementById("canvas")?.remove();
+    const canvas = document.createElement("canvas");
+    canvas.id = "canvas";
     canvas.tabIndex = 0;
-    canvas.setAttribute('aria-label', 'Cornell Box canvas');
+    canvas.setAttribute("aria-label", "Cornell Box canvas");
     container.append(canvas);
-    const owner = {
+    const state = {
         canvas,
+        renderScale,
         frame: [0, 0, 0, 1],
         abort: new AbortController(),
         keys: new Set(),
@@ -96,111 +97,107 @@ export function createCanvas() {
         stopped: false,
         raf: 0,
     };
-    const listen = (name, callback, options = {}) =>
-        canvas.addEventListener(name, callback, {
-            ...options,
-            signal: owner.abort.signal,
-        });
     const send = (kind, x = 0, y = 0, code = 0, mods = 0) => {
-        if (!owner.stopped) owner.frame.push(inputKinds[kind], x, y, code, mods);
+        if (!state.stopped) state.frame.push(inputKinds[kind], x, y, code, mods);
     };
-    listen('pointermove', (event) => {
-        const box = canvas.getBoundingClientRect();
-        send('move', event.clientX - box.left, event.clientY - box.top);
-    });
     const button = (value) => (value === 1 ? 2 : value === 2 ? 1 : value);
-    listen('pointerdown', (event) => {
-        canvas.focus();
-        canvas.setPointerCapture(event.pointerId);
-        owner.buttons.add(button(event.button));
-        send('press', 0, 0, button(event.button), modifiers(event));
-    });
-    listen('pointerup', (event) => {
-        owner.buttons.delete(button(event.button));
-        send('release', 0, 0, button(event.button), modifiers(event));
-    });
-    listen('pointerenter', () => send('enter'));
-    listen('pointerleave', () => send('exit'));
-    listen('contextmenu', (event) => event.preventDefault());
-    listen(
-        'wheel',
-        (event) => {
+    const release = () => {
+        for (const code of state.keys) send("keyup", 0, 0, code);
+        for (const code of state.buttons) send("release", 0, 0, code);
+        state.keys.clear();
+        state.buttons.clear();
+    };
+    const callbacks = {
+        pointermove(event) {
+            const box = canvas.getBoundingClientRect();
+            send("move", event.clientX - box.left, event.clientY - box.top);
+        },
+        pointerdown(event) {
+            canvas.focus();
+            canvas.setPointerCapture(event.pointerId);
+            state.buttons.add(button(event.button));
+            send("press", 0, 0, button(event.button), modifiers(event));
+        },
+        pointerup(event) {
+            state.buttons.delete(button(event.button));
+            send("release", 0, 0, button(event.button), modifiers(event));
+        },
+        pointerenter: () => send("enter"),
+        pointerleave: () => send("exit"),
+        contextmenu: (event) => event.preventDefault(),
+        wheel(event) {
             event.preventDefault();
             const factor =
                 event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? canvas.clientHeight : 1;
-            send('wheel', -event.deltaX * factor, -event.deltaY * factor);
+            send("wheel", -event.deltaX * factor, -event.deltaY * factor);
         },
-        { passive: false },
-    );
-    listen('keydown', (event) => {
-        const code = keyCode(event.code);
-        owner.keys.add(code);
-        send(event.repeat ? 'repeat' : 'keydown', 0, 0, code, modifiers(event));
-        if (!event.ctrlKey && !event.metaKey && !event.altKey && [...event.key].length === 1)
-            send('text', 0, 0, event.key.codePointAt(0));
-        if (event.code === 'Space' || event.code.startsWith('Arrow')) event.preventDefault();
-    });
-    listen('keyup', (event) => {
-        const code = keyCode(event.code);
-        owner.keys.delete(code);
-        send('keyup', 0, 0, code, modifiers(event));
-    });
-    const release = () => {
-        for (const code of owner.keys) send('keyup', 0, 0, code);
-        for (const code of owner.buttons) send('release', 0, 0, code);
-        owner.keys.clear();
-        owner.buttons.clear();
+        keydown(event) {
+            const code = keyCode(event.code);
+            state.keys.add(code);
+            send(event.repeat ? "repeat" : "keydown", 0, 0, code, modifiers(event));
+            if (!event.ctrlKey && !event.metaKey && !event.altKey && [...event.key].length === 1)
+                send("text", 0, 0, event.key.codePointAt(0));
+            if (event.code === "Space" || event.code.startsWith("Arrow")) event.preventDefault();
+        },
+        keyup(event) {
+            const code = keyCode(event.code);
+            state.keys.delete(code);
+            send("keyup", 0, 0, code, modifiers(event));
+        },
+        blur: release,
+        pointercancel: release,
     };
-    listen('blur', release);
-    listen('pointercancel', release);
+    Object.entries(callbacks).forEach(([name, callback]) =>
+        canvas.addEventListener(name, callback, { signal: state.abort.signal, passive: false })
+    );
     document.addEventListener(
-        'visibilitychange',
+        "visibilitychange",
         () => {
             if (document.hidden) release();
         },
-        { signal: owner.abort.signal },
+        { signal: state.abort.signal }
     );
-    return owner;
+    return state;
 }
-export function nextCanvasFrame(owner) {
+export function nextCanvasFrame(state) {
     return new Promise((resolve, reject) => {
-        if (owner.stopped) {
-            reject(new Error('Pipeline stopped'));
+        if (state.stopped) {
+            reject(new Error("Pipeline stopped"));
             return;
         }
-        if (owner.rejectFrame) {
-            reject(new Error('A canvas frame is already pending'));
+        if (state.rejectFrame) {
+            reject(new Error("A canvas frame is already pending"));
             return;
         }
-        owner.rejectFrame = reject;
+        state.rejectFrame = reject;
         const tick = (time) => {
-            const box = owner.canvas.getBoundingClientRect();
+            const box = state.canvas.getBoundingClientRect();
             if (document.hidden || box.width <= 0 || box.height <= 0) {
-                owner.raf = requestAnimationFrame(tick);
+                state.raf = requestAnimationFrame(tick);
                 return;
             }
-            const frame = owner.frame;
+            const frame = state.frame;
             frame[0] = time;
             frame[1] = box.width;
             frame[2] = box.height;
-            frame[3] = window.devicePixelRatio || 1;
+            frame[3] = (window.devicePixelRatio || 1) * state.renderScale();
             const json = JSON.stringify(frame);
             frame.length = 4;
-            owner.rejectFrame = null;
+            state.rejectFrame = null;
             resolve(json);
         };
-        owner.raf = requestAnimationFrame(tick);
+        state.raf = requestAnimationFrame(tick);
     });
 }
-export function disposeCanvas(owner) {
-    if (owner.stopped) return;
-    owner.stopped = true;
-    cancelAnimationFrame(owner.raf);
-    owner.abort.abort();
-    owner.canvas.remove();
-    owner.rejectFrame?.(new Error('Pipeline stopped'));
-    owner.rejectFrame = null;
-    owner.frame.length = 4;
-    owner.keys.clear();
-    owner.buttons.clear();
+export function disposeCanvas(state) {
+    if (state.stopped) return;
+    state.stopped = true;
+    cancelAnimationFrame(state.raf);
+    state.abort.abort();
+    state.canvas.remove();
+    state.rejectFrame?.(new Error("Pipeline stopped"));
+    state.rejectFrame = null;
+    state.frame.length = 4;
+    state.keys.clear();
+    state.buttons.clear();
 }

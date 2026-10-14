@@ -96,7 +96,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             new WindowDescriptor(
                 k_InitialWidth,
                 k_InitialHeight,
-                "Sia.WebGPU · Cornell Box Path Tracer",
+                "Sia.WebGPU Â· Cornell Box Path Tracer",
                 Resizable: true));
 
         _instance = Wgpu.CreateInstance();
@@ -314,39 +314,8 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
 
 #if BROWSER
         if (_useSpirvShaders) {
-            var shaders = _spirvShaderAssets
-                ?? throw new InvalidOperationException("SPIR-V shader assets were not loaded.");
-            var vertexShader = Wgpu.CreateSpirvShaderModule(
-                _device,
-                shaders.FullscreenVertex,
-                "C# fullscreen vertex");
-            var pathShader = Wgpu.CreateSpirvShaderModule(
-                _device,
-                shaders.PathFragment,
-                "C# path fragment");
-            var presentShader = Wgpu.CreateSpirvShaderModule(
-                _device,
-                shaders.PresentFragment,
-                "C# present fragment");
-            try {
-                _pathPipeline = CreateRenderPipeline(
-                    vertexShader,
-                    "FullscreenVertex",
-                    pathShader,
-                    "PathFragment",
-                    k_AccumulationFormat);
-                _presentationPipeline = CreateRenderPipeline(
-                    vertexShader,
-                    "FullscreenVertex",
-                    presentShader,
-                    "PresentFragment",
-                    _surfaceFormat);
-            }
-            finally {
-                Wgpu.Release(ref presentShader);
-                Wgpu.Release(ref pathShader);
-                Wgpu.Release(ref vertexShader);
-            }
+            CreateSpirvPipelines(_spirvShaderAssets
+                ?? throw new InvalidOperationException("SPIR-V shader assets were not loaded."));
             return;
         }
 #endif
@@ -651,8 +620,8 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
 
         _lastTitleUpdate = currentTime;
         SetWindowTitle(
-            $"Cornell Box · {_frameIndex * (uint)_samplesPerFrame:N0} spp · "
-                + $"{_maxBounces} bounces · exposure {_exposure:0.0} · aperture {_aperture:0.000}");
+            $"Cornell Box Â· {_frameIndex * (uint)_samplesPerFrame:N0} spp Â· "
+                + $"{_maxBounces} bounces Â· exposure {_exposure:0.0} Â· aperture {_aperture:0.000}");
     }
 
     private void ReleaseAccumulationResources()

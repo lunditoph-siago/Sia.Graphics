@@ -1,8 +1,9 @@
 import { dotnet } from './_framework/dotnet.js';
 import { createCanvas, nextCanvasFrame, disposeCanvas } from './canvas.js';
 
-const canvasMode = new URLSearchParams(location.search).get('canvas') === 'normal' ? 'normal' : 'offscreen';
-const shaderFormat = new URLSearchParams(location.search).get('shader') === 'spirv' ? 'spirv' : 'wgsl';
+const parameters = new URLSearchParams(location.search);
+const canvasMode = parameters.get('canvas') === 'normal' ? 'normal' : 'offscreen';
+const shaderFormat = parameters.get('shader') === 'spirv' ? 'spirv' : 'wgsl';
 const canvasToggle = document.getElementById('canvas-toggle');
 const shaderToggle = document.getElementById('shader-toggle');
 canvasToggle.setAttribute('aria-pressed', String(canvasMode === 'normal'));
@@ -11,16 +12,13 @@ document.getElementById('canvas-mode').textContent = canvasMode === 'normal' ? '
 shaderToggle.setAttribute('aria-pressed', String(shaderFormat === 'spirv'));
 shaderToggle.setAttribute('aria-label', shaderFormat === 'spirv' ? 'Use WGSL shaders' : 'Use C# SPIR-V shaders');
 shaderToggle.textContent = shaderFormat === 'spirv' ? 'SPIR-V' : 'WGSL';
-canvasToggle.addEventListener('click', () => {
+function selectMode(name, value) {
     const url = new URL(location.href);
-    url.searchParams.set('canvas', canvasMode === 'normal' ? 'offscreen' : 'normal');
+    url.searchParams.set(name, value);
     location.assign(url);
-});
-shaderToggle.addEventListener('click', () => {
-    const url = new URL(location.href);
-    url.searchParams.set('shader', shaderFormat === 'spirv' ? 'wgsl' : 'spirv');
-    location.assign(url);
-});
+}
+canvasToggle.addEventListener('click', () => selectMode('canvas', canvasMode === 'normal' ? 'offscreen' : 'normal'));
+shaderToggle.addEventListener('click', () => selectMode('shader', shaderFormat === 'spirv' ? 'wgsl' : 'spirv'));
 
 async function loadBinaryBase64(path) {
     const response = await fetch(path);

@@ -94,13 +94,14 @@ internal sealed partial class CornellBoxApp
     private static async Task<SpirvShaderAssets> LoadSpirvShaderAssetsAsync()
     {
         Console.WriteLine("Loading generated C# SPIR-V shader assets.");
-        return new SpirvShaderAssets(
-            await LoadSpirvAssetAsync(
+        var assets = await Task.WhenAll(
+            LoadSpirvAssetAsync(
                 $"{k_ShaderAssetRoot}CornellBoxRasterShaders.FullscreenVertex.spv"),
-            await LoadSpirvAssetAsync(
+            LoadSpirvAssetAsync(
                 $"{k_ShaderAssetRoot}CornellBoxPathTracerShaders.PathFragment.spv"),
-            await LoadSpirvAssetAsync(
+            LoadSpirvAssetAsync(
                 $"{k_ShaderAssetRoot}CornellBoxPathTracerShaders.PresentFragment.spv"));
+        return new SpirvShaderAssets(assets[0], assets[1], assets[2]);
     }
 
     private static async Task<byte[]> LoadSpirvAssetAsync(string path) =>
@@ -113,6 +114,25 @@ internal sealed partial class CornellBoxApp
         byte[] FullscreenVertex,
         byte[] PathFragment,
         byte[] PresentFragment);
+
+    private void CreateSpirvPipelines(SpirvShaderAssets shaders)
+    {
+        WgpuHandle<WGPUShaderModule> vertex = default, path = default, present = default;
+        try {
+            vertex = Wgpu.CreateSpirvShaderModule(_device, shaders.FullscreenVertex, "C# fullscreen vertex");
+            path = Wgpu.CreateSpirvShaderModule(_device, shaders.PathFragment, "C# path fragment");
+            present = Wgpu.CreateSpirvShaderModule(_device, shaders.PresentFragment, "C# present fragment");
+            _pathPipeline = CreateRenderPipeline(
+                vertex, "FullscreenVertex", path, "PathFragment", k_AccumulationFormat);
+            _presentationPipeline = CreateRenderPipeline(
+                vertex, "FullscreenVertex", present, "PresentFragment", _surfaceFormat);
+        }
+        finally {
+            Wgpu.Release(ref present);
+            Wgpu.Release(ref path);
+            Wgpu.Release(ref vertex);
+        }
+    }
 
     [JSImport("shaderFormat", "main.js")]
     private static partial string GetShaderFormat();

@@ -1,18 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk.WebAssembly">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
     <TargetFramework>net11.0-browser</TargetFramework>
     <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <IsPackable>false</IsPackable>
     <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
     <WasmEnableThreads>true</WasmEnableThreads>
-    <EnableSpirvCompilation>true</EnableSpirvCompilation>
-    <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
-    <SpirvOptimizationLevel>3</SpirvOptimizationLevel>
   </PropertyGroup>
 
   <ItemGroup>
@@ -26,19 +18,6 @@
     <PackageReference Include="Sia.Window" Version="0.0.4" />
     <PackageReference Include="Sia.UI" Version="0.0.5" />
   </ItemGroup>
-
-  <ItemGroup>
-    <EmbeddedResource Include="Assets\Fonts\*.ttf">
-      <LogicalName>Sia.WebGPU.Example.Fonts.%(Filename)%(Extension)</LogicalName>
-    </EmbeddedResource>
-  </ItemGroup>
-
-  <Target Name="RemoveBundledSpirvCoreReference" BeforeTargets="ResolveAssemblyReferences">
-    <ItemGroup>
-      <Reference Remove="Sia.Spirv.Core" />
-    </ItemGroup>
-  </Target>
-
   <Import Project="..\Sia.WebGPU\Sia.WebGPU.targets" />
   <Import Project="..\Sia.Graphics\Sia.Graphics.targets" />
 </Project>

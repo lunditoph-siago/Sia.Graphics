@@ -101,5 +101,5 @@
     <Copy SourceFiles="@(_SiaWebGpuLauncherFile)" DestinationFolder="$(_SiaWebGpuSiteRootPublishDir)%(RecursiveDir)" />
   </Target>
 
-  <Import Project="..\Sia.Graphics\buildTransitive\Sia.Graphics.targets" />
+  <Import Project="..\Sia.Graphics\Sia.Graphics.targets" />
 </Project>

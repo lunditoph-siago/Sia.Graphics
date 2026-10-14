@@ -23,9 +23,39 @@
             width: 100vw;
             height: 100vh;
         }
+
+        #canvas-controls {
+            position: fixed;
+            top: 12px;
+            right: 12px;
+            padding: 8px;
+            border-radius: 6px;
+            background: #171717;
+            color: #ddd;
+            font: 12px monospace;
+        }
+
+        #canvas-toggle {
+            margin-left: 8px;
+            padding: 6px 10px;
+            border: 1px solid #666;
+            border-radius: 4px;
+            background: #262626;
+            color: inherit;
+            cursor: pointer;
+        }
+
+        #canvas-toggle[aria-pressed="true"] {
+            border-color: #8bc7ff;
+            background: #24547d;
+        }
     </style>
 </head>
 <body id="canvas-host">
     <canvas id="canvas" width="1280" height="720"></canvas>
+    <div id="canvas-controls" hidden>
+        <span id="canvas-mode">OffscreenCanvas</span>
+        <button id="canvas-toggle" type="button" aria-label="Use ordinary Canvas" aria-pressed="false">Canvas</button>
+    </div>
 </body>
 </html>

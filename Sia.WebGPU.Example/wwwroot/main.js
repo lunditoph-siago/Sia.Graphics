@@ -2,6 +2,15 @@ import { dotnet } from './_framework/dotnet.js';
 import { createCanvas, nextCanvasFrame, disposeCanvas } from './canvas.js';
 
 const canvas = document.getElementById('canvas');
+const canvasMode = new URLSearchParams(location.search).get('canvas') === 'normal' ? 'normal' : 'offscreen';
+const canvasToggle = document.getElementById('canvas-toggle');
+canvasToggle.setAttribute('aria-pressed', String(canvasMode === 'normal'));
+document.getElementById('canvas-mode').textContent = canvasMode === 'normal' ? 'Canvas' : 'OffscreenCanvas';
+canvasToggle.addEventListener('click', () => {
+    const url = new URL(location.href);
+    url.searchParams.set('canvas', canvasMode === 'normal' ? 'offscreen' : 'normal');
+    location.assign(url);
+});
 
 function getCanvasWidth() {
     return Math.max(1, Math.round(window.innerWidth));
@@ -93,8 +102,12 @@ try {
     Module.printErr = (line) => console.error('[stderr]', line);
     setModuleImports('main.js', {
         getCanvasWidth, getCanvasHeight, loadBinaryBase64,
-        createCanvas, nextCanvasFrame, disposeCanvas,
-        canvasPresentation: () => new URLSearchParams(location.search).get('canvas') === 'normal' ? 'normal' : 'offscreen',
+        createCanvas: () => {
+            document.getElementById('canvas-controls').hidden = false;
+            return createCanvas();
+        },
+        nextCanvasFrame, disposeCanvas,
+        canvasPresentation: () => canvasMode,
         setTitle: title => { document.title = title; },
     });
 

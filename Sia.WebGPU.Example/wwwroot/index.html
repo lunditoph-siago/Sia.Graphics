@@ -16,7 +16,7 @@
                 --muted: #999;
                 --border: #444;
                 --border-soft: #222;
-                --mono: 'Consolas', 'SF Mono', 'Cascadia Code', 'Courier New', monospace;
+                --mono: "Consolas", "SF Mono", "Cascadia Code", "Courier New", monospace;
             }
 
             html,
@@ -156,6 +156,23 @@
                     height: 100%;
                     display: block;
                 }
+            }
+            #error-overlay {
+                position: fixed;
+                right: 10px;
+                bottom: 10px;
+                max-width: 600px;
+                max-height: 50vh;
+                overflow: auto;
+                margin: 0;
+                padding: 10px;
+                background: #222;
+                color: #f88;
+                border-radius: 6px;
+                font: 12px monospace;
+                white-space: pre-wrap;
+                word-break: break-word;
+                z-index: 99999;
             }
         </style>
     </head>

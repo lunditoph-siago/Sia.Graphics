@@ -1,66 +1,44 @@
-import { dotnet } from './_framework/dotnet.js';
-import { createCanvas, nextCanvasFrame, disposeCanvas } from './canvas.js';
-import {
-    canvasMode,
-    shaderFormat,
-    renderScale,
-    bootModuleConfig,
-    loading,
-    ready,
-    failed,
-} from './ui.js';
+import { dotnet } from "./_framework/dotnet.js";
+import { createCanvas, nextCanvasFrame, disposeCanvas } from "./canvas.js";
+import { createUi } from "./ui.js";
+
+const ui = createUi();
 
 async function loadBinaryBase64(path) {
     const response = await fetch(path);
     if (!response.ok) {
-        throw new Error(`Unable to load '${path}': ${response.status} ${response.statusText}`);
+        throw new Error(`Unable to load "${path}": ${response.status} ${response.statusText}`);
     }
     const bytes = new Uint8Array(await response.arrayBuffer());
-    let binary = '';
+    let binary = "";
     for (let offset = 0; offset < bytes.length; offset += 0x8000) {
         binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
     }
     return btoa(binary);
 }
 
-let errorOverlay;
+function createErrorReporter(onError) {
+    const state = { overlay: null };
+    return (message) => {
+        onError(message);
+        if (!state.overlay) {
+            state.overlay = document.createElement("pre");
+            state.overlay.id = "error-overlay";
+            state.overlay.setAttribute("role", "alert");
+            state.overlay.setAttribute("aria-live", "assertive");
+            document.body.appendChild(state.overlay);
+        }
 
-function showError(message) {
-    failed(message);
-    if (!errorOverlay) {
-        errorOverlay = document.createElement('pre');
-        errorOverlay.id = 'error-overlay';
-        errorOverlay.style.cssText = `
-            position:fixed;
-            right:10px;
-            bottom:10px;
-            max-width:600px;
-            max-height:50vh;
-            overflow:auto;
-            margin:0;
-            padding:10px;
-            background:#222;
-            color:#f88;
-            border-radius:6px;
-            font:12px monospace;
-            white-space:pre-wrap;
-            word-break:break-word;
-            z-index:99999;
-        `;
-        errorOverlay.setAttribute('role', 'alert');
-        errorOverlay.setAttribute('aria-live', 'assertive');
-        document.body.appendChild(errorOverlay);
-    }
-
-    errorOverlay.append(message + '\n\n');
-    errorOverlay.scrollTop = errorOverlay.scrollHeight;
+        state.overlay.append(message + "\n\n");
+        state.overlay.scrollTop = state.overlay.scrollHeight;
+    };
 }
 
 function formatErrorValue(value) {
     if (value instanceof Error) {
         return value.stack ?? `${value.name}: ${value.message}`;
     }
-    if (typeof value === 'string') {
+    if (typeof value === "string") {
         return value;
     }
 
@@ -72,44 +50,45 @@ function formatErrorValue(value) {
 }
 
 const originalConsoleError = console.error.bind(console);
+const reportError = createErrorReporter(ui.callbacks.onError);
 console.error = (...values) => {
     originalConsoleError(...values);
-    showError('[console.error] ' + values.map(formatErrorValue).join(' '));
+    reportError("[console.error] " + values.map(formatErrorValue).join(" "));
 };
 
-window.addEventListener('error', (e) => {
-    showError('[error] ' + (e.error?.stack ?? e.message));
+window.addEventListener("error", (e) => {
+    reportError("[error] " + (e.error?.stack ?? e.message));
 });
 
-window.addEventListener('unhandledrejection', (e) => {
-    showError('[unhandledrejection] ' + formatErrorValue(e.reason));
+window.addEventListener("unhandledrejection", (e) => {
+    reportError("[unhandledrejection] " + formatErrorValue(e.reason));
 });
 
 try {
     if (!navigator.gpu)
-        throw new Error('WebGPU is unavailable. Use a browser and device with WebGPU support.');
-    dotnet.withModuleConfig(bootModuleConfig);
+        throw new Error("WebGPU is unavailable. Use a browser and device with WebGPU support.");
+    dotnet.withModuleConfig({ onDownloadResourceProgress: ui.callbacks.onProgress });
     const { runMain, Module, setModuleImports } = await dotnet.create();
 
     Module.print = console.log;
-    Module.printErr = (line) => console.error('[stderr]', line);
-    setModuleImports('main.js', {
+    Module.printErr = (line) => console.error("[stderr]", line);
+    setModuleImports("main.js", {
         loadBinaryBase64,
         createCanvas: () => {
-            loading('creating renderer');
-            return createCanvas(renderScale);
+            ui.callbacks.onLoading("creating renderer");
+            return createCanvas(ui.renderScale);
         },
         nextCanvasFrame,
         disposeCanvas,
-        canvasPresentation: () => canvasMode,
-        shaderFormat: () => shaderFormat,
+        canvasPresentation: () => ui.state.canvas,
+        shaderFormat: () => ui.state.shader,
         setTitle: (title) => {
             document.title = title;
-            ready();
+            ui.callbacks.onReady();
         },
     });
 
     await runMain();
 } catch (err) {
-    console.error('[startup]', err);
+    console.error("[startup]", err);
 }

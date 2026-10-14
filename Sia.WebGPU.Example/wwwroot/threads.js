@@ -1,10 +1,10 @@
-if (typeof window === 'undefined') {
-    self.addEventListener('install', () => self.skipWaiting());
-    self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+if (typeof window === "undefined") {
+    self.addEventListener("install", () => self.skipWaiting());
+    self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 
-    self.addEventListener('fetch', (event) => {
+    self.addEventListener("fetch", (event) => {
         const request = event.request;
-        if (request.cache === 'only-if-cached' && request.mode !== 'same-origin') {
+        if (request.cache === "only-if-cached" && request.mode !== "same-origin") {
             return;
         }
         if (new URL(request.url).origin !== self.location.origin) {
@@ -14,13 +14,13 @@ if (typeof window === 'undefined') {
         event.respondWith(
             (async () => {
                 const response = await fetch(request);
-                if (response.type === 'opaque' || response.status === 0) {
+                if (response.type === "opaque" || response.status === 0) {
                     return response;
                 }
 
                 const headers = new Headers(response.headers);
-                headers.set('Cross-Origin-Opener-Policy', 'same-origin');
-                headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
+                headers.set("Cross-Origin-Opener-Policy", "same-origin");
+                headers.set("Cross-Origin-Embedder-Policy", "require-corp");
 
                 return new Response(response.body, {
                     status: response.status,
@@ -32,12 +32,12 @@ if (typeof window === 'undefined') {
     });
 } else {
     (async function boot() {
-        const reloadKey = 'sia.examples.coop-coep.reload';
+        const reloadKey = "sia.examples.coop-coep.reload";
         const workerUrl = new URL(window.document.currentScript.src, window.location.href).href;
 
         async function loadMain() {
             window.sessionStorage.removeItem(reloadKey);
-            await import('./main.js');
+            await import("./main.js");
         }
 
         if (
@@ -48,24 +48,24 @@ if (typeof window === 'undefined') {
             return;
         }
 
-        if (!('serviceWorker' in navigator)) {
+        if (!("serviceWorker" in navigator)) {
             if (window.crossOriginIsolated) {
                 await loadMain();
                 return;
             }
-            throw new Error('Service workers are unavailable; threaded WebAssembly cannot start.');
+            throw new Error("Service workers are unavailable; threaded WebAssembly cannot start.");
         }
 
-        await navigator.serviceWorker.register(workerUrl, { updateViaCache: 'none' });
+        await navigator.serviceWorker.register(workerUrl, { updateViaCache: "none" });
 
         if (navigator.serviceWorker.controller?.scriptURL !== workerUrl) {
             await new Promise((resolve, reject) => {
                 const timeout = window.setTimeout(() => {
                     navigator.serviceWorker.removeEventListener(
-                        'controllerchange',
+                        "controllerchange",
                         controllerChanged
                     );
-                    reject(new Error('The isolation service worker did not take control.'));
+                    reject(new Error("The isolation service worker did not take control."));
                 }, 10000);
                 function controllerChanged() {
                     if (navigator.serviceWorker.controller?.scriptURL !== workerUrl) {
@@ -73,12 +73,12 @@ if (typeof window === 'undefined') {
                     }
                     window.clearTimeout(timeout);
                     navigator.serviceWorker.removeEventListener(
-                        'controllerchange',
+                        "controllerchange",
                         controllerChanged
                     );
                     resolve();
                 }
-                navigator.serviceWorker.addEventListener('controllerchange', controllerChanged);
+                navigator.serviceWorker.addEventListener("controllerchange", controllerChanged);
                 controllerChanged();
             });
         }
@@ -88,21 +88,21 @@ if (typeof window === 'undefined') {
             return;
         }
 
-        if (window.sessionStorage.getItem(reloadKey) === '1') {
+        if (window.sessionStorage.getItem(reloadKey) === "1") {
             window.sessionStorage.removeItem(reloadKey);
             throw new Error(
-                'The isolation service worker is active, but the page is not cross-origin isolated.'
+                "The isolation service worker is active, but the page is not cross-origin isolated."
             );
         }
 
-        window.sessionStorage.setItem(reloadKey, '1');
+        window.sessionStorage.setItem(reloadKey, "1");
         window.location.reload();
     })().catch((error) => {
-        console.error('Failed to start threaded WebAssembly page:', error);
+        console.error("Failed to start threaded WebAssembly page:", error);
         const showFailure = () =>
-            document.getElementById('log')?.append(`\n[FAIL ] ${error.message ?? error}`);
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', showFailure, { once: true });
+            document.getElementById("log")?.append(`\n[FAIL ] ${error.message ?? error}`);
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", showFailure, { once: true });
         } else {
             showFailure();
         }

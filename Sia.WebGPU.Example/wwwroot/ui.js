@@ -1,114 +1,139 @@
-const url = new URL(location.href);
-const parameters = url.searchParams;
-const canvasKey = 'sia-webgpu-canvas';
-const shaderKey = 'sia-webgpu-backend';
-const scaleKey = 'sia-webgpu-render-scale';
-export const canvasMode =
-    (parameters.get('canvas') ?? localStorage.getItem(canvasKey)) === 'normal'
-        ? 'normal'
-        : 'offscreen';
-export const shaderFormat =
-    (parameters.get('shader') ?? localStorage.getItem(shaderKey)?.split('-')[1]) === 'spirv'
-        ? 'spirv'
-        : 'wgsl';
-
-const modeUrl = (source, name, value) => {
-    const target = new URL(source);
-    target.searchParams.set(name, value);
-    return target;
+const modes = {
+    canvas: { key: "sia-webgpu-canvas", serialize: String },
+    shader: { key: "sia-webgpu-backend", serialize: (value) => `dawn-${value}` },
 };
-const select = (button, selected) => {
-    button.classList.toggle('active', selected);
-    button.setAttribute('aria-pressed', String(selected));
-};
-const bindMode = (name, value, key, serialize = String) => {
-    localStorage.setItem(key, serialize(value));
-    parameters.set(name, value);
-    document.querySelectorAll(`[data-${name}]`).forEach((button) => {
-        select(button, button.dataset[name] === value);
-        button.addEventListener('click', () => {
-            const next = button.dataset[name];
-            if (next === value) return;
-            localStorage.setItem(key, serialize(next));
-            location.assign(modeUrl(url, name, next));
-        });
-    });
-};
-bindMode('canvas', canvasMode, canvasKey);
-bindMode('shader', shaderFormat, shaderKey, (value) => `dawn-${value}`);
-
-const stage = document.getElementById('canvas-host');
-const scaleInput = document.getElementById('render-scale');
-const autoButton = document.getElementById('auto-scale');
+const scaleKey = "sia-webgpu-render-scale";
 const clamp = (value) => Math.min(3, Math.max(1, value));
-const computeScale = (saved, { width, height, screenWidth, screenHeight, pixelRatio }) => {
-    if (saved && Number.isFinite(Number(saved))) return clamp(Number(saved));
+const readScale = (value) =>
+    value && Number.isFinite(Number(value)) ? clamp(Number(value)) : null;
+const computeScale = (scale, { width, height, screenWidth, screenHeight, pixelRatio }) => {
+    if (scale !== null) return scale;
     const dpr = Number.isFinite(pixelRatio) ? Math.max(1, pixelRatio) : 1;
     return clamp(
         Math.min(((screenWidth || width) * dpr) / width, ((screenHeight || height) * dpr) / height)
     );
 };
-export function renderScale() {
-    const width = Math.max(1, stage.clientWidth || innerWidth || 1);
-    const height = Math.max(1, stage.clientHeight || innerHeight || 1);
-    return computeScale(localStorage.getItem(scaleKey), {
-        width,
-        height,
-        screenWidth: screen.width,
-        screenHeight: screen.height,
-        pixelRatio: devicePixelRatio,
-    });
-}
-function updateScale() {
-    select(autoButton, !localStorage.getItem(scaleKey));
-    if (document.activeElement !== scaleInput)
-        scaleInput.value = Math.round(renderScale() * 100) / 100;
-}
-scaleInput.addEventListener('change', () => {
-    if (!Number.isFinite(scaleInput.valueAsNumber)) {
-        updateScale();
-        return;
-    }
-    const value = clamp(scaleInput.valueAsNumber);
-    localStorage.setItem(scaleKey, String(value));
-    scaleInput.value = value;
-    updateScale();
-});
-autoButton.addEventListener('click', () => {
-    localStorage.removeItem(scaleKey);
-    updateScale();
-});
-window.addEventListener('resize', updateScale);
-updateScale();
-
-const boot = document.getElementById('boot');
-const log = document.getElementById('log');
-let finished = false;
-const bootMessage = (message) =>
-    [
-        '[INIT ] sia.webgpu bootstrap',
-        `[INFO ] dawn/webgpu · ${shaderFormat} · ${canvasMode}`,
-        `[LOAD ] ${message}`,
-    ].join('\n');
-export function loading(message) {
-    log.textContent = bootMessage(message);
-}
-export const bootModuleConfig = {
-    onDownloadResourceProgress(loaded, total) {
-        loading(`runtime resources ${loaded} / ${total}`);
-    },
+const navigate = ({ canvas, shader }) => {
+    const url = new URL(location.href);
+    url.searchParams.set("canvas", canvas);
+    url.searchParams.set("shader", shader);
+    location.assign(url);
 };
-export function ready() {
-    if (finished) return;
-    finished = true;
-    loading('first frame rendered');
-    boot.classList.add('collapsed');
-    document.getElementById('bar').classList.add('visible');
-    stage.classList.add('visible');
+const setSelected = (button, selected) => {
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-pressed", String(selected));
+};
+
+export function createUi({ onModeChange = navigate } = {}) {
+    const abort = new AbortController();
+    const listen = (target, name, callback) =>
+        target.addEventListener(name, callback, { signal: abort.signal });
+    const parameters = new URLSearchParams(location.search);
+    const state = {
+        canvas:
+            (parameters.get("canvas") ?? localStorage.getItem(modes.canvas.key)) === "normal"
+                ? "normal"
+                : "offscreen",
+        shader:
+            (parameters.get("shader") ?? localStorage.getItem(modes.shader.key)?.split("-")[1]) ===
+            "spirv"
+                ? "spirv"
+                : "wgsl",
+        scale: readScale(localStorage.getItem(scaleKey)),
+        phase: "loading",
+        visible: false,
+        message: "establishing threaded runtime",
+        errors: [],
+    };
+    const view = {
+        stage: document.getElementById("canvas-host"),
+        bar: document.getElementById("bar"),
+        boot: document.getElementById("boot"),
+        log: document.getElementById("log"),
+        scale: document.getElementById("render-scale"),
+        auto: document.getElementById("auto-scale"),
+        buttons: [...document.querySelectorAll("[data-canvas], [data-shader]")],
+    };
+    const renderScale = () =>
+        computeScale(state.scale, {
+            width: Math.max(1, view.stage.clientWidth || innerWidth || 1),
+            height: Math.max(1, view.stage.clientHeight || innerHeight || 1),
+            screenWidth: screen.width,
+            screenHeight: screen.height,
+            pixelRatio: devicePixelRatio,
+        });
+    const render = () => {
+        view.buttons.forEach((button) => {
+            const mode = "canvas" in button.dataset ? "canvas" : "shader";
+            setSelected(button, button.dataset[mode] === state[mode]);
+        });
+        setSelected(view.auto, state.scale === null);
+        if (document.activeElement !== view.scale)
+            view.scale.value = Math.round(renderScale() * 100) / 100;
+        view.log.textContent = [
+            "[INIT ] sia.webgpu bootstrap",
+            `[INFO ] dawn/webgpu · ${state.shader} · ${state.canvas}`,
+            `[LOAD ] ${state.message}`,
+            ...state.errors.map((message) => `[FAIL ] ${message}`),
+        ].join("\n");
+        view.boot.classList.toggle("collapsed", state.phase === "ready");
+        view.bar.classList.toggle("visible", state.visible);
+        view.stage.classList.toggle("visible", state.visible);
+    };
+    const update = (patch) => {
+        Object.assign(state, patch);
+        render();
+    };
+    const callbacks = {
+        onModeChange(mode, value) {
+            if (value === state[mode]) return;
+            localStorage.setItem(modes[mode].key, modes[mode].serialize(value));
+            update({ [mode]: value });
+            onModeChange(state);
+        },
+        onScaleChange(value) {
+            if (Number.isFinite(value)) {
+                state.scale = clamp(value);
+                localStorage.setItem(scaleKey, String(state.scale));
+                view.scale.value = state.scale;
+            }
+            render();
+        },
+        onAutoScale() {
+            localStorage.removeItem(scaleKey);
+            update({ scale: null });
+        },
+        onStorage({ key }) {
+            if (key === scaleKey || key === null)
+                update({ scale: readScale(localStorage.getItem(scaleKey)) });
+        },
+        onLoading(message) {
+            update({ message });
+        },
+        onProgress(loaded, total) {
+            update({ message: `runtime resources ${loaded} / ${total}` });
+        },
+        onReady() {
+            if (state.phase !== "loading") return;
+            update({ phase: "ready", visible: true, message: "first frame rendered" });
+        },
+        onError(message) {
+            state.errors.push(message);
+            update({ phase: "failed" });
+        },
+        onResize: render,
+    };
+
+    Object.entries(modes).forEach(([mode, { key, serialize }]) => {
+        localStorage.setItem(key, serialize(state[mode]));
+        document.querySelectorAll(`[data-${mode}]`).forEach((button) => {
+            listen(button, "click", () => callbacks.onModeChange(mode, button.dataset[mode]));
+        });
+    });
+    listen(view.scale, "change", () => callbacks.onScaleChange(view.scale.valueAsNumber));
+    listen(view.auto, "click", callbacks.onAutoScale);
+    listen(window, "resize", callbacks.onResize);
+    listen(window, "storage", callbacks.onStorage);
+    render();
+    return { state, callbacks, renderScale, dispose: () => abort.abort() };
 }
-export function failed(message) {
-    finished = true;
-    log.textContent += `\n[FAIL ] ${message}`;
-    boot.classList.remove('collapsed');
-}
-loading('establishing threaded runtime');

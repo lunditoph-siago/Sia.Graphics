@@ -103,7 +103,7 @@ try {
     setModuleImports('main.js', {
         getCanvasWidth, getCanvasHeight, loadBinaryBase64,
         createCanvas: () => {
-            document.getElementById('canvas-controls').hidden = false;
+            canvasToggle.hidden = false;
             return createCanvas();
         },
         nextCanvasFrame, disposeCanvas,

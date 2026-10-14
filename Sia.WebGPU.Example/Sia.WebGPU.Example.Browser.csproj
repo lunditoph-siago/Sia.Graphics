@@ -23,6 +23,7 @@
     <SpirvKernelAbi>webgpu</SpirvKernelAbi>
     <SpirvEmitWgsl>true</SpirvEmitWgsl>
     <SpirvOptimizationLevel>3</SpirvOptimizationLevel>
+    <IntermediateOutputPath>$(BaseIntermediateOutputPath)$([MSBuild]::ValueOrDefault('$(SiaWebGpuBackend)', 'Dawn'))-$(SiaShaderAssetFormat)\$(Configuration)\</IntermediateOutputPath>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(SiaWebGpuBackend)' == '' And '$(_SiaWebGpuSiteRootPublishDir)' == ''">

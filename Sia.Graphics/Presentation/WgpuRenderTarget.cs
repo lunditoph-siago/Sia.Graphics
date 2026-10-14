@@ -53,12 +53,12 @@ public sealed partial class WgpuRenderTarget : IDisposable
         if ((uint)height > _maxDimension)
             throw new ArgumentOutOfRangeException(nameof(height), "Target exceeds the device texture dimension limit.");
         frame = default;
-#if BROWSER && SIA_WEBGPU_BACKEND_DAWN
+#if BROWSER
         CheckCanvasError();
         if (_readbackCanvas && PixelsPending() != 0) return false;
 #endif
         if (!_configured || Width != width || Height != height) Configure(width, height);
-#if BROWSER && SIA_WEBGPU_BACKEND_DAWN
+#if BROWSER
         if (_readbackCanvas) _frameTexture = _outputTexture;
         else
 #endif
@@ -85,12 +85,12 @@ public sealed partial class WgpuRenderTarget : IDisposable
 
     private unsafe void Configure(int width, int height)
     {
-#if BROWSER && SIA_WEBGPU_BACKEND_DAWN
+#if BROWSER
         if (_readbackCanvas) ResizeReadback(width, height);
         else
 #endif
         {
-#if BROWSER && SIA_WEBGPU_BACKEND_DAWN
+#if BROWSER
             ResizeCanvas(width, height);
 #endif
             Wgpu.ConfigureSurface(_surface, new WGPUSurfaceConfiguration {
@@ -122,7 +122,7 @@ public sealed partial class WgpuRenderTarget : IDisposable
     internal void Present(long generation)
     {
         RequireFrame(generation);
-#if BROWSER && SIA_WEBGPU_BACKEND_DAWN
+#if BROWSER
         if (_readbackCanvas) BeginReadback();
         else
 #endif
@@ -134,7 +134,7 @@ public sealed partial class WgpuRenderTarget : IDisposable
     {
         if (!_active || generation != _generation) return;
         _active = false;
-#if BROWSER && SIA_WEBGPU_BACKEND_DAWN
+#if BROWSER
         if (_readbackCanvas) { _frameTexture = default; return; }
 #endif
         Wgpu.Release(ref _frameTexture);
@@ -150,7 +150,7 @@ public sealed partial class WgpuRenderTarget : IDisposable
                 if (Width > 0 && !_surface.IsNull) Wgpu.UnconfigureSurface(_surface);
             }
             finally {
-#if BROWSER && SIA_WEBGPU_BACKEND_DAWN
+#if BROWSER
                 DisposeCanvas();
 #endif
             }

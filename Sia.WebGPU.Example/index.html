@@ -219,10 +219,6 @@
     </div>
     <div id="bar">
         <div id="profiles">
-            <div class="profile-group" role="group" aria-label="Backend">
-                <button type="button" data-backend="dawn">DAWN</button>
-                <button type="button" data-backend="wgpu">WGPU</button>
-            </div>
             <div class="profile-group" role="group" aria-label="Shader format">
                 <button type="button" data-shader="wgsl">WGSL</button>
                 <button type="button" data-shader="spirv">SPV</button>
@@ -249,16 +245,13 @@
         const log = document.getElementById('log');
         const bar = document.getElementById('bar');
         const stage = document.getElementById('stage');
-        const backendButtons = [...document.querySelectorAll('[data-backend]')];
         const shaderButtons = [...document.querySelectorAll('[data-shader]')];
         const canvasButtons = [...document.querySelectorAll('[data-canvas]')];
         let canvasMode = localStorage.getItem(CANVAS_KEY) === 'normal' ? 'normal' : 'offscreen';
         const renderScale = document.getElementById('render-scale');
         const profiles = {
             'dawn-wgsl': { backend: 'dawn/webgpu', shader: 'handwritten WGSL' },
-            'wgpu-wgsl': { backend: 'wgpu/gles', shader: 'handwritten WGSL' },
             'dawn-spirv': { backend: 'dawn/webgpu', shader: 'C# SPIR-V via Sia compiler' },
-            'wgpu-spirv': { backend: 'wgpu/gles', shader: 'C# SPIR-V' },
         };
         let mountedProfile = null;
 
@@ -349,20 +342,6 @@
             return { ok: false, detail };
         }
 
-        async function probeWebGl2() {
-            try {
-                const gl = document.createElement('canvas').getContext('webgl2');
-                if (!gl) return { ok: false, detail: 'webgl2 unavailable' };
-                const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-                const extra = dbg
-                    ? [gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)].filter(Boolean).map((v) => `renderer: ${v}`)
-                    : [];
-                return { ok: true, extra };
-            } catch (err) {
-                return { ok: false, detail: `webgl2 error: ${err?.message ?? err}` };
-            }
-        }
-
         async function detect() {
             await line('CHECK', 'navigator.gpu');
             const adapter = await probeAdapter();
@@ -373,39 +352,27 @@
                 return 'dawn-wgsl';
             }
             await line('WARN', adapter.detail);
-            await info('falling back to webgl2');
-            await line('CHECK', 'webgl2 context');
-            const gl = await probeWebGl2();
-            if (gl.ok) {
-                await line('OK', 'webgl2 available');
-                for (const e of gl.extra) await info(e);
-                await info('backend = wgpu/gles');
-                return 'wgpu-wgsl';
-            }
-            await line('WARN', gl.detail);
-            await line('FAIL', 'no compatible backend found', { cls: 'fail' });
+            await line('FAIL', 'WebGPU adapter unavailable', { cls: 'fail' });
             return null;
         }
 
         function mount(profileId) {
             mountedProfile = profileId;
             stage.replaceChildren();
-            const [backend, shader] = profileId?.split('-') ?? [];
-            for (const button of backendButtons) {
-                button.classList.toggle('active', button.dataset.backend === backend);
-            }
+            const shader = profileId?.split('-')[1];
             for (const button of shaderButtons) {
+                button.disabled = profileId === null;
                 button.classList.toggle('active', button.dataset.shader === shader);
             }
             for (const button of canvasButtons) {
-                button.disabled = backend !== 'dawn';
-                button.classList.toggle('active', backend === 'dawn' && button.dataset.canvas === canvasMode);
+                button.disabled = profileId === null;
+                button.classList.toggle('active', profileId !== null && button.dataset.canvas === canvasMode);
             }
             if (profileId === null) {
                 stage.innerHTML = `<div class="msg">
-      <h1>[FAIL] no compatible backend found</h1>
-      <p>No WebGPU adapter or WebGL2 context was detected.
-      Update your browser, or click a button above to force a backend.</p>
+      <h1>[FAIL] WebGPU adapter unavailable</h1>
+      <p>No WebGPU adapter was detected.
+      Use a browser and device with WebGPU support.</p>
     </div>`;
             } else {
                 const frame = document.createElement('iframe');
@@ -451,16 +418,9 @@
             reveal();
         }
 
-        for (const button of backendButtons) {
-            button.addEventListener('click', () => {
-                const shader = mountedProfile?.split('-')[1] ?? 'wgsl';
-                void run(`${button.dataset.backend}-${shader}`);
-            });
-        }
         for (const button of shaderButtons) {
             button.addEventListener('click', () => {
-                const backend = mountedProfile?.split('-')[0] ?? 'dawn';
-                void run(`${backend}-${button.dataset.shader}`);
+                void run(`dawn-${button.dataset.shader}`);
             });
         }
         renderScale.addEventListener('change', () => {

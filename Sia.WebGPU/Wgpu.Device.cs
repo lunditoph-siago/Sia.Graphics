@@ -207,7 +207,7 @@ public static unsafe partial class Wgpu
         WgpuHandle<WGPUDevice> device, out WGPUCompatibilityModeLimits compatibilityLimits)
     {
         var extension = WGPUCompatibilityModeLimits.Default;
-#if BROWSER && SIA_WEBGPU_BACKEND_DAWN
+#if BROWSER
         extension.Chain.SType = WGPUSType.CompatibilityModeLimits;
         var limits = WGPULimits.Default;
         limits.NextInChain = &extension.Chain;

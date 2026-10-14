@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
+#if !BROWSER
 using Sia.GLFW;
+#endif
 using Sia.Graphics;
 using Sia.Graphics.Reactive;
 using Sia.Input;
@@ -27,7 +29,9 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private readonly HashSet<Key> _downKeys = [];
     private readonly HashSet<Key> _pressedKeys = [];
 
+#if !BROWSER
     private GlfwWindow _window;
+#endif
     private WgpuHandle<WGPUInstance> _instance;
     private WgpuHandle<WGPUSurface> _surface;
     private WgpuHandle<WGPUAdapter> _adapter;
@@ -58,6 +62,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private int _maxBounces = 7;
     private double _lastTitleUpdate;
 
+#if !BROWSER
     public void Run()
     {
         Initialize();
@@ -120,6 +125,8 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         ResizeIfNeeded(force: true);
     }
 
+#endif
+
     private WGPURequestAdapterOptions BuildAdapterOptions(
         WGPUFeatureLevel featureLevel = WGPUFeatureLevel.Core,
         WGPUPowerPreference powerPreference = WGPUPowerPreference.HighPerformance) => new() {
@@ -131,13 +138,11 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             CompatibleSurface = Pointer(_surface),
         };
 
+#if !BROWSER
     private static WgpuHandle<WGPUSurface> CreateSurface(
         WgpuHandle<WGPUInstance> instance,
         GlfwWindow window)
     {
-#if BROWSER
-        return Wgpu.CreateCanvasSurface(instance, "#canvas", "Cornell Box surface");
-#else
         if (OperatingSystem.IsWindows()) {
             return Wgpu.CreateWindowsSurface(
                 instance,
@@ -165,7 +170,6 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
 
         throw new PlatformNotSupportedException(
             "This example currently creates WebGPU surfaces for Win32, X11, and Wayland.");
-#endif
     }
 
     private static SurfaceInfo GetSurfaceInfo(
@@ -182,11 +186,9 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         }
 
         try {
-#if !BROWSER
             if ((capabilities.Usages & WGPUTextureUsage.RenderAttachment) == 0) {
                 throw new WgpuException("The selected surface cannot be used as a render attachment.");
             }
-#endif
             if (capabilities.FormatCount == 0) {
                 throw new WgpuException("The selected surface exposes no texture formats.");
             }
@@ -246,6 +248,8 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             ? WGPUPresentMode.Fifo
             : capabilities.PresentModes[0];
     }
+
+#endif
 
     private void CreateUniformBuffer()
     {

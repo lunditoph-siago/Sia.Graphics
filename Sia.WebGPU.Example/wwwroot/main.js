@@ -1,7 +1,6 @@
 import { dotnet } from './_framework/dotnet.js';
 import { createCanvas, nextCanvasFrame, disposeCanvas } from './canvas.js';
 
-const canvas = document.getElementById('canvas');
 const canvasMode = new URLSearchParams(location.search).get('canvas') === 'normal' ? 'normal' : 'offscreen';
 const canvasToggle = document.getElementById('canvas-toggle');
 canvasToggle.setAttribute('aria-pressed', String(canvasMode === 'normal'));
@@ -11,14 +10,6 @@ canvasToggle.addEventListener('click', () => {
     url.searchParams.set('canvas', canvasMode === 'normal' ? 'offscreen' : 'normal');
     location.assign(url);
 });
-
-function getCanvasWidth() {
-    return Math.max(1, Math.round(window.innerWidth));
-}
-
-function getCanvasHeight() {
-    return Math.max(1, Math.round(window.innerHeight));
-}
 
 async function loadBinaryBase64(path) {
     const response = await fetch(path);
@@ -97,11 +88,10 @@ window.addEventListener('unhandledrejection', (e) => {
 try {
     const { runMain, Module, setModuleImports } = await dotnet.create();
 
-    Module.canvas = canvas;
     Module.print = console.log;
     Module.printErr = (line) => console.error('[stderr]', line);
     setModuleImports('main.js', {
-        getCanvasWidth, getCanvasHeight, loadBinaryBase64,
+        loadBinaryBase64,
         createCanvas: () => {
             canvasToggle.hidden = false;
             return createCanvas();

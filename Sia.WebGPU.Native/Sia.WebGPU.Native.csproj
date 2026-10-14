@@ -146,7 +146,7 @@
       Force="$(ForceDownloadWgpuBinaries)" />
     <ItemGroup>
       <TfmSpecificPackageFile Include="$(MSBuildThisFileDirectory)runtimes/**"
-                              Exclude="$(MSBuildThisFileDirectory)runtimes/**/.gitkeep"
+                              Exclude="$(MSBuildThisFileDirectory)runtimes/**/.gitkeep;$(MSBuildThisFileDirectory)runtimes/browser-wasm/**"
                               PackagePath="runtimes/%(RecursiveDir)%(Filename)%(Extension)" />
     </ItemGroup>
   </Target>

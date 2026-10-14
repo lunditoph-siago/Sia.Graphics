@@ -1,5 +1,7 @@
 using Sia;
+#if !BROWSER
 using Sia.GLFW;
+#endif
 using Sia.Window;
 
 namespace Sia.WebGPU.Example;
@@ -13,7 +15,7 @@ internal sealed partial class CornellBoxApp
     {
         var world = new World();
         try {
-#if BROWSER && SIA_WEBGPU_BACKEND_DAWN
+#if BROWSER
             var entity = world.Create();
             entity.Add(new WindowState(new(descriptor.Width, descriptor.Height), new(descriptor.Width, descriptor.Height), false));
             _windowWorld = world;
@@ -31,28 +33,30 @@ internal sealed partial class CornellBoxApp
         catch {
             _windowWorld = null;
             _windowEntity = null;
+#if !BROWSER
             _window = default;
+#endif
             world.Dispose();
             throw;
         }
     }
 
     private WindowSize GetWindowSize() =>
-#if BROWSER && SIA_WEBGPU_BACKEND_DAWN
+#if BROWSER
         _windowEntity!.Value.Get<WindowState>().Size;
 #else
         Glfw.GetSize(_window);
 #endif
 
     private WindowSize GetFramebufferSize() =>
-#if BROWSER && SIA_WEBGPU_BACKEND_DAWN
+#if BROWSER
         _windowEntity!.Value.Get<WindowState>().FramebufferSize;
 #else
         Glfw.GetFramebufferSize(_window);
 #endif
 
     private bool ShouldClose() =>
-#if BROWSER && SIA_WEBGPU_BACKEND_DAWN
+#if BROWSER
         _windowEntity!.Value.Get<WindowState>().CloseRequested;
 #else
         Glfw.ShouldClose(_window);
@@ -60,14 +64,14 @@ internal sealed partial class CornellBoxApp
 
     private void PollEvents()
     {
-#if !(BROWSER && SIA_WEBGPU_BACKEND_DAWN)
+#if !BROWSER
         Glfw.PollEvents();
 #endif
     }
 
     private void RequestClose()
     {
-#if BROWSER && SIA_WEBGPU_BACKEND_DAWN
+#if BROWSER
         _windowEntity!.Value.Get<WindowState>() = _windowEntity!.Value.Get<WindowState>() with { CloseRequested = true };
         _windowWorld!.Send(_windowEntity!.Value, new WindowEvents.CloseRequested());
 #else
@@ -77,7 +81,7 @@ internal sealed partial class CornellBoxApp
 
     private void SetWindowTitle(string title)
     {
-#if BROWSER && SIA_WEBGPU_BACKEND_DAWN
+#if BROWSER
         SetBrowserTitle(title);
 #else
         Glfw.SetTitle(_window, title);
@@ -86,7 +90,7 @@ internal sealed partial class CornellBoxApp
 
     private void DisposeWindow()
     {
-#if BROWSER && SIA_WEBGPU_BACKEND_DAWN
+#if BROWSER
         if (_browserCanvas is not null) {
             DisposeBrowserCanvas(_browserCanvas);
             _browserCanvas.Dispose();
@@ -97,6 +101,8 @@ internal sealed partial class CornellBoxApp
         _windowWorld?.Dispose();
         _windowWorld = null;
         _windowEntity = null;
+#if !BROWSER
         _window = default;
+#endif
     }
 }

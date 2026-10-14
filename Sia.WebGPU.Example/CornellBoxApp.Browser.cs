@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices.JavaScript;
-using Sia.GLFW;
 using Sia.Graphics;
 using Sia.Window;
 
@@ -8,10 +7,8 @@ namespace Sia.WebGPU.Example;
 #if BROWSER
 internal sealed partial class CornellBoxApp
 {
-#if SIA_SPIRV_ASSETS
     private const string k_ShaderAssetRoot = "spirv/Sia.WebGPU.Example.";
     private SpirvShaderAssets? _spirvShaderAssets;
-#endif
     private double? _previousAnimationFrameTime;
 
     public async Task RunAsync()
@@ -22,11 +19,7 @@ internal sealed partial class CornellBoxApp
         Console.WriteLine("  arrows orbit | W/S dolly | -/= exposure | [/] samples");
         Console.WriteLine("  ,/. bounces | O/P aperture | R reset | Esc close");
 
-#if SIA_WEBGPU_BACKEND_DAWN
         await RunCanvasLoopAsync();
-#else
-        await RunAnimationFrameLoopAsync();
-#endif
     }
 
     private bool RenderAnimationFrame(double timestampMilliseconds)
@@ -35,9 +28,6 @@ internal sealed partial class CornellBoxApp
             return false;
         }
 
-#if !SIA_WEBGPU_BACKEND_DAWN
-        ResizeWindowToCanvas();
-#endif
         PollEvents();
 
         var currentTime = timestampMilliseconds / 1000.0;
@@ -59,15 +49,11 @@ internal sealed partial class CornellBoxApp
 
     private async Task InitializeAsync()
     {
-#if SIA_WEBGPU_BACKEND_DAWN
         _browserCanvas = CreateBrowserCanvas();
         var initialFrame = await NextCanvasFrame(_browserCanvas);
         await Task.Yield();
         var dimensions = ParseCanvasFrame(initialFrame);
         var initialSize = new WindowSize((int)dimensions[1], (int)dimensions[2]);
-#else
-        var initialSize = GetCanvasSize();
-#endif
         InitializeWindow(
             new WindowDescriptor(
                 initialSize.Width,
@@ -76,34 +62,19 @@ internal sealed partial class CornellBoxApp
                 Resizable: true));
 
         _instance = Wgpu.CreateInstance();
-#if !SIA_WEBGPU_BACKEND_DAWN
-        _surface = CreateSurface(_instance, _window);
-#endif
 
         _adapter = await AwaitBrowserGpuAsync(RequestBrowserAdapterAsync());
 
-#if !SIA_WEBGPU_BACKEND_DAWN
-        var surfaceInfo = GetSurfaceInfo(_surface, _adapter);
-        _surfaceFormat = surfaceInfo.Format;
-        _alphaMode = surfaceInfo.AlphaMode;
-        _presentMode = surfaceInfo.PresentMode;
-#endif
-
         _device = await AwaitBrowserGpuAsync(Wgpu.RequestDeviceAsync(_adapter));
         _queue = Wgpu.GetQueue(_device);
-#if SIA_WEBGPU_BACKEND_DAWN
         _maxCanvasDimension = checked((int)Wgpu.GetLimits(_device).MaxTextureDimension2D);
         _target = await WgpuRenderTarget.FromCanvasAsync(_instance, _device, _queue, "canvas",
             GetCanvasPresentation() == "normal" ? WgpuCanvasPresentation.Readback : WgpuCanvasPresentation.Direct);
         _surfaceFormat = _target.Format;
         ApplyCanvasFrame(dimensions);
-#else
-        _target = WgpuRenderTarget.FromSurface(_device, _queue, _surface, _surfaceFormat, _alphaMode, _presentMode);
-#endif
 
-#if SIA_SPIRV_ASSETS
-        _spirvShaderAssets = await LoadSpirvShaderAssetsAsync();
-#endif
+        _useSpirvShaders = GetShaderFormat() == "spirv";
+        if (_useSpirvShaders) _spirvShaderAssets = await LoadSpirvShaderAssetsAsync();
         CreateUniformBuffer();
         CreatePipelines();
         InitializeUi();
@@ -113,44 +84,24 @@ internal sealed partial class CornellBoxApp
 
     private async Task<T> AwaitBrowserGpuAsync<T>(Task<T> request)
     {
-#if SIA_WEBGPU_BACKEND_DAWN
         do {
             await NextCanvasFrame(_browserCanvas!);
             await Task.Yield();
         } while (!request.IsCompleted);
-#endif
         return await request;
     }
 
-    private void ResizeWindowToCanvas()
-    {
-        var target = GetCanvasSize();
-        var current = Glfw.GetSize(_window);
-        if (target.Width != current.Width || target.Height != current.Height) {
-            Glfw.SetSize(_window, target);
-        }
-    }
-
-    private static WindowSize GetCanvasSize() =>
-        new(GetCanvasWidth(), GetCanvasHeight());
-
-    [JSImport("getCanvasWidth", "main.js")]
-    private static partial int GetCanvasWidth();
-
-    [JSImport("getCanvasHeight", "main.js")]
-    private static partial int GetCanvasHeight();
-
-#if SIA_SPIRV_ASSETS
     private static async Task<SpirvShaderAssets> LoadSpirvShaderAssetsAsync()
     {
         Console.WriteLine("Loading generated C# SPIR-V shader assets.");
-        return new SpirvShaderAssets(
-            await LoadSpirvAssetAsync(
+        var assets = await Task.WhenAll(
+            LoadSpirvAssetAsync(
                 $"{k_ShaderAssetRoot}CornellBoxRasterShaders.FullscreenVertex.spv"),
-            await LoadSpirvAssetAsync(
+            LoadSpirvAssetAsync(
                 $"{k_ShaderAssetRoot}CornellBoxPathTracerShaders.PathFragment.spv"),
-            await LoadSpirvAssetAsync(
+            LoadSpirvAssetAsync(
                 $"{k_ShaderAssetRoot}CornellBoxPathTracerShaders.PresentFragment.spv"));
+        return new SpirvShaderAssets(assets[0], assets[1], assets[2]);
     }
 
     private static async Task<byte[]> LoadSpirvAssetAsync(string path) =>
@@ -163,7 +114,28 @@ internal sealed partial class CornellBoxApp
         byte[] FullscreenVertex,
         byte[] PathFragment,
         byte[] PresentFragment);
-#endif
+
+    private void CreateSpirvPipelines(SpirvShaderAssets shaders)
+    {
+        WgpuHandle<WGPUShaderModule> vertex = default, path = default, present = default;
+        try {
+            vertex = Wgpu.CreateSpirvShaderModule(_device, shaders.FullscreenVertex, "C# fullscreen vertex");
+            path = Wgpu.CreateSpirvShaderModule(_device, shaders.PathFragment, "C# path fragment");
+            present = Wgpu.CreateSpirvShaderModule(_device, shaders.PresentFragment, "C# present fragment");
+            _pathPipeline = CreateRenderPipeline(
+                vertex, "FullscreenVertex", path, "PathFragment", k_AccumulationFormat);
+            _presentationPipeline = CreateRenderPipeline(
+                vertex, "FullscreenVertex", present, "PresentFragment", _surfaceFormat);
+        }
+        finally {
+            Wgpu.Release(ref present);
+            Wgpu.Release(ref path);
+            Wgpu.Release(ref vertex);
+        }
+    }
+
+    [JSImport("shaderFormat", "main.js")]
+    private static partial string GetShaderFormat();
 
     private async Task<WgpuHandle<WGPUAdapter>> RequestBrowserAdapterAsync()
     {

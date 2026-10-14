@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
+#if !BROWSER
 using Sia.GLFW;
+#endif
 using Sia.Graphics;
 using Sia.Graphics.Reactive;
 using Sia.Input;
@@ -15,19 +17,17 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private const int k_InitialWidth = 1280;
     private const int k_InitialHeight = 720;
     private const int k_UniformSize = 64;
-#if SIA_SPIRV_ASSETS
-    private const uint k_TextureBinding = 0;
-    private const uint k_UniformBinding = 1;
-#else
-    private const uint k_UniformBinding = 0;
-    private const uint k_TextureBinding = 1;
-#endif
+    private bool _useSpirvShaders = false;
+    private uint UniformBinding => _useSpirvShaders ? 1u : 0u;
+    private uint TextureBinding => _useSpirvShaders ? 0u : 1u;
     private const WGPUTextureFormat k_AccumulationFormat = WGPUTextureFormat.RGBA16Float;
     private readonly WgpuHandle<WGPUTexture>[] _accumulationTextures = new WgpuHandle<WGPUTexture>[2];
     private readonly HashSet<Key> _downKeys = [];
     private readonly HashSet<Key> _pressedKeys = [];
 
+#if !BROWSER
     private GlfwWindow _window;
+#endif
     private WgpuHandle<WGPUInstance> _instance;
     private WgpuHandle<WGPUSurface> _surface;
     private WgpuHandle<WGPUAdapter> _adapter;
@@ -58,6 +58,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private int _maxBounces = 7;
     private double _lastTitleUpdate;
 
+#if !BROWSER
     public void Run()
     {
         Initialize();
@@ -120,6 +121,8 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         ResizeIfNeeded(force: true);
     }
 
+#endif
+
     private WGPURequestAdapterOptions BuildAdapterOptions(
         WGPUFeatureLevel featureLevel = WGPUFeatureLevel.Core,
         WGPUPowerPreference powerPreference = WGPUPowerPreference.HighPerformance) => new() {
@@ -131,13 +134,11 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             CompatibleSurface = Pointer(_surface),
         };
 
+#if !BROWSER
     private static WgpuHandle<WGPUSurface> CreateSurface(
         WgpuHandle<WGPUInstance> instance,
         GlfwWindow window)
     {
-#if BROWSER
-        return Wgpu.CreateCanvasSurface(instance, "#canvas", "Cornell Box surface");
-#else
         if (OperatingSystem.IsWindows()) {
             return Wgpu.CreateWindowsSurface(
                 instance,
@@ -165,7 +166,6 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
 
         throw new PlatformNotSupportedException(
             "This example currently creates WebGPU surfaces for Win32, X11, and Wayland.");
-#endif
     }
 
     private static SurfaceInfo GetSurfaceInfo(
@@ -182,11 +182,9 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         }
 
         try {
-#if !BROWSER
             if ((capabilities.Usages & WGPUTextureUsage.RenderAttachment) == 0) {
                 throw new WgpuException("The selected surface cannot be used as a render attachment.");
             }
-#endif
             if (capabilities.FormatCount == 0) {
                 throw new WgpuException("The selected surface exposes no texture formats.");
             }
@@ -247,6 +245,8 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             : capabilities.PresentModes[0];
     }
 
+#endif
+
     private void CreateUniformBuffer()
     {
         var descriptor = new WGPUBufferDescriptor {
@@ -264,7 +264,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         var entries = stackalloc WGPUBindGroupLayoutEntry[2];
         entries[0] = new WGPUBindGroupLayoutEntry {
             NextInChain = null,
-            Binding = k_UniformBinding,
+            Binding = UniformBinding,
             Visibility = WGPUShaderStage.Fragment,
             BindingArraySize = 0,
             Buffer = new WGPUBufferBindingLayout {
@@ -279,7 +279,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         };
         entries[1] = new WGPUBindGroupLayoutEntry {
             NextInChain = null,
-            Binding = k_TextureBinding,
+            Binding = TextureBinding,
             Visibility = WGPUShaderStage.Fragment,
             BindingArraySize = 0,
             Buffer = default,
@@ -312,41 +312,13 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         };
         _pipelineLayout = Wgpu.CreatePipelineLayout(_device, in pipelineLayoutDescriptor);
 
-#if SIA_SPIRV_ASSETS
-        var shaders = _spirvShaderAssets
-            ?? throw new InvalidOperationException("SPIR-V shader assets were not loaded.");
-        var vertexShader = Wgpu.CreateSpirvShaderModule(
-            _device,
-            shaders.FullscreenVertex,
-            "C# fullscreen vertex");
-        var pathShader = Wgpu.CreateSpirvShaderModule(
-            _device,
-            shaders.PathFragment,
-            "C# path fragment");
-        var presentShader = Wgpu.CreateSpirvShaderModule(
-            _device,
-            shaders.PresentFragment,
-            "C# present fragment");
-        try {
-            _pathPipeline = CreateRenderPipeline(
-                vertexShader,
-                "FullscreenVertex",
-                pathShader,
-                "PathFragment",
-                k_AccumulationFormat);
-            _presentationPipeline = CreateRenderPipeline(
-                vertexShader,
-                "FullscreenVertex",
-                presentShader,
-                "PresentFragment",
-                _surfaceFormat);
+#if BROWSER
+        if (_useSpirvShaders) {
+            CreateSpirvPipelines(_spirvShaderAssets
+                ?? throw new InvalidOperationException("SPIR-V shader assets were not loaded."));
+            return;
         }
-        finally {
-            Wgpu.Release(ref presentShader);
-            Wgpu.Release(ref pathShader);
-            Wgpu.Release(ref vertexShader);
-        }
-#else
+#endif
         var shader = Wgpu.CreateWgslShaderModule(
             _device,
             CornellBoxShaders.Source,
@@ -368,7 +340,6 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         finally {
             Wgpu.Release(ref shader);
         }
-#endif
     }
 
     private WgpuHandle<WGPURenderPipeline> CreateRenderPipeline(
@@ -479,7 +450,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         var entries = stackalloc WGPUBindGroupEntry[2];
         entries[0] = new WGPUBindGroupEntry {
             NextInChain = null,
-            Binding = k_UniformBinding,
+            Binding = UniformBinding,
             Buffer = Pointer(_uniformBuffer),
             Offset = 0,
             Size = k_UniformSize,
@@ -488,7 +459,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         };
         entries[1] = new WGPUBindGroupEntry {
             NextInChain = null,
-            Binding = k_TextureBinding,
+            Binding = TextureBinding,
             Buffer = null,
             Offset = 0,
             Size = 0,

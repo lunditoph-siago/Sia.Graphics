@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm' And '$(_SiaWebGpuConfigured)' != 'true'">
+    <EmccFlags>$(EmccFlags) --use-port=emdawnwebgpu:cpp_bindings=false</EmccFlags>
+    <WasmBuildNative Condition="'$(WasmBuildNative)' == ''">true</WasmBuildNative>
+    <_SiaWebGpuConfigured>true</_SiaWebGpuConfigured>
+  </PropertyGroup>
+  <Target Name="RegisterWebGpuBrowserImports" BeforeTargets="_GenerateManagedToNative"
+          Condition="'$(RuntimeIdentifier)' == 'browser-wasm'">
+    <ItemGroup>
+      <_WasmPInvokeModules Include="__Internal_emscripten" />
+    </ItemGroup>
+  </Target>
+</Project>

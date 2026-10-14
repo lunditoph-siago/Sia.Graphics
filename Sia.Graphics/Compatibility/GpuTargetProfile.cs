@@ -31,7 +31,7 @@ public sealed record GpuTargetProfile(
         var limits = Wgpu.GetLimits(device, out var stageLimits);
         var vertexLimit = stageLimits.MaxStorageBuffersInVertexStage != uint.MaxValue
             ? stageLimits.MaxStorageBuffersInVertexStage
-            : SupportsReliableVertexStorageBuffers() ? limits.MaxStorageBuffersPerShaderStage : 0;
+            : limits.MaxStorageBuffersPerShaderStage;
         return new GpuTargetProfile(
             vertexLimit > 0,
             limits.MaxStorageBuffersPerShaderStage,
@@ -46,14 +46,5 @@ public sealed record GpuTargetProfile(
             MaxStorageBuffersInFragmentStage = stageLimits.MaxStorageBuffersInFragmentStage != uint.MaxValue
                 ? stageLimits.MaxStorageBuffersInFragmentStage : limits.MaxStorageBuffersPerShaderStage
         };
-    }
-
-    private static bool SupportsReliableVertexStorageBuffers()
-    {
-#if BROWSER && SIA_WEBGPU_BACKEND_WGPU
-        return false;
-#else
-        return true;
-#endif
     }
 }

@@ -1,24 +1,24 @@
 import { dotnet } from './_framework/dotnet.js';
 import { createCanvas, nextCanvasFrame, disposeCanvas } from './canvas.js';
 
-const canvas = document.getElementById('canvas');
-const canvasMode = new URLSearchParams(location.search).get('canvas') === 'normal' ? 'normal' : 'offscreen';
+const parameters = new URLSearchParams(location.search);
+const canvasMode = parameters.get('canvas') === 'normal' ? 'normal' : 'offscreen';
+const shaderFormat = parameters.get('shader') === 'spirv' ? 'spirv' : 'wgsl';
 const canvasToggle = document.getElementById('canvas-toggle');
+const shaderToggle = document.getElementById('shader-toggle');
 canvasToggle.setAttribute('aria-pressed', String(canvasMode === 'normal'));
+canvasToggle.setAttribute('aria-label', canvasMode === 'normal' ? 'Use OffscreenCanvas' : 'Use ordinary Canvas');
 document.getElementById('canvas-mode').textContent = canvasMode === 'normal' ? 'Canvas' : 'OffscreenCanvas';
-canvasToggle.addEventListener('click', () => {
+shaderToggle.setAttribute('aria-pressed', String(shaderFormat === 'spirv'));
+shaderToggle.setAttribute('aria-label', shaderFormat === 'spirv' ? 'Use WGSL shaders' : 'Use C# SPIR-V shaders');
+shaderToggle.textContent = shaderFormat === 'spirv' ? 'SPIR-V' : 'WGSL';
+function selectMode(name, value) {
     const url = new URL(location.href);
-    url.searchParams.set('canvas', canvasMode === 'normal' ? 'offscreen' : 'normal');
+    url.searchParams.set(name, value);
     location.assign(url);
-});
-
-function getCanvasWidth() {
-    return Math.max(1, Math.round(window.innerWidth));
 }
-
-function getCanvasHeight() {
-    return Math.max(1, Math.round(window.innerHeight));
-}
+canvasToggle.addEventListener('click', () => selectMode('canvas', canvasMode === 'normal' ? 'offscreen' : 'normal'));
+shaderToggle.addEventListener('click', () => selectMode('shader', shaderFormat === 'spirv' ? 'wgsl' : 'spirv'));
 
 async function loadBinaryBase64(path) {
     const response = await fetch(path);
@@ -33,13 +33,13 @@ async function loadBinaryBase64(path) {
     return btoa(binary);
 }
 
-function showError(message) {
-    let overlay = document.getElementById('error-overlay');
+let errorOverlay;
 
-    if (!overlay) {
-        overlay = document.createElement('pre');
-        overlay.id = 'error-overlay';
-        overlay.style.cssText = `
+function showError(message) {
+    if (!errorOverlay) {
+        errorOverlay = document.createElement('pre');
+        errorOverlay.id = 'error-overlay';
+        errorOverlay.style.cssText = `
             position:fixed;
             right:10px;
             bottom:10px;
@@ -56,13 +56,13 @@ function showError(message) {
             word-break:break-word;
             z-index:99999;
         `;
-        overlay.setAttribute('role', 'alert');
-        overlay.setAttribute('aria-live', 'assertive');
-        document.body.appendChild(overlay);
+        errorOverlay.setAttribute('role', 'alert');
+        errorOverlay.setAttribute('aria-live', 'assertive');
+        document.body.appendChild(errorOverlay);
     }
 
-    overlay.textContent += message + '\n\n';
-    overlay.scrollTop = overlay.scrollHeight;
+    errorOverlay.append(message + '\n\n');
+    errorOverlay.scrollTop = errorOverlay.scrollHeight;
 }
 
 function formatErrorValue(value) {
@@ -91,23 +91,24 @@ window.addEventListener('error', (e) => {
 });
 
 window.addEventListener('unhandledrejection', (e) => {
-    showError('[unhandledrejection] ' + (e.reason?.stack ?? e.reason));
+    showError('[unhandledrejection] ' + formatErrorValue(e.reason));
 });
 
 try {
+    if (!navigator.gpu) throw new Error('WebGPU is unavailable. Use a browser and device with WebGPU support.');
     const { runMain, Module, setModuleImports } = await dotnet.create();
 
-    Module.canvas = canvas;
     Module.print = console.log;
     Module.printErr = (line) => console.error('[stderr]', line);
     setModuleImports('main.js', {
-        getCanvasWidth, getCanvasHeight, loadBinaryBase64,
+        loadBinaryBase64,
         createCanvas: () => {
-            canvasToggle.hidden = false;
+            document.getElementById('preview-controls').hidden = false;
             return createCanvas();
         },
         nextCanvasFrame, disposeCanvas,
         canvasPresentation: () => canvasMode,
+        shaderFormat: () => shaderFormat,
         setTitle: title => { document.title = title; },
     });
 

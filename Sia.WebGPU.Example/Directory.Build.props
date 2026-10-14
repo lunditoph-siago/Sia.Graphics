@@ -1,10 +1,25 @@
 <Project>
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <EnableSpirvCompilation>true</EnableSpirvCompilation>
+    <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
+    <SpirvOptimizationLevel>3</SpirvOptimizationLevel>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Sia.WebGPU.Example'">
-    <MSBuildProjectExtensionsPath>$(MSBuildProjectDirectory)\obj_desktop\</MSBuildProjectExtensionsPath>
     <BaseIntermediateOutputPath>$(MSBuildProjectDirectory)\obj_desktop\</BaseIntermediateOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj_browser\**</DefaultItemExcludes>
   </PropertyGroup>
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Sia.WebGPU.Example.Browser'">
-    <MSBuildProjectExtensionsPath>$(MSBuildProjectDirectory)\obj_browser\</MSBuildProjectExtensionsPath>
     <BaseIntermediateOutputPath>$(MSBuildProjectDirectory)\obj_browser\</BaseIntermediateOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj_desktop\**;publish\**</DefaultItemExcludes>
   </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\Fonts\*.ttf">
+      <LogicalName>Sia.WebGPU.Example.Fonts.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 </Project>

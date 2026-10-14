@@ -1,4 +1,4 @@
-#if BROWSER && SIA_WEBGPU_BACKEND_DAWN
+#if BROWSER
 using System.Runtime.InteropServices.JavaScript;
 using System.Text.Json;
 using Sia.Input;

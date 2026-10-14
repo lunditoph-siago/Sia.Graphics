@@ -2,9 +2,8 @@
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
     <IncludeBuildOutput>false</IncludeBuildOutput>
-    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
     <PackageId>Sia.WebGPU.Native</PackageId>
-    <Description>Pre-built native wgpu library for all platforms.</Description>
+    <Description>Pre-built native wgpu library for desktop platforms.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/gfx-rs/wgpu-native</RepositoryUrl>
     <WgpuReleaseTag>v29.0.1.1</WgpuReleaseTag>
@@ -12,11 +11,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="build/**" PackagePath="build/%(RecursiveDir)%(Filename)%(Extension)" />
-    <Content Include="build/**" PackagePath="buildTransitive/%(RecursiveDir)%(Filename)%(Extension)" />
-    <Content Include="ports/**"
-             Exclude="ports/**/__pycache__/**;ports/**/*.pyc"
-             PackagePath="ports/%(RecursiveDir)%(Filename)%(Extension)" />
     <Content Include="_._" PackagePath="lib/net11.0" />
   </ItemGroup>
 
@@ -64,6 +58,7 @@
       <Tag ParameterType="System.String" Required="true" />
       <RuntimesDir ParameterType="System.String" Required="true" />
       <Force ParameterType="System.Boolean" Required="false" />
+      <NativeFiles ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
     </ParameterGroup>
     <Task>
       <Using Namespace="System.IO" />
@@ -85,6 +80,9 @@
 
           var baseUrl = "https://github.com/gfx-rs/wgpu-native/releases/download/" + Tag;
           var tempRoot = Path.Combine(Path.GetTempPath(), "wgpu-native-" + Tag);
+          var tagFile = Path.Combine(RuntimesDir, ".release-tag");
+          var cacheMatches = File.Exists(tagFile) && File.ReadAllText(tagFile).Trim() == Tag;
+          if ((Force || !cacheMatches) && File.Exists(tagFile)) File.Delete(tagFile);
 
           using var client = new WebClient();
 
@@ -93,7 +91,7 @@
               var outDir = Path.Combine(RuntimesDir, rid, "native");
               var outFile = Path.Combine(outDir, lib);
 
-              if (!Force && File.Exists(outFile))
+              if (!Force && cacheMatches && File.Exists(outFile))
               {
                   Log.LogMessage(MessageImportance.Normal, "  " + rid + "/" + lib + " exists, skip");
                   continue;
@@ -126,14 +124,21 @@
               }
               else
               {
-                  Log.LogMessage(MessageImportance.High, "  WARN: " + lib + " not found in " + zip);
+                  Log.LogError(lib + " not found in " + zip);
+                  return false;
               }
 
               File.Delete(zipPath);
               try { Directory.Delete(extractDir, true); } catch { }
           }
 
+          File.WriteAllText(tagFile, Tag);
           try { Directory.Delete(tempRoot, true); } catch { }
+          NativeFiles = platforms.Select(platform => {
+              var item = new Microsoft.Build.Utilities.TaskItem(Path.Combine(RuntimesDir, platform.Rid, "native", platform.Lib));
+              item.SetMetadata("PackagePath", "runtimes/" + platform.Rid + "/native/" + platform.Lib);
+              return item;
+          }).ToArray();
         ]]>
       </Code>
     </Task>
@@ -143,11 +148,8 @@
     <DownloadWgpuBinariesTask
       Tag="$(WgpuReleaseTag)"
       RuntimesDir="$(MSBuildThisFileDirectory)runtimes"
-      Force="$(ForceDownloadWgpuBinaries)" />
-    <ItemGroup>
-      <TfmSpecificPackageFile Include="$(MSBuildThisFileDirectory)runtimes/**"
-                              Exclude="$(MSBuildThisFileDirectory)runtimes/**/.gitkeep"
-                              PackagePath="runtimes/%(RecursiveDir)%(Filename)%(Extension)" />
-    </ItemGroup>
+      Force="$(ForceDownloadWgpuBinaries)">
+      <Output TaskParameter="NativeFiles" ItemName="TfmSpecificPackageFile" />
+    </DownloadWgpuBinariesTask>
   </Target>
 </Project>

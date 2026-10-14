@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
     <_SiaGraphicsCanvasRoot>$(MSBuildThisFileDirectory)..\browser\</_SiaGraphicsCanvasRoot>
-    <_SiaGraphicsCanvasRoot Condition="!Exists('$(_SiaGraphicsCanvasRoot)Canvas.c')">$(MSBuildThisFileDirectory)..\Presentation\Browser\</_SiaGraphicsCanvasRoot>
+    <_SiaGraphicsCanvasRoot Condition="!Exists('$(_SiaGraphicsCanvasRoot)Canvas.c')">$(MSBuildThisFileDirectory)Presentation\Browser\</_SiaGraphicsCanvasRoot>
   </PropertyGroup>
   <Target Name="RegisterGraphicsCanvasAssets" BeforeTargets="PrepareForBuild;PrepareForWasmBuildNative;_GenerateManagedToNative"
           Condition="'$(RuntimeIdentifier)' == 'browser-wasm' And '$(SiaWebGpuBackend)' != 'Wgpu'">

@@ -96,7 +96,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
             new WindowDescriptor(
                 k_InitialWidth,
                 k_InitialHeight,
-                "Sia.WebGPU Â· Cornell Box Path Tracer",
+                "Sia.WebGPU · Cornell Box Path Tracer",
                 Resizable: true));
 
         _instance = Wgpu.CreateInstance();
@@ -620,8 +620,8 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
 
         _lastTitleUpdate = currentTime;
         SetWindowTitle(
-            $"Cornell Box Â· {_frameIndex * (uint)_samplesPerFrame:N0} spp Â· "
-                + $"{_maxBounces} bounces Â· exposure {_exposure:0.0} Â· aperture {_aperture:0.000}");
+            $"Cornell Box · {_frameIndex * (uint)_samplesPerFrame:N0} spp · "
+                + $"{_maxBounces} bounces · exposure {_exposure:0.0} · aperture {_aperture:0.000}");
     }
 
     private void ReleaseAccumulationResources()

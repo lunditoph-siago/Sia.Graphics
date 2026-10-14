@@ -89,7 +89,7 @@ export function createCanvas() {
     container.append(canvas);
     const owner = {
         canvas,
-        inputs: [],
+        frame: [0, 0, 0, 1],
         abort: new AbortController(),
         keys: new Set(),
         buttons: new Set(),
@@ -102,7 +102,7 @@ export function createCanvas() {
             signal: owner.abort.signal,
         });
     const send = (kind, x = 0, y = 0, code = 0, mods = 0) => {
-        if (!owner.stopped) owner.inputs.push(inputKinds[kind], x, y, code, mods);
+        if (!owner.stopped) owner.frame.push(inputKinds[kind], x, y, code, mods);
     };
     listen('pointermove', (event) => {
         const box = canvas.getBoundingClientRect();
@@ -168,6 +168,10 @@ export function nextCanvasFrame(owner) {
             reject(new Error('Pipeline stopped'));
             return;
         }
+        if (owner.rejectFrame) {
+            reject(new Error('A canvas frame is already pending'));
+            return;
+        }
         owner.rejectFrame = reject;
         const tick = (time) => {
             const box = owner.canvas.getBoundingClientRect();
@@ -175,18 +179,15 @@ export function nextCanvasFrame(owner) {
                 owner.raf = requestAnimationFrame(tick);
                 return;
             }
-            const inputs = owner.inputs;
-            owner.inputs = [];
+            const frame = owner.frame;
+            frame[0] = time;
+            frame[1] = box.width;
+            frame[2] = box.height;
+            frame[3] = window.devicePixelRatio || 1;
+            const json = JSON.stringify(frame);
+            frame.length = 4;
             owner.rejectFrame = null;
-            resolve(
-                JSON.stringify([
-                    time,
-                    box.width,
-                    box.height,
-                    window.devicePixelRatio || 1,
-                    ...inputs,
-                ]),
-            );
+            resolve(json);
         };
         owner.raf = requestAnimationFrame(tick);
     });
@@ -199,5 +200,7 @@ export function disposeCanvas(owner) {
     owner.canvas.remove();
     owner.rejectFrame?.(new Error('Pipeline stopped'));
     owner.rejectFrame = null;
-    owner.inputs = [];
+    owner.frame.length = 4;
+    owner.keys.clear();
+    owner.buttons.clear();
 }

@@ -33,13 +33,13 @@ async function loadBinaryBase64(path) {
     return btoa(binary);
 }
 
-function showError(message) {
-    let overlay = document.getElementById('error-overlay');
+let errorOverlay;
 
-    if (!overlay) {
-        overlay = document.createElement('pre');
-        overlay.id = 'error-overlay';
-        overlay.style.cssText = `
+function showError(message) {
+    if (!errorOverlay) {
+        errorOverlay = document.createElement('pre');
+        errorOverlay.id = 'error-overlay';
+        errorOverlay.style.cssText = `
             position:fixed;
             right:10px;
             bottom:10px;
@@ -56,13 +56,13 @@ function showError(message) {
             word-break:break-word;
             z-index:99999;
         `;
-        overlay.setAttribute('role', 'alert');
-        overlay.setAttribute('aria-live', 'assertive');
-        document.body.appendChild(overlay);
+        errorOverlay.setAttribute('role', 'alert');
+        errorOverlay.setAttribute('aria-live', 'assertive');
+        document.body.appendChild(errorOverlay);
     }
 
-    overlay.textContent += message + '\n\n';
-    overlay.scrollTop = overlay.scrollHeight;
+    errorOverlay.append(message + '\n\n');
+    errorOverlay.scrollTop = errorOverlay.scrollHeight;
 }
 
 function formatErrorValue(value) {
@@ -91,7 +91,7 @@ window.addEventListener('error', (e) => {
 });
 
 window.addEventListener('unhandledrejection', (e) => {
-    showError('[unhandledrejection] ' + (e.reason?.stack ?? e.reason));
+    showError('[unhandledrejection] ' + formatErrorValue(e.reason));
 });
 
 try {

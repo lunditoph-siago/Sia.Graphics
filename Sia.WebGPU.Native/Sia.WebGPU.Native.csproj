@@ -2,9 +2,8 @@
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
     <IncludeBuildOutput>false</IncludeBuildOutput>
-    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
     <PackageId>Sia.WebGPU.Native</PackageId>
-    <Description>Pre-built native wgpu library for all platforms.</Description>
+    <Description>Pre-built native wgpu library for desktop platforms.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/gfx-rs/wgpu-native</RepositoryUrl>
     <WgpuReleaseTag>v29.0.1.1</WgpuReleaseTag>

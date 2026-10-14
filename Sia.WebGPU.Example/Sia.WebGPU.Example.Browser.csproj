@@ -10,12 +10,10 @@
     <IsPackable>false</IsPackable>
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
     <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
-    <WasmEnableSIMD>true</WasmEnableSIMD>
     <WasmEnableThreads Condition="'$(SiaWebGpuBackend)' != 'Wgpu'">true</WasmEnableThreads>
     <WasmEnableThreads Condition="'$(SiaWebGpuBackend)' == 'Wgpu'">false</WasmEnableThreads>
     <DefineConstants Condition="'$(SiaWebGpuBackend)' != 'Wgpu'">$(DefineConstants);SIA_WEBGPU_BACKEND_DAWN</DefineConstants>
     <WasmBuildNative>true</WasmBuildNative>
-    <WasmAllowUndefinedSymbols>false</WasmAllowUndefinedSymbols>
     <EmccExtraLDFlags>-sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH</EmccExtraLDFlags>
     <SiaShaderAssetFormat Condition="'$(SiaShaderAssetFormat)' == ''">Wgsl</SiaShaderAssetFormat>
     <EnableSpirvCompilation Condition="'$(SiaShaderAssetFormat)' == 'Wgsl'">false</EnableSpirvCompilation>

@@ -1,6 +1,5 @@
 using System.Reflection;
 using Sia;
-using Sia.GLFW;
 using Sia.Graphics.Text;
 using Sia.UI;
 using Sia.Reactive;
@@ -26,6 +25,8 @@ internal sealed unsafe partial class CornellBoxApp
 
     private void InitializeUi()
     {
+        var windowSize = GetWindowSize();
+        var viewport = new Size(windowSize.Width, windowSize.Height);
         _uiWorld = new World();
         var device = _uiWorld.OwnWgpu(_device, IgnoreBorrowedRelease);
         var queue = _uiWorld.OwnWgpu(_queue, IgnoreBorrowedRelease);
@@ -35,7 +36,7 @@ internal sealed unsafe partial class CornellBoxApp
 
         _uiMount = _uiWorld.Mount(
             RenderUi,
-            CreateUiProps(new Size(k_InitialWidth, k_InitialHeight)));
+            CreateUiProps(viewport));
         _uiLayoutStage = SystemChain.Empty
             .AddReactiveUi()
             .CreateStage(_uiWorld);
@@ -46,11 +47,7 @@ internal sealed unsafe partial class CornellBoxApp
 
         _uiLayoutStage.Tick();
         InitializeUiInput();
-        var framebufferSize = Glfw.GetFramebufferSize(_window);
-        var windowSize = Glfw.GetSize(_window);
-        UpdateUiInput(
-            new Size(windowSize.Width, windowSize.Height),
-            new Size(framebufferSize.Width, framebufferSize.Height));
+        UpdateUiInput(viewport, viewport);
     }
 
     private static ReactiveNode RenderUi(in UiViewProps props, ref Hooks hooks)
@@ -248,17 +245,15 @@ internal sealed unsafe partial class CornellBoxApp
             return;
         }
 
-        var framebufferSize = Glfw.GetFramebufferSize(_window);
-        var windowSize = Glfw.GetSize(_window);
+        var framebufferSize = GetFramebufferSize();
+        var windowSize = GetWindowSize();
         if (framebufferSize.Width <= 0 || framebufferSize.Height <= 0
             || windowSize.Width <= 0 || windowSize.Height <= 0) {
             return;
         }
 
-        var viewport = new Size(framebufferSize.Width, framebufferSize.Height);
-        UpdateUiInput(
-            new Size(windowSize.Width, windowSize.Height),
-            viewport);
+        var viewport = new Size(windowSize.Width, windowSize.Height);
+        UpdateUiInput(viewport, viewport);
         UpdateUiProps(mount, CreateUiProps(viewport));
         _uiWorld.FlushReactive();
         _uiLayoutStage.Tick();

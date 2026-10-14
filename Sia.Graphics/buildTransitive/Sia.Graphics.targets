@@ -1,0 +1,18 @@
+<Project>
+  <PropertyGroup>
+    <_SiaGraphicsCanvasRoot>$(MSBuildThisFileDirectory)..\browser\</_SiaGraphicsCanvasRoot>
+    <_SiaGraphicsCanvasRoot Condition="!Exists('$(_SiaGraphicsCanvasRoot)Canvas.c')">$(MSBuildThisFileDirectory)..\Presentation\Browser\</_SiaGraphicsCanvasRoot>
+  </PropertyGroup>
+  <Target Name="RegisterGraphicsCanvasAssets" BeforeTargets="PrepareForBuild;PrepareForWasmBuildNative;_GenerateManagedToNative"
+          Condition="'$(RuntimeIdentifier)' == 'browser-wasm' And '$(SiaWebGpuBackend)' != 'Wgpu'">
+    <ItemGroup>
+      <NativeFileReference Include="$(_SiaGraphicsCanvasRoot)Canvas.c" />
+      <Content Include="$(_SiaGraphicsCanvasRoot)Canvas.library.js" Kind="js-library" />
+      <_WasmPInvokeModules Include="__Internal_emscripten" />
+    </ItemGroup>
+  </Target>
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm' And '$(SiaWebGpuBackend)' != 'Wgpu'">
+    <EmccExtraLDFlags Condition="'$(WasmEnableThreads)' == 'true' And '$(_SiaGraphicsCanvasConfigured)' != 'true'">$(EmccExtraLDFlags) -sOFFSCREENCANVAS_SUPPORT=1</EmccExtraLDFlags>
+    <_SiaGraphicsCanvasConfigured>true</_SiaGraphicsCanvasConfigured>
+  </PropertyGroup>
+</Project>

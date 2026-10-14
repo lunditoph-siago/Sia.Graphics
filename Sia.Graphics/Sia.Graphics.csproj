@@ -10,6 +10,9 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Compatibility/Catalog/gpu-capabilities.json" />
+    <None Remove="buildTransitive\Sia.Graphics.targets;Presentation\Browser\Canvas.c;Presentation\Browser\Canvas.library.js" />
+    <None Include="buildTransitive\Sia.Graphics.targets" Pack="true" PackagePath="buildTransitive" />
+    <None Include="Presentation\Browser\Canvas.c;Presentation\Browser\Canvas.library.js" Pack="true" PackagePath="browser" />
   </ItemGroup>
 
   <ItemGroup>

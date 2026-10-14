@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices.JavaScript;
 using Sia.GLFW;
+using Sia.Graphics;
 using Sia.Window;
 
 namespace Sia.WebGPU.Example;
@@ -21,17 +22,23 @@ internal sealed partial class CornellBoxApp
         Console.WriteLine("  arrows orbit | W/S dolly | -/= exposure | [/] samples");
         Console.WriteLine("  ,/. bounces | O/P aperture | R reset | Esc close");
 
+#if SIA_WEBGPU_BACKEND_DAWN
+        await RunCanvasLoopAsync();
+#else
         await RunAnimationFrameLoopAsync();
+#endif
     }
 
     private bool RenderAnimationFrame(double timestampMilliseconds)
     {
-        if (Glfw.ShouldClose(_window)) {
+        if (ShouldClose()) {
             return false;
         }
 
+#if !SIA_WEBGPU_BACKEND_DAWN
         ResizeWindowToCanvas();
-        Glfw.PollEvents();
+#endif
+        PollEvents();
 
         var currentTime = timestampMilliseconds / 1000.0;
         var deltaTime = _previousAnimationFrameTime is double previousTime
@@ -47,12 +54,20 @@ internal sealed partial class CornellBoxApp
             UpdateWindowTitle(currentTime);
         }
 
-        return !Glfw.ShouldClose(_window);
+        return !ShouldClose();
     }
 
     private async Task InitializeAsync()
     {
+#if SIA_WEBGPU_BACKEND_DAWN
+        _browserCanvas = CreateBrowserCanvas();
+        var initialFrame = await NextCanvasFrame(_browserCanvas);
+        await Task.Yield();
+        var dimensions = ParseCanvasFrame(initialFrame);
+        var initialSize = new WindowSize((int)dimensions[1], (int)dimensions[2]);
+#else
         var initialSize = GetCanvasSize();
+#endif
         InitializeWindow(
             new WindowDescriptor(
                 initialSize.Width,
@@ -61,17 +76,30 @@ internal sealed partial class CornellBoxApp
                 Resizable: true));
 
         _instance = Wgpu.CreateInstance();
+#if !SIA_WEBGPU_BACKEND_DAWN
         _surface = CreateSurface(_instance, _window);
+#endif
 
-        _adapter = await RequestBrowserAdapterAsync();
+        _adapter = await AwaitBrowserGpuAsync(RequestBrowserAdapterAsync());
 
+#if !SIA_WEBGPU_BACKEND_DAWN
         var surfaceInfo = GetSurfaceInfo(_surface, _adapter);
         _surfaceFormat = surfaceInfo.Format;
         _alphaMode = surfaceInfo.AlphaMode;
         _presentMode = surfaceInfo.PresentMode;
+#endif
 
-        _device = await Wgpu.RequestDeviceAsync(_adapter);
+        _device = await AwaitBrowserGpuAsync(Wgpu.RequestDeviceAsync(_adapter));
         _queue = Wgpu.GetQueue(_device);
+#if SIA_WEBGPU_BACKEND_DAWN
+        _maxCanvasDimension = checked((int)Wgpu.GetLimits(_device).MaxTextureDimension2D);
+        _target = await WgpuRenderTarget.FromCanvasAsync(_instance, _device, _queue, "canvas",
+            GetCanvasPresentation() == "normal" ? WgpuCanvasPresentation.Readback : WgpuCanvasPresentation.Direct);
+        _surfaceFormat = _target.Format;
+        ApplyCanvasFrame(dimensions);
+#else
+        _target = WgpuRenderTarget.FromSurface(_device, _queue, _surface, _surfaceFormat, _alphaMode, _presentMode);
+#endif
 
 #if SIA_SPIRV_ASSETS
         _spirvShaderAssets = await LoadSpirvShaderAssetsAsync();
@@ -81,6 +109,17 @@ internal sealed partial class CornellBoxApp
         InitializeUi();
         InitializeRenderGraph();
         ResizeIfNeeded(force: true);
+    }
+
+    private async Task<T> AwaitBrowserGpuAsync<T>(Task<T> request)
+    {
+#if SIA_WEBGPU_BACKEND_DAWN
+        do {
+            await NextCanvasFrame(_browserCanvas!);
+            await Task.Yield();
+        } while (!request.IsCompleted);
+#endif
+        return await request;
     }
 
     private void ResizeWindowToCanvas()

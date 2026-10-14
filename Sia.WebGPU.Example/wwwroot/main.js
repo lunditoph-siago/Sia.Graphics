@@ -1,4 +1,5 @@
 import { dotnet } from './_framework/dotnet.js';
+import { createCanvas, nextCanvasFrame, disposeCanvas } from './canvas.js';
 
 const canvas = document.getElementById('canvas');
 
@@ -90,7 +91,12 @@ try {
     Module.canvas = canvas;
     Module.print = console.log;
     Module.printErr = (line) => console.error('[stderr]', line);
-    setModuleImports('main.js', { getCanvasWidth, getCanvasHeight, loadBinaryBase64 });
+    setModuleImports('main.js', {
+        getCanvasWidth, getCanvasHeight, loadBinaryBase64,
+        createCanvas, nextCanvasFrame, disposeCanvas,
+        canvasPresentation: () => new URLSearchParams(location.search).get('canvas') === 'normal' ? 'normal' : 'offscreen',
+        setTitle: title => { document.title = title; },
+    });
 
     await runMain();
 } catch (err) {

@@ -16,7 +16,6 @@ public sealed partial class WgpuRenderTarget
     private WgpuHandle<WGPUBuffer> _readback;
     private int _bytesPerRow;
 
-    // The transport owns the Worker handshake; callers only supply an existing DOM canvas id.
     [DllImport("__Internal_emscripten", EntryPoint = "siaGraphicsCanvasThread")]
     private static extern nuint InitializeCanvasWorker();
 
@@ -24,9 +23,6 @@ public sealed partial class WgpuRenderTarget
     [return: JSMarshalAs<JSType.Promise<JSType.Void>>]
     private static partial Task NextBrowserTurn();
 
-    /// <summary>Attaches to an existing DOM canvas. Device/queue are borrowed; the target owns its GPU resources and transport.</summary>
-    /// <remarks>The host owns DOM layout, input and removal. Direct presentation transfers the canvas to the render Worker;
-    /// readback presentation copies opaque RGBA pixels to a main-thread 2D context. Recreate a transferred canvas before rebinding it.</remarks>
     public static async Task<WgpuRenderTarget> FromCanvasAsync(WgpuHandle<WGPUInstance> instance,
         WgpuHandle<WGPUDevice> device, WgpuHandle<WGPUQueue> queue,
         string canvasId, WgpuCanvasPresentation presentation = WgpuCanvasPresentation.Direct,
@@ -58,7 +54,6 @@ public sealed partial class WgpuRenderTarget
                 target.CheckCanvasError();
                 if (System.Diagnostics.Stopwatch.GetElapsedTime(started) >= TimeSpan.FromSeconds(5))
                     throw new TimeoutException("Canvas binding timed out.");
-                // Await the browser callback directly; cancellation is checked on each turn.
                 await NextBrowserTurn();
                 await Task.Yield();
             }
@@ -208,12 +203,9 @@ public sealed partial class WgpuRenderTarget
     private static extern unsafe void NativeReleaseCanvas(byte* selector, int token);
 }
 
-/// <summary>Selects browser presentation for the same C# rendering pipeline.</summary>
 public enum WgpuCanvasPresentation
 {
-    /// <summary>Present directly through an OffscreenCanvas on the render Worker.</summary>
     Direct,
-    /// <summary>Read GPU pixels back into an ordinary main-thread canvas.</summary>
     Readback,
 }
 #endif

@@ -2,9 +2,6 @@ using Sia.WebGPU;
 
 namespace Sia.Graphics;
 
-/// <summary>Owns presentation resources; device, queue and an externally supplied surface are borrowed.</summary>
-/// <remarks>Use on its owning render thread. A borrowed surface must be exclusively configured by this target.
-/// Dispose frames before the target, and the target before its device.</remarks>
 public sealed partial class WgpuRenderTarget : IDisposable
 {
     private readonly WgpuHandle<WGPUDevice> _device;
@@ -36,7 +33,6 @@ public sealed partial class WgpuRenderTarget : IDisposable
     public int Width { get; private set; }
     public int Height { get; private set; }
 
-    /// <summary>Wraps a borrowed surface. This target configures and unconfigures it, but never releases it.</summary>
     public static WgpuRenderTarget FromSurface(WgpuHandle<WGPUDevice> device,
         WgpuHandle<WGPUQueue> queue, WgpuHandle<WGPUSurface> surface, WGPUTextureFormat format,
         WGPUCompositeAlphaMode alphaMode = WGPUCompositeAlphaMode.Opaque,
@@ -46,7 +42,6 @@ public sealed partial class WgpuRenderTarget : IDisposable
         return new(device, queue, surface, format, alphaMode, presentMode);
     }
 
-    /// <summary>Acquires a scoped output texture. False means transient surface/readback backpressure; retry on a later frame.</summary>
     public bool TryAcquireFrame(int width, int height, out WgpuRenderTargetFrame frame)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -137,7 +132,6 @@ public sealed partial class WgpuRenderTarget : IDisposable
 
     internal void EndFrame(long generation)
     {
-        // Struct copies may dispose more than once; only the live generation owns the acquisition.
         if (!_active || generation != _generation) return;
         _active = false;
 #if BROWSER && SIA_WEBGPU_BACKEND_DAWN
@@ -164,9 +158,6 @@ public sealed partial class WgpuRenderTarget : IDisposable
     }
 }
 
-/// <summary>A borrowed output texture. Present ends access; disposal releases the acquisition even without presentation.</summary>
-/// <remarks>Acquire, render and present synchronously within one render callback. Browser surface textures may
-/// expire when control returns to the browser event loop; do not retain a frame across asynchronous work.</remarks>
 public readonly struct WgpuRenderTargetFrame : IDisposable
 {
     private readonly WgpuRenderTarget? _target;

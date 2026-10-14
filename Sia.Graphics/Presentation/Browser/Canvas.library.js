@@ -1,4 +1,3 @@
-// GPU resources and transport belong to the target; DOM layout and input belong to the host.
 addToLibrary({
     $siaGraphicsCanvasBridge__deps: ['$GL'],
     $siaGraphicsCanvasBridge__postset: `
@@ -44,7 +43,6 @@ addToLibrary({
         return 0;
 #endif
     },
-    // The C wrapper owns a UTF-8 copy until this asynchronous main-thread proxy frees it.
     siaGraphicsBindCanvasMain__sig: 'vppii',
     siaGraphicsBindCanvasMain__proxy: 'async',
     siaGraphicsBindCanvasMain__deps: ['$siaGraphicsCanvasBridge', '$UTF8ToString', 'free'
@@ -119,7 +117,6 @@ addToLibrary({
             observer.listener = (event) => {
                 for (const record of observer.records) record.error ||= event.error.message;
             };
-            // One callback per borrowed device, retaining no disposed canvas records.
             device.lost.then((info) => {
                 observer.error = 'Device lost: ' + info.message;
                 for (const record of observer.records) record.error ||= observer.error;

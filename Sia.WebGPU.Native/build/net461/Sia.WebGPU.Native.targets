@@ -1,21 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <PropertyGroup>
-    <_SiaWebGPUNative_IsBrowser Condition="'$(RuntimeIdentifier)' == 'browser-wasm'">true</_SiaWebGPUNative_IsBrowser>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(_SiaWebGPUNative_IsBrowser)' == 'true'">
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm'">
     <SiaWebGpuCachePath Condition="'$(SiaWebGpuCachePath)' == ''">$([MSBuild]::NormalizePath('$(BaseIntermediateOutputPath)siawebgpu-cache'))</SiaWebGpuCachePath>
     <WasmCachePath Condition="'$(WasmCachePath)' == ''">$(SiaWebGpuCachePath)</WasmCachePath>
     <EmccFlags Condition="'$(_SiaWebGpuPortConfigured)' != 'true'">$(EmccFlags) --use-port=emdawnwebgpu:cpp_bindings=false</EmccFlags>
     <_SiaWebGpuPortConfigured>true</_SiaWebGpuPortConfigured>
   </PropertyGroup>
 
-  <ItemGroup Condition="'$(_SiaWebGPUNative_IsBrowser)' == 'true'">
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm'">
     <NativeFileReference Include="$(MSBuildThisFileDirectory)..\..\ports\siawebgpu\src\siawebgpu_dawn.c" />
   </ItemGroup>
 
-  <PropertyGroup Condition="'$(_SiaWebGPUNative_IsBrowser)' != 'true'">
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != 'browser-wasm'">
     <_SiaWebGPUNative_IsWindows Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'">true</_SiaWebGPUNative_IsWindows>
     <_SiaWebGPUNative_IsMacOS Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))' == 'true'">true</_SiaWebGPUNative_IsMacOS>
     <_SiaWebGPUNative_IsLinux Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))' == 'true'">true</_SiaWebGPUNative_IsLinux>
@@ -44,7 +40,7 @@
     <_SiaWebGPUNative_LibName Condition="'$(_SiaWebGPUNative_Runtime)' == 'linux-arm64'">libwgpu_native.so</_SiaWebGPUNative_LibName>
   </PropertyGroup>
 
-  <ItemGroup Condition="'$(_SiaWebGPUNative_IsBrowser)' != 'true' And '$(_SiaWebGPUNative_Runtime)' != ''">
+  <ItemGroup Condition="'$(RuntimeIdentifier)' != 'browser-wasm' And '$(_SiaWebGPUNative_Runtime)' != ''">
     <Content Include="$(MSBuildThisFileDirectory)..\..\runtimes\$(_SiaWebGPUNative_Runtime)\native\$(_SiaWebGPUNative_LibName)">
       <Link>%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>

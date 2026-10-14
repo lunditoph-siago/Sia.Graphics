@@ -14,12 +14,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="obj_browser\**" />
-    <EmbeddedResource Remove="obj_browser\**" />
-    <None Remove="obj_browser\**" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\Sia.Graphics\Sia.Graphics.csproj" />
     <ProjectReference Include="..\Sia.Spirv.Core\Sia.Spirv.Core.csproj" />
     <ProjectReference Include="..\Sia.WebGPU\Sia.WebGPU.csproj" />

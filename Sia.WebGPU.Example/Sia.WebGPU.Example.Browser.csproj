@@ -12,28 +12,16 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
-    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
     <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
     <WasmEnableThreads>true</WasmEnableThreads>
-    <WasmBuildNative>true</WasmBuildNative>
-    <EmccExtraLDFlags>-sALLOW_MEMORY_GROWTH</EmccExtraLDFlags>
     <SiaShaderAssetFormat Condition="'$(SiaShaderAssetFormat)' == ''">Wgsl</SiaShaderAssetFormat>
     <EnableSpirvCompilation Condition="'$(SiaShaderAssetFormat)' == 'Wgsl'">false</EnableSpirvCompilation>
     <EnableSpirvCompilation Condition="'$(SiaShaderAssetFormat)' == 'Spirv'">true</EnableSpirvCompilation>
     <DefineConstants Condition="'$(SiaShaderAssetFormat)' == 'Spirv'">$(DefineConstants);SIA_SPIRV_ASSETS</DefineConstants>
     <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
-    <SpirvKernelAbi>webgpu</SpirvKernelAbi>
-    <SpirvEmitWgsl>true</SpirvEmitWgsl>
     <SpirvOptimizationLevel>3</SpirvOptimizationLevel>
     <IntermediateOutputPath>$(BaseIntermediateOutputPath)$(SiaShaderAssetFormat)\$(Configuration)\</IntermediateOutputPath>
   </PropertyGroup>
-
-  <ItemGroup>
-    <Compile Remove="obj_desktop\**;publish\**" />
-    <EmbeddedResource Remove="obj_desktop\**;publish\**" />
-    <None Remove="obj_desktop\**;publish\**" />
-    <Content Remove="obj_desktop\**;publish\**" />
-  </ItemGroup>
 
   <ItemGroup>
     <StaticWebAssetFingerprintPattern Include="JS" Pattern="*.js" Expression="#[.{fingerprint}]!" />

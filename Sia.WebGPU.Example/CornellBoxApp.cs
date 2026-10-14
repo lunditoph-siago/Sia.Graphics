@@ -3,6 +3,7 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
 using Sia.GLFW;
+using Sia.Graphics;
 using Sia.Graphics.Reactive;
 using Sia.Input;
 using Sia.Window;
@@ -44,7 +45,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     private int _framebufferHeight;
     private int _readIndex;
     private uint _frameIndex;
-    private bool _surfaceConfigured;
+    private WgpuRenderTarget? _target;
     private bool _disposed;
 
     private float _cameraYaw;
@@ -68,8 +69,8 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         var clock = Stopwatch.StartNew();
         var previousTime = clock.Elapsed.TotalSeconds;
 
-        while (!Glfw.ShouldClose(_window)) {
-            Glfw.PollEvents();
+        while (!ShouldClose()) {
+            PollEvents();
 
             var currentTime = clock.Elapsed.TotalSeconds;
             var deltaTime = (float)System.Math.Min(currentTime - previousTime, 0.1);
@@ -110,6 +111,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
 
         _device = Wgpu.RequestDevice(_adapter);
         _queue = Wgpu.GetQueue(_device);
+        _target = WgpuRenderTarget.FromSurface(_device, _queue, _surface, _surfaceFormat, _alphaMode, _presentMode);
 
         CreateUniformBuffer();
         CreatePipelines();
@@ -429,7 +431,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
 
     private bool ResizeIfNeeded(bool force = false)
     {
-        var size = Glfw.GetFramebufferSize(_window);
+        var size = GetFramebufferSize();
         if (size.Width <= 0 || size.Height <= 0) {
             return false;
         }
@@ -441,21 +443,6 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         ReleaseAccumulationResources();
         _framebufferWidth = size.Width;
         _framebufferHeight = size.Height;
-
-        var configuration = new WGPUSurfaceConfiguration {
-            NextInChain = null,
-            Device = Pointer(_device),
-            Format = _surfaceFormat,
-            Usage = WGPUTextureUsage.RenderAttachment,
-            Width = (uint)_framebufferWidth,
-            Height = (uint)_framebufferHeight,
-            ViewFormatCount = 0,
-            ViewFormats = null,
-            AlphaMode = _alphaMode,
-            PresentMode = _presentMode,
-        };
-        Wgpu.ConfigureSurface(_surface, in configuration);
-        _surfaceConfigured = true;
 
         CreateAccumulationResources();
         ResetAccumulation();
@@ -520,40 +507,16 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
 
     private void RenderFrame()
     {
-        var surfaceTexture = Wgpu.AcquireSurfaceTexture(_surface);
-        if (surfaceTexture.Status is not (
-            WGPUSurfaceGetCurrentTextureStatus.SuccessOptimal
-            or WGPUSurfaceGetCurrentTextureStatus.SuccessSuboptimal)) {
-            if (surfaceTexture.HasTexture) {
-                Wgpu.Release(ref surfaceTexture);
-            }
-
-            if (surfaceTexture.Status is WGPUSurfaceGetCurrentTextureStatus.Outdated
-                or WGPUSurfaceGetCurrentTextureStatus.Lost) {
-                ResizeIfNeeded(force: true);
-                return;
-            }
-            if (surfaceTexture.Status == WGPUSurfaceGetCurrentTextureStatus.Timeout) {
-                return;
-            }
-
-            throw new WgpuException($"Surface texture acquisition failed with status {surfaceTexture.Status}.");
-        }
-
-        try {
+        if (!_target!.TryAcquireFrame(_framebufferWidth, _framebufferHeight, out var output)) return;
+        using (output) {
             WriteUniforms();
-
             var writeIndex = 1 - _readIndex;
-            UpdateRenderGraph(surfaceTexture.Texture, writeIndex);
+            UpdateRenderGraph(output.Texture, writeIndex);
             _renderGraphWorld!.ExecuteWgpuRenderGraph();
             EndSamplingBindGroupFrame();
-
-            Wgpu.PresentSurfaceOrThrow(_surface);
+            output.Present();
             _readIndex = writeIndex;
             _frameIndex++;
-        }
-        finally {
-            Wgpu.Release(ref surfaceTexture);
         }
     }
 
@@ -585,13 +548,13 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
 
     private void HandleInput(float deltaTime)
     {
+        if (Pressed(Key.Escape) || IsDown(Key.Escape)) {
+            RequestClose();
+        }
+
         if (UiCapturesKeyboard()) {
             _downKeys.Clear();
             _pressedKeys.Clear();
-        }
-
-        if (IsDown(Key.Escape)) {
-            Glfw.RequestClose(_window);
         }
 
         var cameraChanged = false;
@@ -685,8 +648,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         }
 
         _lastTitleUpdate = currentTime;
-        Glfw.SetTitle(
-            _window,
+        SetWindowTitle(
             $"Cornell Box · {_frameIndex * (uint)_samplesPerFrame:N0} spp · "
                 + $"{_maxBounces} bounces · exposure {_exposure:0.0} · aperture {_aperture:0.000}");
     }
@@ -713,12 +675,8 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         Wgpu.Release(ref _pipelineLayout);
         Wgpu.Release(ref _bindGroupLayout);
         Wgpu.Release(ref _uniformBuffer);
+        _target?.Dispose();
         Wgpu.Release(ref _queue);
-
-        if (!_surface.IsNull && _surfaceConfigured) {
-            Wgpu.UnconfigureSurface(_surface);
-            _surfaceConfigured = false;
-        }
         if (!_device.IsNull) {
             Wgpu.DestroyDevice(_device);
         }

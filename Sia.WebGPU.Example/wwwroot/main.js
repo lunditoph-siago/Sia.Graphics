@@ -1,24 +1,6 @@
 import { dotnet } from './_framework/dotnet.js';
 import { createCanvas, nextCanvasFrame, disposeCanvas } from './canvas.js';
-
-const parameters = new URLSearchParams(location.search);
-const canvasMode = parameters.get('canvas') === 'normal' ? 'normal' : 'offscreen';
-const shaderFormat = parameters.get('shader') === 'spirv' ? 'spirv' : 'wgsl';
-const canvasToggle = document.getElementById('canvas-toggle');
-const shaderToggle = document.getElementById('shader-toggle');
-canvasToggle.setAttribute('aria-pressed', String(canvasMode === 'normal'));
-canvasToggle.setAttribute('aria-label', canvasMode === 'normal' ? 'Use OffscreenCanvas' : 'Use ordinary Canvas');
-document.getElementById('canvas-mode').textContent = canvasMode === 'normal' ? 'Canvas' : 'OffscreenCanvas';
-shaderToggle.setAttribute('aria-pressed', String(shaderFormat === 'spirv'));
-shaderToggle.setAttribute('aria-label', shaderFormat === 'spirv' ? 'Use WGSL shaders' : 'Use C# SPIR-V shaders');
-shaderToggle.textContent = shaderFormat === 'spirv' ? 'SPIR-V' : 'WGSL';
-function selectMode(name, value) {
-    const url = new URL(location.href);
-    url.searchParams.set(name, value);
-    location.assign(url);
-}
-canvasToggle.addEventListener('click', () => selectMode('canvas', canvasMode === 'normal' ? 'offscreen' : 'normal'));
-shaderToggle.addEventListener('click', () => selectMode('shader', shaderFormat === 'spirv' ? 'wgsl' : 'spirv'));
+import { canvasMode, shaderFormat, renderScale, bootModuleConfig, loading, ready, failed } from './ui.js';
 
 async function loadBinaryBase64(path) {
     const response = await fetch(path);
@@ -36,6 +18,7 @@ async function loadBinaryBase64(path) {
 let errorOverlay;
 
 function showError(message) {
+    failed(message);
     if (!errorOverlay) {
         errorOverlay = document.createElement('pre');
         errorOverlay.id = 'error-overlay';
@@ -96,20 +79,18 @@ window.addEventListener('unhandledrejection', (e) => {
 
 try {
     if (!navigator.gpu) throw new Error('WebGPU is unavailable. Use a browser and device with WebGPU support.');
+    dotnet.withModuleConfig(bootModuleConfig);
     const { runMain, Module, setModuleImports } = await dotnet.create();
 
     Module.print = console.log;
     Module.printErr = (line) => console.error('[stderr]', line);
     setModuleImports('main.js', {
         loadBinaryBase64,
-        createCanvas: () => {
-            document.getElementById('preview-controls').hidden = false;
-            return createCanvas();
-        },
+        createCanvas: () => { loading('creating renderer'); return createCanvas(renderScale); },
         nextCanvasFrame, disposeCanvas,
         canvasPresentation: () => canvasMode,
         shaderFormat: () => shaderFormat,
-        setTitle: title => { document.title = title; },
+        setTitle: title => { document.title = title; ready(); },
     });
 
     await runMain();

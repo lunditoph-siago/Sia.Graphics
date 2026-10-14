@@ -1,58 +1,202 @@
 <!doctype html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SIA//WEBGPU</title>
     <link rel="icon" href="data:," />
-    <title>Sia.WebGPU · Cornell Box Path Tracer</title>
     <link rel="preload" id="webassembly" />
     <script type="importmap"></script>
     <script src="threads#[.{fingerprint}].js"></script>
     <style>
-        html,
-        body {
+        :root {
+            --bg: #000;
+            --fg: #e8e8e8;
+            --fg-bright: #fff;
+            --muted: #999;
+            --dim: #777;
+            --border: #444;
+            --border-soft: #222;
+            --mono: "Consolas", "SF Mono", "Cascadia Code", "Courier New", monospace;
+        }
+
+        html, body {
             width: 100%;
             height: 100%;
             margin: 0;
             overflow: hidden;
-            background: #000;
+            background: var(--bg);
+            font-family: var(--mono);
+        }
+        body {
+            display: flex;
+            flex-direction: column;
         }
 
-        #canvas {
-            display: block;
-            width: 100vw;
-            height: 100vh;
-        }
-
-        #preview-controls {
+        #boot {
             position: fixed;
-            top: 12px;
-            right: 12px;
+            inset: 0;
+            background: var(--bg);
+            color: var(--fg);
+            padding: 28px 32px;
+            overflow-y: auto;
+            font-size: 14px;
+            line-height: 1.7;
+            white-space: pre-wrap;
+            z-index: 20;
+            transition: opacity .35s, transform .35s;
+            &.collapsed {
+                opacity: 0;
+                transform: translateY(-8px);
+                pointer-events: none;
+            }
         }
 
-        #preview-controls button {
-            padding: 3px 9px;
-            border: 1px solid #444;
-            border-radius: 2px;
-            background: #000;
-            color: #e8e8e8;
-            font: 11px monospace;
-            cursor: pointer;
+        #bar {
+            flex: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
+            padding: 6px 10px;
+            background: var(--bg);
+            border-bottom: 1px solid var(--border-soft);
+            transform: translateY(-100%);
+            transition: transform .3s;
+            &.visible {
+                transform: translateY(0);
+            }
+            button, select, input {
+                background: var(--bg);
+                color: var(--muted);
+                border: 1px solid var(--border);
+                border-radius: 2px;
+                font: inherit;
+                font-size: 11px;
+            }
+            button {
+                padding: 3px 9px;
+                letter-spacing: .5px;
+                cursor: pointer;
+                &:hover {
+                    color: var(--fg-bright);
+                    border-color: #888;
+                }
+                &.active {
+                    color: var(--bg);
+                    background: var(--fg);
+                    border-color: var(--fg);
+                }
+            }
+            select {
+                padding: 3px 6px;
+                cursor: pointer;
+            }
+            input {
+                width: 48px;
+                box-sizing: border-box;
+                padding: 3px 5px;
+            }
+            label {
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                color: var(--muted);
+                font-size: 11px;
+                letter-spacing: .5px;
+            }
         }
 
-        #preview-controls button[aria-pressed="true"] {
-            background: #e8e8e8;
-            color: #000;
+        #profiles {
+            display: flex;
+            flex: 1 1 auto;
+            gap: 6px;
+            min-width: 0;
+            overflow-x: auto;
+            overscroll-behavior-x: contain;
+            scrollbar-width: none;
+            touch-action: pan-x;
+            -webkit-overflow-scrolling: touch;
+            &::-webkit-scrollbar {
+                display: none;
+            }
+            button {
+                flex: 0 0 auto;
+            }
+        }
+
+        .profile-group {
+            display: flex;
+            flex: 0 0 auto;
+            gap: 3px;
+            & + & {
+                margin-left: 2px;
+                padding-left: 5px;
+                border-left: 1px solid var(--border-soft);
+            }
+        }
+
+        #shared-controls {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            padding-left: 6px;
+            background: var(--bg);
+            border-left: 1px solid var(--border-soft);
+        }
+
+        #stage {
+            position: relative;
+            flex: 1 1 auto;
+            min-height: 0;
+            opacity: 0;
+            transition: opacity .4s;
+            &.visible {
+                opacity: 1;
+            }
+            #canvas {
+                width: 100%;
+                height: 100%;
+                border: 0;
+                display: block;
+                background: var(--bg);
+            }
+        }
+
+        #canvas-host {
+            width: 100%;
+            height: 100%;
         }
     </style>
 </head>
-<body id="canvas-host">
-    <canvas id="canvas" width="1280" height="720"></canvas>
-    <div id="preview-controls" hidden>
-        <button id="canvas-toggle" type="button" aria-label="Use ordinary Canvas" aria-pressed="false">
-            <span id="canvas-mode">OffscreenCanvas</span>
-        </button>
-        <button id="shader-toggle" type="button" aria-label="Use C# SPIR-V shaders" aria-pressed="false">WGSL</button>
+
+<body>
+    <div id="boot">
+        <div id="log" role="status" aria-live="polite">[INIT ] sia.webgpu bootstrap</div>
+    </div>
+    <div id="bar">
+        <div id="profiles">
+            <div class="profile-group" role="group" aria-label="Shader format">
+                <button type="button" data-shader="wgsl">WGSL</button>
+                <button type="button" data-shader="spirv">SPV</button>
+            </div>
+            <div class="profile-group" role="group" aria-label="Canvas presentation">
+                <button type="button" data-canvas="offscreen">OFFSCREEN</button>
+                <button type="button" data-canvas="normal">CANVAS</button>
+            </div>
+        </div>
+        <div id="shared-controls">
+            <label for="render-scale">SCALE
+                <button id="auto-scale" type="button">AUTO</button>
+                <input id="render-scale" type="number" min="1" max="3" step="0.25" value="1" />×
+            </label>
+        </div>
+    </div>
+    <div id="stage">
+        <div id="canvas-host">
+            <canvas id="canvas" width="1280" height="720"></canvas>
+        </div>
     </div>
 </body>
 </html>

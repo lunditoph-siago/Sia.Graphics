@@ -78,7 +78,7 @@ const inputKinds = {
     keyup: 8,
     text: 9,
 };
-export function createCanvas() {
+export function createCanvas(renderScale = () => 1) {
     const container = document.getElementById('canvas-host');
     if (!container) throw new Error('Canvas host is missing');
     document.getElementById('canvas')?.remove();
@@ -89,6 +89,7 @@ export function createCanvas() {
     container.append(canvas);
     const owner = {
         canvas,
+        renderScale,
         frame: [0, 0, 0, 1],
         abort: new AbortController(),
         keys: new Set(),
@@ -183,7 +184,7 @@ export function nextCanvasFrame(owner) {
             frame[0] = time;
             frame[1] = box.width;
             frame[2] = box.height;
-            frame[3] = window.devicePixelRatio || 1;
+            frame[3] = (window.devicePixelRatio || 1) * owner.renderScale();
             const json = JSON.stringify(frame);
             frame.length = 4;
             owner.rejectFrame = null;

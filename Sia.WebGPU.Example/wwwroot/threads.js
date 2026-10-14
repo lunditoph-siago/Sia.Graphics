@@ -89,5 +89,11 @@ if (typeof window === "undefined") {
         window.location.reload();
     })().catch(error => {
         console.error("Failed to start threaded WebAssembly page:", error);
+        const showFailure = () => document.getElementById("log")?.append(`\n[FAIL ] ${error.message ?? error}`);
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", showFailure, { once: true });
+        } else {
+            showFailure();
+        }
     });
 }

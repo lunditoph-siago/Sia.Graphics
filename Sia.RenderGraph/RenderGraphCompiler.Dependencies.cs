@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace Sia.RenderGraph;
 
 public static partial class RenderGraphCompiler
@@ -10,8 +12,10 @@ public static partial class RenderGraphCompiler
             dependencies[passIndex] = [.. definition.Passes[passIndex].Dependencies];
         }
 
-        var bufferHistory = CreateLists<BufferHistory>(definition.BufferCount);
-        var textureHistory = CreateLists<TextureHistory>(definition.TextureCount);
+        var bufferReaders = new List<BufferHistory>?[definition.BufferCount];
+        var bufferWriters = new List<BufferHistory>?[definition.BufferCount];
+        var textureReaders = new List<TextureHistory>?[definition.TextureCount];
+        var textureWriters = new List<TextureHistory>?[definition.TextureCount];
         var initializedBuffers = CreateLists<RenderGraphBufferRange>(
             definition.BufferCount);
         var initializedTextures = CreateLists<RenderGraphTextureSubresourceRange>(
@@ -28,52 +32,43 @@ public static partial class RenderGraphCompiler
                 initializedTextures);
 
             foreach (var use in pass.Buffers) {
-                var history = bufferHistory[use.BufferIndex];
                 var writes = Writes(use.Access);
-                foreach (var previous in history) {
-                    if ((writes || Writes(previous.Access)) &&
-                        RenderGraphValidation.Overlaps(use.Range, previous.Range)) {
-                        AddDependency(dependencies, passIndex, previous.PassIndex);
-                    }
+                if (bufferWriters[use.BufferIndex] is { } writers) {
+                    AddDependencies(dependencies, passIndex, CollectionsMarshal.AsSpan(writers), use.Range);
                 }
-
                 if (writes) {
-                    RemoveMatchingHistory(history, use.Range);
+                    if (bufferReaders[use.BufferIndex] is { } readers) {
+                        AddDependencies(dependencies, passIndex, CollectionsMarshal.AsSpan(readers), use.Range);
+                    }
+                    RemoveMatchingHistory(bufferReaders[use.BufferIndex], use.Range);
+                    RemoveMatchingHistory(bufferWriters[use.BufferIndex], use.Range);
                 }
-                history.Add(new BufferHistory(
-                    passIndex,
-                    use.Access,
-                    use.Range));
+                var history = writes ? bufferWriters : bufferReaders;
+                (history[use.BufferIndex] ??= []).Add(new BufferHistory(passIndex, use.Range));
             }
 
             foreach (var use in pass.Textures) {
                 var format = definition.Textures[use.TextureIndex].Descriptor.Format;
-                var history = textureHistory[use.TextureIndex];
                 var writes = Writes(use.Access);
-                foreach (var previous in history) {
-                    if ((writes || Writes(previous.Access)) &&
-                        RenderGraphValidation.Overlaps(
-                            format,
-                            use.Subresources,
-                            previous.Subresources)) {
-                        AddDependency(dependencies, passIndex, previous.PassIndex);
-                    }
+                if (textureWriters[use.TextureIndex] is { } writers) {
+                    AddDependencies(dependencies, passIndex, CollectionsMarshal.AsSpan(writers), format, use.Subresources);
                 }
-
                 if (writes) {
-                    RemoveMatchingHistory(history, use.Subresources);
+                    if (textureReaders[use.TextureIndex] is { } readers) {
+                        AddDependencies(dependencies, passIndex, CollectionsMarshal.AsSpan(readers), format, use.Subresources);
+                    }
+                    RemoveMatchingHistory(textureReaders[use.TextureIndex], use.Subresources);
+                    RemoveMatchingHistory(textureWriters[use.TextureIndex], use.Subresources);
                 }
-                history.Add(new TextureHistory(
-                    passIndex,
-                    use.Access,
-                    use.Subresources));
+                var history = writes ? textureWriters : textureReaders;
+                (history[use.TextureIndex] ??= []).Add(new TextureHistory(passIndex, use.Subresources));
             }
 
             foreach (var use in pass.Buffers.Where(static use => Writes(use.Access))) {
                 AddInitializedRange(initializedBuffers[use.BufferIndex], use.Range);
             }
             foreach (var use in pass.Textures.Where(static use => Writes(use.Access))) {
-                initializedTextures[use.TextureIndex].Add(use.Subresources);
+                AddInitializedRange(initializedTextures[use.TextureIndex], use.Subresources);
             }
         }
 
@@ -163,6 +158,34 @@ public static partial class RenderGraphCompiler
         initialized.Insert(first, new RenderGraphBufferRange(start, end - start));
     }
 
+    private static void AddInitializedRange(
+        List<RenderGraphTextureSubresourceRange> initialized,
+        RenderGraphTextureSubresourceRange range)
+    {
+        for (var index = initialized.Count - 1; index >= 0; index--) {
+            if (CombineLayers(initialized[index], range) is { } combined) {
+                range = combined;
+                initialized.RemoveAt(index);
+            }
+        }
+        initialized.Add(range);
+    }
+
+    // Only the layer axis changes; a union must never bridge a mip or aspect hole.
+    private static RenderGraphTextureSubresourceRange? CombineLayers(
+        in RenderGraphTextureSubresourceRange a,
+        in RenderGraphTextureSubresourceRange b) =>
+        a.Aspect == b.Aspect &&
+        a.BaseMipLevel == b.BaseMipLevel && a.MipLevelCount == b.MipLevelCount &&
+        a.BaseArrayLayer <= b.BaseArrayLayer + b.ArrayLayerCount &&
+        b.BaseArrayLayer <= a.BaseArrayLayer + a.ArrayLayerCount
+            ? a with {
+                BaseArrayLayer = Math.Min(a.BaseArrayLayer, b.BaseArrayLayer),
+                ArrayLayerCount = Math.Max(a.BaseArrayLayer + a.ArrayLayerCount,
+                    b.BaseArrayLayer + b.ArrayLayerCount) - Math.Min(a.BaseArrayLayer, b.BaseArrayLayer)
+            }
+            : null;
+
     private static bool IsCovered(
         RenderGraphTextureFormat format,
         List<RenderGraphTextureSubresourceRange> initialized,
@@ -226,10 +249,38 @@ public static partial class RenderGraphCompiler
         }
     }
 
-    private static void RemoveMatchingHistory(
-        List<BufferHistory> history,
+    private static void AddDependencies(
+        HashSet<int>[] dependencies,
+        int passIndex,
+        ReadOnlySpan<BufferHistory> history,
         RenderGraphBufferRange range)
     {
+        foreach (var previous in history) {
+            if (RenderGraphValidation.Overlaps(range, previous.Range)) {
+                AddDependency(dependencies, passIndex, previous.PassIndex);
+            }
+        }
+    }
+
+    private static void AddDependencies(
+        HashSet<int>[] dependencies,
+        int passIndex,
+        ReadOnlySpan<TextureHistory> history,
+        RenderGraphTextureFormat format,
+        RenderGraphTextureSubresourceRange subresources)
+    {
+        foreach (var previous in history) {
+            if (RenderGraphValidation.Overlaps(format, subresources, previous.Subresources)) {
+                AddDependency(dependencies, passIndex, previous.PassIndex);
+            }
+        }
+    }
+
+    private static void RemoveMatchingHistory(
+        List<BufferHistory>? history,
+        RenderGraphBufferRange range)
+    {
+        if (history is null) { return; }
         for (var index = history.Count - 1; index >= 0; index--) {
             if (history[index].Range == range) {
                 history.RemoveAt(index);
@@ -238,9 +289,10 @@ public static partial class RenderGraphCompiler
     }
 
     private static void RemoveMatchingHistory(
-        List<TextureHistory> history,
+        List<TextureHistory>? history,
         RenderGraphTextureSubresourceRange subresources)
     {
+        if (history is null) { return; }
         for (var index = history.Count - 1; index >= 0; index--) {
             if (history[index].Subresources == subresources) {
                 history.RemoveAt(index);
@@ -250,11 +302,9 @@ public static partial class RenderGraphCompiler
 
     private readonly record struct BufferHistory(
         int PassIndex,
-        RenderGraphAccess Access,
         RenderGraphBufferRange Range);
 
     private readonly record struct TextureHistory(
         int PassIndex,
-        RenderGraphAccess Access,
         RenderGraphTextureSubresourceRange Subresources);
 }

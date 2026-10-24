@@ -39,33 +39,27 @@ public static partial class RenderGraphCompiler
                 }
             }
 
-            return new(
-                pass.Kind,
-                attachments,
-                pass.Kind == RenderGraphPassKind.Render &&
-                All(pass.Buffers, static access => !Writes(access.Access)) &&
-                All(pass.Textures, static access =>
-                    !Writes(access.Access) || access.Usage == RenderGraphTextureUsage.RenderAttachment) &&
-                !AnyPair(pass.Textures, pass.Textures, static (read, write) =>
-                    !Writes(read.Access) && Writes(write.Access) && read.Texture == write.Texture));
-
-            static bool All<T>(IReadOnlyList<T> values, Func<T, bool> predicate)
-            {
-                for (var i = 0; i < values.Count; i++) {
-                    if (!predicate(values[i])) { return false; }
-                }
-                return true;
+            var canFuseByAttachments = pass.Kind == RenderGraphPassKind.Render;
+            for (var i = 0; canFuseByAttachments && i < pass.Buffers.Count; i++) {
+                canFuseByAttachments = !Writes(pass.Buffers[i].Access);
             }
-
-            static bool AnyPair<T>(IReadOnlyList<T> first, IReadOnlyList<T> second, Func<T, T, bool> predicate)
-            {
-                for (var i = 0; i < first.Count; i++) {
-                    for (var j = 0; j < second.Count; j++) {
-                        if (predicate(first[i], second[j])) { return true; }
+            for (var i = 0; canFuseByAttachments && i < pass.Textures.Count; i++) {
+                var access = pass.Textures[i];
+                canFuseByAttachments = !Writes(access.Access) ||
+                    access.Usage == RenderGraphTextureUsage.RenderAttachment;
+            }
+            for (var i = 0; canFuseByAttachments && i < pass.Textures.Count; i++) {
+                var read = pass.Textures[i];
+                if (Writes(read.Access)) { continue; }
+                for (var j = 0; j < pass.Textures.Count; j++) {
+                    var write = pass.Textures[j];
+                    if (Writes(write.Access) && read.Texture == write.Texture) {
+                        canFuseByAttachments = false;
+                        break;
                     }
                 }
-                return false;
             }
+            return new(pass.Kind, attachments, canFuseByAttachments);
         }
 
         static bool CanMerge(
@@ -101,7 +95,7 @@ public static partial class RenderGraphCompiler
                 var a = previous.Buffers[i];
                 for (var j = 0; j < next.Buffers.Count; j++) {
                     var b = next.Buffers[j];
-                    if (BufferConflicts(a, b)) {
+                    if (a.Buffer == b.Buffer && (Writes(a.Access) || Writes(b.Access))) {
                         return true;
                     }
                 }
@@ -110,31 +104,20 @@ public static partial class RenderGraphCompiler
                 var a = previous.Textures[i];
                 for (var j = 0; j < next.Textures.Count; j++) {
                     var b = next.Textures[j];
-                    if (TextureConflicts(a, b, attachments, textures)) {
+                    if (a.Texture != b.Texture || (!Writes(a.Access) && !Writes(b.Access))) {
+                        continue;
+                    }
+                    var sameAttachment = a.Usage == RenderGraphTextureUsage.RenderAttachment &&
+                        b.Usage == RenderGraphTextureUsage.RenderAttachment &&
+                        a.Subresources == b.Subresources &&
+                        attachments.Contains((a.Texture, a.Subresources));
+                    if (!sameAttachment && RenderGraphValidation.Overlaps(
+                        textures[a.Texture.Index].Descriptor.Format, a.Subresources, b.Subresources)) {
                         return true;
                     }
                 }
             }
             return false;
-
-            static bool BufferConflicts(
-                in RenderGraphBufferAccess a,
-                in RenderGraphBufferAccess b) =>
-                a.Buffer == b.Buffer && (Writes(a.Access) || Writes(b.Access));
-
-            static bool TextureConflicts(
-                in RenderGraphTextureAccess a,
-                in RenderGraphTextureAccess b,
-                RenderAttachmentSet attachments,
-                CompiledRenderGraphTexture[] textures) =>
-                a.Texture == b.Texture &&
-                (Writes(a.Access) || Writes(b.Access)) &&
-                !(a.Usage == RenderGraphTextureUsage.RenderAttachment &&
-                    b.Usage == RenderGraphTextureUsage.RenderAttachment &&
-                    a.Subresources == b.Subresources &&
-                    attachments.Contains((a.Texture, a.Subresources))) &&
-                RenderGraphValidation.Overlaps(
-                    textures[a.Texture.Index].Descriptor.Format, a.Subresources, b.Subresources);
         }
     }
 

@@ -80,7 +80,8 @@ public static partial class RenderGraphCompiler
             List<RenderGraphBufferRange>[] initializedBuffers,
             List<RenderGraphTextureSubresourceRange>[] initializedTextures)
         {
-            foreach (var use in pass.Buffers.Where(static use => Reads(use.Access))) {
+            foreach (var use in pass.Buffers.Where(static use =>
+                use.Access is RenderGraphAccess.Read or RenderGraphAccess.ReadWrite)) {
                 var resource = definition.Buffers[use.BufferIndex];
                 if (!resource.IsImported &&
                     !IsBufferCovered(initializedBuffers[use.BufferIndex], use.Range)) {
@@ -91,7 +92,8 @@ public static partial class RenderGraphCompiler
                 }
             }
 
-            foreach (var use in pass.Textures.Where(static use => Reads(use.Access))) {
+            foreach (var use in pass.Textures.Where(static use =>
+                use.Access is RenderGraphAccess.Read or RenderGraphAccess.ReadWrite)) {
                 var resource = definition.Textures[use.TextureIndex];
                 if (!resource.IsImported &&
                     !IsTextureCovered(
@@ -174,9 +176,6 @@ public static partial class RenderGraphCompiler
 
                 return true;
             }
-
-            static bool Reads(RenderGraphAccess access) =>
-                access is RenderGraphAccess.Read or RenderGraphAccess.ReadWrite;
         }
 
         static void AddInitializedBufferRange(
@@ -212,27 +211,22 @@ public static partial class RenderGraphCompiler
             RenderGraphTextureSubresourceRange range)
         {
             for (var index = initialized.Count - 1; index >= 0; index--) {
-                if (CombineLayers(initialized[index], range) is { } combined) {
-                    range = combined;
-                    initialized.RemoveAt(index);
+                var previous = initialized[index];
+                // Only layers may merge; mip spans and aspects must match exactly.
+                if (previous.Aspect != range.Aspect ||
+                    previous.BaseMipLevel != range.BaseMipLevel ||
+                    previous.MipLevelCount != range.MipLevelCount ||
+                    previous.BaseArrayLayer > range.BaseArrayLayer + range.ArrayLayerCount ||
+                    range.BaseArrayLayer > previous.BaseArrayLayer + previous.ArrayLayerCount) {
+                    continue;
                 }
+                var firstLayer = Math.Min(previous.BaseArrayLayer, range.BaseArrayLayer);
+                var layerEnd = Math.Max(previous.BaseArrayLayer + previous.ArrayLayerCount,
+                    range.BaseArrayLayer + range.ArrayLayerCount);
+                range = range with { BaseArrayLayer = firstLayer, ArrayLayerCount = layerEnd - firstLayer };
+                initialized.RemoveAt(index);
             }
             initialized.Add(range);
-
-            // Only the layer axis changes; a union must never bridge a mip or aspect hole.
-            static RenderGraphTextureSubresourceRange? CombineLayers(
-                in RenderGraphTextureSubresourceRange a,
-                in RenderGraphTextureSubresourceRange b) =>
-                a.Aspect == b.Aspect &&
-                a.BaseMipLevel == b.BaseMipLevel && a.MipLevelCount == b.MipLevelCount &&
-                a.BaseArrayLayer <= b.BaseArrayLayer + b.ArrayLayerCount &&
-                b.BaseArrayLayer <= a.BaseArrayLayer + a.ArrayLayerCount
-                    ? a with {
-                        BaseArrayLayer = Math.Min(a.BaseArrayLayer, b.BaseArrayLayer),
-                        ArrayLayerCount = Math.Max(a.BaseArrayLayer + a.ArrayLayerCount,
-                            b.BaseArrayLayer + b.ArrayLayerCount) - Math.Min(a.BaseArrayLayer, b.BaseArrayLayer)
-                    }
-                    : null;
         }
 
         static void AddBufferDependencies(
@@ -242,8 +236,8 @@ public static partial class RenderGraphCompiler
             RenderGraphBufferRange range)
         {
             foreach (var previous in history) {
-                if (RenderGraphValidation.Overlaps(range, previous.Range)) {
-                    AddDependency(dependencies, passIndex, previous.PassIndex);
+                if (RenderGraphValidation.Overlaps(range, previous.Range) && previous.PassIndex != passIndex) {
+                    dependencies[passIndex].Add(previous.PassIndex);
                 }
             }
         }
@@ -256,19 +250,10 @@ public static partial class RenderGraphCompiler
             RenderGraphTextureSubresourceRange subresources)
         {
             foreach (var previous in history) {
-                if (RenderGraphValidation.Overlaps(format, subresources, previous.Subresources)) {
-                    AddDependency(dependencies, passIndex, previous.PassIndex);
+                if (RenderGraphValidation.Overlaps(format, subresources, previous.Subresources) &&
+                    previous.PassIndex != passIndex) {
+                    dependencies[passIndex].Add(previous.PassIndex);
                 }
-            }
-        }
-
-        static void AddDependency(
-            HashSet<int>[] dependencies,
-            int passIndex,
-            int dependency)
-        {
-            if (dependency != passIndex) {
-                dependencies[passIndex].Add(dependency);
             }
         }
 

@@ -29,14 +29,15 @@ public static partial class RenderGraphCompiler
 
             foreach (var use in pass.Buffers) {
                 var history = bufferHistory[use.BufferIndex];
+                var writes = Writes(use.Access);
                 foreach (var previous in history) {
-                    if (RenderGraphValidation.Overlaps(use.Range, previous.Range) &&
-                        (Writes(use.Access) || Writes(previous.Access))) {
+                    if ((writes || Writes(previous.Access)) &&
+                        RenderGraphValidation.Overlaps(use.Range, previous.Range)) {
                         AddDependency(dependencies, passIndex, previous.PassIndex);
                     }
                 }
 
-                if (Writes(use.Access)) {
+                if (writes) {
                     RemoveMatchingHistory(history, use.Range);
                 }
                 history.Add(new BufferHistory(
@@ -48,17 +49,18 @@ public static partial class RenderGraphCompiler
             foreach (var use in pass.Textures) {
                 var format = definition.Textures[use.TextureIndex].Descriptor.Format;
                 var history = textureHistory[use.TextureIndex];
+                var writes = Writes(use.Access);
                 foreach (var previous in history) {
-                    if (RenderGraphValidation.Overlaps(
+                    if ((writes || Writes(previous.Access)) &&
+                        RenderGraphValidation.Overlaps(
                             format,
                             use.Subresources,
-                            previous.Subresources) &&
-                        (Writes(use.Access) || Writes(previous.Access))) {
+                            previous.Subresources)) {
                         AddDependency(dependencies, passIndex, previous.PassIndex);
                     }
                 }
 
-                if (Writes(use.Access)) {
+                if (writes) {
                     RemoveMatchingHistory(history, use.Subresources);
                 }
                 history.Add(new TextureHistory(
@@ -68,7 +70,7 @@ public static partial class RenderGraphCompiler
             }
 
             foreach (var use in pass.Buffers.Where(static use => Writes(use.Access))) {
-                initializedBuffers[use.BufferIndex].Add(use.Range);
+                AddInitializedRange(initializedBuffers[use.BufferIndex], use.Range);
             }
             foreach (var use in pass.Textures.Where(static use => Writes(use.Access))) {
                 initializedTextures[use.TextureIndex].Add(use.Subresources);
@@ -115,7 +117,7 @@ public static partial class RenderGraphCompiler
     {
         var end = requested.Offset + requested.Size;
         var cursor = requested.Offset;
-        foreach (var range in initialized.OrderBy(static range => range.Offset)) {
+        foreach (var range in initialized) {
             var rangeEnd = range.Offset + range.Size;
             if (rangeEnd <= cursor) {
                 continue;
@@ -133,6 +135,34 @@ public static partial class RenderGraphCompiler
         return false;
     }
 
+    private static void AddInitializedRange(
+        List<RenderGraphBufferRange> initialized,
+        RenderGraphBufferRange range)
+    {
+        var start = range.Offset;
+        var end = start + range.Size;
+        var index = 0;
+        while (index < initialized.Count &&
+            initialized[index].Offset + initialized[index].Size < start) {
+            index++;
+        }
+        var first = index;
+        while (index < initialized.Count && initialized[index].Offset <= end) {
+            var previous = initialized[index];
+            var previousEnd = previous.Offset + previous.Size;
+            if (previous.Offset <= start && previousEnd >= end) {
+                return;
+            }
+            start = Math.Min(start, previous.Offset);
+            end = Math.Max(end, previousEnd);
+            index++;
+        }
+        if (index > first) {
+            initialized.RemoveRange(first, index - first);
+        }
+        initialized.Insert(first, new RenderGraphBufferRange(start, end - start));
+    }
+
     private static bool IsCovered(
         RenderGraphTextureFormat format,
         List<RenderGraphTextureSubresourceRange> initialized,
@@ -145,38 +175,39 @@ public static partial class RenderGraphCompiler
         var mipEnd = requested.BaseMipLevel + requested.MipLevelCount;
         var layerEnd = requested.BaseArrayLayer + requested.ArrayLayerCount;
 
+        foreach (var range in initialized) {
+            if (range.BaseMipLevel <= requested.BaseMipLevel &&
+                range.BaseMipLevel + range.MipLevelCount >= mipEnd &&
+                range.BaseArrayLayer <= requested.BaseArrayLayer &&
+                range.BaseArrayLayer + range.ArrayLayerCount >= layerEnd &&
+                (RenderGraphValidation.GetRequestedAspects(availableAspects, range.Aspect) &
+                    requestedAspects) == requestedAspects) {
+                return true;
+            }
+        }
+
         for (var mip = requested.BaseMipLevel; mip < mipEnd; mip++) {
             for (var layer = requested.BaseArrayLayer; layer < layerEnd; layer++) {
-                foreach (var aspect in EnumerateAspects(requestedAspects)) {
-                    if (!initialized.Any(range =>
-                        mip >= range.BaseMipLevel &&
+                var coveredAspects = RenderGraphFormatAspects.None;
+                foreach (var range in initialized) {
+                    if (mip >= range.BaseMipLevel &&
                         mip < range.BaseMipLevel + range.MipLevelCount &&
                         layer >= range.BaseArrayLayer &&
-                        layer < range.BaseArrayLayer + range.ArrayLayerCount &&
-                        (RenderGraphValidation.GetRequestedAspects(
-                            availableAspects,
-                            range.Aspect) & aspect) != 0)) {
-                        return false;
+                        layer < range.BaseArrayLayer + range.ArrayLayerCount) {
+                        coveredAspects |= RenderGraphValidation.GetRequestedAspects(
+                            availableAspects, range.Aspect);
+                        if ((coveredAspects & requestedAspects) == requestedAspects) {
+                            break;
+                        }
                     }
+                }
+                if ((coveredAspects & requestedAspects) != requestedAspects) {
+                    return false;
                 }
             }
         }
 
         return true;
-    }
-
-    private static IEnumerable<RenderGraphFormatAspects> EnumerateAspects(
-        RenderGraphFormatAspects aspects)
-    {
-        foreach (var aspect in new[] {
-            RenderGraphFormatAspects.Color,
-            RenderGraphFormatAspects.Depth,
-            RenderGraphFormatAspects.Stencil
-        }) {
-            if ((aspects & aspect) != 0) {
-                yield return aspect;
-            }
-        }
     }
 
     private static bool Reads(RenderGraphAccess access) =>

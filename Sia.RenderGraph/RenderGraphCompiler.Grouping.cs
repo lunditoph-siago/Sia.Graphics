@@ -33,7 +33,7 @@ public static partial class RenderGraphCompiler
         {
             var attachments = new RenderAttachmentSet();
             foreach (var access in pass.Textures) {
-                if (Writes(access.Access) &&
+                if ((access.Access is RenderGraphAccess.Write or RenderGraphAccess.ReadWrite) &&
                     (access.Usage & RenderGraphTextureUsage.RenderAttachment) != 0) {
                     attachments.Add((access.Texture, access.Subresources));
                 }
@@ -41,19 +41,22 @@ public static partial class RenderGraphCompiler
 
             var canFuseByAttachments = pass.Kind == RenderGraphPassKind.Render;
             for (var i = 0; canFuseByAttachments && i < pass.Buffers.Count; i++) {
-                canFuseByAttachments = !Writes(pass.Buffers[i].Access);
+                canFuseByAttachments = pass.Buffers[i].Access is not
+                    (RenderGraphAccess.Write or RenderGraphAccess.ReadWrite);
             }
             for (var i = 0; canFuseByAttachments && i < pass.Textures.Count; i++) {
                 var access = pass.Textures[i];
-                canFuseByAttachments = !Writes(access.Access) ||
+                canFuseByAttachments = access.Access is not
+                    (RenderGraphAccess.Write or RenderGraphAccess.ReadWrite) ||
                     access.Usage == RenderGraphTextureUsage.RenderAttachment;
             }
             for (var i = 0; canFuseByAttachments && i < pass.Textures.Count; i++) {
                 var read = pass.Textures[i];
-                if (Writes(read.Access)) { continue; }
+                if (read.Access is RenderGraphAccess.Write or RenderGraphAccess.ReadWrite) { continue; }
                 for (var j = 0; j < pass.Textures.Count; j++) {
                     var write = pass.Textures[j];
-                    if (Writes(write.Access) && read.Texture == write.Texture) {
+                    if ((write.Access is RenderGraphAccess.Write or RenderGraphAccess.ReadWrite) &&
+                        read.Texture == write.Texture) {
                         canFuseByAttachments = false;
                         break;
                     }
@@ -95,7 +98,9 @@ public static partial class RenderGraphCompiler
                 var a = previous.Buffers[i];
                 for (var j = 0; j < next.Buffers.Count; j++) {
                     var b = next.Buffers[j];
-                    if (a.Buffer == b.Buffer && (Writes(a.Access) || Writes(b.Access))) {
+                    if (a.Buffer == b.Buffer &&
+                        ((a.Access is RenderGraphAccess.Write or RenderGraphAccess.ReadWrite) ||
+                         (b.Access is RenderGraphAccess.Write or RenderGraphAccess.ReadWrite))) {
                         return true;
                     }
                 }
@@ -104,7 +109,9 @@ public static partial class RenderGraphCompiler
                 var a = previous.Textures[i];
                 for (var j = 0; j < next.Textures.Count; j++) {
                     var b = next.Textures[j];
-                    if (a.Texture != b.Texture || (!Writes(a.Access) && !Writes(b.Access))) {
+                    if (a.Texture != b.Texture ||
+                        (a.Access is not (RenderGraphAccess.Write or RenderGraphAccess.ReadWrite) &&
+                         b.Access is not (RenderGraphAccess.Write or RenderGraphAccess.ReadWrite))) {
                         continue;
                     }
                     var sameAttachment = a.Usage == RenderGraphTextureUsage.RenderAttachment &&

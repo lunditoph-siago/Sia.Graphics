@@ -32,7 +32,7 @@ public static partial class RenderGraphCompiler
                 initializedTextures);
 
             foreach (var use in pass.Buffers) {
-                var writes = Writes(use.Access);
+                var writes = use.Access is RenderGraphAccess.Write or RenderGraphAccess.ReadWrite;
                 if (bufferWriters[use.BufferIndex] is { } writers) {
                     AddBufferDependencies(dependencies, passIndex, CollectionsMarshal.AsSpan(writers), use.Range);
                 }
@@ -49,7 +49,7 @@ public static partial class RenderGraphCompiler
 
             foreach (var use in pass.Textures) {
                 var format = definition.Textures[use.TextureIndex].Descriptor.Format;
-                var writes = Writes(use.Access);
+                var writes = use.Access is RenderGraphAccess.Write or RenderGraphAccess.ReadWrite;
                 if (textureWriters[use.TextureIndex] is { } writers) {
                     AddTextureDependencies(dependencies, passIndex, CollectionsMarshal.AsSpan(writers), format, use.Subresources);
                 }
@@ -64,10 +64,12 @@ public static partial class RenderGraphCompiler
                 (history[use.TextureIndex] ??= []).Add(new TextureHistory(passIndex, use.Subresources));
             }
 
-            foreach (var use in pass.Buffers.Where(static use => Writes(use.Access))) {
+            foreach (var use in pass.Buffers.Where(static use =>
+                use.Access is RenderGraphAccess.Write or RenderGraphAccess.ReadWrite)) {
                 AddInitializedBufferRange(initializedBuffers[use.BufferIndex], use.Range);
             }
-            foreach (var use in pass.Textures.Where(static use => Writes(use.Access))) {
+            foreach (var use in pass.Textures.Where(static use =>
+                use.Access is RenderGraphAccess.Write or RenderGraphAccess.ReadWrite)) {
                 AddInitializedTextureRange(initializedTextures[use.TextureIndex], use.Subresources);
             }
         }
@@ -281,9 +283,6 @@ public static partial class RenderGraphCompiler
             }
         }
     }
-
-    private static bool Writes(RenderGraphAccess access) =>
-        access is RenderGraphAccess.Write or RenderGraphAccess.ReadWrite;
 
     private readonly record struct BufferHistory(
         int PassIndex,

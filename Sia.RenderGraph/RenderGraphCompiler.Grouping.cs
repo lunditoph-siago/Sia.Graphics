@@ -12,51 +12,55 @@ public static partial class RenderGraphCompiler
 
         var groups = new List<RenderGraphPassGroup>();
         var groupStart = 0;
-        var groupAttachments = GetRenderAttachmentWrites(passes[0]);
-        var groupOnlyWritesAttachments = OnlyWritesAttachments(passes[0]);
-
+        var group = Describe(passes[0]);
         for (var index = 1; index < passes.Length; index++) {
-            var nextAttachments = GetRenderAttachmentWrites(passes[index]);
-            var nextOnlyWritesAttachments = OnlyWritesAttachments(passes[index]);
-            if (CanMerge(passes, groupStart, index, groupAttachments, nextAttachments, textures,
-                groupOnlyWritesAttachments && nextOnlyWritesAttachments)) {
-                groupOnlyWritesAttachments &= nextOnlyWritesAttachments;
+            var next = Describe(passes[index]);
+            if (CanMerge(passes.AsSpan(groupStart, index - groupStart), group,
+                passes[index], next, textures)) {
+                group = Combine(group, next);
                 continue;
             }
 
             groups.Add(new RenderGraphPassGroup(groupStart, index - groupStart));
             groupStart = index;
-            groupAttachments = nextAttachments;
-            groupOnlyWritesAttachments = nextOnlyWritesAttachments;
+            group = next;
         }
 
         groups.Add(new RenderGraphPassGroup(groupStart, passes.Length - groupStart));
         return [.. groups];
     }
 
+    private static FusionInfo Describe(CompiledRenderGraphPass pass) => new(
+        pass.Kind,
+        GetRenderAttachmentWrites(pass),
+        pass.Kind == RenderGraphPassKind.Render &&
+        All(pass.Buffers, static access => !Writes(access.Access)) &&
+        All(pass.Textures, static access =>
+            !Writes(access.Access) || access.Usage == RenderGraphTextureUsage.RenderAttachment) &&
+        !AnyPair(pass.Textures, pass.Textures, static (read, write) =>
+            !Writes(read.Access) && Writes(write.Access) && read.Texture == write.Texture));
+
+    // Matching attachment sets have already been established by CanMerge.
+    private static FusionInfo Combine(in FusionInfo group, in FusionInfo next) =>
+        group with { CanFuseByAttachments = group.CanFuseByAttachments && next.CanFuseByAttachments };
+
     private static bool CanMerge(
-        CompiledRenderGraphPass[] passes,
-        int groupStart,
-        int nextIndex,
-        RenderAttachmentSet groupAttachments,
-        RenderAttachmentSet nextAttachments,
-        CompiledRenderGraphTexture[] textures,
-        bool onlyWritesAttachments)
+        ReadOnlySpan<CompiledRenderGraphPass> previousPasses,
+        in FusionInfo group,
+        CompiledRenderGraphPass nextPass,
+        in FusionInfo next,
+        CompiledRenderGraphTexture[] textures)
     {
-        if (passes[nextIndex].Kind != RenderGraphPassKind.Render ||
-            groupAttachments.Count == 0 || !groupAttachments.SetEquals(nextAttachments)) {
+        if (group.Kind != RenderGraphPassKind.Render || next.Kind != RenderGraphPassKind.Render ||
+            group.Attachments.Count == 0 || !group.Attachments.SetEquals(next.Attachments)) {
             return false;
         }
-        // All writes target the equal attachment sets. Other accesses are reads
-        // of unrelated resources, so no pairwise scan can find a hazard.
-        if (onlyWritesAttachments) {
+        if (group.CanFuseByAttachments && next.CanFuseByAttachments) {
             return true;
         }
-
-        var next = passes[nextIndex];
-        for (var index = groupStart; index < nextIndex; index++) {
-            if (passes[index].Kind != RenderGraphPassKind.Render ||
-                HasFusionHazard(passes[index], next, groupAttachments, nextAttachments, textures)) {
+        foreach (var previous in previousPasses) {
+            if (previous.Kind != RenderGraphPassKind.Render ||
+                HasFusionHazard(previous, nextPass, group.Attachments, textures)) {
                 return false;
             }
         }
@@ -66,75 +70,65 @@ public static partial class RenderGraphCompiler
     private static bool HasFusionHazard(
         CompiledRenderGraphPass previous,
         CompiledRenderGraphPass next,
-        RenderAttachmentSet groupAttachments,
-        RenderAttachmentSet nextAttachments,
+        RenderAttachmentSet attachments,
         CompiledRenderGraphTexture[] textures)
     {
         for (var i = 0; i < previous.Buffers.Count; i++) {
             var a = previous.Buffers[i];
             for (var j = 0; j < next.Buffers.Count; j++) {
                 var b = next.Buffers[j];
-                if (a.Buffer == b.Buffer &&
-                    (Writes(a.Access) || Writes(b.Access))) {
+                if (Conflicts(a, b)) {
                     return true;
                 }
             }
         }
-
         for (var i = 0; i < previous.Textures.Count; i++) {
             var a = previous.Textures[i];
-            var aIsFusionPoint = groupAttachments.Contains((a.Texture, a.Subresources));
             for (var j = 0; j < next.Textures.Count; j++) {
                 var b = next.Textures[j];
-                if (a.Texture != b.Texture) {
-                    continue;
-                }
-                if (aIsFusionPoint && nextAttachments.Contains((b.Texture, b.Subresources)) &&
-                    a.Usage == RenderGraphTextureUsage.RenderAttachment &&
-                    b.Usage == RenderGraphTextureUsage.RenderAttachment &&
-                    a.Subresources == b.Subresources) {
-                    continue;
-                }
-
-                var format = textures[a.Texture.Index].Descriptor.Format;
-                if (RenderGraphValidation.Overlaps(format, a.Subresources, b.Subresources) &&
-                    (Writes(a.Access) || Writes(b.Access))) {
+                if (Conflicts(a, b, attachments, textures)) {
                     return true;
                 }
             }
         }
-
         return false;
     }
 
-    private static bool OnlyWritesAttachments(CompiledRenderGraphPass pass)
+    private static bool Conflicts(
+        in RenderGraphBufferAccess a,
+        in RenderGraphBufferAccess b) =>
+        a.Buffer == b.Buffer && (Writes(a.Access) || Writes(b.Access));
+
+    private static bool Conflicts(
+        in RenderGraphTextureAccess a,
+        in RenderGraphTextureAccess b,
+        RenderAttachmentSet attachments,
+        CompiledRenderGraphTexture[] textures) =>
+        a.Texture == b.Texture &&
+        (Writes(a.Access) || Writes(b.Access)) &&
+        !(a.Usage == RenderGraphTextureUsage.RenderAttachment &&
+            b.Usage == RenderGraphTextureUsage.RenderAttachment &&
+            a.Subresources == b.Subresources &&
+            attachments.Contains((a.Texture, a.Subresources))) &&
+        RenderGraphValidation.Overlaps(
+            textures[a.Texture.Index].Descriptor.Format, a.Subresources, b.Subresources);
+
+    private static bool All<T>(IReadOnlyList<T> values, Func<T, bool> predicate)
     {
-        if (pass.Kind != RenderGraphPassKind.Render || pass.Textures.Count == 0) {
-            return false;
-        }
-        for (var i = 0; i < pass.Buffers.Count; i++) {
-            if (Writes(pass.Buffers[i].Access)) {
-                return false;
-            }
-        }
-        for (var i = 0; i < pass.Textures.Count; i++) {
-            var access = pass.Textures[i];
-            if (Writes(access.Access)) {
-                if (access.Usage != RenderGraphTextureUsage.RenderAttachment) {
-                    return false;
-                }
-                continue;
-            }
-            // A sampled/read attachment needs the general overlap checks, even
-            // when its subresource range differs from the written attachment.
-            for (var j = 0; j < pass.Textures.Count; j++) {
-                var other = pass.Textures[j];
-                if (other.Texture == access.Texture && Writes(other.Access)) {
-                    return false;
-                }
-            }
+        for (var i = 0; i < values.Count; i++) {
+            if (!predicate(values[i])) { return false; }
         }
         return true;
+    }
+
+    private static bool AnyPair<T>(IReadOnlyList<T> first, IReadOnlyList<T> second, Func<T, T, bool> predicate)
+    {
+        for (var i = 0; i < first.Count; i++) {
+            for (var j = 0; j < second.Count; j++) {
+                if (predicate(first[i], second[j])) { return true; }
+            }
+        }
+        return false;
     }
 
     private static RenderAttachmentSet GetRenderAttachmentWrites(CompiledRenderGraphPass pass)
@@ -148,6 +142,11 @@ public static partial class RenderGraphCompiler
         }
         return result;
     }
+
+    private readonly record struct FusionInfo(
+        RenderGraphPassKind Kind,
+        RenderAttachmentSet Attachments,
+        bool CanFuseByAttachments);
 
     private sealed class RenderAttachmentSet
         : HashSet<(RenderGraphTextureHandle Texture, RenderGraphTextureSubresourceRange Subresources)>;

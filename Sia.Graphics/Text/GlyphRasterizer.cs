@@ -138,7 +138,7 @@ public static class GlyphRasterizer
                 foreach (var polygon in polygons) {
                     for (var i = 0; i < polygon.Length; i++) {
                         var a = polygon[i];
-                        var b = polygon[(i + 1) % polygon.Length];
+                        var b = polygon[i + 1 == polygon.Length ? 0 : i + 1];
                         if (a.Y == b.Y)
                             continue;
                         var (lo, hi, dir) = a.Y < b.Y ? (a, b, 1) : (b, a, -1);

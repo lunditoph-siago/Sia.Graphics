@@ -231,7 +231,7 @@ public sealed class WgpuRenderGraphResourcePool : IDisposable
         Action<TEntry> release)
         where TKey : notnull
     {
-        foreach (var (key, available) in entries.ToArray()) {
+        foreach (var (key, available) in entries) {
             for (var index = available.Count - 1; index >= 0; index--) {
                 var entry = available[index];
                 if (frameIndex - getLastUsed(entry) <= maxIdleFrames) {

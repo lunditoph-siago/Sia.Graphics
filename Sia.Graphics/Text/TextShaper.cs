@@ -61,10 +61,11 @@ public static class TextShaper
         var result = new ShapedText { Baseline = baseline, LineHeight = lineHeight };
         var maxWidth = 0f;
         for (var lineIndex = 0; lineIndex < lines.Count; lineIndex++) {
+            var (start, count) = lines[lineIndex];
             var cursorX = 0f;
             var baselineY = baseline + lineIndex * lineHeight;
-            for (var glyphIndex = 0; glyphIndex < lines[lineIndex].Count; glyphIndex++) {
-                var glyph = lines[lineIndex][glyphIndex];
+            for (var glyphIndex = 0; glyphIndex < count; glyphIndex++) {
+                var glyph = glyphs[start + glyphIndex]!.Value;
                 if (glyphIndex > 0)
                     cursorX += glyph.KerningBefore;
                 result.Glyphs.Add(new ShapedGlyph(glyph.GlyphId, new TextPoint(cursorX, baselineY)) {
@@ -119,44 +120,44 @@ public static class TextShaper
         return result;
     }
 
-    private static List<List<ResolvedGlyph>> Wrap(
+    private static List<(int Start, int Count)> Wrap(
         IReadOnlyList<ResolvedGlyph?> glyphs, float? availableWidth)
     {
-        var lines = new List<List<ResolvedGlyph>>();
-        var paragraph = new List<ResolvedGlyph>();
-        foreach (var glyph in glyphs) {
-            if (glyph is { } value) {
-                paragraph.Add(value);
+        var lines = new List<(int Start, int Count)>();
+        var start = 0;
+        for (var index = 0; index < glyphs.Count; index++) {
+            if (glyphs[index] is not null) {
                 continue;
             }
-            AppendWrappedParagraph(lines, paragraph, availableWidth);
-            paragraph.Clear();
+            AppendWrappedParagraph(lines, glyphs, start, index, availableWidth);
+            start = index + 1;
         }
-        AppendWrappedParagraph(lines, paragraph, availableWidth);
+        AppendWrappedParagraph(lines, glyphs, start, glyphs.Count, availableWidth);
         return lines;
     }
 
     private static void AppendWrappedParagraph(
-        List<List<ResolvedGlyph>> lines,
-        List<ResolvedGlyph> paragraph,
+        List<(int Start, int Count)> lines,
+        IReadOnlyList<ResolvedGlyph?> glyphs,
+        int start,
+        int paragraphEnd,
         float? availableWidth)
     {
         if (availableWidth is not { } limit || !float.IsFinite(limit) || limit <= 0f) {
-            lines.Add([.. paragraph]);
+            lines.Add((start, paragraphEnd - start));
             return;
         }
-        if (paragraph.Count == 0) {
-            lines.Add([]);
+        if (start == paragraphEnd) {
+            lines.Add((start, 0));
             return;
         }
 
-        var start = 0;
-        while (start < paragraph.Count) {
+        while (start < paragraphEnd) {
             var width = 0f;
             var lastBreak = -1;
             var end = start;
-            for (; end < paragraph.Count; end++) {
-                var glyph = paragraph[end];
+            for (; end < paragraphEnd; end++) {
+                var glyph = glyphs[end]!.Value;
                 var kerning = end == start ? 0f : glyph.KerningBefore;
                 if (width + kerning + glyph.Advance > limit && end > start)
                     break;
@@ -165,14 +166,14 @@ public static class TextShaper
                     lastBreak = end + 1;
             }
 
-            if (end == paragraph.Count) {
-                lines.Add(paragraph.GetRange(start, end - start));
+            if (end == paragraphEnd) {
+                lines.Add((start, end - start));
                 break;
             }
             var lineEnd = lastBreak > start ? lastBreak : end;
-            lines.Add(paragraph.GetRange(start, lineEnd - start));
+            lines.Add((start, lineEnd - start));
             start = lineEnd;
-            while (start < paragraph.Count && Rune.IsWhiteSpace(paragraph[start].Rune))
+            while (start < paragraphEnd && Rune.IsWhiteSpace(glyphs[start]!.Value.Rune))
                 start++;
         }
     }

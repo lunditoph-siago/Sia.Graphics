@@ -18,7 +18,6 @@ internal sealed partial class CornellBoxApp
         Console.WriteLine("Cornell Box path tracer controls:");
         Console.WriteLine("  arrows orbit | W/S dolly | -/= exposure | [/] samples");
         Console.WriteLine("  ,/. bounces | O/P aperture | R reset | Esc close");
-        Console.WriteLine("  F2 text gallery | F3 gallery load | R refresh gallery text");
 
         await RunCanvasLoopAsync();
     }

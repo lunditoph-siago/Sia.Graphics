@@ -66,6 +66,7 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         Console.WriteLine("Cornell Box path tracer controls:");
         Console.WriteLine("  arrows orbit | W/S dolly | -/= exposure | [/] samples");
         Console.WriteLine("  ,/. bounces | O/P aperture | R reset | Esc close");
+        Console.WriteLine("  F2 text gallery | F3 gallery load | R refresh gallery text");
 
         var clock = Stopwatch.StartNew();
         var previousTime = clock.Elapsed.TotalSeconds;
@@ -480,14 +481,18 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     {
         if (!_target!.TryAcquireFrame(_framebufferWidth, _framebufferHeight, out var output)) return;
         using (output) {
-            WriteUniforms();
+            if (!_textGallery) {
+                WriteUniforms();
+            }
             var writeIndex = 1 - _readIndex;
             UpdateRenderGraph(output.Texture, writeIndex);
             _renderGraphWorld!.ExecuteWgpuRenderGraph();
             EndSamplingBindGroupFrame();
             output.Present();
-            _readIndex = writeIndex;
-            _frameIndex++;
+            if (!_textGallery) {
+                _readIndex = writeIndex;
+                _frameIndex++;
+            }
         }
     }
 
@@ -521,6 +526,19 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
     {
         if (Pressed(Key.Escape) || IsDown(Key.Escape)) {
             RequestClose();
+        }
+
+        if (Pressed(Key.F2)) {
+            ActivateUiControl(ControlKind.TextGallery);
+        }
+        if (_textGallery) {
+            if (Pressed(Key.F3)) {
+                _galleryCardCount = _galleryCardCount switch { 32 => 128, 128 => 512, _ => 32 };
+            }
+            if (Pressed(Key.R)) {
+                _galleryRevision++;
+            }
+            return;
         }
 
         if (UiCapturesKeyboard()) {
@@ -619,6 +637,10 @@ internal sealed unsafe partial class CornellBoxApp : IDisposable
         }
 
         _lastTitleUpdate = currentTime;
+        if (_textGallery) {
+            SetWindowTitle($"Text Gallery · {_galleryCardCount} cards · F2 scene · F3 load · R refresh");
+            return;
+        }
         SetWindowTitle(
             $"Cornell Box · {_frameIndex * (uint)_samplesPerFrame:N0} spp · "
                 + $"{_maxBounces} bounces · exposure {_exposure:0.0} · aperture {_aperture:0.000}");

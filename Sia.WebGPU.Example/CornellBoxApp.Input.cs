@@ -36,7 +36,10 @@ internal sealed partial class CornellBoxApp
 
     private bool OnKeyPressed(Entity target, in InputEvents.KeyPressed message)
     {
-        if (target == _windowEntity && (message.Key == Key.Escape || !UiCapturesKeyboard())) {
+        if (target == _windowEntity && (
+            message.Key is Key.Escape or Key.F2
+            || (_textGallery && message.Key is Key.F3 or Key.R)
+            || !UiCapturesKeyboard())) {
             _downKeys.Add(message.Key);
             _pressedKeys.Add(message.Key);
         }

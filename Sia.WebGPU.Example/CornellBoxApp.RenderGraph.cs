@@ -45,7 +45,8 @@ internal sealed unsafe partial class CornellBoxApp
             _framebufferHeight,
             _accumulationTextures[_readIndex],
             _accumulationTextures[writeIndex],
-            surfaceTexture);
+            surfaceTexture,
+            _textGallery);
 
         if (_renderGraphMount is not { } mount) {
             _renderGraphMount = _renderGraphWorld!.Mount(RenderGraph, props);
@@ -57,6 +58,35 @@ internal sealed unsafe partial class CornellBoxApp
     }
 
     private static ReactiveNode RenderGraph(in RenderGraphProps props, ref Hooks hooks)
+    {
+        _ = hooks;
+        return props.TextGallery
+            ? SiaReactive.Component(RenderGalleryGraph, props)
+            : SiaReactive.Component(RenderSceneGraph, props);
+    }
+
+    private static ReactiveNode RenderGalleryGraph(in RenderGraphProps props, ref Hooks hooks)
+    {
+        var registry = props.App._renderGraph!;
+        hooks.UseImportedRenderGraphTexture(
+            registry, s_SurfaceKey,
+            new RenderGraphTextureDescriptor(
+                "surface",
+                (RenderGraphTextureFormat)(int)props.App._surfaceFormat,
+                (uint)props.FramebufferWidth,
+                (uint)props.FramebufferHeight,
+                usage: RenderGraphTextureUsage.RenderAttachment));
+        hooks.UseImportedRenderGraphTextureBinding(registry, s_SurfaceKey, props.SurfaceTexture);
+        var windowSize = props.App.GetWindowSize();
+        hooks.UseUiRenderPass(
+            registry, props.App._uiWorld!, props.App._uiRenderer!,
+            s_UiPassKey, s_SurfaceKey,
+            new Size(windowSize.Width, windowSize.Height),
+            WGPULoadOp.Clear, outputCacheable: false);
+        return SiaReactive.None;
+    }
+
+    private static ReactiveNode RenderSceneGraph(in RenderGraphProps props, ref Hooks hooks)
     {
         var registry = props.App._renderGraph!;
 
@@ -198,5 +228,6 @@ internal sealed unsafe partial class CornellBoxApp
         int FramebufferHeight,
         WgpuHandle<WGPUTexture> ReadTexture,
         WgpuHandle<WGPUTexture> WriteTexture,
-        WgpuHandle<WGPUTexture> SurfaceTexture);
+        WgpuHandle<WGPUTexture> SurfaceTexture,
+        bool TextGallery);
 }

@@ -53,6 +53,9 @@ internal sealed unsafe partial class CornellBoxApp
     private static ReactiveNode RenderUi(in UiViewProps props, ref Hooks hooks)
     {
         var assets = hooks.UseRef(static () => UiAssets.Load()).Value;
+        if (props.TextGallery) {
+            return RenderTextGallery(props, assets);
+        }
         var root = ReactiveUiNode.Create(
             "root", null, 0,
             new Node {
@@ -146,9 +149,14 @@ internal sealed unsafe partial class CornellBoxApp
                 "Reset renderer / 重置渲染",
                 new Color(0.48f, 0.18f, 0.22f, 1f),
                 assets));
+        var gallery = SiaReactive.Component(
+            RenderControl,
+            ControlProps.Button(
+                props.App, ControlKind.TextGallery, "text-gallery", 11,
+                "Text gallery / F2", s_AccentColor, assets));
         return SiaReactive.Group(
             root, panel, title, status, preview,
-            exposure, samples, bounces, aperture, focus, fontSize, lockFocus, reset);
+            exposure, samples, bounces, aperture, focus, fontSize, lockFocus, reset, gallery);
     }
 
     private static ReactiveNode RenderControl(in ControlProps props, ref Hooks hooks)
@@ -286,7 +294,10 @@ internal sealed unsafe partial class CornellBoxApp
         _aperture,
         _focusDistance,
         _uiFontSize,
-        _lockFocus);
+        _lockFocus,
+        _textGallery,
+        _galleryCardCount,
+        _galleryRevision);
 
     private void SetUiControl(ControlKind kind, float value)
     {
@@ -317,6 +328,11 @@ internal sealed unsafe partial class CornellBoxApp
 
     private void ActivateUiControl(ControlKind kind)
     {
+        if (kind == ControlKind.TextGallery) {
+            _textGallery = !_textGallery;
+            ResetAccumulation();
+            return;
+        }
         if (kind == ControlKind.LockFocus) {
             _lockFocus = !_lockFocus;
             return;
@@ -395,7 +411,10 @@ internal sealed unsafe partial class CornellBoxApp
         float Aperture,
         float FocusDistance,
         float FontSize,
-        bool LockFocus);
+        bool LockFocus,
+        bool TextGallery,
+        int GalleryCardCount,
+        int GalleryRevision);
 
     private readonly record struct ControlProps(
         CornellBoxApp App,
@@ -455,6 +474,7 @@ internal sealed unsafe partial class CornellBoxApp
         Focus,
         FontSize,
         LockFocus,
-        Reset
+        Reset,
+        TextGallery
     }
 }

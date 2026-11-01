@@ -11,7 +11,7 @@ public sealed unsafe class CanvasSelectorTests
     [InlineData("#canvas-🌍")]
     public void SelectorSupportsLengthDelimitedAndCStringReaders(string selector)
     {
-        using var owned = WgpuOwnedString.CreateNullTerminated(selector);
+        using var owned = new WgpuOwnedString(selector);
         var expected = Encoding.UTF8.GetBytes(selector);
         var view = owned.View;
 
@@ -25,7 +25,7 @@ public sealed unsafe class CanvasSelectorTests
     {
         var selector = "#" + new string('x', 4097) + "雪";
         var expected = Encoding.UTF8.GetBytes(selector);
-        using var owned = WgpuOwnedString.CreateNullTerminated(selector);
+        using var owned = new WgpuOwnedString(selector);
         var pointer = (nint)owned.View.Data;
 
         GC.Collect();
@@ -48,15 +48,18 @@ public sealed unsafe class CanvasSelectorTests
     [Fact]
     public void OrdinaryStringViewsPreserveNullAndExplicitLengthSemantics()
     {
-        using var missing = WgpuOwnedString.Create(null);
-        using var empty = WgpuOwnedString.Create("");
-        using var label = WgpuOwnedString.Create("雪\0label");
+        using var missing = new WgpuOwnedString(null);
+        using var empty = new WgpuOwnedString("");
+        using var label = new WgpuOwnedString("雪\0label");
+        var expected = Encoding.UTF8.GetBytes("雪\0label");
 
         Assert.Equal(nint.Zero, (nint)missing.View.Data);
         Assert.Equal(WgpuConstants.StrLen, missing.View.Length);
         Assert.Equal(nint.Zero, (nint)empty.View.Data);
         Assert.Equal((nuint)0, empty.View.Length);
-        Assert.Equal((nuint)Encoding.UTF8.GetByteCount("雪\0label"), label.View.Length);
+        Assert.Equal((nuint)expected.Length, label.View.Length);
+        Assert.Equal(expected, new ReadOnlySpan<byte>(label.View.Data, expected.Length).ToArray());
         Assert.Equal(0, label.View.Data[3]);
+        Assert.Equal(0, label.View.Data[label.View.Length]);
     }
 }

@@ -18,7 +18,7 @@ public static unsafe partial class Wgpu
         uint count,
         string? label = null)
     {
-        using var labelString = WgpuOwnedString.Create(label);
+        using var labelString = new WgpuOwnedString(label);
         var descriptor = new WGPUQuerySetDescriptor {
             NextInChain = null,
             Label = labelString.View,

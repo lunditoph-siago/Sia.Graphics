@@ -22,8 +22,8 @@ public static unsafe partial class Wgpu
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(wgsl);
 
-        using var labelString = WgpuOwnedString.Create(label);
-        using var wgslString = WgpuOwnedString.Create(wgsl);
+        using var labelString = new WgpuOwnedString(label);
+        using var wgslString = new WgpuOwnedString(wgsl);
 
         var source = new WGPUShaderSourceWGSL {
             Chain = new WGPUChainedStruct {
@@ -76,7 +76,7 @@ public static unsafe partial class Wgpu
             Sia.Spirv.Compiler.Translation.ShaderTranslator.SpirvToWgsl(MemoryMarshal.AsBytes(spirv), Sia.Spirv.Compiler.Compilation.SpirvCompilationTarget.Default),
             label);
 #else
-        using var labelString = WgpuOwnedString.Create(label);
+        using var labelString = new WgpuOwnedString(label);
         fixed (uint* code = spirv) {
             var source = new WGPUShaderSourceSPIRV {
                 Chain = new WGPUChainedStruct {

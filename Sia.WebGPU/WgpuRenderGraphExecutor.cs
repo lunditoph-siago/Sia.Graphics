@@ -325,7 +325,7 @@ public static class WgpuRenderGraphExecutor
         in RenderGraphBufferDescriptor resource,
         WGPUBufferUsage usage)
     {
-        using var label = WgpuOwnedString.Create(resource.Name);
+        using var label = new WgpuOwnedString(resource.Name);
         var descriptor = WGPUBufferDescriptor.Default;
         descriptor.Label = label.View;
         descriptor.Size = resource.Size;
@@ -343,7 +343,7 @@ public static class WgpuRenderGraphExecutor
         in RenderGraphTextureDescriptor resource,
         WgpuRenderGraphTexturePlan plan)
     {
-        using var label = WgpuOwnedString.Create(resource.Name);
+        using var label = new WgpuOwnedString(resource.Name);
         var descriptor = WGPUTextureDescriptor.Default;
         descriptor.Label = label.View;
         descriptor.Usage = plan.Usage;

@@ -7,36 +7,30 @@ internal sealed unsafe class WgpuOwnedString : IDisposable
 {
     private GCHandle _handle;
 
-    private WgpuOwnedString(byte[]? bytes, bool isNull, bool nullTerminated = false)
+    public WgpuOwnedString(string? value)
     {
-        if (bytes is null) {
+        if (string.IsNullOrEmpty(value)) {
             View = new WGPUStringView {
                 Data = null,
-                Length = isNull ? WgpuConstants.StrLen : 0,
+                Length = value is null ? WgpuConstants.StrLen : 0,
             };
             return;
         }
 
+        // Emscripten's canvas-selector bridge reads a C string. Terminate
+        // storage while preserving the explicit byte length for other readers.
+        var length = Encoding.UTF8.GetByteCount(value);
+        var bytes = new byte[checked(length + 1)];
+        Encoding.UTF8.GetBytes(value.AsSpan(), bytes.AsSpan(0, length));
+
         _handle = GCHandle.Alloc(bytes, GCHandleType.Pinned);
         View = new WGPUStringView {
             Data = (byte*)_handle.AddrOfPinnedObject(),
-            Length = (nuint)(bytes.Length - (nullTerminated ? 1 : 0)),
+            Length = (nuint)length,
         };
     }
 
     public WGPUStringView View { get; }
-
-    public static WgpuOwnedString Create(string? value) =>
-        value is null
-            ? new WgpuOwnedString(null, isNull: true)
-            : value.Length == 0
-                ? new WgpuOwnedString(null, isNull: false)
-                : new WgpuOwnedString(Encoding.UTF8.GetBytes(value), isNull: false);
-
-    // Emscripten's canvas-selector bridge reads a C string, even when the
-    // bound source also carries an explicit byte count. Keep both contracts.
-    public static WgpuOwnedString CreateNullTerminated(string value) =>
-        new(Encoding.UTF8.GetBytes(value + '\0'), isNull: false, nullTerminated: true);
 
     public void Dispose()
     {

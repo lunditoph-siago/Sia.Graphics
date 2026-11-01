@@ -76,7 +76,7 @@ public static unsafe partial class Wgpu
             throw new ArgumentException("HWND must not be zero.", nameof(hwnd));
         }
 
-        using var labelString = WgpuOwnedString.Create(label);
+        using var labelString = new WgpuOwnedString(label);
         var source = new WGPUSurfaceSourceWindowsHWND {
             Chain = new WGPUChainedStruct {
                 Next = null,
@@ -103,7 +103,7 @@ public static unsafe partial class Wgpu
             throw new ArgumentException("CAMetalLayer must not be zero.", nameof(layer));
         }
 
-        using var labelString = WgpuOwnedString.Create(label);
+        using var labelString = new WgpuOwnedString(label);
         var source = new WGPUSurfaceSourceMetalLayer {
             Chain = new WGPUChainedStruct {
                 Next = null,
@@ -132,7 +132,7 @@ public static unsafe partial class Wgpu
             throw new ArgumentException("Wayland surface must not be zero.", nameof(surface));
         }
 
-        using var labelString = WgpuOwnedString.Create(label);
+        using var labelString = new WgpuOwnedString(label);
         var source = new WGPUSurfaceSourceWaylandSurface {
             Chain = new WGPUChainedStruct {
                 Next = null,
@@ -162,7 +162,7 @@ public static unsafe partial class Wgpu
             throw new ArgumentException("Xlib window must not be zero.", nameof(window));
         }
 
-        using var labelString = WgpuOwnedString.Create(label);
+        using var labelString = new WgpuOwnedString(label);
         var source = new WGPUSurfaceSourceXlibWindow {
             Chain = new WGPUChainedStruct {
                 Next = null,
@@ -192,7 +192,7 @@ public static unsafe partial class Wgpu
             throw new ArgumentException("XCB window must not be zero.", nameof(window));
         }
 
-        using var labelString = WgpuOwnedString.Create(label);
+        using var labelString = new WgpuOwnedString(label);
         var source = new WGPUSurfaceSourceXCBWindow {
             Chain = new WGPUChainedStruct {
                 Next = null,
@@ -217,8 +217,8 @@ public static unsafe partial class Wgpu
         ArgumentException.ThrowIfNullOrEmpty(selector);
         if (selector.Contains('\0')) throw new ArgumentException("Canvas selector must not contain NUL.", nameof(selector));
 
-        using var selectorString = WgpuOwnedString.CreateNullTerminated(selector);
-        using var labelString = WgpuOwnedString.Create(label);
+        using var selectorString = new WgpuOwnedString(selector);
+        using var labelString = new WgpuOwnedString(label);
         var source = new WGPUEmscriptenSurfaceSourceCanvasHTMLSelector {
             Chain = new WGPUChainedStruct {
                 Next = null,

@@ -54,20 +54,12 @@ public static partial class RenderGraphCompiler
         CompiledRenderGraphPass pass,
         RenderAttachmentSet attachments)
     {
-        if (pass.Kind != RenderGraphPassKind.Render) {
+        if (pass.Kind != RenderGraphPassKind.Render || HasNonAttachmentWrites(pass)) {
             return false;
-        }
-        for (var index = 0; index < pass.Buffers.Count; index++) {
-            if (Writes(pass.Buffers[index].Access)) {
-                return false;
-            }
         }
         for (var index = 0; index < pass.Textures.Count; index++) {
             var access = pass.Textures[index];
             if (Writes(access.Access)) {
-                if (access.Usage != RenderGraphTextureUsage.RenderAttachment) {
-                    return false;
-                }
                 continue;
             }
 
@@ -78,6 +70,23 @@ public static partial class RenderGraphCompiler
             }
         }
         return true;
+    }
+
+    private static bool HasNonAttachmentWrites(CompiledRenderGraphPass pass)
+    {
+        for (var index = 0; index < pass.Buffers.Count; index++) {
+            if (Writes(pass.Buffers[index].Access)) {
+                return true;
+            }
+        }
+        for (var index = 0; index < pass.Textures.Count; index++) {
+            var access = pass.Textures[index];
+            if (Writes(access.Access) &&
+                access.Usage != RenderGraphTextureUsage.RenderAttachment) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static bool CanMerge(

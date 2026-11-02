@@ -26,6 +26,7 @@ public static partial class RenderGraphCompiler
         foreach (var passIndex in declaredOrder) {
             var pass = definition.Passes[passIndex];
             var passDependencies = dependencies[passIndex];
+            // Validate the whole pass before recording any of its writes.
             ValidateReads(
                 definition,
                 pass,
@@ -35,11 +36,18 @@ public static partial class RenderGraphCompiler
             foreach (var use in pass.Buffers) {
                 var readers = bufferReaders[use.BufferIndex];
                 var writers = bufferWriters[use.BufferIndex];
-                AddDependencies(passDependencies, passIndex, writers, use.Range);
+                if (writers is not null) {
+                    AddDependencies(passDependencies, passIndex,
+                        CollectionsMarshal.AsSpan(writers), use.Range);
+                }
                 if (Writes(use.Access)) {
-                    AddDependencies(passDependencies, passIndex, readers, use.Range);
+                    if (readers is not null) {
+                        AddDependencies(passDependencies, passIndex,
+                            CollectionsMarshal.AsSpan(readers), use.Range);
+                    }
                     RemoveMatchingHistory(readers, use.Range);
                     RemoveMatchingHistory(writers, use.Range);
+                    AddInitializedRange(initializedBuffers[use.BufferIndex], use.Range);
                 }
 
                 var history = Writes(use.Access) ? bufferWriters : bufferReaders;
@@ -50,22 +58,22 @@ public static partial class RenderGraphCompiler
                 var format = definition.Textures[use.TextureIndex].Descriptor.Format;
                 var readers = textureReaders[use.TextureIndex];
                 var writers = textureWriters[use.TextureIndex];
-                AddDependencies(passDependencies, passIndex, writers, format, use.Subresources);
+                if (writers is not null) {
+                    AddDependencies(passDependencies, passIndex,
+                        CollectionsMarshal.AsSpan(writers), format, use.Subresources);
+                }
                 if (Writes(use.Access)) {
-                    AddDependencies(passDependencies, passIndex, readers, format, use.Subresources);
+                    if (readers is not null) {
+                        AddDependencies(passDependencies, passIndex,
+                            CollectionsMarshal.AsSpan(readers), format, use.Subresources);
+                    }
                     RemoveMatchingHistory(readers, use.Subresources);
                     RemoveMatchingHistory(writers, use.Subresources);
+                    AddInitializedRange(initializedTextures[use.TextureIndex], use.Subresources);
                 }
 
                 var history = Writes(use.Access) ? textureWriters : textureReaders;
                 (history[use.TextureIndex] ??= []).Add(new TextureHistory(passIndex, use.Subresources));
-            }
-
-            foreach (var use in pass.Buffers.Where(static use => Writes(use.Access))) {
-                AddInitializedRange(initializedBuffers[use.BufferIndex], use.Range);
-            }
-            foreach (var use in pass.Textures.Where(static use => Writes(use.Access))) {
-                AddInitializedRange(initializedTextures[use.TextureIndex], use.Subresources);
             }
         }
 
@@ -78,7 +86,10 @@ public static partial class RenderGraphCompiler
         List<RenderGraphBufferRange>[] initializedBuffers,
         List<RenderGraphTextureSubresourceRange>[] initializedTextures)
     {
-        foreach (var use in pass.Buffers.Where(static use => Reads(use.Access))) {
+        foreach (var use in pass.Buffers) {
+            if (!Reads(use.Access)) {
+                continue;
+            }
             var resource = definition.Buffers[use.BufferIndex];
             if (!resource.IsImported &&
                 !IsCovered(initializedBuffers[use.BufferIndex], use.Range)) {
@@ -89,7 +100,10 @@ public static partial class RenderGraphCompiler
             }
         }
 
-        foreach (var use in pass.Textures.Where(static use => Reads(use.Access))) {
+        foreach (var use in pass.Textures) {
+            if (!Reads(use.Access)) {
+                continue;
+            }
             var resource = definition.Textures[use.TextureIndex];
             if (!resource.IsImported &&
                 !IsCovered(
@@ -234,10 +248,10 @@ public static partial class RenderGraphCompiler
     private static void AddDependencies(
         HashSet<int> dependencies,
         int passIndex,
-        List<BufferHistory>? history,
+        ReadOnlySpan<BufferHistory> history,
         RenderGraphBufferRange range)
     {
-        foreach (var previous in CollectionsMarshal.AsSpan(history)) {
+        foreach (var previous in history) {
             if (RenderGraphValidation.Overlaps(range, previous.Range) &&
                 previous.PassIndex != passIndex) {
                 dependencies.Add(previous.PassIndex);
@@ -248,11 +262,11 @@ public static partial class RenderGraphCompiler
     private static void AddDependencies(
         HashSet<int> dependencies,
         int passIndex,
-        List<TextureHistory>? history,
+        ReadOnlySpan<TextureHistory> history,
         RenderGraphTextureFormat format,
         RenderGraphTextureSubresourceRange subresources)
     {
-        foreach (var previous in CollectionsMarshal.AsSpan(history)) {
+        foreach (var previous in history) {
             if (RenderGraphValidation.Overlaps(format, subresources, previous.Subresources) &&
                 previous.PassIndex != passIndex) {
                 dependencies.Add(previous.PassIndex);

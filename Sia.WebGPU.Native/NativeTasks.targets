@@ -25,8 +25,9 @@ public sealed class PrepareWebGpuTask : Microsoft.Build.Utilities.Task
     [Required] public string ArtifactsDirectory { get; set; }
     public string RuntimeIdentifier { get; set; }
     public string OutputDirectory { get; set; }
-    public bool Force { get; set; }
+    [Output] public string ReleaseTag { get; set; }
     [Output] public string Revision { get; set; }
+    [Output] public string HeaderRoot { get; set; }
     [Output] public string SdkRoot { get; set; }
     [Output] public string SourceRoot { get; set; }
 
@@ -38,22 +39,24 @@ public sealed class PrepareWebGpuTask : Microsoft.Build.Utilities.Task
             Directory.CreateDirectory(ArtifactsDirectory);
             using (var client = new HttpClient { Timeout = TimeSpan.FromMinutes(15) }) {
                 client.DefaultRequestHeaders.UserAgent.ParseAdd("Sia.WebGPU");
-                var version = Path.Combine(HeaderDirectory, "dawn", "dawn_version.h");
-                Revision = !Force && File.Exists(version) ? ReadRevision(version) : null;
                 var release = FindRelease(client);
+                ReleaseTag = release.Tag;
                 var headerAsset = release.Assets.Single(a => Regex.IsMatch(a.Name, @"^dawn-headers-[a-f0-9]{40}\.tar\.gz$"));
                 Revision = Regex.Match(headerAsset.Name, "[a-f0-9]{40}").Value;
                 var root = Path.Combine(ArtifactsDirectory, release.Tag);
                 Directory.CreateDirectory(root);
-                if (Force || !File.Exists(version) || !File.Exists(Path.Combine(HeaderDirectory, "dawn", "webgpu.h"))) {
+                HeaderRoot = Path.Combine(root, "headers");
+                if (!IsHeaderComplete(HeaderRoot)) {
                     var extracted = Extract(Asset(client, root, headerAsset), root);
                     try {
-                        var dawn = Path.Combine(extracted, "include", "dawn");
-                        foreach (var name in new[] { "webgpu.h", "dawn_version.h" })
-                            Copy(Path.Combine(dawn, name), Path.Combine(HeaderDirectory, "dawn", name));
+                        if (!IsHeaderComplete(extracted)) throw new InvalidDataException("Incomplete native header archive.");
+                        if (Directory.Exists(HeaderRoot)) Directory.Delete(HeaderRoot, true);
+                        Directory.Move(extracted, HeaderRoot);
                     } finally { Directory.Delete(Path.GetDirectoryName(extracted), true); }
                 }
-                if (ReadRevision(version) != Revision) throw new InvalidDataException("Native header revision mismatch.");
+                var header = Path.Combine(HeaderRoot, "include", "dawn", "webgpu.h");
+                var destination = Path.Combine(HeaderDirectory, "dawn", "webgpu.h");
+                if (!File.Exists(destination) || !File.ReadAllBytes(header).SequenceEqual(File.ReadAllBytes(destination))) Copy(header, destination);
                 if (string.IsNullOrEmpty(RuntimeIdentifier)) return true;
                 SdkRoot = Path.Combine(root, "native-" + RuntimeIdentifier);
                 SourceRoot = Path.Combine(root, "source");
@@ -117,43 +120,41 @@ public sealed class PrepareWebGpuTask : Microsoft.Build.Utilities.Task
 
     private Release FindRelease(HttpClient client)
     {
-        if (Revision != null) foreach (var path in Directory.GetFiles(ArtifactsDirectory, "*.json")) {
+        if (!string.IsNullOrEmpty(ReleaseTag)) {
+            if (!Regex.IsMatch(ReleaseTag, @"^v\d{8}\.\d{6}$")) throw new InvalidDataException("Invalid native release tag.");
+            var path = Path.Combine(ArtifactsDirectory, ReleaseTag + ".json");
             try {
-                var release = ReadRelease(path);
-                if (MatchesRelease(release)) return release;
+                var cached = ReadRelease(path);
+                if (MatchesRelease(cached) && cached.Tag == ReleaseTag) return cached;
             } catch (SerializationException) {
                 Log.LogMessage(MessageImportance.Normal, "Ignoring invalid release cache: {0}", path);
             } catch (IOException) {
                 Log.LogMessage(MessageImportance.Normal, "Cannot read release cache: {0}", path);
             }
         }
-        for (var page = 1; page <= 10; page++) {
-            var url = "https://api.github.com/repos/google/dawn/releases" + (Revision == null ? "/latest" : "?per_page=100&page=" + page);
-            using (var stream = client.GetStreamAsync(url).GetAwaiter().GetResult()) {
-                var releases = Revision == null
-                    ? new[] { (Release)new DataContractJsonSerializer(typeof(Release)).ReadObject(stream) }
-                    : (Release[])new DataContractJsonSerializer(typeof(Release[])).ReadObject(stream);
-                foreach (var release in releases) {
-                    if (!MatchesRelease(release)) continue;
-                    var path = Path.Combine(ArtifactsDirectory, release.Tag + ".json");
-                    var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-                    try {
-                        using (var file = File.Create(temporary)) new DataContractJsonSerializer(typeof(Release)).WriteObject(file, release);
-                        if (File.Exists(path)) File.Replace(temporary, path, null);
-                        else File.Move(temporary, path);
-                    } finally { if (File.Exists(temporary)) File.Delete(temporary); }
-                    return release;
-                }
-                if (releases.Length < 100) break;
-            }
+        var url = "https://api.github.com/repos/google/dawn/releases/" + (string.IsNullOrEmpty(ReleaseTag) ? "latest" : "tags/" + Uri.EscapeDataString(ReleaseTag));
+        using (var stream = client.GetStreamAsync(url).GetAwaiter().GetResult()) {
+            var release = (Release)new DataContractJsonSerializer(typeof(Release)).ReadObject(stream);
+            if (!MatchesRelease(release) || (!string.IsNullOrEmpty(ReleaseTag) && release.Tag != ReleaseTag))
+                throw new InvalidDataException("Invalid native release metadata.");
+            var path = Path.Combine(ArtifactsDirectory, release.Tag + ".json");
+            var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try {
+                using (var file = File.Create(temporary)) new DataContractJsonSerializer(typeof(Release)).WriteObject(file, release);
+                if (File.Exists(path)) File.Replace(temporary, path, null);
+                else File.Move(temporary, path);
+            } finally { if (File.Exists(temporary)) File.Delete(temporary); }
+            return release;
         }
-        throw new InvalidDataException("Cannot resolve a native release matching dawn_version.h.");
     }
 
     private bool MatchesRelease(Release release) =>
         release != null && Regex.IsMatch(release.Tag ?? "", @"^v\d{8}\.\d{6}$") && release.Assets != null &&
-        release.Assets.Any(a => a != null && Regex.IsMatch(a.Name ?? "", @"^dawn-headers-[a-f0-9]{40}\.tar\.gz$") &&
-            (Revision == null || a.Name == "dawn-headers-" + Revision + ".tar.gz"));
+        release.Assets.Count(a => a != null && Regex.IsMatch(a.Name ?? "", @"^dawn-headers-[a-f0-9]{40}\.tar\.gz$")) == 1;
+
+    private static bool IsHeaderComplete(string directory) =>
+        new[] { "webgpu/webgpu.h", "dawn/webgpu.h", "dawn/dawn_version.h" }
+            .All(name => File.Exists(Path.Combine(directory, "include", name)) && new FileInfo(Path.Combine(directory, "include", name)).Length > 0);
 
     private bool IsSdkComplete(string directory)
     {
@@ -167,14 +168,6 @@ public sealed class PrepareWebGpuTask : Microsoft.Build.Utilities.Task
     private static Release ReadRelease(string path)
     {
         using (var stream = File.OpenRead(path)) return (Release)new DataContractJsonSerializer(typeof(Release)).ReadObject(stream);
-    }
-
-    private static string ReadRevision(string path)
-    {
-        var array = Regex.Match(File.ReadAllText(path), @"kDawnVersion\s*=\s*\{([^}]+)\}").Groups[1].Value;
-        var bytes = Regex.Matches(array, "0x([a-fA-F0-9]{2})").Cast<Match>().Select(m => m.Groups[1].Value.ToLowerInvariant()).ToArray();
-        if (bytes.Length != 20) throw new InvalidDataException("Invalid Dawn version header.");
-        return string.Concat(bytes);
     }
 
     private string Asset(HttpClient client, string root, AssetInfo asset)
@@ -283,21 +276,6 @@ public sealed class PrepareWebGpuTask : Microsoft.Build.Utilities.Task
 }
 
     ]]></Code></Task>
-  </UsingTask>
-  <UsingTask TaskName="ReadNativeRevisionTask" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
-    <ParameterGroup>
-      <VersionHeader ParameterType="System.String" Required="true" />
-      <Revision ParameterType="System.String" Output="true" />
-    </ParameterGroup>
-    <Task>
-      <Using Namespace="System.IO" /><Using Namespace="System.Linq" /><Using Namespace="System.Text.RegularExpressions" />
-      <Code Type="Fragment" Language="cs"><![CDATA[
-        var value = Regex.Match(File.ReadAllText(VersionHeader), @"kDawnVersion\s*=\s*\{([^}]+)\}").Groups[1].Value;
-        var bytes = Regex.Matches(value, "0x([a-fA-F0-9]{2})").Cast<Match>().Select(m => m.Groups[1].Value.ToLowerInvariant()).ToArray();
-        if (bytes.Length != 20) throw new InvalidDataException("Invalid upstream version header.");
-        Revision = string.Concat(bytes);
-      ]]></Code>
-    </Task>
   </UsingTask>
   <UsingTask TaskName="GenerateNativeExportsTask" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
     <ParameterGroup>

@@ -67,23 +67,20 @@
     <ParameterGroup>
       <HeaderUrl ParameterType="System.String" Required="true" />
       <OutputFile ParameterType="System.String" Required="true" />
-      <Force ParameterType="System.Boolean" />
     </ParameterGroup>
     <Task>
-      <Using Namespace="System" /><Using Namespace="System.IO" /><Using Namespace="System.Net.Http" />
+      <Using Namespace="System" /><Using Namespace="System.IO" /><Using Namespace="System.Linq" /><Using Namespace="System.Net.Http" />
       <Code Type="Fragment" Language="cs"><![CDATA[
-        if (Force || !File.Exists(OutputFile)) {
-            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(OutputFile)));
-            var temporary = OutputFile + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            try {
-                using (var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) })
-                using (var input = client.GetStreamAsync(HeaderUrl).GetAwaiter().GetResult())
-                using (var output = File.Create(temporary)) input.CopyTo(output);
-                if (!File.ReadAllText(temporary).Contains("WGPUInstance")) throw new InvalidDataException("Invalid WebGPU header.");
-                if (File.Exists(OutputFile)) File.Delete(OutputFile);
-                File.Move(temporary, OutputFile);
-            } finally { if (File.Exists(temporary)) File.Delete(temporary); }
-        }
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(OutputFile)));
+        var temporary = OutputFile + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try {
+            using (var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) })
+            using (var input = client.GetStreamAsync(HeaderUrl).GetAwaiter().GetResult())
+            using (var output = File.Create(temporary)) input.CopyTo(output);
+            if (!File.ReadAllText(temporary).Contains("WGPUInstance")) throw new InvalidDataException("Invalid WebGPU header.");
+            if (!File.Exists(OutputFile)) File.Move(temporary, OutputFile);
+            else if (!File.ReadAllBytes(temporary).SequenceEqual(File.ReadAllBytes(OutputFile))) File.Replace(temporary, OutputFile, null);
+        } finally { if (File.Exists(temporary)) File.Delete(temporary); }
       ]]></Code>
     </Task>
   </UsingTask>
@@ -93,9 +90,8 @@
       <WebGpuHeaderUrl>https://raw.githubusercontent.com/webgpu-native/webgpu-headers/refs/heads/main/webgpu.h</WebGpuHeaderUrl>
       <WebGpuHeaderOutput>$(MSBuildProjectDirectory)/Resources/webgpu.h</WebGpuHeaderOutput>
     </PropertyGroup>
-    <DownloadWebGpuHeaderTask HeaderUrl="$(WebGpuHeaderUrl)" OutputFile="$(WebGpuHeaderOutput)" Force="$(ForceDownloadWebGpuHeader)" />
+    <DownloadWebGpuHeaderTask HeaderUrl="$(WebGpuHeaderUrl)" OutputFile="$(WebGpuHeaderOutput)" />
     <PrepareWebGpuTask HeaderDirectory="$(MSBuildProjectDirectory)/Resources" ArtifactsDirectory="$(NativeArtifactsDirectory)"
-                       Force="$(ForceDownloadWebGpuHeader)"
-                       Condition="'$(ForceDownloadWebGpuHeader)' == 'true' Or !Exists('$(MSBuildProjectDirectory)/Resources/dawn/webgpu.h') Or !Exists('$(MSBuildProjectDirectory)/Resources/dawn/dawn_version.h')" />
+                       ReleaseTag="$(WebGpuRelease)" />
   </Target>
 </Project>

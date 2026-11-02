@@ -21,11 +21,11 @@ env:
 
 jobs:
   prepare:
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.release.outputs.version }}
       feature_band: ${{ steps.release.outputs.feature_band }}
+      webgpu_release: ${{ steps.webgpu.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -38,6 +38,7 @@ jobs:
           dotnet-version: 11.x
 
       - name: Resolve release version
+        if: github.ref_type == 'tag'
         id: release
         shell: pwsh
         run: |
@@ -57,7 +58,17 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           "feature_band=$featureBand" >> $env:GITHUB_OUTPUT
 
+      - name: Resolve latest native WebGPU release
+        id: webgpu
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = Invoke-RestMethod 'https://api.github.com/repos/google/dawn/releases/latest'
+          if ($release.tag_name -notmatch '^v\d{8}\.\d{6}$') { throw 'Invalid native WebGPU release.' }
+          "tag=$($release.tag_name)" >> $env:GITHUB_OUTPUT
+
   spirv:
+    if: github.ref_type == 'tag'
     needs: prepare
     strategy:
       fail-fast: false
@@ -358,6 +369,7 @@ jobs:
           compression-level: 0
 
   native:
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -394,12 +406,12 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: artifacts/webgpu
-          key: webgpu-native-${{ matrix.rid }}-${{ hashFiles('Sia.WebGPU.Generators/Resources/dawn/*.h', 'Sia.WebGPU.Native/NativeTasks.targets') }}
+          key: webgpu-native-${{ matrix.rid }}-${{ needs.prepare.outputs.webgpu_release }}-${{ hashFiles('Sia.WebGPU.Native/NativeTasks.targets') }}
           restore-keys: webgpu-native-${{ matrix.rid }}-
       - name: Build native WebGPU library
         shell: pwsh
         run: |
-          dotnet build Sia.WebGPU.Native/Sia.WebGPU.Native.cppproj -c Release -r '${{ matrix.rid }}' -p:NativeArtifactsDirectory="$PWD/artifacts/webgpu" -p:NativeOutputDirectory="$PWD/artifacts/webgpu-runtimes/${{ matrix.rid }}/native"
+          dotnet build Sia.WebGPU.Native/Sia.WebGPU.Native.cppproj -c Release -r '${{ matrix.rid }}' -p:WebGpuRelease='${{ needs.prepare.outputs.webgpu_release }}' -p:NativeArtifactsDirectory="$PWD/artifacts/webgpu" -p:NativeOutputDirectory="$PWD/artifacts/webgpu-runtimes/${{ matrix.rid }}/native"
       - uses: actions/upload-artifact@v7
         with:
           name: webgpu-native-${{ matrix.rid }}
@@ -407,6 +419,7 @@ jobs:
           if-no-files-found: error
 
   managed:
+    if: github.ref_type == 'tag'
     needs: prepare
     runs-on: ubuntu-latest
     steps:
@@ -442,6 +455,7 @@ jobs:
             dotnet pack $project --configuration Release `
               --output artifacts/packages `
               -p:Version=${{ needs.prepare.outputs.version }} `
+              -p:WebGpuRelease=${{ needs.prepare.outputs.webgpu_release }} `
               -p:SiaSpirvSdkFeatureBand=${{ needs.prepare.outputs.feature_band }}
             if ($LASTEXITCODE -ne 0) { throw "Packing '$project' failed." }
           }
@@ -501,7 +515,7 @@ jobs:
           $project = 'Sia.WebGPU.Native/Sia.WebGPU.Native.cppproj'
           dotnet restore $project
           if ($LASTEXITCODE -ne 0) { throw 'Native WebGPU restore failed.' }
-          dotnet pack $project --no-build --configuration Release --output artifacts/packages -p:Version=${{ needs.prepare.outputs.version }}
+          dotnet pack $project --no-build --configuration Release --output artifacts/packages -p:Version=${{ needs.prepare.outputs.version }} -p:WebGpuRelease=${{ needs.prepare.outputs.webgpu_release }}
           if ($LASTEXITCODE -ne 0) { throw 'Native WebGPU pack failed.' }
 
       - name: Attest packages

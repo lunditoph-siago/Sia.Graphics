@@ -1,6 +1,0 @@
-<Project>
-  <PropertyGroup>
-    <SiaNativeBuildTaskSource>$(MSBuildThisFileDirectory)NativeBuildTask.cs</SiaNativeBuildTaskSource>
-    <SiaWebGpuIncludeDirectory>$(MSBuildThisFileDirectory)../include</SiaWebGpuIncludeDirectory>
-  </PropertyGroup>
-</Project>

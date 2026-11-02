@@ -17,9 +17,7 @@
   <ItemGroup>
     <Content Include="_._" PackagePath="lib/net11.0" />
     <None Include="LICENSE.webgpu" Pack="true" PackagePath="" />
-    <None Include="Sia.WebGPU.Native.props;Sia.WebGPU.Native.targets;NativeBuildTask.cs" Pack="true" PackagePath="buildTransitive" />
-    <None Include="webgpu.h" Pack="true" PackagePath="include/webgpu" />
-    <None Include="../Sia.WebGPU.Generators/Resources/dawn/*.h" Pack="true" PackagePath="include/dawn" />
+    <None Include="NativeBuildTask.cs" Pack="true" PackagePath="buildTransitive" />
     <None Include="$(NativeRuntimeDirectory)/$(RuntimeIdentifier)/native/wgpu_native.dll" Condition="$([MSBuild]::IsOSPlatform('Windows'))"
           Link="%(Filename)%(Extension)" Pack="false" CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NativeRuntimeDirectory)/$(RuntimeIdentifier)/native/dxcompiler.dll;$(NativeRuntimeDirectory)/$(RuntimeIdentifier)/native/dxil.dll" Condition="$([MSBuild]::IsOSPlatform('Windows'))"
@@ -30,9 +28,26 @@
           Link="%(Filename)%(Extension)" Pack="false" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="CollectNativeBinaries">
-    <ReadNativeRevisionTask VersionHeader="$(MSBuildProjectDirectory)/../Sia.WebGPU.Generators/Resources/dawn/dawn_version.h">
+    <PrepareWebGpuTask HeaderDirectory="$(MSBuildProjectDirectory)/../Sia.WebGPU.Generators/Resources" ArtifactsDirectory="$(NativeArtifactsDirectory)" ReleaseTag="$(WebGpuRelease)">
       <Output TaskParameter="Revision" PropertyName="NativeRevision" />
-    </ReadNativeRevisionTask>
+      <Output TaskParameter="HeaderRoot" PropertyName="NativeHeaderRoot" />
+    </PrepareWebGpuTask>
+    <PropertyGroup>
+      <_NativePackageTargets>$(IntermediateOutputPath)Sia.WebGPU.Native.targets</_NativePackageTargets>
+      <_NativePackageContent><![CDATA[<Project>
+  <PropertyGroup>
+    <SiaNativeBuildTaskSource>%24(MSBuildThisFileDirectory)NativeBuildTask.cs</SiaNativeBuildTaskSource>
+    <SiaWebGpuIncludeDirectory>%24(MSBuildThisFileDirectory)../include</SiaWebGpuIncludeDirectory>
+  </PropertyGroup>
+  <ItemGroup Condition="'%24(MSBuildProjectExtension)' == '.cppproj'">
+    <NativeIncludeDirectory Include="%24(SiaWebGpuIncludeDirectory)" />
+    <NativeLibrary Include="%24(MSBuildThisFileDirectory)../build/native/lib/%24(RuntimeIdentifier)/wgpu_native.lib" Condition="%24([System.String]::Copy('%24(RuntimeIdentifier)').StartsWith('win-'))" />
+    <NativeLibrary Include="%24(MSBuildThisFileDirectory)../runtimes/%24(RuntimeIdentifier)/native/libwgpu_native.so" Condition="%24([System.String]::Copy('%24(RuntimeIdentifier)').StartsWith('linux-'))" />
+    <NativeLibrary Include="%24(MSBuildThisFileDirectory)../runtimes/%24(RuntimeIdentifier)/native/libwgpu_native.dylib" Condition="%24([System.String]::Copy('%24(RuntimeIdentifier)').StartsWith('osx-'))" />
+  </ItemGroup>
+</Project>]]></_NativePackageContent>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_NativePackageTargets)" Lines="$(_NativePackageContent)" Overwrite="true" WriteOnlyWhenDifferent="true" />
     <ItemGroup>
       <_NativeRuntime Include="$(NativeRuntimeIdentifiers)" />
       <_NativeRuntime Update="@(_NativeRuntime)">
@@ -49,6 +64,10 @@
     <Error Condition="$([System.IO.File]::ReadAllText('$(NativeRuntimeDirectory)/%(_NativeRuntime.Identity)/native/native-release.txt').Trim()) != '$(NativeRevision)'"
            Text="WebGPU native release mismatch for %(_NativeRuntime.Identity); rebuild before packing." />
     <ItemGroup>
+      <TfmSpecificPackageFile Include="$(_NativePackageTargets)" PackagePath="buildTransitive/Sia.WebGPU.Native.targets" />
+      <TfmSpecificPackageFile Include="$(NativeHeaderRoot)/include/webgpu/webgpu.h" PackagePath="include/webgpu/webgpu.h" />
+      <TfmSpecificPackageFile Include="$(NativeHeaderRoot)/include/dawn/webgpu.h" PackagePath="include/dawn/webgpu.h" />
+      <TfmSpecificPackageFile Include="$(NativeHeaderRoot)/include/dawn/dawn_version.h" PackagePath="include/dawn/dawn_version.h" />
       <TfmSpecificPackageFile Include="$(NativeRuntimeDirectory)/%(_NativeRuntime.Identity)/native/%(_NativeRuntime.Library)"
                               PackagePath="runtimes/%(_NativeRuntime.Identity)/native/%(_NativeRuntime.Library)" />
       <TfmSpecificPackageFile Include="$(NativeRuntimeDirectory)/%(_NativeRuntime.Identity)/native/dxc*;$(NativeRuntimeDirectory)/%(_NativeRuntime.Identity)/native/dxil.dll;$(NativeRuntimeDirectory)/%(_NativeRuntime.Identity)/native/LICENSE.dxc"

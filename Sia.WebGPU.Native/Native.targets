@@ -17,7 +17,7 @@
     <Error Condition="!$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' != '$(NETCoreSdkRuntimeIdentifier)'" Text="This native target requires a matching host SDK/toolchain; cross-platform builds do not automatically cross-compile." />
     <Error Condition="$([MSBuild]::IsOSPlatform('Windows')) And !$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win-'))" Text="Windows builds require a Windows target and its native SDK." />
     <PrepareWebGpuTask HeaderDirectory="$(MSBuildProjectDirectory)/../Sia.WebGPU.Generators/Resources"
-                       ArtifactsDirectory="$(NativeArtifactsDirectory)" RuntimeIdentifier="$(RuntimeIdentifier)" OutputDirectory="$(NativeOutputDirectory)">
+                       ArtifactsDirectory="$(NativeArtifactsDirectory)" ReleaseTag="$(WebGpuRelease)" RuntimeIdentifier="$(RuntimeIdentifier)" OutputDirectory="$(NativeOutputDirectory)">
       <Output TaskParameter="SdkRoot" PropertyName="NativeSdkRoot" />
       <Output TaskParameter="SourceRoot" PropertyName="NativeSourceRoot" />
       <Output TaskParameter="Revision" PropertyName="NativeRevision" />

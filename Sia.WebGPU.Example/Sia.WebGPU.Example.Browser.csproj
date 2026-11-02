@@ -5,6 +5,7 @@
     <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
     <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
     <WasmEnableThreads>true</WasmEnableThreads>
+    <EmccFlags>$(EmccFlags) --use-port=emdawnwebgpu</EmccFlags>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,7 +18,7 @@
     <ProjectReference Include="..\Sia.WebGPU\Sia.WebGPU.csproj" />
     <PackageReference Include="Sia.Window" Version="0.0.4" />
     <PackageReference Include="Sia.UI" Version="0.0.5" />
+    <_WasmPInvokeModules Include="__Internal_emscripten" />
   </ItemGroup>
-  <Import Project="..\Sia.WebGPU\Sia.WebGPU.targets" />
   <Import Project="..\Sia.Graphics\Sia.Graphics.targets" />
 </Project>

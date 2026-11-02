@@ -215,6 +215,7 @@ public static unsafe partial class Wgpu
         string? label = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(selector);
+        if (selector.Contains('\0')) throw new ArgumentException("Canvas selector must not contain NUL.", nameof(selector));
 
         using var selectorString = WgpuOwnedString.Create(selector);
         using var labelString = WgpuOwnedString.Create(label);

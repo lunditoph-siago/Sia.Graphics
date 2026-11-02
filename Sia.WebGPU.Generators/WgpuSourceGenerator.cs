@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -58,8 +59,9 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
                 var nativeDirectory = GetNativeDependencyDirectory(platform);
                 Directory.CreateDirectory(nativeDirectory);
 
+                using var process = Process.GetCurrentProcess();
                 using var clangLock = AcquireExclusiveFileLock(
-                    Path.Combine(nativeDirectory, ".clang.lock"));
+                    Path.Combine(nativeDirectory, $".clang-{process.Id}.lock"));
                 EnsureNativeDependencies(platform, nativeDirectory);
                 var header = ClangWgpuHeaderParser.Parse(headerSource!);
                 AddGeneratedSources(context, header, options);

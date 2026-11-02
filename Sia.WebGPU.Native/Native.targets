@@ -18,7 +18,7 @@
   <Target Name="PrepareNative">
     <Error Condition="!$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' != '$(NETCoreSdkRuntimeIdentifier)'" Text="This native target requires a matching host SDK/toolchain; cross-platform builds do not automatically cross-compile." />
     <Error Condition="$([MSBuild]::IsOSPlatform('Windows')) And !$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win-'))" Text="Windows builds require a Windows target and its native SDK." />
-    <Exec Command="$(NativePowerShell) -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)/PrepareDawn.ps1&quot; -RuntimeIdentifier $(RuntimeIdentifier) -ArtifactsDirectory &quot;$(NativeArtifactsDirectory)&quot; -OutputDirectory &quot;$([System.IO.Path]::GetFullPath('$(NativeOutputDirectory)/../..'))&quot;" />
+    <Exec IgnoreStandardErrorWarningFormat="true" Command="$(NativePowerShell) -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)/PrepareDawn.ps1&quot; -RuntimeIdentifier $(RuntimeIdentifier) -ArtifactsDirectory &quot;$(NativeArtifactsDirectory)&quot; -OutputDirectory &quot;$([System.IO.Path]::GetFullPath('$(NativeOutputDirectory)/../..'))&quot;" />
     <Exec Command="$(NativePowerShell) -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)/GenerateExports.ps1&quot; -Header &quot;$(NativeDawnRoot)/include/dawn/webgpu.h&quot; -OutputDirectory &quot;$(NativeIntermediateDirectory)&quot;" />
     <ItemGroup>
       <NativeSource Include="$(NativeArtifactsDirectory)/$(DawnReleaseTag)/source/src/dawn/common/DynamicLib.cpp" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />

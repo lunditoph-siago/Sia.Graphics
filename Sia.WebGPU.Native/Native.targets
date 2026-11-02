@@ -1,0 +1,50 @@
+<Project>
+  <PropertyGroup>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">$(NETCoreSdkRuntimeIdentifier)</RuntimeIdentifier>
+    <NativeArtifactsDirectory Condition="'$(NativeArtifactsDirectory)' == ''">$(MSBuildProjectDirectory)/../artifacts/dawn</NativeArtifactsDirectory>
+    <NativeDawnRoot>$(NativeArtifactsDirectory)/$(DawnReleaseTag)/native-$(RuntimeIdentifier)</NativeDawnRoot>
+    <NativeIntermediateDirectory Condition="'$(NativeIntermediateDirectory)' == ''">$(MSBuildProjectDirectory)/obj/native/$(RuntimeIdentifier)/$(Configuration)</NativeIntermediateDirectory>
+    <NativeOutputDirectory Condition="'$(NativeOutputDirectory)' == ''">$(MSBuildProjectDirectory)/runtimes/$(RuntimeIdentifier)/native</NativeOutputDirectory>
+    <NativeOutputFile Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(NativeOutputDirectory)/webgpu_dawn.dll</NativeOutputFile>
+    <NativeOutputFile Condition="$([MSBuild]::IsOSPlatform('Linux'))">$(NativeOutputDirectory)/libwebgpu_dawn.so</NativeOutputFile>
+    <NativeOutputFile Condition="$([MSBuild]::IsOSPlatform('OSX'))">$(NativeOutputDirectory)/libwebgpu_dawn.dylib</NativeOutputFile>
+    <NativePowerShell Condition="$([MSBuild]::IsOSPlatform('Windows'))">powershell.exe</NativePowerShell>
+    <NativePowerShell Condition="'$(NativePowerShell)' == ''">pwsh</NativePowerShell>
+    <NativeMaxParallelism Condition="'$(NativeMaxParallelism)' == ''">2</NativeMaxParallelism>
+  </PropertyGroup>
+  <UsingTask TaskName="NativeBuildTask" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <Task><Code Type="Class" Language="cs" Source="$(MSBuildThisFileDirectory)NativeBuildTask.cs" /></Task>
+  </UsingTask>
+  <Target Name="PrepareNative">
+    <Error Condition="!$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' != '$(NETCoreSdkRuntimeIdentifier)'" Text="This native target requires a matching host SDK/toolchain; cross-platform builds do not automatically cross-compile." />
+    <Error Condition="$([MSBuild]::IsOSPlatform('Windows')) And !$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win-'))" Text="Windows builds require a Windows target and its native SDK." />
+    <Exec Command="$(NativePowerShell) -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)/PrepareDawn.ps1&quot; -RuntimeIdentifier $(RuntimeIdentifier) -ArtifactsDirectory &quot;$(NativeArtifactsDirectory)&quot; -OutputDirectory &quot;$([System.IO.Path]::GetFullPath('$(NativeOutputDirectory)/../..'))&quot;" />
+    <Exec Command="$(NativePowerShell) -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)/GenerateExports.ps1&quot; -Header &quot;$(NativeDawnRoot)/include/dawn/webgpu.h&quot; -OutputDirectory &quot;$(NativeIntermediateDirectory)&quot;" />
+    <ItemGroup>
+      <NativeSource Include="$(MSBuildProjectDirectory)/DawnWindows.cpp" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+      <NativeSource Include="$(NativeIntermediateDirectory)/DawnExports.cpp" Condition="!$([MSBuild]::IsOSPlatform('Windows'))" />
+      <NativeIncludeDirectory Include="$(NativeDawnRoot)/include" />
+      <NativeLibrary Include="$(NativeDawnRoot)/lib/webgpu_dawn.lib" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+      <NativeLibrary Include="$(NativeDawnRoot)/lib/libwebgpu_dawn.a" Condition="!$([MSBuild]::IsOSPlatform('Windows'))" />
+      <NativeCompileOption Include="/O2" Condition="$([MSBuild]::IsOSPlatform('Windows')) And '$(Configuration)' == 'Release'" />
+      <NativeCompileOption Include="-O2" Condition="!$([MSBuild]::IsOSPlatform('Windows')) And '$(Configuration)' == 'Release'" />
+      <NativeCompileOption Include="/Zi" Condition="$([MSBuild]::IsOSPlatform('Windows')) And '$(Configuration)' == 'Debug'" />
+      <NativeCompileOption Include="-g" Condition="!$([MSBuild]::IsOSPlatform('Windows')) And '$(Configuration)' == 'Debug'" />
+      <NativeLinkOption Include="/DEBUG" Condition="$([MSBuild]::IsOSPlatform('Windows')) And '$(Configuration)' == 'Debug'" />
+    </ItemGroup>
+  </Target>
+  <Target Name="Build" DependsOnTargets="PrepareNative">
+    <NativeBuildTask Sources="@(NativeSource)" RuntimeIdentifier="$(RuntimeIdentifier)"
+                     OutputFile="$(NativeOutputFile)" IntermediateDirectory="$(NativeIntermediateDirectory)"
+                     Toolchain="$(NativeToolchain)" Compiler="$(NativeCompiler)" WindowsSdkRoot="$(NativeWindowsSdkRoot)"
+                     IncludeDirectories="@(NativeIncludeDirectory)" Libraries="@(NativeLibrary)"
+                     CompileOptions="@(NativeCompileOption)" LinkOptions="@(NativeLinkOption)"
+                     DefinitionFile="$(NativeIntermediateDirectory)/Dawn.def" MaxParallelism="$(NativeMaxParallelism)" />
+    <WriteLinesToFile File="$(NativeOutputDirectory)/dawn-release.txt" Lines="$(DawnReleaseTag)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+  <Target Name="Clean">
+    <ItemGroup><_NativeCache Include="$(NativeIntermediateDirectory)/*.obj;$(NativeIntermediateDirectory)/*.o;$(NativeIntermediateDirectory)/*.inputs;$(NativeIntermediateDirectory)/*.d" /></ItemGroup>
+    <Delete Files="@(_NativeCache);$(NativeOutputFile);$(NativeOutputFile).inputs" />
+  </Target>
+  <Target Name="Rebuild" DependsOnTargets="Clean;Build" />
+</Project>

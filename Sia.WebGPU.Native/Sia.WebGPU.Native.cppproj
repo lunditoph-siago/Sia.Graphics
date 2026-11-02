@@ -1,0 +1,55 @@
+<Project DefaultTargets="Build">
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <PackageId>Sia.WebGPU.Native</PackageId>
+    <Description>Native Dawn WebGPU libraries for desktop platforms.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/google/dawn</RepositoryUrl>
+    <DawnRuntimeIdentifiers Condition="'$(DawnRuntimeIdentifiers)' == ''">win-x86;win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</DawnRuntimeIdentifiers>
+    <DawnReleaseTag>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)Dawn.json')), 'v[0-9]{8}\.[0-9]{6}').Value)</DawnReleaseTag>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);CollectDawnBinaries</TargetsForTfmSpecificContentInPackage>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="_._" PackagePath="lib/net11.0" />
+    <None Include="Dawn.json;LICENSE.dawn" Pack="true" PackagePath="" />
+    <None Include="Sia.WebGPU.Native.props;Sia.WebGPU.Native.targets;NativeBuildTask.cs" Pack="true" PackagePath="buildTransitive" />
+    <None Include="../Sia.WebGPU.Generators/Resources/webgpu.h;../Sia.WebGPU.Generators/Resources/dawn_version.h" Pack="true" PackagePath="include/dawn" />
+    <None Include="runtimes/$(RuntimeIdentifier)/native/*webgpu_dawn.*"
+          Link="%(Filename)%(Extension)" Pack="false" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="CollectDawnBinaries">
+    <ItemGroup>
+      <_DawnRuntime Include="$(DawnRuntimeIdentifiers)" />
+      <_DawnRuntime Update="@(_DawnRuntime)">
+        <Library Condition="$([System.String]::Copy('%(_DawnRuntime.Identity)').StartsWith('win-'))">webgpu_dawn.dll</Library>
+        <Library Condition="$([System.String]::Copy('%(_DawnRuntime.Identity)').StartsWith('linux-'))">libwebgpu_dawn.so</Library>
+        <Library Condition="$([System.String]::Copy('%(_DawnRuntime.Identity)').StartsWith('osx-'))">libwebgpu_dawn.dylib</Library>
+      </_DawnRuntime>
+    </ItemGroup>
+    <Error Condition="'%(_DawnRuntime.Library)' == ''" Text="Unsupported Dawn runtime %(_DawnRuntime.Identity)." />
+    <Error Condition="!Exists('$(MSBuildProjectDirectory)/runtimes/%(_DawnRuntime.Identity)/native/%(_DawnRuntime.Library)')"
+           Text="Run dotnet build Sia.WebGPU.Native/Sia.WebGPU.Native.cppproj -r %(_DawnRuntime.Identity) before packing." />
+    <Error Condition="!Exists('$(MSBuildProjectDirectory)/runtimes/%(_DawnRuntime.Identity)/native/dawn-release.txt')"
+           Text="Missing Dawn release receipt for %(_DawnRuntime.Identity)." />
+    <Error Condition="$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/runtimes/%(_DawnRuntime.Identity)/native/dawn-release.txt').Trim()) != '$(DawnReleaseTag)'"
+           Text="Dawn release mismatch for %(_DawnRuntime.Identity); rebuild before packing." />
+    <ItemGroup>
+      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/runtimes/%(_DawnRuntime.Identity)/native/%(_DawnRuntime.Library)"
+                              PackagePath="runtimes/%(_DawnRuntime.Identity)/native/%(_DawnRuntime.Library)" />
+      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/runtimes/%(_DawnRuntime.Identity)/native/dxc*;$(MSBuildProjectDirectory)/runtimes/%(_DawnRuntime.Identity)/native/dxil.dll;$(MSBuildProjectDirectory)/runtimes/%(_DawnRuntime.Identity)/native/LICENSE.dxc"
+                              Condition="$([System.String]::Copy('%(_DawnRuntime.Identity)').StartsWith('win-'))"
+                              PackagePath="runtimes/%(_DawnRuntime.Identity)/native/" />
+      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/runtimes/%(_DawnRuntime.Identity)/native/webgpu_dawn.lib"
+                              Condition="$([System.String]::Copy('%(_DawnRuntime.Identity)').StartsWith('win-'))"
+                              PackagePath="build/native/lib/%(_DawnRuntime.Identity)/webgpu_dawn.lib" />
+    </ItemGroup>
+    <RemoveDuplicates Inputs="@(TfmSpecificPackageFile)"><Output TaskParameter="Filtered" ItemName="_DawnPackageFiles" /></RemoveDuplicates>
+    <ItemGroup><TfmSpecificPackageFile Remove="@(TfmSpecificPackageFile)" /><TfmSpecificPackageFile Include="@(_DawnPackageFiles)" /></ItemGroup>
+  </Target>
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+  <Import Project="Native.targets" />
+</Project>

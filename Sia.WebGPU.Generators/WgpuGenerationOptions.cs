@@ -8,7 +8,7 @@ public sealed class WgpuGenerationOptions : IEquatable<WgpuGenerationOptions>
     private const string k_DefaultBrowserLibraryName = "__Internal_emscripten";
     private const string k_DefaultClassName = "WgpuUnsafe";
     private const bool k_DefaultGenerateUnsafeBindings = true;
-    private const string k_DefaultLibraryName = "wgpu_native";
+    private const string k_DefaultLibraryName = "webgpu_dawn";
     private const string k_DefaultNamespace = "Sia.WebGPU";
 
     public WgpuGenerationOptions(

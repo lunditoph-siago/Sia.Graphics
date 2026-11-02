@@ -219,6 +219,7 @@ internal static class ClangWgpuHeaderParser
     private static string CreatePortableParseSource(string source) =>
         """
         typedef __INT32_TYPE__ int32_t;
+        typedef __UINT8_TYPE__ uint8_t;
         typedef __UINT16_TYPE__ uint16_t;
         typedef __UINT32_TYPE__ uint32_t;
         typedef __UINT64_TYPE__ uint64_t;
@@ -230,7 +231,8 @@ internal static class ClangWgpuHeaderParser
         """ + source
             .Replace("#include <stdint.h>", string.Empty)
             .Replace("#include <stddef.h>", string.Empty)
-            .Replace("#include <math.h>", string.Empty);
+            .Replace("#include <math.h>", string.Empty)
+            .Replace("#include \"dawn/dawn_version.h\"", string.Empty);
 
     private static string[] CreateParseArguments() =>
     [

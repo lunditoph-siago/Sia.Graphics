@@ -39,6 +39,8 @@ CodeCoverage/
 
 # MSBuild Binary and Structured Log
 *.binlog
+/Sia.WebGPU.Native/runtimes/
+__pycache__/
 
 # MSTest test Results
 [Tt]est[Rr]esult*/

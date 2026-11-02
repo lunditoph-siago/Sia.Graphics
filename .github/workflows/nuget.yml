@@ -364,8 +364,11 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
+  dawn:
+    uses: ./.github/workflows/dawn.yml
+
   managed:
-    needs: prepare
+    needs: [prepare, dawn]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -380,6 +383,13 @@ jobs:
 
       - name: Install compiler WebAssembly workload
         run: dotnet workload install wasm-tools
+
+      - name: Download Dawn native libraries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: dawn-*
+          merge-multiple: true
+          path: Sia.WebGPU.Native/runtimes
 
       - name: Pack managed packages
         shell: pwsh
@@ -396,8 +406,13 @@ jobs:
             'Sia.Spirv.Workload.Manifest/Sia.Spirv.Workload.Manifest.csproj',
             'Sia.WebGPU/Sia.WebGPU.csproj',
             'Sia.WebGPU.Generators/Sia.WebGPU.Generators.csproj',
-            'Sia.WebGPU.Native/Sia.WebGPU.Native.csproj')
+            'Sia.WebGPU.Native/Sia.WebGPU.Native.cppproj')
           foreach ($project in $projects) {
+            if ($project.EndsWith('.cppproj')) {
+              dotnet pack $project --no-build --configuration Release --output artifacts/packages -p:Version=${{ needs.prepare.outputs.version }}
+              if ($LASTEXITCODE -ne 0) { throw "Packing '$project' failed." }
+              continue
+            }
             dotnet pack $project --configuration Release `
               --output artifacts/packages `
               -p:Version=${{ needs.prepare.outputs.version }} `

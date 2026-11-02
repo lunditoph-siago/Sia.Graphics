@@ -223,14 +223,9 @@ public static unsafe partial class Wgpu
         ulong? size = null)
     {
         if (buffer.IsNull) {
-#if BROWSER
             WgpuUnsafe.wgpuRenderPassEncoderSetVertexBuffer(
                 GetPointer(renderPass), slot, null, offset, size ?? ulong.MaxValue);
             return;
-#else
-            _ = GetPointer(renderPass);
-            throw new PlatformNotSupportedException("wgpu-native 29 does not support clearing vertex buffer bindings.");
-#endif
         }
         var bindingSize = GetBindingSize(GetBufferSize(buffer), offset, size);
         WgpuUnsafe.wgpuRenderPassEncoderSetVertexBuffer(
@@ -258,11 +253,6 @@ public static unsafe partial class Wgpu
         if (offset > bufferSize) throw new ArgumentOutOfRangeException(nameof(offset));
         var bindingSize = size ?? bufferSize - offset;
         if (bindingSize > bufferSize - offset) throw new ArgumentOutOfRangeException(nameof(size));
-#if !BROWSER
-        if (bindingSize == 0) {
-            throw new PlatformNotSupportedException("wgpu-native 29 does not support zero-length buffer bindings.");
-        }
-#endif
         return bindingSize;
     }
 

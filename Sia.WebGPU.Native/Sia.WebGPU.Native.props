@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <SiaNativeBuildTaskSource>$(MSBuildThisFileDirectory)NativeBuildTask.cs</SiaNativeBuildTaskSource>
+    <SiaDawnIncludeDirectory>$(MSBuildThisFileDirectory)../include</SiaDawnIncludeDirectory>
+  </PropertyGroup>
+</Project>

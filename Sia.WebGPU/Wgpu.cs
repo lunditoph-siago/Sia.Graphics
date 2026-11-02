@@ -228,7 +228,7 @@ public static unsafe partial class Wgpu
         var source = new WGPUEmscriptenSurfaceSourceCanvasHTMLSelector {
             Chain = new WGPUChainedStruct {
                 Next = null,
-                SType = (WGPUSType)0x00040000,
+                SType = WGPUSType.EmscriptenSurfaceSourceCanvasHTMLSelector,
             },
             Selector = selectorString.View,
         };

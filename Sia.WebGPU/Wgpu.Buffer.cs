@@ -24,16 +24,8 @@ public static unsafe partial class Wgpu
     public static WgpuBufferInfo GetBufferInfo(WgpuHandle<WGPUBuffer> buffer) =>
         new(GetBufferSize(buffer), GetBufferUsage(buffer));
 
-    public static WGPUBufferMapState GetBufferMapState(WgpuHandle<WGPUBuffer> buffer)
-    {
-#if BROWSER
-        return WgpuUnsafe.wgpuBufferGetMapState(GetPointer(buffer));
-#else
-        _ = GetPointer(buffer);
-        throw new PlatformNotSupportedException(
-            "wgpu-native 29 does not implement buffer map state queries. Track mapping through MapBufferReadAsync and UnmapBuffer.");
-#endif
-    }
+    public static WGPUBufferMapState GetBufferMapState(WgpuHandle<WGPUBuffer> buffer) =>
+        WgpuUnsafe.wgpuBufferGetMapState(GetPointer(buffer));
 
     public static void DestroyBuffer(WgpuHandle<WGPUBuffer> buffer) =>
         WgpuUnsafe.wgpuBufferDestroy(GetPointer(buffer));
@@ -179,19 +171,11 @@ public static unsafe partial class Wgpu
         var pointer = GetPointer(buffer);
         var nativeOffset = checked((nuint)offset);
         var byteSize = checked((nuint)destination.Length * (nuint)sizeof(T));
-#if BROWSER
         fixed (T* data = destination) {
             if (WgpuUnsafe.wgpuBufferReadMappedRange(pointer, nativeOffset, data, byteSize) != WGPUStatus.Success) {
                 throw new WgpuException("WebGPU could not read the mapped buffer range.");
             }
         }
-#else
-        var mapped = WgpuUnsafe.wgpuBufferGetConstMappedRange(pointer, nativeOffset, byteSize);
-        if (mapped == null) {
-            throw new WgpuException("WebGPU could not read the mapped buffer range.");
-        }
-        new ReadOnlySpan<T>(mapped, destination.Length).CopyTo(destination);
-#endif
     }
 
     public static void WriteMappedRange<T>(
@@ -203,19 +187,11 @@ public static unsafe partial class Wgpu
         var pointer = GetPointer(buffer);
         var nativeOffset = checked((nuint)offset);
         var byteSize = checked((nuint)source.Length * (nuint)sizeof(T));
-#if BROWSER
         fixed (T* data = source) {
             if (WgpuUnsafe.wgpuBufferWriteMappedRange(pointer, nativeOffset, data, byteSize) != WGPUStatus.Success) {
                 throw new WgpuException("WebGPU could not write the mapped buffer range.");
             }
         }
-#else
-        var mapped = WgpuUnsafe.wgpuBufferGetMappedRange(pointer, nativeOffset, byteSize);
-        if (mapped == null) {
-            throw new WgpuException("WebGPU could not write the mapped buffer range.");
-        }
-        source.CopyTo(new Span<T>(mapped, source.Length));
-#endif
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]

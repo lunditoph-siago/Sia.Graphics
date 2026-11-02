@@ -1,6 +1,7 @@
 <Project>
   <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm' And '$(_SiaWebGpuConfigured)' != 'true'">
-    <EmccFlags>$(EmccFlags) --use-port=emdawnwebgpu:cpp_bindings=false</EmccFlags>
+    <_SiaWebGpuPort>$([MSBuild]::MakeRelative('$(MSBuildProjectDirectory)', '$(MSBuildThisFileDirectory)emdawnwebgpu.remoteport.py'))</_SiaWebGpuPort>
+    <EmccFlags>$([System.Text.RegularExpressions.Regex]::Replace('$(EmccFlags)', '(^|\s)--use-port=emdawnwebgpu(:[^\s]+)?(?=\s|$)', '$1')) --use-port=&quot;$(_SiaWebGpuPort):cpp_bindings=false&quot;</EmccFlags>
     <WasmBuildNative Condition="'$(WasmBuildNative)' == ''">true</WasmBuildNative>
     <_SiaWebGpuConfigured>true</_SiaWebGpuConfigured>
   </PropertyGroup>

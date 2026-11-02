@@ -57,54 +57,18 @@
                       LogicalName="Sia.WebGPU.Generators.Native.libClangSharp.osx-arm64.dylib" />
 
     <EmbeddedResource Include="Resources\webgpu.h"
-                      LogicalName="Sia.WebGPU.Generators.webgpu.h"
-                      Condition="Exists('Resources\webgpu.h')" />
+                      LogicalName="Sia.WebGPU.Generators.webgpu.h" />
     <EmbeddedResource Include="$(NuGetPackageRoot)clangsharp.interop\16.0.0\lib\netstandard2.0\ClangSharp.Interop.dll"
                       LogicalName="Sia.WebGPU.Generators.ClangSharp.Interop.dll" />
   </ItemGroup>
 
-  <UsingTask TaskName="DownloadWebGpuHeaderTask"
-             TaskFactory="RoslynCodeTaskFactory"
-             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
-    <ParameterGroup>
-      <HeaderUrl ParameterType="System.String" Required="true" />
-      <OutputFile ParameterType="System.String" Required="true" />
-      <Force ParameterType="System.Boolean" Required="false" />
-    </ParameterGroup>
-    <Task>
-      <Using Namespace="System.IO" />
-      <Using Namespace="System.Net" />
-      <Code Type="Fragment" Language="cs">
-        <![CDATA[
-          if (Force || !File.Exists(OutputFile))
-          {
-              Log.LogMessage(MessageImportance.High, $"Syncing webgpu.h from {HeaderUrl}...");
-              using var client = new WebClient();
-              var dir = Path.GetDirectoryName(OutputFile);
-              if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                  Directory.CreateDirectory(dir);
-              client.DownloadFile(HeaderUrl, OutputFile);
-              Log.LogMessage(MessageImportance.High, "webgpu.h synced successfully.");
-          }
-          else
-          {
-              Log.LogMessage(MessageImportance.Normal,
-                  "webgpu.h already exists. Set ForceDownloadWebGpuHeader=true to force resync.");
-          }
-        ]]>
-      </Code>
-    </Task>
-  </UsingTask>
-
-  <Target Name="SyncWebGpuHeader" BeforeTargets="BeforeBuild">
+  <Target Name="SyncWebGpuHeader" BeforeTargets="BeforeBuild"
+          Condition="'$(ForceDownloadWebGpuHeader)' == 'true' Or !Exists('$(MSBuildProjectDirectory)/Resources/webgpu.h')">
     <PropertyGroup>
-      <WebGpuHeaderUrl>https://raw.githubusercontent.com/webgpu-native/webgpu-headers/main/webgpu.h</WebGpuHeaderUrl>
-      <WebGpuHeaderOutput>Resources\webgpu.h</WebGpuHeaderOutput>
+      <_DawnPowerShell Condition="$([MSBuild]::IsOSPlatform('Windows'))">powershell.exe</_DawnPowerShell>
+      <_DawnPowerShell Condition="'$(_DawnPowerShell)' == ''">pwsh</_DawnPowerShell>
+      <_DawnRefresh Condition="'$(ForceDownloadWebGpuHeader)' == 'true'">-Refresh</_DawnRefresh>
     </PropertyGroup>
-    <DownloadWebGpuHeaderTask
-      HeaderUrl="$(WebGpuHeaderUrl)"
-      OutputFile="$(WebGpuHeaderOutput)"
-      Force="$(ForceDownloadWebGpuHeader)" />
+    <Exec Command="$(_DawnPowerShell) -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)/../Sia.WebGPU.Native/SyncDawn.ps1&quot; $(_DawnRefresh)" />
   </Target>
-
 </Project>

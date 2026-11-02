@@ -1,0 +1,8 @@
+<Project>
+  <ItemGroup Condition="'$(MSBuildProjectExtension)' == '.cppproj'">
+    <NativeIncludeDirectory Include="$(SiaDawnIncludeDirectory)" />
+    <NativeLibrary Include="$(MSBuildThisFileDirectory)../build/native/lib/$(RuntimeIdentifier)/webgpu_dawn.lib" Condition="$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win-'))" />
+    <NativeLibrary Include="$(MSBuildThisFileDirectory)../runtimes/$(RuntimeIdentifier)/native/libwebgpu_dawn.so" Condition="$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('linux-'))" />
+    <NativeLibrary Include="$(MSBuildThisFileDirectory)../runtimes/$(RuntimeIdentifier)/native/libwebgpu_dawn.dylib" Condition="$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('osx-'))" />
+  </ItemGroup>
+</Project>

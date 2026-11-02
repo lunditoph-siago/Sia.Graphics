@@ -73,9 +73,13 @@ public sealed class PrepareWebGpuTask : Microsoft.Build.Utilities.Task
                 }
                 if (runners.TryGetValue(RuntimeIdentifier, out var runner)) {
                     var name = "Dawn-" + Revision + "-" + runner + "-Release.tar.gz";
-                    if (!File.Exists(Path.Combine(SdkRoot, "include", "dawn", "webgpu.h"))) {
+                    if (!IsSdkComplete(SdkRoot)) {
                         var extracted = Extract(Asset(client, root, release.Assets.Single(a => a.Name == name)), root);
-                        try { CopyTree(extracted, SdkRoot); }
+                        try {
+                            if (!IsSdkComplete(extracted)) throw new InvalidDataException("Incomplete native SDK archive: " + name);
+                            if (Directory.Exists(SdkRoot)) Directory.Delete(SdkRoot, true);
+                            Directory.Move(extracted, SdkRoot);
+                        }
                         finally { Directory.Delete(Path.GetDirectoryName(extracted), true); }
                     }
                 } else {
@@ -114,8 +118,14 @@ public sealed class PrepareWebGpuTask : Microsoft.Build.Utilities.Task
     private Release FindRelease(HttpClient client)
     {
         if (Revision != null) foreach (var path in Directory.GetFiles(ArtifactsDirectory, "*.json")) {
-            var release = ReadRelease(path);
-            if (release.Assets != null && release.Assets.Any(a => a.Name == "dawn-headers-" + Revision + ".tar.gz")) return release;
+            try {
+                var release = ReadRelease(path);
+                if (MatchesRelease(release)) return release;
+            } catch (SerializationException) {
+                Log.LogMessage(MessageImportance.Normal, "Ignoring invalid release cache: {0}", path);
+            } catch (IOException) {
+                Log.LogMessage(MessageImportance.Normal, "Cannot read release cache: {0}", path);
+            }
         }
         for (var page = 1; page <= 10; page++) {
             var url = "https://api.github.com/repos/google/dawn/releases" + (Revision == null ? "/latest" : "?per_page=100&page=" + page);
@@ -124,16 +134,34 @@ public sealed class PrepareWebGpuTask : Microsoft.Build.Utilities.Task
                     ? new[] { (Release)new DataContractJsonSerializer(typeof(Release)).ReadObject(stream) }
                     : (Release[])new DataContractJsonSerializer(typeof(Release[])).ReadObject(stream);
                 foreach (var release in releases) {
-                    if (!Regex.IsMatch(release.Tag, @"^v\d{8}\.\d{6}$")) continue;
-                    if (Revision != null && !release.Assets.Any(a => a.Name == "dawn-headers-" + Revision + ".tar.gz")) continue;
+                    if (!MatchesRelease(release)) continue;
                     var path = Path.Combine(ArtifactsDirectory, release.Tag + ".json");
-                    using (var file = File.Create(path)) new DataContractJsonSerializer(typeof(Release)).WriteObject(file, release);
+                    var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                    try {
+                        using (var file = File.Create(temporary)) new DataContractJsonSerializer(typeof(Release)).WriteObject(file, release);
+                        if (File.Exists(path)) File.Replace(temporary, path, null);
+                        else File.Move(temporary, path);
+                    } finally { if (File.Exists(temporary)) File.Delete(temporary); }
                     return release;
                 }
                 if (releases.Length < 100) break;
             }
         }
         throw new InvalidDataException("Cannot resolve a native release matching dawn_version.h.");
+    }
+
+    private bool MatchesRelease(Release release) =>
+        release != null && Regex.IsMatch(release.Tag ?? "", @"^v\d{8}\.\d{6}$") && release.Assets != null &&
+        release.Assets.Any(a => a != null && Regex.IsMatch(a.Name ?? "", @"^dawn-headers-[a-f0-9]{40}\.tar\.gz$") &&
+            (Revision == null || a.Name == "dawn-headers-" + Revision + ".tar.gz"));
+
+    private bool IsSdkComplete(string directory)
+    {
+        var header = Path.Combine(directory, "include", "dawn", "webgpu.h");
+        var version = Path.Combine(directory, "include", "dawn", "dawn_version.h");
+        var library = RuntimeIdentifier.StartsWith("win-", StringComparison.Ordinal) ? "webgpu_dawn.lib" : "libwebgpu_dawn.a";
+        return File.Exists(header) && new FileInfo(header).Length > 0 && File.Exists(version) && new FileInfo(version).Length > 0 &&
+            Directory.GetDirectories(directory, "lib*").Any(d => File.Exists(Path.Combine(d, library)) && new FileInfo(Path.Combine(d, library)).Length > 0);
     }
 
     private static Release ReadRelease(string path)

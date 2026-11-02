@@ -18,7 +18,7 @@
     <Content Include="_._" PackagePath="lib/net11.0" />
     <None Include="LICENSE.webgpu" Pack="true" PackagePath="" />
     <None Include="Sia.WebGPU.Native.props;Sia.WebGPU.Native.targets;NativeBuildTask.cs" Pack="true" PackagePath="buildTransitive" />
-    <None Include="../Sia.WebGPU.Generators/Resources/webgpu.h" Pack="true" PackagePath="include/webgpu" />
+    <None Include="webgpu.h" Pack="true" PackagePath="include/webgpu" />
     <None Include="../Sia.WebGPU.Generators/Resources/dawn/*.h" Pack="true" PackagePath="include/dawn" />
     <None Include="$(NativeRuntimeDirectory)/$(RuntimeIdentifier)/native/wgpu_native.dll" Condition="$([MSBuild]::IsOSPlatform('Windows'))"
           Link="%(Filename)%(Extension)" Pack="false" CopyToOutputDirectory="PreserveNewest" />

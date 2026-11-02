@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace Sia.WebGPU;
 
 public static unsafe partial class Wgpu
@@ -100,7 +102,7 @@ public static unsafe partial class Wgpu
             WgpuUnsafe.wgpuRenderPassEncoderSetBindGroup(
                 GetPointer(renderPass),
                 groupIndex,
-                GetPointer(bindGroup),
+                bindGroup.Pointer,
                 (nuint)dynamicOffsets.Length,
                 dynamicOffsetsPtr);
         }
@@ -113,23 +115,25 @@ public static unsafe partial class Wgpu
         ulong offset = 0,
         ulong? size = null)
     {
-        var bufferSize = GetBufferSize(buffer);
-        if (offset > bufferSize) {
-            throw new ArgumentOutOfRangeException(nameof(offset));
-        }
-
-        var bindingSize = size ?? bufferSize - offset;
-        if (bindingSize > bufferSize - offset) {
-            throw new ArgumentOutOfRangeException(nameof(size));
-        }
-
+        var bindingSize = GetBindingSize(GetBufferSize(buffer), offset, size);
         WgpuUnsafe.wgpuRenderPassEncoderSetIndexBuffer(
             GetPointer(renderPass),
             GetPointer(buffer),
-            format,
+            GetIndexFormat(format),
             offset,
             bindingSize);
     }
+
+    public static void SetIndexBuffer(
+        WgpuHandle<WGPURenderPassEncoder> renderPass,
+        WgpuHandle<WGPUBuffer> buffer,
+        WGPUIndexFormat format,
+        in WgpuBufferInfo info,
+        ulong offset = 0,
+        ulong? size = null) =>
+        WgpuUnsafe.wgpuRenderPassEncoderSetIndexBuffer(
+            GetPointer(renderPass), GetPointer(buffer), GetIndexFormat(format),
+            offset, GetBindingSize(info.Size, offset, size));
 
     public static void SetVertexBuffer(
         WgpuHandle<WGPURenderPassEncoder> renderPass,
@@ -138,16 +142,17 @@ public static unsafe partial class Wgpu
         ulong offset = 0,
         ulong? size = null)
     {
-        var bufferSize = GetBufferSize(buffer);
-        if (offset > bufferSize) {
-            throw new ArgumentOutOfRangeException(nameof(offset));
+        if (buffer.IsNull) {
+#if BROWSER
+            WgpuUnsafe.wgpuRenderPassEncoderSetVertexBuffer(
+                GetPointer(renderPass), slot, null, offset, size ?? ulong.MaxValue);
+            return;
+#else
+            _ = GetPointer(renderPass);
+            throw new PlatformNotSupportedException("wgpu-native 29 does not support clearing vertex buffer bindings.");
+#endif
         }
-
-        var bindingSize = size ?? bufferSize - offset;
-        if (bindingSize > bufferSize - offset) {
-            throw new ArgumentOutOfRangeException(nameof(size));
-        }
-
+        var bindingSize = GetBindingSize(GetBufferSize(buffer), offset, size);
         WgpuUnsafe.wgpuRenderPassEncoderSetVertexBuffer(
             GetPointer(renderPass),
             slot,
@@ -155,6 +160,37 @@ public static unsafe partial class Wgpu
             offset,
             bindingSize);
     }
+
+    public static void SetVertexBuffer(
+        WgpuHandle<WGPURenderPassEncoder> renderPass,
+        uint slot,
+        WgpuHandle<WGPUBuffer> buffer,
+        in WgpuBufferInfo info,
+        ulong offset = 0,
+        ulong? size = null) =>
+        WgpuUnsafe.wgpuRenderPassEncoderSetVertexBuffer(
+            GetPointer(renderPass), slot, GetPointer(buffer),
+            offset, GetBindingSize(info.Size, offset, size));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static ulong GetBindingSize(ulong bufferSize, ulong offset, ulong? size)
+    {
+        if (offset > bufferSize) throw new ArgumentOutOfRangeException(nameof(offset));
+        var bindingSize = size ?? bufferSize - offset;
+        if (bindingSize > bufferSize - offset) throw new ArgumentOutOfRangeException(nameof(size));
+#if !BROWSER
+        if (bindingSize == 0) {
+            throw new PlatformNotSupportedException("wgpu-native 29 does not support zero-length buffer bindings.");
+        }
+#endif
+        return bindingSize;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static WGPUIndexFormat GetIndexFormat(WGPUIndexFormat format) =>
+        format is WGPUIndexFormat.Uint16 or WGPUIndexFormat.Uint32
+            ? format
+            : throw new ArgumentOutOfRangeException(nameof(format));
 
     public static void Draw(
         WgpuHandle<WGPURenderPassEncoder> renderPass,
@@ -220,7 +256,7 @@ public static unsafe partial class Wgpu
             WgpuUnsafe.wgpuComputePassEncoderSetBindGroup(
                 GetPointer(computePass),
                 groupIndex,
-                GetPointer(bindGroup),
+                bindGroup.Pointer,
                 (nuint)dynamicOffsets.Length,
                 dynamicOffsetsPtr);
         }

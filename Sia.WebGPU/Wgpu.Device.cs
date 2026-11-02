@@ -48,7 +48,8 @@ public static unsafe partial class Wgpu
         in WGPURequestAdapterOptions options,
         CancellationToken cancellationToken = default)
     {
-        var state = AsyncRequestState<WgpuHandle<WGPUAdapter>>.Create(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        var state = AsyncRequestState<WgpuHandle<WGPUAdapter>>.Create();
 
         try {
             var callbackInfo = new WGPURequestAdapterCallbackInfo {
@@ -60,7 +61,8 @@ public static unsafe partial class Wgpu
                     WGPUStringView,
                     void*,
                     void*,
-                    void>)&OnRequestAdapter,
+                    void>)(delegate* unmanaged[Cdecl]<WGPURequestAdapterStatus,
+                    WGPUAdapter*, WgpuCallbackMessage, void*, void*, void>)&OnRequestAdapter,
                 Userdata1 = state.UserData,
                 Userdata2 = null,
             };
@@ -69,7 +71,7 @@ public static unsafe partial class Wgpu
                 WgpuUnsafe.wgpuInstanceRequestAdapter(GetPointer(instance), optionsPtr, callbackInfo);
             }
 
-            return state.Task;
+            return AwaitHandleAsync(state.Task, cancellationToken);
         }
         catch {
             state.Dispose();
@@ -160,7 +162,8 @@ public static unsafe partial class Wgpu
         in WGPUDeviceDescriptor descriptor,
         CancellationToken cancellationToken = default)
     {
-        var state = AsyncRequestState<WgpuHandle<WGPUDevice>>.Create(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        var state = AsyncRequestState<WgpuHandle<WGPUDevice>>.Create();
 
         try {
             var callbackInfo = new WGPURequestDeviceCallbackInfo {
@@ -172,7 +175,8 @@ public static unsafe partial class Wgpu
                     WGPUStringView,
                     void*,
                     void*,
-                    void>)&OnRequestDevice,
+                    void>)(delegate* unmanaged[Cdecl]<WGPURequestDeviceStatus,
+                    WGPUDevice*, WgpuCallbackMessage, void*, void*, void>)&OnRequestDevice,
                 Userdata1 = state.UserData,
                 Userdata2 = null,
             };
@@ -181,7 +185,7 @@ public static unsafe partial class Wgpu
                 WgpuUnsafe.wgpuAdapterRequestDevice(GetPointer(adapter), descriptorPtr, callbackInfo);
             }
 
-            return state.Task;
+            return AwaitHandleAsync(state.Task, cancellationToken);
         }
         catch {
             state.Dispose();
@@ -230,7 +234,7 @@ public static unsafe partial class Wgpu
     private static void OnRequestAdapter(
         WGPURequestAdapterStatus status,
         WGPUAdapter* adapter,
-        WGPUStringView message,
+        WgpuCallbackMessage message,
         void* userdata1,
         void* userdata2)
     {
@@ -238,12 +242,10 @@ public static unsafe partial class Wgpu
         try {
             if (status == WGPURequestAdapterStatus.Success && adapter != null) {
                 var result = WgpuHandle<WGPUAdapter>.FromPointer(adapter);
-                if (!state.TrySetResult(result)) {
-                    Release(ref result);
-                }
+                state.TrySetResult(result);
             }
             else {
-                state.TrySetException(CreateRequestException("RequestAdapter", status.ToString(), message));
+                state.TrySetException(CreateRequestException("RequestAdapter", status.ToString(), ReadCallbackMessage(message)));
             }
         }
         finally {
@@ -255,7 +257,7 @@ public static unsafe partial class Wgpu
     private static void OnRequestDevice(
         WGPURequestDeviceStatus status,
         WGPUDevice* device,
-        WGPUStringView message,
+        WgpuCallbackMessage message,
         void* userdata1,
         void* userdata2)
     {
@@ -263,12 +265,10 @@ public static unsafe partial class Wgpu
         try {
             if (status == WGPURequestDeviceStatus.Success && device != null) {
                 var result = WgpuHandle<WGPUDevice>.FromPointer(device);
-                if (!state.TrySetResult(result)) {
-                    Release(ref result);
-                }
+                state.TrySetResult(result);
             }
             else {
-                state.TrySetException(CreateRequestException("RequestDevice", status.ToString(), message));
+                state.TrySetException(CreateRequestException("RequestDevice", status.ToString(), ReadCallbackMessage(message)));
             }
         }
         finally {

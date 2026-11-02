@@ -19,6 +19,6 @@
     <ProjectReference Include="..\Sia.WebGPU.Generators\Sia.WebGPU.Generators.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
-    <PackageReference Include="Sia" Version="2.1.5" />
+    <PackageReference Include="Sia" Version="2.1.6" />
   </ItemGroup>
 </Project>

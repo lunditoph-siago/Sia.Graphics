@@ -51,17 +51,24 @@ public sealed unsafe class WgpuRequests : IAddon
         string Message);
 
     private readonly ConcurrentQueue<Completion> _completions = new();
+    private World? _world;
+    private TaskScheduler _callbackScheduler = TaskScheduler.Default;
     private volatile bool _accepting;
 
     public void OnInitialize(World world)
     {
         world.AcquireAddon<WgpuResources>();
+        _world = world;
+        _callbackScheduler = SynchronizationContext.Current is null
+            ? TaskScheduler.Default
+            : TaskScheduler.FromCurrentSynchronizationContext();
         _accepting = true;
     }
 
     public void OnUninitialize(World world)
     {
         _accepting = false;
+        _world = null;
         while (_completions.TryDequeue(out var completion)) {
             Release(in completion);
         }
@@ -73,6 +80,7 @@ public sealed unsafe class WgpuRequests : IAddon
         in WGPURequestAdapterOptions options)
     {
         ValidateTarget(target);
+        if (instance.IsNull) throw new ArgumentException("The instance is null.", nameof(instance));
         var request = PendingRequest.Create(
             this, target, WgpuRequestKind.Adapter);
 
@@ -86,7 +94,8 @@ public sealed unsafe class WgpuRequests : IAddon
                     WGPUStringView,
                     void*,
                     void*,
-                    void>)&OnAdapterCompleted,
+                    void>)(delegate* unmanaged[Cdecl]<WGPURequestAdapterStatus,
+                    WGPUAdapter*, WgpuCallbackMessage, void*, void*, void>)&OnAdapterCompleted,
                 Userdata1 = request.UserData,
                 Userdata2 = null,
             };
@@ -108,6 +117,7 @@ public sealed unsafe class WgpuRequests : IAddon
         in WGPUDeviceDescriptor descriptor)
     {
         ValidateTarget(target);
+        if (adapter.IsNull) throw new ArgumentException("The adapter is null.", nameof(adapter));
         var request = PendingRequest.Create(
             this, target, WgpuRequestKind.Device);
 
@@ -121,7 +131,8 @@ public sealed unsafe class WgpuRequests : IAddon
                     WGPUStringView,
                     void*,
                     void*,
-                    void>)&OnDeviceCompleted,
+                    void>)(delegate* unmanaged[Cdecl]<WGPURequestDeviceStatus,
+                    WGPUDevice*, WgpuCallbackMessage, void*, void*, void>)&OnDeviceCompleted,
                 Userdata1 = request.UserData,
                 Userdata2 = null,
             };
@@ -157,10 +168,9 @@ public sealed unsafe class WgpuRequests : IAddon
             }
 
             if (completion.Kind == WgpuRequestKind.Adapter) {
+                var adapter = new WgpuHandle<WGPUAdapter>(completion.Handle);
                 try {
-                    world.AttachWgpu(
-                        completion.Target,
-                        new WgpuHandle<WGPUAdapter>(completion.Handle));
+                    world.AttachWgpu(completion.Target, ref adapter);
                 }
                 catch (Exception exception) {
                     world.Send(
@@ -171,16 +181,26 @@ public sealed unsafe class WgpuRequests : IAddon
                             exception.Message));
                     continue;
                 }
+                finally {
+                    Wgpu.Release(ref adapter);
+                }
 
                 world.Send(completion.Target, new WgpuRequestEvents.AdapterReady());
             }
             else {
+                var device = new WgpuHandle<WGPUDevice>(completion.Handle);
+                var ownedDevice = device;
                 try {
-                    var device = new WgpuHandle<WGPUDevice>(completion.Handle);
-                    world.AttachWgpu(completion.Target, device);
+                    world.AttachWgpu(completion.Target, ref ownedDevice);
 
                     try {
-                        world.AttachWgpu(completion.Target, Wgpu.GetQueue(device));
+                        var queue = Wgpu.GetQueue(device);
+                        try {
+                            world.AttachWgpu(completion.Target, ref queue);
+                        }
+                        finally {
+                            Wgpu.Release(ref queue);
+                        }
                     }
                     catch {
                         completion.Target.ReleaseWgpu<WGPUDevice>();
@@ -197,6 +217,9 @@ public sealed unsafe class WgpuRequests : IAddon
                             exception.Message));
                     continue;
                 }
+                finally {
+                    Wgpu.Release(ref ownedDevice);
+                }
 
                 world.Send(completion.Target, new WgpuRequestEvents.DeviceReady());
             }
@@ -211,6 +234,7 @@ public sealed unsafe class WgpuRequests : IAddon
         if (!target.IsValid) {
             throw new ObjectDisposedException(nameof(target));
         }
+        WgpuWorldExtensions.ValidateWgpuTarget(_world!, target);
     }
 
     private void Complete(in Completion completion)
@@ -218,9 +242,16 @@ public sealed unsafe class WgpuRequests : IAddon
         _completions.Enqueue(completion);
         if (!_accepting) {
             while (_completions.TryDequeue(out var pending)) {
-                Release(in pending);
+                ReleaseAfterCallback(in pending);
             }
         }
+    }
+
+    private void ReleaseAfterCallback(in Completion completion)
+    {
+        var pending = completion;
+        _ = Task.Factory.StartNew(() => Release(in pending),
+            CancellationToken.None, TaskCreationOptions.DenyChildAttach, _callbackScheduler);
     }
 
     private static void Release(in Completion completion)
@@ -243,7 +274,7 @@ public sealed unsafe class WgpuRequests : IAddon
     private static void OnAdapterCompleted(
         WGPURequestAdapterStatus status,
         WGPUAdapter* adapter,
-        WGPUStringView message,
+        WgpuCallbackMessage message,
         void* userData1,
         void* userData2)
     {
@@ -261,8 +292,8 @@ public sealed unsafe class WgpuRequests : IAddon
         catch {
             if (adapter != null) {
                 try {
-                    var handle = new WgpuHandle<WGPUAdapter>((nint)adapter);
-                    Wgpu.Release(ref handle);
+                    request!.Owner.ReleaseAfterCallback(new Completion(
+                        default, WgpuRequestKind.Adapter, false, (nint)adapter, "", ""));
                 }
                 catch {
                     // Exceptions cannot cross an unmanaged callback boundary.
@@ -278,7 +309,7 @@ public sealed unsafe class WgpuRequests : IAddon
     private static void OnDeviceCompleted(
         WGPURequestDeviceStatus status,
         WGPUDevice* device,
-        WGPUStringView message,
+        WgpuCallbackMessage message,
         void* userData1,
         void* userData2)
     {
@@ -296,8 +327,8 @@ public sealed unsafe class WgpuRequests : IAddon
         catch {
             if (device != null) {
                 try {
-                    var handle = new WgpuHandle<WGPUDevice>((nint)device);
-                    Wgpu.Release(ref handle);
+                    request!.Owner.ReleaseAfterCallback(new Completion(
+                        default, WgpuRequestKind.Device, false, (nint)device, "", ""));
                 }
                 catch {
                     // Exceptions cannot cross an unmanaged callback boundary.
@@ -309,10 +340,10 @@ public sealed unsafe class WgpuRequests : IAddon
         }
     }
 
-    private static string ReadMessage(WGPUStringView message)
+    private static string ReadMessage(WgpuCallbackMessage message)
     {
         try {
-            return WgpuStringViewText.ToString(message);
+            return WgpuStringViewText.ToString(Wgpu.ReadCallbackMessage(message));
         }
         catch {
             return "The native callback returned an invalid UTF-8 message.";

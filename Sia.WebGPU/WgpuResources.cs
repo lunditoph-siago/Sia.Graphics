@@ -55,7 +55,7 @@ public sealed class WgpuResources : IAddon
 
     public void OnUninitialize(World world)
     {
-        var errors = new List<Exception>();
+        List<Exception>? errors = null;
         var groups = _entities.Values.ToArray();
         _entities.Clear();
         Count = 0;
@@ -70,11 +70,11 @@ public sealed class WgpuResources : IAddon
         _componentUnlisteners.Clear();
 
         foreach (var group in groups) {
-            ReleaseAll(group, errors);
+            ReleaseAll(group, ref errors);
         }
 
         _world = null;
-        if (errors.Count != 0) {
+        if (errors is not null) {
             throw new AggregateException(
                 "One or more WebGPU resources could not be released.", errors);
         }
@@ -95,6 +95,7 @@ public sealed class WgpuResources : IAddon
                 $"The entity does not contain {typeof(WgpuResource<T>).Name}.",
                 nameof(entity));
         }
+        WgpuWorldExtensions.ValidateWgpuTarget(_world, entity);
         if (handle.IsNull) {
             throw new ArgumentException("A null WebGPU handle cannot be owned.", nameof(handle));
         }
@@ -130,6 +131,11 @@ public sealed class WgpuResources : IAddon
             typeof(T), world => world.Dispatcher.Unlisten(listener));
     }
 
+    internal bool Owns<T>(Entity entity)
+        where T : unmanaged =>
+        _entities.TryGetValue(entity.Id, out var group)
+        && group.Resources.Any(static resource => resource.ComponentType == typeof(WgpuResource<T>));
+
     private bool OnEntityRemoved(Entity target, in WorldEvents.Remove @event)
     {
         ReleaseAll(target.Id);
@@ -162,12 +168,11 @@ public sealed class WgpuResources : IAddon
 
             group.Resources.RemoveAt(index);
             Count--;
+            if (group.Resources.Count == 0) {
+                _entities.Remove(entityId);
+            }
             resource.Release();
-            break;
-        }
-
-        if (group.Resources.Count == 0) {
-            _entities.Remove(entityId);
+            return;
         }
     }
 
@@ -178,22 +183,24 @@ public sealed class WgpuResources : IAddon
         }
 
         Count -= group.Resources.Count;
-        for (var index = group.Resources.Count - 1; index >= 0; index--) {
-            group.Resources[index].Release();
+        List<Exception>? errors = null;
+        ReleaseAll(group, ref errors);
+        if (errors is not null) {
+            throw new AggregateException(
+                "One or more WebGPU resources could not be released.", errors);
         }
-        group.Resources.Clear();
     }
 
     private static void ReleaseAll(
         EntityResources group,
-        List<Exception> errors)
+        ref List<Exception>? errors)
     {
         for (var index = group.Resources.Count - 1; index >= 0; index--) {
             try {
                 group.Resources[index].Release();
             }
             catch (Exception exception) {
-                errors.Add(exception);
+                (errors ??= []).Add(exception);
             }
         }
         group.Resources.Clear();

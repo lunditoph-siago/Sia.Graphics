@@ -244,15 +244,11 @@ public static unsafe partial class Wgpu
 
     internal sealed class AsyncRequestState<T> : IDisposable
     {
-        private readonly CancellationTokenRegistration _cancellationRegistration;
         private GCHandle _selfHandle;
 
-        private AsyncRequestState(TaskCompletionSource<T> completion, CancellationToken cancellationToken)
+        private AsyncRequestState(TaskCompletionSource<T> completion)
         {
             Completion = completion;
-            _cancellationRegistration = cancellationToken.CanBeCanceled
-                ? cancellationToken.Register(static state => ((AsyncRequestState<T>)state!).TrySetCanceled(), this)
-                : default;
         }
 
         public TaskCompletionSource<T> Completion { get; }
@@ -261,10 +257,10 @@ public static unsafe partial class Wgpu
 
         public void* UserData => (void*)GCHandle.ToIntPtr(_selfHandle);
 
-        public static AsyncRequestState<T> Create(CancellationToken cancellationToken)
+        public static AsyncRequestState<T> Create()
         {
             var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var state = new AsyncRequestState<T>(completion, cancellationToken);
+            var state = new AsyncRequestState<T>(completion);
             state._selfHandle = GCHandle.Alloc(state);
             return state;
         }
@@ -279,11 +275,8 @@ public static unsafe partial class Wgpu
 
         public void TrySetException(Exception exception) => Completion.TrySetException(exception);
 
-        private void TrySetCanceled() => Completion.TrySetCanceled();
-
         public void Dispose()
         {
-            _cancellationRegistration.Dispose();
             if (_selfHandle.IsAllocated) {
                 _selfHandle.Free();
             }

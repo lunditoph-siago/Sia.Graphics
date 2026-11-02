@@ -7,10 +7,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 if (-not $ArtifactsDirectory) { $ArtifactsDirectory = Join-Path $PSScriptRoot '../artifacts/dawn' }
-$manifestPath = Join-Path $PSScriptRoot 'Dawn.json'
+$headerPath = Join-Path $PSScriptRoot '../Sia.WebGPU.Generators/Resources/webgpu.h'
 if (-not $Tag) {
-    $Tag = if ($Refresh -or -not (Test-Path -LiteralPath $manifestPath)) { 'latest' }
-           else { (Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json).Tag }
+    $recorded = if (Test-Path -LiteralPath $headerPath) { [regex]::Match([IO.File]::ReadAllText($headerPath), '#define DAWN_RELEASE_TAG "(v[0-9]{8}\.[0-9]{6})"') } else { $null }
+    $Tag = if ($Refresh -or -not $recorded -or -not $recorded.Success) { 'latest' } else { $recorded.Groups[1].Value }
 }
 if ($Tag -ne 'latest' -and $Tag -notmatch '^v\d{8}\.\d{6}$') { throw "Invalid Dawn release tag: $Tag" }
 $ArtifactsDirectory = [IO.Path]::GetFullPath($ArtifactsDirectory)
@@ -59,16 +59,13 @@ if ($Refresh -or -not (Test-Path -LiteralPath (Join-Path $PSScriptRoot '../Sia.W
     if ($LASTEXITCODE -ne 0) { throw 'Dawn header extraction failed.' }
     $header = @(Get-ChildItem -LiteralPath $headerRoot -Recurse -Filter webgpu.h | Where-Object { $_.Directory.Name -eq 'dawn' })
     if ($header.Count -ne 1) { throw 'Expected one Dawn C header.' }
-    $port = @($release.assets | Where-Object { $_.name -eq "emdawnwebgpu-$Tag.remoteport.py" })
-    if ($port.Count -ne 1) { throw 'Expected one matching Emdawn remote port.' }
-    $portPath = Get-DawnAsset $port[0]
     $licensePath = Join-Path $releaseRoot 'LICENSE.dawn'
     Invoke-WebRequest "https://raw.githubusercontent.com/google/dawn/$revision/LICENSE" -OutFile $licensePath -UseBasicParsing
-    Copy-Item -LiteralPath $header[0].FullName -Destination (Join-Path $PSScriptRoot '../Sia.WebGPU.Generators/Resources/webgpu.h')
-    Copy-Item -LiteralPath (Join-Path $header[0].DirectoryName 'dawn_version.h') -Destination (Join-Path $PSScriptRoot '../Sia.WebGPU.Generators/Resources/dawn_version.h')
-    Copy-Item -LiteralPath $portPath -Destination (Join-Path $PSScriptRoot '../Sia.WebGPU/emdawnwebgpu.remoteport.py')
+    $version = [IO.File]::ReadAllText((Join-Path $header[0].DirectoryName 'dawn_version.h'))
+    $text = [IO.File]::ReadAllText($header[0].FullName).Replace('#include "dawn/dawn_version.h"', $version)
+    $text = "#define DAWN_RELEASE_TAG `"$Tag`"`n" + $text
+    [IO.File]::WriteAllText($headerPath, $text)
     Copy-Item -LiteralPath $licensePath -Destination (Join-Path $PSScriptRoot 'LICENSE.dawn')
-    @{ Tag = $Tag; Revision = $revision } | ConvertTo-Json | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 }
 
 [pscustomobject]@{ Tag = $Tag; Revision = $revision; Root = $releaseRoot; Release = $release }

@@ -7,9 +7,9 @@ import sys
 root = pathlib.Path(__file__).resolve().parent
 rid = sys.argv[1]
 directory = pathlib.Path(sys.argv[2]) / rid / 'native'
-manifest = json.loads((root / 'Dawn.json').read_text(encoding='utf-8-sig'))
-assert (directory / 'dawn-release.txt').read_text(encoding='utf-8-sig').strip() == manifest['Tag']
-name = 'webgpu_dawn.dll' if rid.startswith('win-') else 'libwebgpu_dawn.dylib' if rid.startswith('osx-') else 'libwebgpu_dawn.so'
+tag = re.search(r'#define DAWN_RELEASE_TAG "(v[0-9]{8}\.[0-9]{6})"', (root / '../Sia.WebGPU.Generators/Resources/webgpu.h').read_text()).group(1)
+assert (directory / 'dawn-release.txt').read_text(encoding='utf-8-sig').strip() == tag
+name = 'wgpu_native.dll' if rid.startswith('win-') else 'libwgpu_native.dylib' if rid.startswith('osx-') else 'libwgpu_native.so'
 library = ctypes.CDLL(str((directory / name).resolve()))
 header = (root / '../Sia.WebGPU.Generators/Resources/webgpu.h').read_text()
 symbols = re.findall(r'^WGPU_EXPORT[^;\n]*\b(wgpu[A-Z]\w*)\(', header, re.M)
@@ -26,5 +26,5 @@ try:
     library.wgpuInstanceProcessEvents(instance)
 finally:
     library.wgpuInstanceRelease(instance)
-print(json.dumps({'Runtime': rid, 'Release': manifest['Tag'], 'Exports': len(symbols),
+print(json.dumps({'Runtime': rid, 'Release': tag, 'Exports': len(symbols),
                   'PointerBytes': ctypes.sizeof(ctypes.c_void_p), 'Instance': 'PASS'}))

@@ -1,6 +1,7 @@
 name: Publish
 
 on:
+  pull_request:
   push:
     tags:
       - 'v*.*.*'
@@ -20,6 +21,7 @@ env:
 
 jobs:
   prepare:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.release.outputs.version }}
@@ -365,8 +367,72 @@ jobs:
           compression-level: 0
 
   dawn:
-    uses: ./.github/workflows/dawn.yml
-
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x86
+            runner: windows-latest
+            python_arch: x86
+          - rid: win-x64
+            runner: windows-latest
+            python_arch: x64
+          - rid: win-arm64
+            runner: windows-11-arm
+            python_arch: arm64
+          - rid: linux-x64
+            runner: ubuntu-latest
+            python_arch: x64
+          - rid: linux-arm64
+            runner: ubuntu-24.04-arm
+            python_arch: arm64
+          - rid: osx-x64
+            runner: macos-15-intel
+            python_arch: x64
+          - rid: osx-arm64
+            runner: macos-latest
+            python_arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.x
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          architecture: ${{ matrix.python_arch }}
+      - name: Install Linux build dependencies
+        if: startsWith(matrix.rid, 'linux-')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libx11-xcb-dev libxcb1-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libwayland-dev wayland-protocols libxkbcommon-dev libegl-dev libgles-dev
+      - uses: actions/cache/restore@v5
+        id: dawn-cache
+        with:
+          path: artifacts/dawn
+          key: dawn-${{ matrix.rid }}-${{ hashFiles('Sia.WebGPU.Generators/Resources/webgpu.h', 'Sia.WebGPU.Native/PrepareDawn.ps1') }}
+          restore-keys: dawn-${{ matrix.rid }}-
+      - name: Build Dawn shared library
+        shell: pwsh
+        run: |
+          dotnet build Sia.WebGPU.Native/Sia.WebGPU.Native.cppproj -c Release -r '${{ matrix.rid }}' -p:NativeArtifactsDirectory="$PWD/artifacts/dawn" -p:NativeOutputDirectory="$PWD/artifacts/dawn-runtimes/${{ matrix.rid }}/native"
+      - name: Verify native incremental and parallel compilation
+        shell: pwsh
+        run: ./Sia.WebGPU.Native/TestNativeBuild.ps1 -RuntimeIdentifier '${{ matrix.rid }}'
+      - name: Verify C exports and instance lifetime
+        run: python Sia.WebGPU.Native/VerifyDawn.py '${{ matrix.rid }}' artifacts/dawn-runtimes
+      - uses: actions/cache/save@v5
+        if: always() && steps.dawn-cache.outputs.cache-hit != 'true'
+        with:
+          path: artifacts/dawn
+          key: ${{ steps.dawn-cache.outputs.cache-primary-key }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dawn-${{ matrix.rid }}
+          path: artifacts/dawn-runtimes
+          if-no-files-found: error
   managed:
     needs: [prepare, dawn]
     runs-on: ubuntu-latest
@@ -409,6 +475,8 @@ jobs:
             'Sia.WebGPU.Native/Sia.WebGPU.Native.cppproj')
           foreach ($project in $projects) {
             if ($project.EndsWith('.cppproj')) {
+              dotnet restore $project
+              if ($LASTEXITCODE -ne 0) { throw "Restoring '$project' failed." }
               dotnet pack $project --no-build --configuration Release --output artifacts/packages -p:Version=${{ needs.prepare.outputs.version }}
               if ($LASTEXITCODE -ne 0) { throw "Packing '$project' failed." }
               continue

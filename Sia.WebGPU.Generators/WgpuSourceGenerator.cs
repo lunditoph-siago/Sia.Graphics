@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -235,12 +234,11 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
 
     private static string GetNativeDependencyDirectory(NativePlatform platform)
     {
-        var assembly = typeof(WgpuSourceGenerator).Assembly;
+        var assembly = typeof(Native.NativeAssets).Assembly;
         return Path.Combine(
             Path.GetTempPath(),
             "Sia.WebGPU.Generators",
             assembly.ManifestModule.ModuleVersionId.ToString("N"),
-            Process.GetCurrentProcess().Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
             platform.Rid);
     }
 
@@ -258,13 +256,6 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
             }
 
             ExtractNativeDependencies(platform, directory);
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) {
-                if (!Windows.SetDllDirectory(directory)) {
-                    throw new InvalidOperationException(
-                        $"Failed to set DLL directory '{directory}'. Win32Error={Marshal.GetLastWin32Error()}");
-                }
-            }
 
             s_LibClangHandle = LoadNativeDependency(
                 Path.Combine(directory, "libclang" + platform.Extension));
@@ -291,7 +282,7 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
 
     private static void ExtractNativeDependency(string resourceName, string destinationPath)
     {
-        var assembly = typeof(WgpuSourceGenerator).Assembly;
+        var assembly = typeof(Native.NativeAssets).Assembly;
         using var resource = assembly.GetManifestResourceStream(resourceName)
             ?? throw new InvalidOperationException($"Embedded native dependency '{resourceName}' was not found.");
 
@@ -344,7 +335,7 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
     private static IntPtr LoadNativeDependency(string path)
     {
         var handle =
-            RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? Windows.LoadLibrary(path) :
+            RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? Windows.LoadLibraryEx(path, IntPtr.Zero, 0x1100) :
             RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? MacOS.Dlopen(path, k_RtldNow) :
             RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? Linux.Load(path, k_RtldNow) :
             throw new PlatformNotSupportedException(RuntimeInformation.OSDescription);
@@ -360,19 +351,11 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
     {
         [DllImport(
             "kernel32",
-            EntryPoint = "SetDllDirectoryW",
+            EntryPoint = "LoadLibraryExW",
             ExactSpelling = true,
             CharSet = CharSet.Unicode,
             SetLastError = true)]
-        public static extern bool SetDllDirectory(string path);
-
-        [DllImport(
-            "kernel32",
-            EntryPoint = "LoadLibraryW",
-            ExactSpelling = true,
-            CharSet = CharSet.Unicode,
-            SetLastError = true)]
-        public static extern IntPtr LoadLibrary(string fileName);
+        public static extern IntPtr LoadLibraryEx(string fileName, IntPtr file, uint flags);
     }
 
     private static class MacOS

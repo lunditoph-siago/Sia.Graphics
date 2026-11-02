@@ -27,19 +27,8 @@ if ($RuntimeIdentifier.StartsWith('win-')) {
     $configure += "-DCMAKE_OSX_ARCHITECTURES=$arch"
 }
 
-if ($platforms.ContainsKey($RuntimeIdentifier)) {
-    $name = "Dawn-$($dawn.Revision)-$($platforms[$RuntimeIdentifier])-Release.tar.gz"
-    $asset = @($dawn.Release.assets | Where-Object { $_.name -eq $name })
-    if ($asset.Count -ne 1) { throw "Dawn release missing $name" }
-    $archive = Get-DawnAsset $asset[0]
-    $prefix = Join-Path $dawn.Root "native-$RuntimeIdentifier"
-    New-Item -ItemType Directory -Path $prefix -Force | Out-Null
-    if (-not (Test-Path -LiteralPath (Join-Path $prefix 'lib/cmake/Dawn/DawnConfig.cmake'))) {
-        & tar -xf $archive -C $prefix --strip-components=1
-        if ($LASTEXITCODE -ne 0) { throw "Failed to extract $name" }
-    }
-} else {
-    $source = Join-Path $dawn.Root 'source'
+$source = Join-Path $dawn.Root 'source'
+if ($RuntimeIdentifier.StartsWith('win-') -or -not $platforms.ContainsKey($RuntimeIdentifier)) {
     if (-not (Test-Path -LiteralPath (Join-Path $source 'CMakeLists.txt'))) {
         $archive = Join-Path $dawn.Root 'source.tar.gz'
         Invoke-WebRequest "https://github.com/google/dawn/archive/$($dawn.Revision).tar.gz" -OutFile $archive -UseBasicParsing
@@ -47,6 +36,28 @@ if ($platforms.ContainsKey($RuntimeIdentifier)) {
         & tar -xf $archive -C $source --strip-components=1
         if ($LASTEXITCODE -ne 0) { throw 'Failed to extract Dawn sources.' }
     }
+    if (-not (Test-Path -LiteralPath (Join-Path $source '.git/HEAD'))) {
+        & git -C $source init --quiet
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot initialize the Dawn source version metadata.' }
+        & git -C $source fetch --depth=1 https://github.com/google/dawn.git $dawn.Revision
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot verify the Dawn source revision.' }
+        & git -C $source update-ref HEAD $dawn.Revision
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot record the Dawn source revision.' }
+    }
+}
+
+if ($platforms.ContainsKey($RuntimeIdentifier)) {
+    $name = "Dawn-$($dawn.Revision)-$($platforms[$RuntimeIdentifier])-Release.tar.gz"
+    $asset = @($dawn.Release.assets | Where-Object { $_.name -eq $name })
+    if ($asset.Count -ne 1) { throw "Dawn release missing $name" }
+    $archive = Get-DawnAsset $asset[0]
+    $prefix = Join-Path $dawn.Root "native-$RuntimeIdentifier"
+    New-Item -ItemType Directory -Path $prefix -Force | Out-Null
+    if (-not (Test-Path -LiteralPath (Join-Path $prefix 'include/dawn/webgpu.h'))) {
+        & tar -xf $archive -C $prefix --strip-components=1
+        if ($LASTEXITCODE -ne 0) { throw "Failed to extract $name" }
+    }
+} else {
     $configure += @('-S', $source,
         '-DDAWN_FETCH_DEPENDENCIES=ON', '-DDAWN_BUILD_MONOLITHIC_LIBRARY=STATIC',
         '-DDAWN_BUILD_TESTS=OFF', '-DDAWN_BUILD_SAMPLES=OFF', '-DDAWN_USE_GLFW=OFF',
@@ -58,8 +69,15 @@ if (-not $platforms.ContainsKey($RuntimeIdentifier)) {
     & cmake --build $build --config Release --target webgpu_dawn --parallel 2
     if ($LASTEXITCODE -ne 0) { throw "Dawn build failed for $RuntimeIdentifier" }
     $prefix = Join-Path $dawn.Root "native-$RuntimeIdentifier"
-    & cmake --install $build --config Release --prefix $prefix
-    if ($LASTEXITCODE -ne 0) { throw "Dawn install failed for $RuntimeIdentifier" }
+    $include = Join-Path $prefix 'include'
+    $lib = Join-Path $prefix 'lib'
+    New-Item -ItemType Directory -Path $include, $lib -Force | Out-Null
+    Get-ChildItem -LiteralPath (Join-Path $source 'include') | Copy-Item -Destination $include -Recurse -Force
+    Get-ChildItem -LiteralPath (Join-Path $build 'gen/include') | Copy-Item -Destination $include -Recurse -Force
+    $staticLibrary = if ($RuntimeIdentifier.StartsWith('win-')) { 'webgpu_dawn.lib' } else { 'libwebgpu_dawn.a' }
+    $compiled = @(Get-ChildItem -LiteralPath $build -Recurse -Filter $staticLibrary)
+    if ($compiled.Count -ne 1) { throw "Expected one Dawn static library for $RuntimeIdentifier" }
+    Copy-Item -LiteralPath $compiled[0].FullName -Destination (Join-Path $lib $staticLibrary)
 }
 if ($RuntimeIdentifier.StartsWith('win-')) {
     $sdk = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/Redist/D3D'

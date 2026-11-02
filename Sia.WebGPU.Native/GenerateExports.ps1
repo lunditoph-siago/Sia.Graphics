@@ -3,13 +3,7 @@ $ErrorActionPreference = 'Stop'
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $symbols = [regex]::Matches([IO.File]::ReadAllText($Header), '(?m)^WGPU_EXPORT[^;\r\n]*\b(wgpu[A-Z]\w*)\(') | ForEach-Object { $_.Groups[1].Value }
 if ($symbols.Count -lt 200) { throw 'Incomplete Dawn C API export list.' }
-$exports = @('EXPORTS') + @($symbols | ForEach-Object {
-    switch ($_) {
-        'wgpuCreateInstance' { 'wgpuCreateInstance=siaDawnCreateInstance' }
-        'wgpuGetProcAddress' { 'wgpuGetProcAddress=siaDawnGetProcAddress' }
-        default { $_ }
-    }
-})
+$exports = @('EXPORTS') + $symbols
 $definition = ($exports -join "`n") + "`n"
 $path = Join-Path $OutputDirectory 'Dawn.def'
 if (-not (Test-Path -LiteralPath $path) -or [IO.File]::ReadAllText($path) -cne $definition) { [IO.File]::WriteAllText($path, $definition) }

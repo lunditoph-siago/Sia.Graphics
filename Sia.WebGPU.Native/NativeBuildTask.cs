@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Json;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -74,7 +76,7 @@ public sealed class NativeBuildTask : Microsoft.Build.Utilities.Task
                 var dependencyFile = obj + ".d";
                 var args = new List<string>();
                 if (Toolchain == "msvc") {
-                    args.AddRange(new[] { "/nologo", "/c", "/std:c++20", "/MD", "/EHsc", "/utf-8", "/showIncludes", "/Fo" + obj });
+                    args.AddRange(new[] { "/nologo", "/c", "/std:c++20", "/MD", "/EHsc", "/utf-8", "/sourceDependencies", dependencyFile, "/Fo" + obj, "/Fd" + obj + ".pdb" });
                     args.AddRange(includes.Select(x => "/I" + x));
                 } else {
                     args.AddRange(new[] { "-c", "-std=c++20", "-fPIC", "-MMD", "-MF", dependencyFile, "-o", obj });
@@ -88,11 +90,13 @@ public sealed class NativeBuildTask : Microsoft.Build.Utilities.Task
                 var result = Run(Compiler, args, environment);
                 var dependencies = new List<string> { source };
                 if (Toolchain == "msvc") {
-                    foreach (var line in result.Output.Split('\n')) {
-                        const string marker = "Note: including file:";
-                        var index = line.IndexOf(marker, StringComparison.Ordinal);
-                        if (index >= 0) dependencies.Add(line.Substring(index + marker.Length).Trim());
-                        else if (!string.IsNullOrWhiteSpace(line)) LogOutput(line.TrimEnd());
+                    if (!string.IsNullOrWhiteSpace(result.Output)) LogOutput(result.Output);
+                    if (result.ExitCode == 0) {
+                        using (var stream = File.OpenRead(dependencyFile)) {
+                            var data = (MsvcDependencies)new DataContractJsonSerializer(typeof(MsvcDependencies)).ReadObject(stream);
+                            if (data?.Data?.Includes == null) throw new InvalidDataException("Missing MSVC header dependency information.");
+                            dependencies.AddRange(data.Data.Includes);
+                        }
                     }
                 } else {
                     if (!string.IsNullOrWhiteSpace(result.Output)) LogOutput(result.Output);
@@ -102,7 +106,7 @@ public sealed class NativeBuildTask : Microsoft.Build.Utilities.Task
                         dependencies.AddRange(Regex.Split(content.Substring(colon + 1).Trim(), @"(?<!\\)\s+").Where(x => x.Length > 0).Select(x => x.Replace("\\ ", " ").Replace("\\\\", "\\")));
                     }
                 }
-                if (result.ExitCode != 0) { Interlocked.Exchange(ref failed, 1); Log.LogError("Native compiler exited {0}: {1}", result.ExitCode, source); return; }
+                if (result.ExitCode != 0) { Interlocked.Exchange(ref failed, 1); Log.LogError("Native compiler exited {0}: {1}{2}{3}", result.ExitCode, source, Environment.NewLine, result.Output); return; }
                 File.WriteAllLines(obj + ".inputs", new[] { fingerprint }.Concat(dependencies.Distinct().Select(Path.GetFullPath)));
                 Interlocked.Increment(ref compiled);
             });
@@ -141,7 +145,7 @@ public sealed class NativeBuildTask : Microsoft.Build.Utilities.Task
                 File.Delete(OutputFile + ".inputs");
                 var result = Run(linker, link, environment);
                 if (!string.IsNullOrWhiteSpace(result.Output)) LogOutput(result.Output);
-                if (result.ExitCode != 0) { Log.LogError("Native linker exited {0}.", result.ExitCode); return false; }
+                if (result.ExitCode != 0) { Log.LogError("Native linker exited {0}:{1}{2}", result.ExitCode, Environment.NewLine, result.Output); return false; }
                 File.WriteAllLines(OutputFile + ".inputs", new[] { signature }.Concat(inputs));
                 Linked = true;
             }
@@ -156,6 +160,18 @@ public sealed class NativeBuildTask : Microsoft.Build.Utilities.Task
             if (Regex.IsMatch(line, @"\bwarning(?:\s+[A-Z]+[0-9]+)?:")) Log.LogWarning(line.TrimEnd());
             else if (!string.IsNullOrWhiteSpace(line)) Log.LogMessage(MessageImportance.Normal, line.TrimEnd());
         }
+    }
+
+    [DataContract]
+    private sealed class MsvcDependencies
+    {
+        [DataMember] public MsvcIncludes Data { get; set; }
+    }
+
+    [DataContract]
+    private sealed class MsvcIncludes
+    {
+        [DataMember] public string[] Includes { get; set; }
     }
 
     private static bool Current(string output, string signature)

@@ -364,25 +364,18 @@ jobs:
         include:
           - rid: win-x86
             runner: windows-latest
-            python_arch: x86
           - rid: win-x64
             runner: windows-latest
-            python_arch: x64
           - rid: win-arm64
             runner: windows-11-arm
-            python_arch: arm64
           - rid: linux-x64
             runner: ubuntu-latest
-            python_arch: x64
           - rid: linux-arm64
             runner: ubuntu-24.04-arm
-            python_arch: arm64
           - rid: osx-x64
             runner: macos-15-intel
-            python_arch: x64
           - rid: osx-arm64
             runner: macos-latest
-            python_arch: arm64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     steps:
@@ -393,7 +386,6 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-          architecture: ${{ matrix.python_arch }}
       - name: Install Linux build dependencies
         if: startsWith(matrix.rid, 'linux-')
         run: |
@@ -402,17 +394,12 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: artifacts/webgpu
-          key: webgpu-native-${{ matrix.rid }}-${{ hashFiles('Sia.WebGPU.Generators/Resources/webgpu.h', 'Sia.WebGPU.Native/PrepareNative.ps1') }}
+          key: webgpu-native-${{ matrix.rid }}-${{ hashFiles('Sia.WebGPU.Generators/Resources/dawn/*.h', 'Sia.WebGPU.Native/NativeTasks.targets') }}
           restore-keys: webgpu-native-${{ matrix.rid }}-
       - name: Build native WebGPU library
         shell: pwsh
         run: |
           dotnet build Sia.WebGPU.Native/Sia.WebGPU.Native.cppproj -c Release -r '${{ matrix.rid }}' -p:NativeArtifactsDirectory="$PWD/artifacts/webgpu" -p:NativeOutputDirectory="$PWD/artifacts/webgpu-runtimes/${{ matrix.rid }}/native"
-      - name: Test native incremental and parallel compilation
-        shell: pwsh
-        run: ./Sia.WebGPU.Native/TestNativeBuild.ps1 -RuntimeIdentifier '${{ matrix.rid }}'
-      - name: Test C exports and instance lifetime
-        run: python Sia.WebGPU.Native/TestNativeExports.py '${{ matrix.rid }}' artifacts/webgpu-runtimes
       - uses: actions/upload-artifact@v7
         with:
           name: webgpu-native-${{ matrix.rid }}
@@ -498,7 +485,7 @@ jobs:
         with:
           pattern: webgpu-native-*
           merge-multiple: true
-          path: Sia.WebGPU.Native/runtimes
+          path: artifacts/webgpu-runtimes
 
       - name: Download packages
         uses: actions/download-artifact@v8

@@ -56,19 +56,46 @@
     <EmbeddedResource Include="$(NuGetPackageRoot)libclangsharp.runtime.osx-arm64\$(LibClangVersion)\runtimes\osx-arm64\native\libClangSharp.dylib"
                       LogicalName="Sia.WebGPU.Generators.Native.libClangSharp.osx-arm64.dylib" />
 
+    <EmbeddedResource Include="Resources/dawn/webgpu.h" LogicalName="Sia.WebGPU.Generators.dawn.webgpu.h" />
     <EmbeddedResource Include="Resources\webgpu.h"
                       LogicalName="Sia.WebGPU.Generators.webgpu.h" />
     <EmbeddedResource Include="$(NuGetPackageRoot)clangsharp.interop\16.0.0\lib\netstandard2.0\ClangSharp.Interop.dll"
                       LogicalName="Sia.WebGPU.Generators.ClangSharp.Interop.dll" />
   </ItemGroup>
 
-  <Target Name="SyncWebGpuHeader" BeforeTargets="BeforeBuild"
-          Condition="'$(ForceDownloadWebGpuHeader)' == 'true' Or !Exists('$(MSBuildProjectDirectory)/Resources/webgpu.h')">
+  <UsingTask TaskName="DownloadWebGpuHeaderTask" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <HeaderUrl ParameterType="System.String" Required="true" />
+      <OutputFile ParameterType="System.String" Required="true" />
+      <Force ParameterType="System.Boolean" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" /><Using Namespace="System.IO" /><Using Namespace="System.Net.Http" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        if (Force || !File.Exists(OutputFile)) {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(OutputFile)));
+            var temporary = OutputFile + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try {
+                using (var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) })
+                using (var input = client.GetStreamAsync(HeaderUrl).GetAwaiter().GetResult())
+                using (var output = File.Create(temporary)) input.CopyTo(output);
+                if (!File.ReadAllText(temporary).Contains("WGPUInstance")) throw new InvalidDataException("Invalid WebGPU header.");
+                if (File.Exists(OutputFile)) File.Delete(OutputFile);
+                File.Move(temporary, OutputFile);
+            } finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        }
+      ]]></Code>
+    </Task>
+  </UsingTask>
+  <Import Project="../Sia.WebGPU.Native/NativeTasks.targets" />
+  <Target Name="SyncWebGpuHeader" BeforeTargets="BeforeBuild">
     <PropertyGroup>
-      <_NativePowerShell Condition="$([MSBuild]::IsOSPlatform('Windows'))">powershell.exe</_NativePowerShell>
-      <_NativePowerShell Condition="'$(_NativePowerShell)' == ''">pwsh</_NativePowerShell>
-      <_NativeRefresh Condition="'$(ForceDownloadWebGpuHeader)' == 'true'">-Refresh</_NativeRefresh>
+      <WebGpuHeaderUrl>https://raw.githubusercontent.com/webgpu-native/webgpu-headers/main/webgpu.h</WebGpuHeaderUrl>
+      <WebGpuHeaderOutput>$(MSBuildProjectDirectory)/Resources/webgpu.h</WebGpuHeaderOutput>
     </PropertyGroup>
-    <Exec Command="$(_NativePowerShell) -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)/../Sia.WebGPU.Native/SyncWebGPU.ps1&quot; $(_NativeRefresh)" />
+    <DownloadWebGpuHeaderTask HeaderUrl="$(WebGpuHeaderUrl)" OutputFile="$(WebGpuHeaderOutput)" Force="$(ForceDownloadWebGpuHeader)" />
+    <PrepareWebGpuTask HeaderDirectory="$(MSBuildProjectDirectory)/Resources" ArtifactsDirectory="$(NativeArtifactsDirectory)"
+                       Force="$(ForceDownloadWebGpuHeader)"
+                       Condition="'$(ForceDownloadWebGpuHeader)' == 'true' Or !Exists('$(MSBuildProjectDirectory)/Resources/dawn/webgpu.h') Or !Exists('$(MSBuildProjectDirectory)/Resources/dawn/dawn_version.h')" />
   </Target>
 </Project>

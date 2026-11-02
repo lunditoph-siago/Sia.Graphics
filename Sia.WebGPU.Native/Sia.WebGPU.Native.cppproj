@@ -11,7 +11,7 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/lunditoph-siago/Sia.Graphics</RepositoryUrl>
     <NativeRuntimeIdentifiers Condition="'$(NativeRuntimeIdentifiers)' == ''">win-x86;win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</NativeRuntimeIdentifiers>
-    <NativeReleaseTag>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)../Sia.WebGPU.Generators/Resources/webgpu.h')), 'v[0-9]{8}\.[0-9]{6}').Value)</NativeReleaseTag>
+    <NativeRuntimeDirectory Condition="'$(NativeRuntimeDirectory)' == ''">$(MSBuildProjectDirectory)/../artifacts/webgpu-runtimes</NativeRuntimeDirectory>
     <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);CollectNativeBinaries</TargetsForTfmSpecificContentInPackage>
   </PropertyGroup>
   <ItemGroup>
@@ -19,16 +19,20 @@
     <None Include="LICENSE.webgpu" Pack="true" PackagePath="" />
     <None Include="Sia.WebGPU.Native.props;Sia.WebGPU.Native.targets;NativeBuildTask.cs" Pack="true" PackagePath="buildTransitive" />
     <None Include="../Sia.WebGPU.Generators/Resources/webgpu.h" Pack="true" PackagePath="include/webgpu" />
-    <None Include="runtimes/$(RuntimeIdentifier)/native/wgpu_native.dll" Condition="$([MSBuild]::IsOSPlatform('Windows'))"
+    <None Include="../Sia.WebGPU.Generators/Resources/dawn/*.h" Pack="true" PackagePath="include/dawn" />
+    <None Include="$(NativeRuntimeDirectory)/$(RuntimeIdentifier)/native/wgpu_native.dll" Condition="$([MSBuild]::IsOSPlatform('Windows'))"
           Link="%(Filename)%(Extension)" Pack="false" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="runtimes/$(RuntimeIdentifier)/native/dxcompiler.dll;runtimes/$(RuntimeIdentifier)/native/dxil.dll" Condition="$([MSBuild]::IsOSPlatform('Windows'))"
+    <None Include="$(NativeRuntimeDirectory)/$(RuntimeIdentifier)/native/dxcompiler.dll;$(NativeRuntimeDirectory)/$(RuntimeIdentifier)/native/dxil.dll" Condition="$([MSBuild]::IsOSPlatform('Windows'))"
           Link="%(Filename)%(Extension)" Pack="false" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="runtimes/$(RuntimeIdentifier)/native/libwgpu_native.so" Condition="$([MSBuild]::IsOSPlatform('Linux'))"
+    <None Include="$(NativeRuntimeDirectory)/$(RuntimeIdentifier)/native/libwgpu_native.so" Condition="$([MSBuild]::IsOSPlatform('Linux'))"
           Link="%(Filename)%(Extension)" Pack="false" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="runtimes/$(RuntimeIdentifier)/native/libwgpu_native.dylib" Condition="$([MSBuild]::IsOSPlatform('OSX'))"
+    <None Include="$(NativeRuntimeDirectory)/$(RuntimeIdentifier)/native/libwgpu_native.dylib" Condition="$([MSBuild]::IsOSPlatform('OSX'))"
           Link="%(Filename)%(Extension)" Pack="false" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="CollectNativeBinaries">
+    <ReadNativeRevisionTask VersionHeader="$(MSBuildProjectDirectory)/../Sia.WebGPU.Generators/Resources/dawn/dawn_version.h">
+      <Output TaskParameter="Revision" PropertyName="NativeRevision" />
+    </ReadNativeRevisionTask>
     <ItemGroup>
       <_NativeRuntime Include="$(NativeRuntimeIdentifiers)" />
       <_NativeRuntime Update="@(_NativeRuntime)">
@@ -38,19 +42,19 @@
       </_NativeRuntime>
     </ItemGroup>
     <Error Condition="'%(_NativeRuntime.Library)' == ''" Text="Unsupported native runtime %(_NativeRuntime.Identity)." />
-    <Error Condition="!Exists('$(MSBuildProjectDirectory)/runtimes/%(_NativeRuntime.Identity)/native/%(_NativeRuntime.Library)')"
+    <Error Condition="!Exists('$(NativeRuntimeDirectory)/%(_NativeRuntime.Identity)/native/%(_NativeRuntime.Library)')"
            Text="Run dotnet build Sia.WebGPU.Native/Sia.WebGPU.Native.cppproj -r %(_NativeRuntime.Identity) before packing." />
-    <Error Condition="!Exists('$(MSBuildProjectDirectory)/runtimes/%(_NativeRuntime.Identity)/native/native-release.txt')"
+    <Error Condition="!Exists('$(NativeRuntimeDirectory)/%(_NativeRuntime.Identity)/native/native-release.txt')"
            Text="Missing WebGPU native release receipt for %(_NativeRuntime.Identity)." />
-    <Error Condition="$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/runtimes/%(_NativeRuntime.Identity)/native/native-release.txt').Trim()) != '$(NativeReleaseTag)'"
+    <Error Condition="$([System.IO.File]::ReadAllText('$(NativeRuntimeDirectory)/%(_NativeRuntime.Identity)/native/native-release.txt').Trim()) != '$(NativeRevision)'"
            Text="WebGPU native release mismatch for %(_NativeRuntime.Identity); rebuild before packing." />
     <ItemGroup>
-      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/runtimes/%(_NativeRuntime.Identity)/native/%(_NativeRuntime.Library)"
+      <TfmSpecificPackageFile Include="$(NativeRuntimeDirectory)/%(_NativeRuntime.Identity)/native/%(_NativeRuntime.Library)"
                               PackagePath="runtimes/%(_NativeRuntime.Identity)/native/%(_NativeRuntime.Library)" />
-      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/runtimes/%(_NativeRuntime.Identity)/native/dxc*;$(MSBuildProjectDirectory)/runtimes/%(_NativeRuntime.Identity)/native/dxil.dll;$(MSBuildProjectDirectory)/runtimes/%(_NativeRuntime.Identity)/native/LICENSE.dxc"
+      <TfmSpecificPackageFile Include="$(NativeRuntimeDirectory)/%(_NativeRuntime.Identity)/native/dxc*;$(NativeRuntimeDirectory)/%(_NativeRuntime.Identity)/native/dxil.dll;$(NativeRuntimeDirectory)/%(_NativeRuntime.Identity)/native/LICENSE.dxc"
                               Condition="$([System.String]::Copy('%(_NativeRuntime.Identity)').StartsWith('win-'))"
                               PackagePath="runtimes/%(_NativeRuntime.Identity)/native/" />
-      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/runtimes/%(_NativeRuntime.Identity)/native/wgpu_native.lib"
+      <TfmSpecificPackageFile Include="$(NativeRuntimeDirectory)/%(_NativeRuntime.Identity)/native/wgpu_native.lib"
                               Condition="$([System.String]::Copy('%(_NativeRuntime.Identity)').StartsWith('win-'))"
                               PackagePath="build/native/lib/%(_NativeRuntime.Identity)/wgpu_native.lib" />
     </ItemGroup>

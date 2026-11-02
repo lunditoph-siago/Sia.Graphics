@@ -1,0 +1,294 @@
+<Project>
+  <PropertyGroup>
+    <NativeArtifactsDirectory Condition="'$(NativeArtifactsDirectory)' == ''">$(MSBuildThisFileDirectory)../artifacts/webgpu</NativeArtifactsDirectory>
+  </PropertyGroup>
+  <UsingTask TaskName="PrepareWebGpuTask" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <Task><Code Type="Class" Language="cs"><![CDATA[
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.IO.Compression;
+using System.Linq;
+using System.Net.Http;
+using System.Reflection;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Json;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
+using Microsoft.Build.Framework;
+
+public sealed class PrepareWebGpuTask : Microsoft.Build.Utilities.Task
+{
+    [Required] public string HeaderDirectory { get; set; }
+    [Required] public string ArtifactsDirectory { get; set; }
+    public string RuntimeIdentifier { get; set; }
+    public string OutputDirectory { get; set; }
+    public bool Force { get; set; }
+    [Output] public string Revision { get; set; }
+    [Output] public string SdkRoot { get; set; }
+    [Output] public string SourceRoot { get; set; }
+
+    public override bool Execute()
+    {
+        try {
+            HeaderDirectory = Path.GetFullPath(HeaderDirectory);
+            ArtifactsDirectory = Path.GetFullPath(ArtifactsDirectory);
+            Directory.CreateDirectory(ArtifactsDirectory);
+            using (var client = new HttpClient { Timeout = TimeSpan.FromMinutes(15) }) {
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("Sia.WebGPU");
+                var version = Path.Combine(HeaderDirectory, "dawn", "dawn_version.h");
+                Revision = !Force && File.Exists(version) ? ReadRevision(version) : null;
+                var release = FindRelease(client);
+                var headerAsset = release.Assets.Single(a => Regex.IsMatch(a.Name, @"^dawn-headers-[a-f0-9]{40}\.tar\.gz$"));
+                Revision = Regex.Match(headerAsset.Name, "[a-f0-9]{40}").Value;
+                var root = Path.Combine(ArtifactsDirectory, release.Tag);
+                Directory.CreateDirectory(root);
+                if (Force || !File.Exists(version) || !File.Exists(Path.Combine(HeaderDirectory, "dawn", "webgpu.h"))) {
+                    var extracted = Extract(Asset(client, root, headerAsset), root);
+                    try {
+                        var dawn = Path.Combine(extracted, "include", "dawn");
+                        foreach (var name in new[] { "webgpu.h", "dawn_version.h" })
+                            Copy(Path.Combine(dawn, name), Path.Combine(HeaderDirectory, "dawn", name));
+                    } finally { Directory.Delete(Path.GetDirectoryName(extracted), true); }
+                }
+                if (ReadRevision(version) != Revision) throw new InvalidDataException("Native header revision mismatch.");
+                if (string.IsNullOrEmpty(RuntimeIdentifier)) return true;
+                SdkRoot = Path.Combine(root, "native-" + RuntimeIdentifier);
+                SourceRoot = Path.Combine(root, "source");
+                var windows = RuntimeIdentifier.StartsWith("win-", StringComparison.Ordinal);
+                var runners = new Dictionary<string, string> {
+                    ["win-x64"] = "windows-latest", ["linux-x64"] = "ubuntu-latest",
+                    ["osx-x64"] = "macos-15-intel", ["osx-arm64"] = "macos-latest"
+                };
+                if (windows || !runners.ContainsKey(RuntimeIdentifier)) {
+                    Directory.CreateDirectory(SourceRoot);
+                    if (!Directory.Exists(Path.Combine(SourceRoot, ".git"))) Run("git", "-C", SourceRoot, "init", "--quiet");
+                    var current = Run("git", new[] { "-C", SourceRoot, "rev-parse", "--verify", "HEAD" }, true).Trim();
+                    if (current != Revision) {
+                        Run("git", "-C", SourceRoot, "fetch", "--depth=1", "https://github.com/google/dawn.git", Revision);
+                        Run("git", "-C", SourceRoot, "checkout", "--detach", Revision);
+                    }
+                }
+                if (runners.TryGetValue(RuntimeIdentifier, out var runner)) {
+                    var name = "Dawn-" + Revision + "-" + runner + "-Release.tar.gz";
+                    if (!File.Exists(Path.Combine(SdkRoot, "include", "dawn", "webgpu.h"))) {
+                        var extracted = Extract(Asset(client, root, release.Assets.Single(a => a.Name == name)), root);
+                        try { CopyTree(extracted, SdkRoot); }
+                        finally { Directory.Delete(Path.GetDirectoryName(extracted), true); }
+                    }
+                } else {
+                    var build = Path.Combine(root, "build-" + RuntimeIdentifier);
+                    var args = new List<string> { "-S", SourceRoot, "-B", build, "-DCMAKE_BUILD_TYPE=Release",
+                        "-DDAWN_FETCH_DEPENDENCIES=ON", "-DDAWN_BUILD_MONOLITHIC_LIBRARY=STATIC",
+                        "-DDAWN_BUILD_TESTS=OFF", "-DDAWN_BUILD_SAMPLES=OFF", "-DDAWN_USE_GLFW=OFF",
+                        "-DTINT_BUILD_TESTS=OFF", "-DTINT_BUILD_CMD_TOOLS=OFF", "-DDAWN_ENABLE_INSTALL=ON" };
+                    if (windows) args.AddRange(new[] { "-A", RuntimeIdentifier == "win-x86" ? "Win32" : "ARM64" });
+                    Run("cmake", args.ToArray());
+                    Run("cmake", "--build", build, "--config", "Release", "--target", "webgpu_dawn", "--parallel", "2");
+                    CopyTree(Path.Combine(SourceRoot, "include"), Path.Combine(SdkRoot, "include"));
+                    CopyTree(Path.Combine(build, "gen", "include"), Path.Combine(SdkRoot, "include"));
+                    var library = windows ? "webgpu_dawn.lib" : "libwebgpu_dawn.a";
+                    Copy(Directory.GetFiles(build, library, SearchOption.AllDirectories).Single(), Path.Combine(SdkRoot, "lib", library));
+                }
+                Directory.CreateDirectory(OutputDirectory);
+                if (windows) {
+                    var arch = RuntimeIdentifier.Substring(4);
+                    var redist = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Windows Kits", "10", "Redist", "D3D", arch);
+                    foreach (var name in new[] { "dxcompiler.dll", "dxil.dll" }) Copy(Path.Combine(redist, name), Path.Combine(OutputDirectory, name));
+                    var product = FileVersionInfo.GetVersionInfo(Path.Combine(redist, "dxcompiler.dll")).ProductVersion;
+                    var compiler = Regex.Match(product, @"\(([a-f0-9]{7,40})\)");
+                    if (!compiler.Success) throw new InvalidDataException("Cannot identify DXC revision.");
+                    var license = Path.Combine(root, "LICENSE.dxc-" + compiler.Groups[1].Value);
+                    if (!File.Exists(license)) Download(client, "https://raw.githubusercontent.com/microsoft/DirectXShaderCompiler/" + compiler.Groups[1].Value + "/LICENSE.TXT", license);
+                    Copy(license, Path.Combine(OutputDirectory, "LICENSE.dxc"));
+                    Write(Path.Combine(OutputDirectory, "dxc-version.txt"), product);
+                }
+                Log.LogMessage(MessageImportance.High, "WebGPU SDK {0}: {1}", release.Tag, SdkRoot);
+            }
+            return true;
+        } catch (Exception error) { Log.LogErrorFromException(error, true); return false; }
+    }
+
+    private Release FindRelease(HttpClient client)
+    {
+        if (Revision != null) foreach (var path in Directory.GetFiles(ArtifactsDirectory, "*.json")) {
+            var release = ReadRelease(path);
+            if (release.Assets != null && release.Assets.Any(a => a.Name == "dawn-headers-" + Revision + ".tar.gz")) return release;
+        }
+        for (var page = 1; page <= 10; page++) {
+            var url = "https://api.github.com/repos/google/dawn/releases" + (Revision == null ? "/latest" : "?per_page=100&page=" + page);
+            using (var stream = client.GetStreamAsync(url).GetAwaiter().GetResult()) {
+                var releases = Revision == null
+                    ? new[] { (Release)new DataContractJsonSerializer(typeof(Release)).ReadObject(stream) }
+                    : (Release[])new DataContractJsonSerializer(typeof(Release[])).ReadObject(stream);
+                foreach (var release in releases) {
+                    if (!Regex.IsMatch(release.Tag, @"^v\d{8}\.\d{6}$")) continue;
+                    if (Revision != null && !release.Assets.Any(a => a.Name == "dawn-headers-" + Revision + ".tar.gz")) continue;
+                    var path = Path.Combine(ArtifactsDirectory, release.Tag + ".json");
+                    using (var file = File.Create(path)) new DataContractJsonSerializer(typeof(Release)).WriteObject(file, release);
+                    return release;
+                }
+                if (releases.Length < 100) break;
+            }
+        }
+        throw new InvalidDataException("Cannot resolve a native release matching dawn_version.h.");
+    }
+
+    private static Release ReadRelease(string path)
+    {
+        using (var stream = File.OpenRead(path)) return (Release)new DataContractJsonSerializer(typeof(Release)).ReadObject(stream);
+    }
+
+    private static string ReadRevision(string path)
+    {
+        var array = Regex.Match(File.ReadAllText(path), @"kDawnVersion\s*=\s*\{([^}]+)\}").Groups[1].Value;
+        var bytes = Regex.Matches(array, "0x([a-fA-F0-9]{2})").Cast<Match>().Select(m => m.Groups[1].Value.ToLowerInvariant()).ToArray();
+        if (bytes.Length != 20) throw new InvalidDataException("Invalid Dawn version header.");
+        return string.Concat(bytes);
+    }
+
+    private string Asset(HttpClient client, string root, AssetInfo asset)
+    {
+        if (Path.GetFileName(asset.Name) != asset.Name || !Regex.IsMatch(asset.Digest ?? "", "^sha256:[a-f0-9]{64}$"))
+            throw new InvalidDataException("Invalid release asset metadata.");
+        var path = Path.Combine(root, asset.Name);
+        var expected = asset.Digest.Substring(7);
+        if (File.Exists(path) && Hash(path) == expected) return path;
+        Download(client, asset.Url, path, expected);
+        return path;
+    }
+
+    private static string Hash(string path)
+    {
+        using (var stream = File.OpenRead(path)) using (var sha = SHA256.Create())
+            return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
+    }
+
+    private static void Download(HttpClient client, string url, string path, string expected = null)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path));
+        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try {
+            using (var input = client.GetStreamAsync(url).GetAwaiter().GetResult()) using (var output = File.Create(temporary)) input.CopyTo(output);
+            if (expected != null && Hash(temporary) != expected) throw new InvalidDataException("Checksum mismatch: " + url);
+            if (File.Exists(path)) File.Delete(path);
+            File.Move(temporary, path);
+        } finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+
+    private static string Extract(string archive, string root)
+    {
+        var directory = Path.Combine(root, "extract-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try {
+            using (var file = File.OpenRead(archive)) using (var gzip = new GZipStream(file, CompressionMode.Decompress)) {
+                var tar = Type.GetType("System.Formats.Tar.TarFile, System.Formats.Tar", true);
+                tar.GetMethod("ExtractToDirectory", new[] { typeof(Stream), typeof(string), typeof(bool) }).Invoke(null, new object[] { gzip, directory, true });
+            }
+            if (Directory.GetFiles(directory).Length != 0) throw new InvalidDataException("Unexpected archive layout.");
+            return Directory.GetDirectories(directory).Single();
+        } catch { Directory.Delete(directory, true); throw; }
+    }
+
+    private static void Copy(string source, string destination)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(destination));
+        File.Copy(source, destination, true);
+    }
+
+    private static void CopyTree(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        foreach (var file in Directory.GetFiles(source)) Copy(file, Path.Combine(destination, Path.GetFileName(file)));
+        foreach (var directory in Directory.GetDirectories(source)) CopyTree(directory, Path.Combine(destination, Path.GetFileName(directory)));
+    }
+
+    private static void Write(string path, string value)
+    {
+        if (!File.Exists(path) || File.ReadAllText(path) != value) File.WriteAllText(path, value);
+    }
+
+    private string Run(string command, params string[] args) => Run(command, args, false);
+    private string Run(string command, string[] args, bool allowFailure)
+    {
+        var start = new ProcessStartInfo(command) { UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true,
+            Arguments = string.Join(" ", args.Select(Quote)) };
+        using (var process = Process.Start(start)) {
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            process.WaitForExit();
+            var text = stdout.GetAwaiter().GetResult() + stderr.GetAwaiter().GetResult();
+            if (process.ExitCode != 0 && !allowFailure) throw new InvalidOperationException(command + " exited " + process.ExitCode + ": " + text);
+            if (!allowFailure) Log.LogMessage(MessageImportance.High, text);
+            return process.ExitCode == 0 ? text : "";
+        }
+    }
+
+    private static string Quote(string value)
+    {
+        var quoted = new StringBuilder("\"");
+        var slashes = 0;
+        foreach (var character in value) {
+            if (character == '\\') { slashes++; continue; }
+            quoted.Append('\\', character == '"' ? slashes * 2 + 1 : slashes);
+            quoted.Append(character);
+            slashes = 0;
+        }
+        quoted.Append('\\', slashes * 2);
+        return quoted.Append('"').ToString();
+    }
+
+    [DataContract] private sealed class Release
+    {
+        [DataMember(Name = "tag_name")] public string Tag { get; set; }
+        [DataMember(Name = "assets")] public AssetInfo[] Assets { get; set; }
+    }
+    [DataContract] private sealed class AssetInfo
+    {
+        [DataMember(Name = "name")] public string Name { get; set; }
+        [DataMember(Name = "digest")] public string Digest { get; set; }
+        [DataMember(Name = "browser_download_url")] public string Url { get; set; }
+    }
+}
+
+    ]]></Code></Task>
+  </UsingTask>
+  <UsingTask TaskName="ReadNativeRevisionTask" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <VersionHeader ParameterType="System.String" Required="true" />
+      <Revision ParameterType="System.String" Output="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System.IO" /><Using Namespace="System.Linq" /><Using Namespace="System.Text.RegularExpressions" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        var value = Regex.Match(File.ReadAllText(VersionHeader), @"kDawnVersion\s*=\s*\{([^}]+)\}").Groups[1].Value;
+        var bytes = Regex.Matches(value, "0x([a-fA-F0-9]{2})").Cast<Match>().Select(m => m.Groups[1].Value.ToLowerInvariant()).ToArray();
+        if (bytes.Length != 20) throw new InvalidDataException("Invalid upstream version header.");
+        Revision = string.Concat(bytes);
+      ]]></Code>
+    </Task>
+  </UsingTask>
+  <UsingTask TaskName="GenerateNativeExportsTask" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Header ParameterType="System.String" Required="true" />
+      <OutputDirectory ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System.IO" /><Using Namespace="System.Linq" /><Using Namespace="System.Text.RegularExpressions" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        Directory.CreateDirectory(OutputDirectory);
+        var symbols = Regex.Matches(File.ReadAllText(Header), @"(?m)^WGPU_EXPORT[^;\r\n]*\b(wgpu[A-Z]\w*)\(").Cast<Match>().Select(m => m.Groups[1].Value).ToArray();
+        if (symbols.Length < 200) throw new InvalidDataException("Incomplete native C API.");
+        var definition = "EXPORTS\n" + string.Join("\n", symbols) + "\n";
+        var source = "#include <dawn/webgpu.h>\nextern \"C\" {\nvoid (*sia_webgpu_exports[])() = {\n" + string.Join("\n", symbols.Select(s => "reinterpret_cast<void(*)()>(&" + s + "),")) + "\n};\n}\n";
+        foreach (var pair in new[] { new[] { "Native.def", definition }, new[] { "NativeExports.cpp", source } }) {
+            var path = Path.Combine(OutputDirectory, pair[0]);
+            if (!File.Exists(path) || File.ReadAllText(path) != pair[1]) File.WriteAllText(path, pair[1]);
+        }
+      ]]></Code>
+    </Task>
+  </UsingTask>
+</Project>

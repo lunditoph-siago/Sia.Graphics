@@ -90,7 +90,7 @@
   <Import Project="../Sia.WebGPU.Native/NativeTasks.targets" />
   <Target Name="SyncWebGpuHeader" BeforeTargets="BeforeBuild">
     <PropertyGroup>
-      <WebGpuHeaderUrl>https://raw.githubusercontent.com/webgpu-native/webgpu-headers/main/webgpu.h</WebGpuHeaderUrl>
+      <WebGpuHeaderUrl>https://raw.githubusercontent.com/webgpu-native/webgpu-headers/refs/heads/main/webgpu.h</WebGpuHeaderUrl>
       <WebGpuHeaderOutput>$(MSBuildProjectDirectory)/Resources/webgpu.h</WebGpuHeaderOutput>
     </PropertyGroup>
     <DownloadWebGpuHeaderTask HeaderUrl="$(WebGpuHeaderUrl)" OutputFile="$(WebGpuHeaderOutput)" Force="$(ForceDownloadWebGpuHeader)" />

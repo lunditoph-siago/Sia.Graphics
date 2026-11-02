@@ -36,19 +36,19 @@ public static partial class RenderGraphCompiler
         RenderGraphDefinition definition,
         RenderGraphPassDefinition pass) =>
         pass.Buffers.Any(use =>
-            (use.Access is RenderGraphAccess.Write or RenderGraphAccess.ReadWrite) &&
+            Writes(use.Access) &&
             definition.Buffers[use.BufferIndex].IsImported) ||
         pass.Textures.Any(use =>
-            (use.Access is RenderGraphAccess.Write or RenderGraphAccess.ReadWrite) &&
+            Writes(use.Access) &&
             definition.Textures[use.TextureIndex].IsImported);
 
     private static bool WritesExportedResource(
         RenderGraphDefinition definition,
         RenderGraphPassDefinition pass) =>
         pass.Buffers.Any(use =>
-            (use.Access is RenderGraphAccess.Write or RenderGraphAccess.ReadWrite) &&
+            Writes(use.Access) &&
             definition.Buffers[use.BufferIndex].IsExported) ||
         pass.Textures.Any(use =>
-            (use.Access is RenderGraphAccess.Write or RenderGraphAccess.ReadWrite) &&
+            Writes(use.Access) &&
             definition.Textures[use.TextureIndex].IsExported);
 }

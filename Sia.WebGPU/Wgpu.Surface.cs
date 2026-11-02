@@ -2,6 +2,34 @@ namespace Sia.WebGPU;
 
 public static unsafe partial class Wgpu
 {
+
+    public static WgpuSurfaceCapabilities GetSurfaceCapabilities(
+        WgpuHandle<WGPUSurface> surface,
+        WgpuHandle<WGPUAdapter> adapter)
+    {
+        var surfacePointer = GetPointer(surface);
+        var adapterPointer = GetPointer(adapter);
+        var capabilities = WGPUSurfaceCapabilities.Default;
+        try {
+            if (WgpuUnsafe.wgpuSurfaceGetCapabilities(
+                surfacePointer, adapterPointer, &capabilities) != WGPUStatus.Success) {
+                throw new WgpuException("WebGPU failed to report the surface capabilities.");
+            }
+#if BROWSER
+            if (capabilities.Usages == WGPUTextureUsage.None) {
+                capabilities.Usages = WGPUTextureUsage.CopySrc | WGPUTextureUsage.CopyDst
+                    | WGPUTextureUsage.TextureBinding | WGPUTextureUsage.RenderAttachment;
+            }
+#endif
+            return new(capabilities.Usages,
+                CopyNativeArray(capabilities.Formats, capabilities.FormatCount),
+                CopyNativeArray(capabilities.PresentModes, capabilities.PresentModeCount),
+                CopyNativeArray(capabilities.AlphaModes, capabilities.AlphaModeCount));
+        }
+        finally {
+            WgpuUnsafe.wgpuSurfaceCapabilitiesFreeMembers(capabilities);
+        }
+    }
     public static void ConfigureSurface(
         WgpuHandle<WGPUSurface> surface,
         in WGPUSurfaceConfiguration configuration)

@@ -197,6 +197,29 @@ public static unsafe partial class Wgpu
         WgpuHandle<WGPUQueue>.FromPointer(
             WgpuUnsafe.wgpuDeviceGetQueue(GetPointer(device)));
 
+    public static Task OnSubmittedWorkDoneAsync(
+        WgpuHandle<WGPUQueue> queue,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var state = AsyncRequestState<bool>.Create();
+        try {
+            var callback = new WGPUQueueWorkDoneCallbackInfo {
+                Mode = WGPUCallbackMode.AllowSpontaneous,
+                Callback = (delegate* unmanaged[Cdecl]<WGPUQueueWorkDoneStatus,
+                    WGPUStringView, void*, void*, void>)(delegate* unmanaged[Cdecl]<WGPUQueueWorkDoneStatus,
+                    WgpuCallbackMessage, void*, void*, void>)&OnSubmittedWorkDone,
+                Userdata1 = state.UserData,
+            };
+            WgpuUnsafe.wgpuQueueOnSubmittedWorkDone(GetPointer(queue), callback);
+            return state.Task.WaitAsync(cancellationToken);
+        }
+        catch {
+            state.Dispose();
+            throw;
+        }
+    }
+
     public static WGPULimits GetLimits(WgpuHandle<WGPUDevice> device)
     {
         var limits = WGPULimits.Default;
@@ -227,8 +250,87 @@ public static unsafe partial class Wgpu
         return limits;
     }
 
+    public static bool HasFeature(WgpuHandle<WGPUAdapter> adapter, WGPUFeatureName feature) =>
+        WgpuUnsafe.wgpuAdapterHasFeature(GetPointer(adapter), feature) != 0;
+    public static bool HasFeature(WgpuHandle<WGPUDevice> device, WGPUFeatureName feature) =>
+        WgpuUnsafe.wgpuDeviceHasFeature(GetPointer(device), feature) != 0;
+    public static WGPUFeatureName[] GetFeatures(WgpuHandle<WGPUAdapter> adapter)
+    {
+        var pointer = GetPointer(adapter);
+        var features = WGPUSupportedFeatures.Default;
+        try {
+            WgpuUnsafe.wgpuAdapterGetFeatures(pointer, &features);
+            return CopyNativeArray(features.Features, features.FeatureCount);
+        }
+        finally {
+            WgpuUnsafe.wgpuSupportedFeaturesFreeMembers(features);
+        }
+    }
+    public static WGPUFeatureName[] GetFeatures(WgpuHandle<WGPUDevice> device)
+    {
+        var pointer = GetPointer(device);
+        var features = WGPUSupportedFeatures.Default;
+        try {
+            WgpuUnsafe.wgpuDeviceGetFeatures(pointer, &features);
+            return CopyNativeArray(features.Features, features.FeatureCount);
+        }
+        finally {
+            WgpuUnsafe.wgpuSupportedFeaturesFreeMembers(features);
+        }
+    }
+    public static WGPULimits GetLimits(WgpuHandle<WGPUAdapter> adapter)
+    {
+        var limits = WGPULimits.Default;
+        if (WgpuUnsafe.wgpuAdapterGetLimits(GetPointer(adapter), &limits) != WGPUStatus.Success) {
+            throw new WgpuException("WebGPU failed to report the adapter limits.");
+        }
+        return limits;
+    }
+    public static WgpuAdapterInfo GetAdapterInfo(WgpuHandle<WGPUAdapter> adapter)
+    {
+        var pointer = GetPointer(adapter);
+        var info = WGPUAdapterInfo.Default;
+        try {
+            if (WgpuUnsafe.wgpuAdapterGetInfo(pointer, &info) != WGPUStatus.Success) {
+                throw new WgpuException("WebGPU failed to report the adapter information.");
+            }
+            return new(
+                WgpuStringViewText.ToString(info.Vendor),
+                WgpuStringViewText.ToString(info.Architecture),
+                WgpuStringViewText.ToString(info.Device),
+                WgpuStringViewText.ToString(info.Description),
+                info.BackendType, info.AdapterType, info.VendorID, info.DeviceID,
+                info.SubgroupMinSize, info.SubgroupMaxSize);
+        }
+        finally {
+            WgpuUnsafe.wgpuAdapterInfoFreeMembers(info);
+        }
+    }
+
     public static void DestroyDevice(WgpuHandle<WGPUDevice> device) =>
         WgpuUnsafe.wgpuDeviceDestroy(GetPointer(device));
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void OnSubmittedWorkDone(
+        WGPUQueueWorkDoneStatus status,
+        WgpuCallbackMessage message,
+        void* userdata1,
+        void* userdata2)
+    {
+        var state = AsyncRequestState<bool>.FromUserData(userdata1);
+        try {
+            if (status == WGPUQueueWorkDoneStatus.Success) {
+                state.TrySetResult(true);
+            }
+            else {
+                state.TrySetException(CreateRequestException(
+                    "OnSubmittedWorkDone", status.ToString(), ReadCallbackMessage(message)));
+            }
+        }
+        finally {
+            state.Dispose();
+        }
+    }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
     private static void OnRequestAdapter(

@@ -296,7 +296,6 @@ public sealed unsafe class WgpuRequests : IAddon
                         default, WgpuRequestKind.Adapter, false, (nint)adapter, "", ""));
                 }
                 catch {
-                    // Exceptions cannot cross an unmanaged callback boundary.
                 }
             }
         }
@@ -331,7 +330,6 @@ public sealed unsafe class WgpuRequests : IAddon
                         default, WgpuRequestKind.Device, false, (nint)device, "", ""));
                 }
                 catch {
-                    // Exceptions cannot cross an unmanaged callback boundary.
                 }
             }
         }

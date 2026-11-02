@@ -11,12 +11,21 @@
     <IsRoslynComponent>true</IsRoslynComponent>
     <NoWarn>$(NoWarn);RS1035;RS2008</NoWarn>
     <PackageId>Sia.WebGPU.Generators</PackageId>
+    <LibClangVersion>16.0.6</LibClangVersion>
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="Native/**/*.cs" />
-    <ProjectReference Include="Native/Sia.WebGPU.Generators.Native.csproj" Private="false" />
     <PackageReference Include="ClangSharp.Interop" Version="16.0.0" PrivateAssets="all" />
+
+    <PackageReference Include="libclang.runtime.win-x64" Version="$(LibClangVersion)" PrivateAssets="all" />
+    <PackageReference Include="libclang.runtime.linux-x64" Version="$(LibClangVersion)" PrivateAssets="all" />
+    <PackageReference Include="libclang.runtime.osx-x64" Version="$(LibClangVersion)" PrivateAssets="all" />
+    <PackageReference Include="libclang.runtime.osx-arm64" Version="$(LibClangVersion)" PrivateAssets="all" />
+
+    <PackageReference Include="libClangSharp.runtime.win-x64" Version="$(LibClangVersion)" PrivateAssets="all" />
+    <PackageReference Include="libClangSharp.runtime.linux-x64" Version="$(LibClangVersion)" PrivateAssets="all" />
+    <PackageReference Include="libClangSharp.runtime.osx-x64" Version="$(LibClangVersion)" PrivateAssets="all" />
+    <PackageReference Include="libClangSharp.runtime.osx-arm64" Version="$(LibClangVersion)" PrivateAssets="all" />
 
     <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="5.3.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -26,9 +35,26 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="Native/bin/native/Sia.WebGPU.Generators.Native.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
     <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
     <None Include="$(NuGetPackageRoot)clangsharp.interop\16.0.0\lib\netstandard2.0\ClangSharp.Interop.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+
+    <EmbeddedResource Include="$(NuGetPackageRoot)libclang.runtime.win-x64\$(LibClangVersion)\runtimes\win-x64\native\libclang.dll"
+                      LogicalName="Sia.WebGPU.Generators.Native.libclang.win-x64.dll" />
+    <EmbeddedResource Include="$(NuGetPackageRoot)libclang.runtime.linux-x64\$(LibClangVersion)\runtimes\linux-x64\native\libclang.so"
+                      LogicalName="Sia.WebGPU.Generators.Native.libclang.linux-x64.so" />
+    <EmbeddedResource Include="$(NuGetPackageRoot)libclang.runtime.osx-x64\$(LibClangVersion)\runtimes\osx-x64\native\libclang.dylib"
+                      LogicalName="Sia.WebGPU.Generators.Native.libclang.osx-x64.dylib" />
+    <EmbeddedResource Include="$(NuGetPackageRoot)libclang.runtime.osx-arm64\$(LibClangVersion)\runtimes\osx-arm64\native\libclang.dylib"
+                      LogicalName="Sia.WebGPU.Generators.Native.libclang.osx-arm64.dylib" />
+
+    <EmbeddedResource Include="$(NuGetPackageRoot)libclangsharp.runtime.win-x64\$(LibClangVersion)\runtimes\win-x64\native\libClangSharp.dll"
+                      LogicalName="Sia.WebGPU.Generators.Native.libClangSharp.win-x64.dll" />
+    <EmbeddedResource Include="$(NuGetPackageRoot)libclangsharp.runtime.linux-x64\$(LibClangVersion)\runtimes\linux-x64\native\libClangSharp.so"
+                      LogicalName="Sia.WebGPU.Generators.Native.libClangSharp.linux-x64.so" />
+    <EmbeddedResource Include="$(NuGetPackageRoot)libclangsharp.runtime.osx-x64\$(LibClangVersion)\runtimes\osx-x64\native\libClangSharp.dylib"
+                      LogicalName="Sia.WebGPU.Generators.Native.libClangSharp.osx-x64.dylib" />
+    <EmbeddedResource Include="$(NuGetPackageRoot)libclangsharp.runtime.osx-arm64\$(LibClangVersion)\runtimes\osx-arm64\native\libClangSharp.dylib"
+                      LogicalName="Sia.WebGPU.Generators.Native.libClangSharp.osx-arm64.dylib" />
 
     <EmbeddedResource Include="Resources\webgpu.h"
                       LogicalName="Sia.WebGPU.Generators.webgpu.h" />
@@ -39,10 +65,10 @@
   <Target Name="SyncWebGpuHeader" BeforeTargets="BeforeBuild"
           Condition="'$(ForceDownloadWebGpuHeader)' == 'true' Or !Exists('$(MSBuildProjectDirectory)/Resources/webgpu.h')">
     <PropertyGroup>
-      <_DawnPowerShell Condition="$([MSBuild]::IsOSPlatform('Windows'))">powershell.exe</_DawnPowerShell>
-      <_DawnPowerShell Condition="'$(_DawnPowerShell)' == ''">pwsh</_DawnPowerShell>
-      <_DawnRefresh Condition="'$(ForceDownloadWebGpuHeader)' == 'true'">-Refresh</_DawnRefresh>
+      <_NativePowerShell Condition="$([MSBuild]::IsOSPlatform('Windows'))">powershell.exe</_NativePowerShell>
+      <_NativePowerShell Condition="'$(_NativePowerShell)' == ''">pwsh</_NativePowerShell>
+      <_NativeRefresh Condition="'$(ForceDownloadWebGpuHeader)' == 'true'">-Refresh</_NativeRefresh>
     </PropertyGroup>
-    <Exec Command="$(_DawnPowerShell) -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)/../Sia.WebGPU.Native/SyncDawn.ps1&quot; $(_DawnRefresh)" />
+    <Exec Command="$(_NativePowerShell) -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)/../Sia.WebGPU.Native/SyncWebGPU.ps1&quot; $(_NativeRefresh)" />
   </Target>
 </Project>

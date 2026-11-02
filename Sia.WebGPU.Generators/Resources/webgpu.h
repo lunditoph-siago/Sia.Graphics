@@ -1,4 +1,4 @@
-#define DAWN_RELEASE_TAG "v20261030.184100"
+#define WEBGPU_NATIVE_RELEASE_TAG "v20261030.184100"
 // BSD 3-Clause License
 //
 // Copyright (c) 2019, "WebGPU native" developers

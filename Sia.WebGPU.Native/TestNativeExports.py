@@ -7,8 +7,8 @@ import sys
 root = pathlib.Path(__file__).resolve().parent
 rid = sys.argv[1]
 directory = pathlib.Path(sys.argv[2]) / rid / 'native'
-tag = re.search(r'#define DAWN_RELEASE_TAG "(v[0-9]{8}\.[0-9]{6})"', (root / '../Sia.WebGPU.Generators/Resources/webgpu.h').read_text()).group(1)
-assert (directory / 'dawn-release.txt').read_text(encoding='utf-8-sig').strip() == tag
+tag = re.search(r'#define WEBGPU_NATIVE_RELEASE_TAG "(v[0-9]{8}\.[0-9]{6})"', (root / '../Sia.WebGPU.Generators/Resources/webgpu.h').read_text()).group(1)
+assert (directory / 'native-release.txt').read_text(encoding='utf-8-sig').strip() == tag
 name = 'wgpu_native.dll' if rid.startswith('win-') else 'libwgpu_native.dylib' if rid.startswith('osx-') else 'libwgpu_native.so'
 library = ctypes.CDLL(str((directory / name).resolve()))
 header = (root / '../Sia.WebGPU.Generators/Resources/webgpu.h').read_text()
@@ -21,7 +21,7 @@ library.wgpuCreateInstance.restype = ctypes.c_void_p
 library.wgpuInstanceProcessEvents.argtypes = [ctypes.c_void_p]
 library.wgpuInstanceRelease.argtypes = [ctypes.c_void_p]
 instance = library.wgpuCreateInstance(None)
-assert instance, 'Dawn instance creation failed'
+assert instance, 'WebGPU instance creation failed'
 try:
     library.wgpuInstanceProcessEvents(instance)
 finally:

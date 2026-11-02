@@ -7,18 +7,18 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <EnableDefaultItems>false</EnableDefaultItems>
     <PackageId>Sia.WebGPU.Native</PackageId>
-    <Description>Native Dawn WebGPU libraries for desktop platforms.</Description>
+    <Description>Native WebGPU libraries for desktop platforms.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/google/dawn</RepositoryUrl>
-    <DawnRuntimeIdentifiers Condition="'$(DawnRuntimeIdentifiers)' == ''">win-x86;win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</DawnRuntimeIdentifiers>
-    <DawnReleaseTag>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)../Sia.WebGPU.Generators/Resources/webgpu.h')), 'v[0-9]{8}\.[0-9]{6}').Value)</DawnReleaseTag>
-    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);CollectDawnBinaries</TargetsForTfmSpecificContentInPackage>
+    <RepositoryUrl>https://github.com/lunditoph-siago/Sia.Graphics</RepositoryUrl>
+    <NativeRuntimeIdentifiers Condition="'$(NativeRuntimeIdentifiers)' == ''">win-x86;win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</NativeRuntimeIdentifiers>
+    <NativeReleaseTag>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)../Sia.WebGPU.Generators/Resources/webgpu.h')), 'v[0-9]{8}\.[0-9]{6}').Value)</NativeReleaseTag>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);CollectNativeBinaries</TargetsForTfmSpecificContentInPackage>
   </PropertyGroup>
   <ItemGroup>
     <Content Include="_._" PackagePath="lib/net11.0" />
-    <None Include="LICENSE.dawn" Pack="true" PackagePath="" />
+    <None Include="LICENSE.webgpu" Pack="true" PackagePath="" />
     <None Include="Sia.WebGPU.Native.props;Sia.WebGPU.Native.targets;NativeBuildTask.cs" Pack="true" PackagePath="buildTransitive" />
-    <None Include="../Sia.WebGPU.Generators/Resources/webgpu.h" Pack="true" PackagePath="include/dawn" />
+    <None Include="../Sia.WebGPU.Generators/Resources/webgpu.h" Pack="true" PackagePath="include/webgpu" />
     <None Include="runtimes/$(RuntimeIdentifier)/native/wgpu_native.dll" Condition="$([MSBuild]::IsOSPlatform('Windows'))"
           Link="%(Filename)%(Extension)" Pack="false" CopyToOutputDirectory="PreserveNewest" />
     <None Include="runtimes/$(RuntimeIdentifier)/native/dxcompiler.dll;runtimes/$(RuntimeIdentifier)/native/dxil.dll" Condition="$([MSBuild]::IsOSPlatform('Windows'))"
@@ -28,34 +28,34 @@
     <None Include="runtimes/$(RuntimeIdentifier)/native/libwgpu_native.dylib" Condition="$([MSBuild]::IsOSPlatform('OSX'))"
           Link="%(Filename)%(Extension)" Pack="false" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
-  <Target Name="CollectDawnBinaries">
+  <Target Name="CollectNativeBinaries">
     <ItemGroup>
-      <_DawnRuntime Include="$(DawnRuntimeIdentifiers)" />
-      <_DawnRuntime Update="@(_DawnRuntime)">
-        <Library Condition="$([System.String]::Copy('%(_DawnRuntime.Identity)').StartsWith('win-'))">wgpu_native.dll</Library>
-        <Library Condition="$([System.String]::Copy('%(_DawnRuntime.Identity)').StartsWith('linux-'))">libwgpu_native.so</Library>
-        <Library Condition="$([System.String]::Copy('%(_DawnRuntime.Identity)').StartsWith('osx-'))">libwgpu_native.dylib</Library>
-      </_DawnRuntime>
+      <_NativeRuntime Include="$(NativeRuntimeIdentifiers)" />
+      <_NativeRuntime Update="@(_NativeRuntime)">
+        <Library Condition="$([System.String]::Copy('%(_NativeRuntime.Identity)').StartsWith('win-'))">wgpu_native.dll</Library>
+        <Library Condition="$([System.String]::Copy('%(_NativeRuntime.Identity)').StartsWith('linux-'))">libwgpu_native.so</Library>
+        <Library Condition="$([System.String]::Copy('%(_NativeRuntime.Identity)').StartsWith('osx-'))">libwgpu_native.dylib</Library>
+      </_NativeRuntime>
     </ItemGroup>
-    <Error Condition="'%(_DawnRuntime.Library)' == ''" Text="Unsupported Dawn runtime %(_DawnRuntime.Identity)." />
-    <Error Condition="!Exists('$(MSBuildProjectDirectory)/runtimes/%(_DawnRuntime.Identity)/native/%(_DawnRuntime.Library)')"
-           Text="Run dotnet build Sia.WebGPU.Native/Sia.WebGPU.Native.cppproj -r %(_DawnRuntime.Identity) before packing." />
-    <Error Condition="!Exists('$(MSBuildProjectDirectory)/runtimes/%(_DawnRuntime.Identity)/native/dawn-release.txt')"
-           Text="Missing Dawn release receipt for %(_DawnRuntime.Identity)." />
-    <Error Condition="$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/runtimes/%(_DawnRuntime.Identity)/native/dawn-release.txt').Trim()) != '$(DawnReleaseTag)'"
-           Text="Dawn release mismatch for %(_DawnRuntime.Identity); rebuild before packing." />
+    <Error Condition="'%(_NativeRuntime.Library)' == ''" Text="Unsupported native runtime %(_NativeRuntime.Identity)." />
+    <Error Condition="!Exists('$(MSBuildProjectDirectory)/runtimes/%(_NativeRuntime.Identity)/native/%(_NativeRuntime.Library)')"
+           Text="Run dotnet build Sia.WebGPU.Native/Sia.WebGPU.Native.cppproj -r %(_NativeRuntime.Identity) before packing." />
+    <Error Condition="!Exists('$(MSBuildProjectDirectory)/runtimes/%(_NativeRuntime.Identity)/native/native-release.txt')"
+           Text="Missing WebGPU native release receipt for %(_NativeRuntime.Identity)." />
+    <Error Condition="$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/runtimes/%(_NativeRuntime.Identity)/native/native-release.txt').Trim()) != '$(NativeReleaseTag)'"
+           Text="WebGPU native release mismatch for %(_NativeRuntime.Identity); rebuild before packing." />
     <ItemGroup>
-      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/runtimes/%(_DawnRuntime.Identity)/native/%(_DawnRuntime.Library)"
-                              PackagePath="runtimes/%(_DawnRuntime.Identity)/native/%(_DawnRuntime.Library)" />
-      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/runtimes/%(_DawnRuntime.Identity)/native/dxc*;$(MSBuildProjectDirectory)/runtimes/%(_DawnRuntime.Identity)/native/dxil.dll;$(MSBuildProjectDirectory)/runtimes/%(_DawnRuntime.Identity)/native/LICENSE.dxc"
-                              Condition="$([System.String]::Copy('%(_DawnRuntime.Identity)').StartsWith('win-'))"
-                              PackagePath="runtimes/%(_DawnRuntime.Identity)/native/" />
-      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/runtimes/%(_DawnRuntime.Identity)/native/wgpu_native.lib"
-                              Condition="$([System.String]::Copy('%(_DawnRuntime.Identity)').StartsWith('win-'))"
-                              PackagePath="build/native/lib/%(_DawnRuntime.Identity)/wgpu_native.lib" />
+      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/runtimes/%(_NativeRuntime.Identity)/native/%(_NativeRuntime.Library)"
+                              PackagePath="runtimes/%(_NativeRuntime.Identity)/native/%(_NativeRuntime.Library)" />
+      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/runtimes/%(_NativeRuntime.Identity)/native/dxc*;$(MSBuildProjectDirectory)/runtimes/%(_NativeRuntime.Identity)/native/dxil.dll;$(MSBuildProjectDirectory)/runtimes/%(_NativeRuntime.Identity)/native/LICENSE.dxc"
+                              Condition="$([System.String]::Copy('%(_NativeRuntime.Identity)').StartsWith('win-'))"
+                              PackagePath="runtimes/%(_NativeRuntime.Identity)/native/" />
+      <TfmSpecificPackageFile Include="$(MSBuildProjectDirectory)/runtimes/%(_NativeRuntime.Identity)/native/wgpu_native.lib"
+                              Condition="$([System.String]::Copy('%(_NativeRuntime.Identity)').StartsWith('win-'))"
+                              PackagePath="build/native/lib/%(_NativeRuntime.Identity)/wgpu_native.lib" />
     </ItemGroup>
-    <RemoveDuplicates Inputs="@(TfmSpecificPackageFile)"><Output TaskParameter="Filtered" ItemName="_DawnPackageFiles" /></RemoveDuplicates>
-    <ItemGroup><TfmSpecificPackageFile Remove="@(TfmSpecificPackageFile)" /><TfmSpecificPackageFile Include="@(_DawnPackageFiles)" /></ItemGroup>
+    <RemoveDuplicates Inputs="@(TfmSpecificPackageFile)"><Output TaskParameter="Filtered" ItemName="_NativePackageFiles" /></RemoveDuplicates>
+    <ItemGroup><TfmSpecificPackageFile Remove="@(TfmSpecificPackageFile)" /><TfmSpecificPackageFile Include="@(_NativePackageFiles)" /></ItemGroup>
   </Target>
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
   <Import Project="Native.targets" />

@@ -236,7 +236,7 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
 
     private static string GetNativeDependencyDirectory(NativePlatform platform)
     {
-        var assembly = typeof(Native.NativeAssets).Assembly;
+        var assembly = typeof(WgpuSourceGenerator).Assembly;
         return Path.Combine(
             Path.GetTempPath(),
             "Sia.WebGPU.Generators",
@@ -284,7 +284,7 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
 
     private static void ExtractNativeDependency(string resourceName, string destinationPath)
     {
-        var assembly = typeof(Native.NativeAssets).Assembly;
+        var assembly = typeof(WgpuSourceGenerator).Assembly;
         using var resource = assembly.GetManifestResourceStream(resourceName)
             ?? throw new InvalidOperationException($"Embedded native dependency '{resourceName}' was not found.");
 

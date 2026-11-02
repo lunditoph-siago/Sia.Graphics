@@ -65,7 +65,7 @@ public sealed class WgpuRenderGraphResourcePool : IDisposable
             return entry.Handle;
         }
 
-        using var label = new WgpuOwnedString(resource.Name);
+        using var label = WgpuOwnedString.Create(resource.Name);
         var descriptor = WGPUBufferDescriptor.Default;
         descriptor.Label = label.View;
         descriptor.Size = resource.Size;
@@ -103,7 +103,7 @@ public sealed class WgpuRenderGraphResourcePool : IDisposable
             return entry.Handle;
         }
 
-        using var label = new WgpuOwnedString(resource.Name);
+        using var label = WgpuOwnedString.Create(resource.Name);
         var descriptor = WGPUTextureDescriptor.Default;
         descriptor.Label = label.View;
         descriptor.Usage = usage;

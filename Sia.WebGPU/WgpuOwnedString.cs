@@ -7,14 +7,29 @@ internal sealed unsafe class WgpuOwnedString : IDisposable
 {
     private GCHandle _handle;
 
-    public WgpuOwnedString(string? value)
+    private WgpuOwnedString(byte[]? bytes, nuint length)
     {
-        if (string.IsNullOrEmpty(value)) {
+        if (bytes is null) {
             View = new WGPUStringView {
                 Data = null,
-                Length = value is null ? WgpuConstants.StrLen : 0,
+                Length = length,
             };
             return;
+        }
+
+        _handle = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+        View = new WGPUStringView {
+            Data = (byte*)_handle.AddrOfPinnedObject(),
+            Length = length,
+        };
+    }
+
+    public WGPUStringView View { get; }
+
+    public static WgpuOwnedString Create(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) {
+            return new WgpuOwnedString(null, value is null ? WgpuConstants.StrLen : 0);
         }
 
         // Emscripten's canvas-selector bridge reads a C string. Terminate
@@ -22,15 +37,8 @@ internal sealed unsafe class WgpuOwnedString : IDisposable
         var length = Encoding.UTF8.GetByteCount(value);
         var bytes = new byte[checked(length + 1)];
         Encoding.UTF8.GetBytes(value.AsSpan(), bytes.AsSpan(0, length));
-
-        _handle = GCHandle.Alloc(bytes, GCHandleType.Pinned);
-        View = new WGPUStringView {
-            Data = (byte*)_handle.AddrOfPinnedObject(),
-            Length = (nuint)length,
-        };
+        return new WgpuOwnedString(bytes, (nuint)length);
     }
-
-    public WGPUStringView View { get; }
 
     public void Dispose()
     {

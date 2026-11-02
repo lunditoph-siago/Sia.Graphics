@@ -12,7 +12,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="Sia.WebGPU.Tests" />
     <None Remove="Sia.WebGPU.targets" />
     <None Include="Sia.WebGPU.targets" Pack="true" PackagePath="buildTransitive" />
     <ProjectReference Include="..\Sia.RenderGraph\Sia.RenderGraph.csproj" />

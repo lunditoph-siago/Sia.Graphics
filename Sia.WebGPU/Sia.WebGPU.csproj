@@ -12,6 +12,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="Sia.WebGPU.targets" Pack="true" PackagePath="buildTransitive" />
     <ProjectReference Include="..\Sia.RenderGraph\Sia.RenderGraph.csproj" />
     <ProjectReference Include="..\Sia.Spirv.Compiler\Sia.Spirv.Compiler.csproj" />
     <ProjectReference Include="..\Sia.WebGPU.Generators\Sia.WebGPU.Generators.csproj"
@@ -19,12 +20,4 @@
                       ReferenceOutputAssembly="false" />
     <PackageReference Include="Sia" Version="2.1.6" />
   </ItemGroup>
-  <Target Name="GenerateWebGpuPackageTargets" BeforeTargets="_GetPackageFiles">
-    <PropertyGroup>
-      <_WebGpuPackageTargets>$(IntermediateOutputPath)Sia.WebGPU.targets</_WebGpuPackageTargets>
-      <_WebGpuPackageContent><![CDATA[<Project><PropertyGroup><EmccFlags>%24(EmccFlags) --use-port=emdawnwebgpu</EmccFlags></PropertyGroup><ItemGroup><_WasmPInvokeModules Include="__Internal_emscripten" /></ItemGroup></Project>]]></_WebGpuPackageContent>
-    </PropertyGroup>
-    <WriteLinesToFile File="$(_WebGpuPackageTargets)" Lines="$(_WebGpuPackageContent)" Overwrite="true" WriteOnlyWhenDifferent="true" />
-    <ItemGroup><None Include="$(_WebGpuPackageTargets)" Pack="true" PackagePath="buildTransitive/Sia.WebGPU.targets" /></ItemGroup>
-  </Target>
 </Project>

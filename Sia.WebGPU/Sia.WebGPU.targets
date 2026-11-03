@@ -1,0 +1,1 @@
+<Project><PropertyGroup><EmccFlags>$(EmccFlags) --use-port=emdawnwebgpu</EmccFlags></PropertyGroup><ItemGroup><_WasmPInvokeModules Include="__Internal_emscripten" /></ItemGroup></Project>

@@ -1,7 +1,30 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project>
+  <PropertyGroup>
+    <ImportDirectoryBuildProps>false</ImportDirectoryBuildProps>
+    <ImportDirectoryBuildTargets>false</ImportDirectoryBuildTargets>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <EnableSpirvCompilation>true</EnableSpirvCompilation>
+    <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
+    <SpirvOptimizationLevel>3</SpirvOptimizationLevel>
+    <BaseIntermediateOutputPath>$(MSBuildProjectDirectory)\obj_desktop\</BaseIntermediateOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj_browser\**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
   </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\Fonts\*.ttf">
+      <LogicalName>Sia.WebGPU.Example.Fonts.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Sia.Graphics\Sia.Graphics.csproj" />
@@ -14,4 +37,11 @@
     <PackageReference Include="Sia.UI" Version="0.0.5" />
   </ItemGroup>
 
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+
+  <Target Name="RemoveBundledSpirvCoreReference" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="Sia.Spirv.Core" />
+    </ItemGroup>
+  </Target>
 </Project>

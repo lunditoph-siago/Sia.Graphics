@@ -1,10 +1,33 @@
-<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+<Project>
+  <PropertyGroup>
+    <ImportDirectoryBuildProps>false</ImportDirectoryBuildProps>
+    <ImportDirectoryBuildTargets>false</ImportDirectoryBuildTargets>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <EnableSpirvCompilation>true</EnableSpirvCompilation>
+    <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
+    <SpirvOptimizationLevel>3</SpirvOptimizationLevel>
+    <BaseIntermediateOutputPath>$(MSBuildProjectDirectory)\obj_browser\</BaseIntermediateOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj_desktop\**;publish\**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk.WebAssembly" />
+
   <PropertyGroup>
     <TargetFramework>net11.0-browser</TargetFramework>
     <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
     <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
     <WasmEnableThreads>true</WasmEnableThreads>
   </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\Fonts\*.ttf">
+      <LogicalName>Sia.WebGPU.Example.Fonts.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 
   <ItemGroup>
     <StaticWebAssetFingerprintPattern Include="JS" Pattern="*.js" Expression="#[.{fingerprint}]!" />
@@ -21,4 +44,12 @@
   <Import Project="..\Sia.WebGPU\Sia.WebGPU.targets" />
 
   <Import Project="..\Sia.Graphics\Sia.Graphics.targets" />
+
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk.WebAssembly" />
+
+  <Target Name="RemoveBundledSpirvCoreReference" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="Sia.Spirv.Core" />
+    </ItemGroup>
+  </Target>
 </Project>

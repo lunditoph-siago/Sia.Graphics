@@ -1,7 +1,0 @@
-<Project>
-  <Target Name="RemoveBundledSpirvCoreReference" BeforeTargets="ResolveAssemblyReferences">
-    <ItemGroup>
-      <Reference Remove="Sia.Spirv.Core" />
-    </ItemGroup>
-  </Target>
-</Project>

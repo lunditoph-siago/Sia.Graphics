@@ -1,4 +1,9 @@
-<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+<Project>
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk.WebAssembly" />
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -8,6 +13,7 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;obj_desktop\**;obj_browser\**;publish\**</DefaultItemExcludes>
     <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
     <WasmBuildNative>true</WasmBuildNative>
     <WasmEnableSIMD>true</WasmEnableSIMD>
@@ -16,12 +22,6 @@
     <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
     <SpirvOptimizationLevel>3</SpirvOptimizationLevel>
   </PropertyGroup>
-
-  <ItemGroup>
-    <Compile Remove="obj_desktop\**" />
-    <EmbeddedResource Remove="obj_desktop\**" />
-    <None Remove="obj_desktop\**" />
-  </ItemGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="Assets\Fonts\*.ttf">
@@ -43,6 +43,8 @@
 
   <Import Project="..\Sia.WebGPU\Sia.WebGPU.targets" />
   <Import Project="..\Sia.Graphics\Sia.Graphics.targets" />
+
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk.WebAssembly" />
 
   <Target Name="RemoveBundledSpirvCoreReference" BeforeTargets="ResolveAssemblyReferences">
     <ItemGroup>

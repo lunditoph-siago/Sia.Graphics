@@ -58,14 +58,17 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           "feature_band=$featureBand" >> $env:GITHUB_OUTPUT
 
-      - name: Resolve latest native WebGPU release
+      - name: Read WebGPU release tag
         id: webgpu
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $release = Invoke-RestMethod 'https://api.github.com/repos/google/dawn/releases/latest'
-          if ($release.tag_name -notmatch '^v\d{8}\.\d{6}$') { throw 'Invalid native WebGPU release.' }
-          "tag=$($release.tag_name)" >> $env:GITHUB_OUTPUT
+          $release = (dotnet msbuild Sia.WebGPU.Native/Sia.WebGPU.Native.cppproj `
+            -getProperty:WebGpuRelease -verbosity:quiet).Trim()
+          if ($LASTEXITCODE -ne 0 -or $release -notmatch '^v\d{8}\.\d{6}$') {
+            throw 'Cannot read the WebGPU release tag.'
+          }
+          "tag=$release" >> $env:GITHUB_OUTPUT
 
   spirv:
     if: github.ref_type == 'tag'
@@ -408,7 +411,7 @@ jobs:
           path: artifacts/webgpu
           key: >-
             webgpu-native-${{ matrix.rid }}-${{ needs.prepare.outputs.webgpu_release }}-${{
-            hashFiles('Sia.WebGPU.Native/NativeTasks.targets', 'Sia.WebGPU.Native/PrepareWebGpuTask.cs') }}
+            hashFiles('Sia.WebGPU.Native/Sia.WebGPU.Native.cppproj', 'Sia.WebGPU.Native/Build/**') }}
           restore-keys: webgpu-native-${{ matrix.rid }}-
       - name: Build native WebGPU library
         shell: pwsh

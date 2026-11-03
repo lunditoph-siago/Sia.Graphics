@@ -1,0 +1,5 @@
+<Project>
+  <PropertyGroup>
+    <WebGpuRelease Condition="'$(WebGpuRelease)' == ''">v20260423.175430</WebGpuRelease>
+  </PropertyGroup>
+</Project>

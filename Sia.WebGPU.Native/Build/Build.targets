@@ -1,0 +1,279 @@
+<Project>
+  <Import Project="..\..\WebGPU.props" />
+
+  <ItemGroup>
+    <Content Include="_._" PackagePath="lib\net11.0" />
+    <None Include="LICENSE.webgpu" Pack="true" PackagePath="" />
+    <None Include="Sia.WebGPU.Native.targets;NativeBuildTask.cs" Pack="true" PackagePath="buildTransitive" />
+    <None Include="$(NativeRuntimeDirectory)\$(RuntimeIdentifier)\native\wgpu_native.dll"
+          Condition="$([MSBuild]::IsOSPlatform('Windows'))" Link="%(Filename)%(Extension)" Pack="false"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NativeRuntimeDirectory)\$(RuntimeIdentifier)\native\dxcompiler.dll;
+                   $(NativeRuntimeDirectory)\$(RuntimeIdentifier)\native\dxil.dll"
+          Condition="$([MSBuild]::IsOSPlatform('Windows'))" Link="%(Filename)%(Extension)" Pack="false"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NativeRuntimeDirectory)\$(RuntimeIdentifier)\native\libwgpu_native.so"
+          Condition="$([MSBuild]::IsOSPlatform('Linux'))" Link="%(Filename)%(Extension)" Pack="false"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NativeRuntimeDirectory)\$(RuntimeIdentifier)\native\libwgpu_native.dylib"
+          Condition="$([MSBuild]::IsOSPlatform('OSX'))" Link="%(Filename)%(Extension)" Pack="false"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="CollectNativeBinaries" DependsOnTargets="PrepareNativeHeaders">
+    <ItemGroup>
+      <_NativeRuntime Include="$(NativeRuntimeIdentifiers)" />
+      <_NativeRuntime Update="@(_NativeRuntime)">
+        <Library Condition="$([System.String]::Copy('%(_NativeRuntime.Identity)').StartsWith('win-'))">wgpu_native.dll</Library>
+        <Library Condition="$([System.String]::Copy('%(_NativeRuntime.Identity)').StartsWith('linux-'))">libwgpu_native.so</Library>
+        <Library Condition="$([System.String]::Copy('%(_NativeRuntime.Identity)').StartsWith('osx-'))">libwgpu_native.dylib</Library>
+        <Receipt>$([MSBuild]::NormalizePath('$(NativeRuntimeDirectory)\%(_NativeRuntime.Identity)\native\native-release.txt'))</Receipt>
+      </_NativeRuntime>
+    </ItemGroup>
+    <Error Condition="'%(_NativeRuntime.Library)' == ''"
+           Text="Unsupported native runtime %(_NativeRuntime.Identity)." />
+    <Error Condition="!Exists('$(NativeRuntimeDirectory)\%(_NativeRuntime.Identity)\native\%(_NativeRuntime.Library)')"
+           Text="Run dotnet build Sia.WebGPU.Native\Sia.WebGPU.Native.cppproj -r %(_NativeRuntime.Identity) before packing." />
+    <Error Condition="!Exists('%(_NativeRuntime.Receipt)')"
+           Text="Missing WebGPU native release receipt for %(_NativeRuntime.Identity)." />
+    <Error Condition="$([System.IO.File]::ReadAllText('%(_NativeRuntime.Receipt)').Trim()) != '$(NativeRevision)'"
+           Text="WebGPU native release mismatch for %(_NativeRuntime.Identity); rebuild before packing." />
+    <ItemGroup>
+      <TfmSpecificPackageFile Include="$(NativeHeaderRoot)\include\webgpu\webgpu.h"
+                              PackagePath="include\webgpu\webgpu.h" />
+      <TfmSpecificPackageFile Include="$(NativeHeaderRoot)\include\dawn\webgpu.h" PackagePath="include\dawn\webgpu.h" />
+      <TfmSpecificPackageFile Include="$(NativeRuntimeDirectory)\%(_NativeRuntime.Identity)\native\%(_NativeRuntime.Library)"
+                              PackagePath="runtimes\%(_NativeRuntime.Identity)\native\%(_NativeRuntime.Library)" />
+      <TfmSpecificPackageFile Include="$(NativeRuntimeDirectory)\%(_NativeRuntime.Identity)\native\dxc*;
+                                       $(NativeRuntimeDirectory)\%(_NativeRuntime.Identity)\native\dxil.dll;
+                                       $(NativeRuntimeDirectory)\%(_NativeRuntime.Identity)\native\LICENSE.dxc"
+                              Condition="$([System.String]::Copy('%(_NativeRuntime.Identity)').StartsWith('win-'))"
+                              PackagePath="runtimes\%(_NativeRuntime.Identity)\native\" />
+      <TfmSpecificPackageFile Include="$(NativeRuntimeDirectory)\%(_NativeRuntime.Identity)\native\wgpu_native.lib"
+                              Condition="$([System.String]::Copy('%(_NativeRuntime.Identity)').StartsWith('win-'))"
+                              PackagePath="build\native\lib\%(_NativeRuntime.Identity)\wgpu_native.lib" />
+    </ItemGroup>
+    <RemoveDuplicates Inputs="@(TfmSpecificPackageFile)">
+      <Output TaskParameter="Filtered" ItemName="_NativePackageFiles" />
+    </RemoveDuplicates>
+    <ItemGroup>
+      <TfmSpecificPackageFile Remove="@(TfmSpecificPackageFile)" />
+      <TfmSpecificPackageFile Include="@(_NativePackageFiles)" />
+    </ItemGroup>
+  </Target>
+
+  <PropertyGroup>
+    <NativeArtifactsDirectory Condition="'$(NativeArtifactsDirectory)' == ''">$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)\..\artifacts\webgpu'))</NativeArtifactsDirectory>
+    <NativeHeaderFile Condition="'$(NativeHeaderFile)' == ''">$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)\Resources\webgpu.h'))</NativeHeaderFile>
+  </PropertyGroup>
+
+  <UsingTask TaskName="ResolveNativeReleaseTask" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <Task>
+      <Code Type="Class" Language="cs" Source="$(MSBuildThisFileDirectory)ResolveNativeReleaseTask.cs" />
+    </Task>
+  </UsingTask>
+
+  <UsingTask TaskName="DownloadNativeAssetTask" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <Task>
+      <Code Type="Class" Language="cs" Source="$(MSBuildThisFileDirectory)DownloadNativeAssetTask.cs" />
+    </Task>
+  </UsingTask>
+
+  <UsingTask TaskName="ExtractNativeArchiveTask" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <Task>
+      <Code Type="Class" Language="cs" Source="$(MSBuildThisFileDirectory)ExtractNativeArchiveTask.cs" />
+    </Task>
+  </UsingTask>
+
+  <UsingTask TaskName="FetchNativeSourceTask" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <Task>
+      <Code Type="Class" Language="cs" Source="$(MSBuildThisFileDirectory)FetchNativeSourceTask.cs" />
+    </Task>
+  </UsingTask>
+
+  <UsingTask TaskName="BuildNativeSdkTask" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <Task>
+      <Code Type="Class" Language="cs" Source="$(MSBuildThisFileDirectory)BuildNativeSdkTask.cs" />
+    </Task>
+  </UsingTask>
+
+  <UsingTask TaskName="ResolveDxcRuntimeTask" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <Task>
+      <Code Type="Class" Language="cs" Source="$(MSBuildThisFileDirectory)ResolveDxcRuntimeTask.cs" />
+    </Task>
+  </UsingTask>
+
+  <UsingTask TaskName="GenerateNativeExportsTask" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <Task>
+      <Code Type="Class" Language="cs" Source="$(MSBuildThisFileDirectory)GenerateNativeExportsTask.cs" />
+    </Task>
+  </UsingTask>
+
+  <PropertyGroup>
+    <NativeIntermediateDirectory Condition="'$(NativeIntermediateDirectory)' == ''">$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)\obj\native\$(RuntimeIdentifier)\$(Configuration)'))</NativeIntermediateDirectory>
+    <NativeOutputDirectory Condition="'$(NativeOutputDirectory)' == ''">$([MSBuild]::NormalizePath('$(NativeRuntimeDirectory)\$(RuntimeIdentifier)\native'))</NativeOutputDirectory>
+    <NativeOutputFile Condition="$([MSBuild]::IsOSPlatform('Windows'))">$([MSBuild]::NormalizePath('$(NativeOutputDirectory)\wgpu_native.dll'))</NativeOutputFile>
+    <NativeOutputFile Condition="$([MSBuild]::IsOSPlatform('Linux'))">$([MSBuild]::NormalizePath('$(NativeOutputDirectory)\libwgpu_native.so'))</NativeOutputFile>
+    <NativeOutputFile Condition="$([MSBuild]::IsOSPlatform('OSX'))">$([MSBuild]::NormalizePath('$(NativeOutputDirectory)\libwgpu_native.dylib'))</NativeOutputFile>
+  </PropertyGroup>
+
+  <UsingTask TaskName="NativeBuildTask" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <Task>
+      <Code Type="Class" Language="cs" Source="$(MSBuildProjectDirectory)\NativeBuildTask.cs" />
+    </Task>
+  </UsingTask>
+
+  <Target Name="PrepareNativeHeaders">
+    <ResolveNativeReleaseTask ReleaseTag="$(WebGpuRelease)"
+        MetadataFile="$([MSBuild]::NormalizePath('$(NativeArtifactsDirectory)', '$(WebGpuRelease).json'))">
+      <Output TaskParameter="Revision" PropertyName="NativeRevision" />
+      <Output TaskParameter="HeaderAsset" ItemName="_NativeHeaderAsset" />
+      <Output TaskParameter="SdkAssets" ItemName="_NativeSdkCandidate" />
+    </ResolveNativeReleaseTask>
+    <PropertyGroup>
+      <NativeReleaseDirectory>$([MSBuild]::NormalizePath('$(NativeArtifactsDirectory)', '$(WebGpuRelease)'))</NativeReleaseDirectory>
+      <NativeHeaderRoot>$([MSBuild]::NormalizePath('$(NativeReleaseDirectory)', 'headers'))</NativeHeaderRoot>
+      <NativeSdkRoot>$([MSBuild]::NormalizePath('$(NativeReleaseDirectory)', 'native-$(RuntimeIdentifier)'))</NativeSdkRoot>
+      <NativeSourceRoot>$([MSBuild]::NormalizePath('$(NativeReleaseDirectory)', 'source'))</NativeSourceRoot>
+      <_NativeHeaderArchive>$(NativeReleaseDirectory)\@(_NativeHeaderAsset)</_NativeHeaderArchive>
+      <_NativeBuildDirectory>$([MSBuild]::NormalizePath('$(NativeReleaseDirectory)', 'build-$(RuntimeIdentifier)'))</_NativeBuildDirectory>
+      <_NativeSourceHeader>$([MSBuild]::NormalizePath('$(NativeHeaderRoot)', 'include', 'dawn', 'webgpu.h'))</_NativeSourceHeader>
+    </PropertyGroup>
+
+    <DownloadNativeAssetTask SourceUrl="%(_NativeHeaderAsset.Url)" Digest="%(_NativeHeaderAsset.Digest)"
+                             DestinationFile="$(_NativeHeaderArchive)" />
+    <ExtractNativeArchiveTask ArchiveFile="$(_NativeHeaderArchive)" DestinationDirectory="$(NativeHeaderRoot)"
+                              RequiredFiles="include\webgpu\webgpu.h;include\dawn\webgpu.h" />
+    <GetFileHash Files="$(_NativeSourceHeader)">
+      <Output TaskParameter="Hash" PropertyName="_NativeSourceHeaderHash" />
+    </GetFileHash>
+    <GetFileHash Files="$(NativeHeaderFile)" Condition="Exists('$(NativeHeaderFile)')">
+      <Output TaskParameter="Hash" PropertyName="_NativeDestinationHeaderHash" />
+    </GetFileHash>
+    <Copy SourceFiles="$(_NativeSourceHeader)" DestinationFiles="$(NativeHeaderFile)"
+          Condition="'$(_NativeSourceHeaderHash)' != '$(_NativeDestinationHeaderHash)'" />
+  </Target>
+
+  <Target Name="ValidateNativeRuntime">
+    <Error Condition="!$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' != '$(NETCoreSdkRuntimeIdentifier)'"
+           Text="This native target requires a matching host SDK/toolchain; cross-platform builds do not automatically cross-compile." />
+    <Error Condition="$([MSBuild]::IsOSPlatform('Windows')) And !$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win-'))"
+           Text="Windows builds require a Windows target and its native SDK." />
+  </Target>
+
+  <Target Name="PrepareNativeSdk" DependsOnTargets="PrepareNativeHeaders">
+    <PropertyGroup>
+      <_NativeSdkRunner Condition="'$(RuntimeIdentifier)' == 'win-x64'">windows-latest</_NativeSdkRunner>
+      <_NativeSdkRunner Condition="'$(RuntimeIdentifier)' == 'linux-x64'">ubuntu-latest</_NativeSdkRunner>
+      <_NativeSdkRunner Condition="'$(RuntimeIdentifier)' == 'osx-x64'">macos-15-intel</_NativeSdkRunner>
+      <_NativeSdkRunner Condition="'$(RuntimeIdentifier)' == 'osx-arm64'">macos-latest</_NativeSdkRunner>
+      <_NativeSdkName>Dawn-$(NativeRevision)-$(_NativeSdkRunner)-Release.tar.gz</_NativeSdkName>
+    </PropertyGroup>
+    <ItemGroup>
+      <_NativeSdkAsset Include="@(_NativeSdkCandidate->WithMetadataValue('Identity', '$(_NativeSdkName)'))" />
+    </ItemGroup>
+    <Error Condition="'$(_NativeSdkRunner)' != '' And '@(_NativeSdkAsset)' == ''"
+           Text="The WebGPU release does not contain the SDK for $(RuntimeIdentifier)." />
+    <PropertyGroup Condition="'@(_NativeSdkAsset)' != ''">
+      <_NativeSdkArchive>$(NativeReleaseDirectory)\@(_NativeSdkAsset)</_NativeSdkArchive>
+    </PropertyGroup>
+
+    <FetchNativeSourceTask Revision="$(NativeRevision)" SourceDirectory="$(NativeSourceRoot)"
+        Condition="$([MSBuild]::IsOSPlatform('Windows')) Or '@(_NativeSdkAsset)' == ''" />
+
+    <DownloadNativeAssetTask SourceUrl="%(_NativeSdkAsset.Url)" Digest="%(_NativeSdkAsset.Digest)"
+                             DestinationFile="$(_NativeSdkArchive)" Condition="'@(_NativeSdkAsset)' != ''" />
+    <ItemGroup>
+      <_NativeSdkRequiredFile Include="include\dawn\webgpu.h" />
+      <_NativeSdkRequiredFile Include="lib*\webgpu_dawn.lib" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+      <_NativeSdkRequiredFile Include="lib*\libwebgpu_dawn.a" Condition="!$([MSBuild]::IsOSPlatform('Windows'))" />
+    </ItemGroup>
+    <ExtractNativeArchiveTask ArchiveFile="$(_NativeSdkArchive)" DestinationDirectory="$(NativeSdkRoot)"
+                              RequiredFiles="@(_NativeSdkRequiredFile)"
+                              Condition="'@(_NativeSdkAsset)' != ''" />
+    <BuildNativeSdkTask RuntimeIdentifier="$(RuntimeIdentifier)" SourceDirectory="$(NativeSourceRoot)"
+                        BuildDirectory="$(_NativeBuildDirectory)" SdkDirectory="$(NativeSdkRoot)"
+                        Condition="'@(_NativeSdkAsset)' == ''" />
+  </Target>
+
+  <Target Name="StageNativeRuntime" DependsOnTargets="PrepareNativeHeaders"
+          Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <ResolveDxcRuntimeTask RuntimeIdentifier="$(RuntimeIdentifier)">
+      <Output TaskParameter="RuntimeDirectory" PropertyName="_NativeDxcDirectory" />
+      <Output TaskParameter="Version" PropertyName="_NativeDxcVersion" />
+      <Output TaskParameter="LicenseUrl" PropertyName="_NativeDxcLicenseUrl" />
+      <Output TaskParameter="LicenseName" PropertyName="_NativeDxcLicenseName" />
+    </ResolveDxcRuntimeTask>
+    <PropertyGroup>
+      <_NativeDxcLicense>$([MSBuild]::NormalizePath('$(NativeReleaseDirectory)', '$(_NativeDxcLicenseName)'))</_NativeDxcLicense>
+    </PropertyGroup>
+    <DownloadFile SourceUrl="$(_NativeDxcLicenseUrl)" DestinationFolder="$(NativeReleaseDirectory)"
+                  DestinationFileName="$(_NativeDxcLicenseName)" Condition="!Exists('$(_NativeDxcLicense)')" />
+    <Copy SourceFiles="$(_NativeDxcDirectory)\dxcompiler.dll;$(_NativeDxcDirectory)\dxil.dll"
+          DestinationFolder="$(NativeOutputDirectory)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(_NativeDxcLicense)" DestinationFiles="$(NativeOutputDirectory)\LICENSE.dxc"
+          SkipUnchangedFiles="true" />
+    <WriteLinesToFile File="$(NativeOutputDirectory)\dxc-version.txt" Lines="$(_NativeDxcVersion)"
+                      Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
+  <Target Name="PrepareNative" DependsOnTargets="ValidateNativeRuntime;PrepareNativeSdk;StageNativeRuntime">
+    <GenerateNativeExportsTask
+        Header="$([MSBuild]::NormalizePath('$(NativeSdkRoot)', 'include', 'dawn', 'webgpu.h'))"
+        OutputDirectory="$(NativeIntermediateDirectory)" />
+    <ItemGroup>
+      <NativeSource Include="$(NativeSourceRoot)\src\dawn\common\DynamicLib.cpp"
+                    Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+      <NativeSource Include="$(NativeIntermediateDirectory)\NativeExports.cpp" />
+      <NativeIncludeDirectory Include="$(NativeSdkRoot)\include" />
+      <NativeIncludeDirectory Include="$(NativeSourceRoot);$(NativeSourceRoot)\src;$(NativeSourceRoot)\src\dawn\partition_alloc"
+                              Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+      <NativeCompileOption Include="/DDAWN_FORCE_SYSTEM_COMPONENT_LOAD;/DDAWN_HAVE_UTILS_BUILD_CONFIG;/DNDEBUG"
+                           Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+      <NativeLibrary Include="$(NativeSdkRoot)\lib\webgpu_dawn.lib" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+      <NativeLibrary Include="$(NativeSdkRoot)\lib*\libwebgpu_dawn.a"
+                     Condition="!$([MSBuild]::IsOSPlatform('Windows'))" />
+      <NativeCompileOption Include="/O2"
+                           Condition="$([MSBuild]::IsOSPlatform('Windows')) And '$(Configuration)' == 'Release'" />
+      <NativeCompileOption Include="-O2"
+                           Condition="!$([MSBuild]::IsOSPlatform('Windows')) And '$(Configuration)' == 'Release'" />
+      <NativeCompileOption Include="/Zi"
+                           Condition="$([MSBuild]::IsOSPlatform('Windows')) And '$(Configuration)' == 'Debug'" />
+      <NativeCompileOption Include="-g"
+                           Condition="!$([MSBuild]::IsOSPlatform('Windows')) And '$(Configuration)' == 'Debug'" />
+      <NativeLinkOption Include="/DEBUG"
+                        Condition="$([MSBuild]::IsOSPlatform('Windows')) And '$(Configuration)' == 'Debug'" />
+    </ItemGroup>
+    <Message Importance="High" Text="WebGPU SDK $(WebGpuRelease): $(NativeSdkRoot)" />
+  </Target>
+
+  <Target Name="Build" DependsOnTargets="PrepareNative">
+    <NativeBuildTask Sources="@(NativeSource)" RuntimeIdentifier="$(RuntimeIdentifier)"
+                     OutputFile="$(NativeOutputFile)" IntermediateDirectory="$(NativeIntermediateDirectory)"
+                     IncludeDirectories="@(NativeIncludeDirectory)" Libraries="@(NativeLibrary)"
+                     CompileOptions="@(NativeCompileOption)" LinkOptions="@(NativeLinkOption)"
+                     DefinitionFile="$([MSBuild]::NormalizePath('$(NativeIntermediateDirectory)\Native.def'))" />
+    <WriteLinesToFile File="$(NativeOutputDirectory)\native-release.txt" Lines="$(NativeRevision)" Overwrite="true"
+                      WriteOnlyWhenDifferent="true" />
+  </Target>
+
+  <Target Name="Clean">
+    <ItemGroup>
+      <_NativeCache Include="$(NativeIntermediateDirectory)\*.obj;$(NativeIntermediateDirectory)\*.o;
+                             $(NativeIntermediateDirectory)\*.inputs;$(NativeIntermediateDirectory)\*.d;
+                             $(NativeIntermediateDirectory)\*.pdb" />
+    </ItemGroup>
+    <Delete Files="@(_NativeCache);$(NativeOutputFile);$(NativeOutputFile).inputs;
+                   $(NativeOutputDirectory)\$([System.IO.Path]::GetFileNameWithoutExtension('$(NativeOutputFile)')).pdb" />
+  </Target>
+
+  <Target Name="Rebuild" DependsOnTargets="Clean;Build" />
+</Project>

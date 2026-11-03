@@ -56,40 +56,5 @@
     <EmbeddedResource Include="Resources\webgpu.h" LogicalName="Sia.WebGPU.Generators.webgpu.h" />
   </ItemGroup>
 
-  <UsingTask TaskName="DownloadWebGpuHeaderTask" TaskFactory="RoslynCodeTaskFactory"
-             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
-    <ParameterGroup>
-      <HeaderUrl ParameterType="System.String" Required="true" />
-      <OutputFile ParameterType="System.String" Required="true" />
-    </ParameterGroup>
-    <Task>
-      <Using Namespace="System" />
-      <Using Namespace="System.IO" />
-      <Using Namespace="System.Linq" />
-      <Using Namespace="System.Net.Http" />
-      <Code Type="Fragment" Language="cs"><![CDATA[
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(OutputFile)));
-        var temporary = OutputFile + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try {
-            using (var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) })
-            using (var input = client.GetStreamAsync(HeaderUrl).GetAwaiter().GetResult())
-            using (var output = File.Create(temporary)) input.CopyTo(output);
-            if (!File.ReadAllText(temporary).Contains("WGPUInstance"))
-                throw new InvalidDataException("Invalid WebGPU header.");
-            if (!File.Exists(OutputFile))
-                File.Move(temporary, OutputFile);
-            else if (!File.ReadAllBytes(temporary).SequenceEqual(File.ReadAllBytes(OutputFile)))
-                File.Replace(temporary, OutputFile, null);
-        } finally {
-            if (File.Exists(temporary)) File.Delete(temporary);
-        }
-      ]]></Code>
-    </Task>
-  </UsingTask>
-
-  <Target Name="SyncWebGpuHeader" BeforeTargets="BeforeBuild">
-    <DownloadWebGpuHeaderTask
-        HeaderUrl="https://raw.githubusercontent.com/webgpu-native/webgpu-headers/main/webgpu.h"
-        OutputFile="$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)\Resources\webgpu.h'))" />
-  </Target>
+  <Import Project="Build\Build.targets" />
 </Project>

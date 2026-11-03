@@ -1,5 +1,6 @@
 <Project>
   <PropertyGroup>
+    <_SiaWebGpuConfigured>true</_SiaWebGpuConfigured>
     <EmccFlags>$(EmccFlags) --use-port=emdawnwebgpu</EmccFlags>
   </PropertyGroup>
 

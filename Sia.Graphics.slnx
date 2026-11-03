@@ -13,4 +13,5 @@
   <Project Path="Sia.Spirv.Workload.Manifest/Sia.Spirv.Workload.Manifest.csproj" />
   <Project Path="Sia.WebGPU/Sia.WebGPU.csproj" />
   <Project Path="Sia.WebGPU.Generators/Sia.WebGPU.Generators.csproj" />
+  <Project Path="Sia.WebGPU.Native/Sia.WebGPU.Native.csproj" />
 </Solution>

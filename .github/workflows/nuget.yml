@@ -411,7 +411,7 @@ jobs:
 
   managed:
     if: github.ref_type == 'tag'
-    needs: prepare
+    needs: [prepare, native]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -427,6 +427,13 @@ jobs:
       - name: Install compiler WebAssembly workload
         run: dotnet workload install wasm-tools
 
+      - name: Download native WebGPU libraries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: webgpu-native-*
+          merge-multiple: true
+          path: artifacts/webgpu-runtimes
+
       - name: Pack managed packages
         shell: pwsh
         run: |
@@ -441,17 +448,24 @@ jobs:
             'Sia.Spirv.Bootstrap/Sia.Spirv.Bootstrap.csproj',
             'Sia.Spirv.Workload.Manifest/Sia.Spirv.Workload.Manifest.csproj',
             'Sia.WebGPU/Sia.WebGPU.csproj',
-            'Sia.WebGPU.Generators/Sia.WebGPU.Generators.csproj')
+            'Sia.WebGPU.Generators/Sia.WebGPU.Generators.csproj',
+            'Sia.WebGPU.Native/Sia.WebGPU.Native.csproj')
           foreach ($project in $projects) {
-            dotnet pack $project --configuration Release `
+            $packArguments = @()
+            if ($project -eq 'Sia.WebGPU.Native/Sia.WebGPU.Native.csproj') {
+              dotnet restore $project
+              if ($LASTEXITCODE -ne 0) { throw 'Native WebGPU restore failed.' }
+              $packArguments += '--no-build'
+            }
+            dotnet pack $project @packArguments --configuration Release `
               --output artifacts/packages `
               -p:Version=${{ needs.prepare.outputs.version }} `
               -p:SiaSpirvSdkFeatureBand=${{ needs.prepare.outputs.feature_band }}
             if ($LASTEXITCODE -ne 0) { throw "Packing '$project' failed." }
           }
           $packages = @(Get-ChildItem artifacts/packages/*.nupkg)
-          if ($packages.Count -ne 10) {
-            throw "Expected ten managed packages, found $($packages.Count)."
+          if ($packages.Count -ne 11) {
+            throw "Expected eleven managed packages, found $($packages.Count)."
           }
 
       - name: Upload managed packages
@@ -462,17 +476,18 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
-  release:
+  verify:
     if: github.ref_type == 'tag'
-    needs: [prepare, spirv, native, managed]
-    runs-on: ubuntu-latest
-    environment: nuget.org
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      attestations: write
-      artifact-metadata: write
+    needs: [prepare, spirv, managed]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            runner: windows-latest
+          - rid: linux-x64
+            runner: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -484,13 +499,6 @@ jobs:
         with:
           dotnet-version: 11.x
 
-      - name: Download native WebGPU libraries
-        uses: actions/download-artifact@v8
-        with:
-          pattern: webgpu-native-*
-          merge-multiple: true
-          path: artifacts/webgpu-runtimes
-
       - name: Download packages
         uses: actions/download-artifact@v8
         with:
@@ -498,20 +506,95 @@ jobs:
           merge-multiple: true
           path: artifacts/packages
 
-      - name: Pack native WebGPU package
+      - name: Verify and install packages
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $project = 'Sia.WebGPU.Native/Sia.WebGPU.Native.csproj'
+          ./Sia.Spirv.Workload.Manifest/VerifyPackages.ps1 `
+            -PackageDirectory artifacts/packages `
+            -PackageVersion '${{ needs.prepare.outputs.version }}' `
+            -SdkFeatureBand '${{ needs.prepare.outputs.feature_band }}'
+          $toolPath = Join-Path $env:RUNNER_TEMP 'sia-spirv-bootstrap'
+          dotnet tool install Sia.Spirv.Bootstrap `
+            --tool-path $toolPath `
+            --add-source artifacts/packages `
+            --version '${{ needs.prepare.outputs.version }}' `
+            --no-cache
+          if ($LASTEXITCODE -ne 0) { throw 'Bootstrap tool install failed.' }
+          $shim = Join-Path $toolPath $(if ($IsWindows) {
+            'dotnet-spirv.exe'
+          } else {
+            'dotnet-spirv'
+          })
+          & $shim install `
+            --dotnet (Get-Command dotnet).Source `
+            --source (Resolve-Path artifacts/packages).Path
+          if ($LASTEXITCODE -ne 0) { throw 'Workload install failed.' }
+
+      - name: Test installed WebGPU workload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $project = 'Sia.Spirv.Workload.Tests/Sia.Spirv.Workload.Tests.csproj'
           dotnet restore $project
-          if ($LASTEXITCODE -ne 0) { throw 'Native WebGPU restore failed.' }
-          dotnet pack $project --no-build --configuration Release --output artifacts/packages -p:Version=${{ needs.prepare.outputs.version }}
-          if ($LASTEXITCODE -ne 0) { throw 'Native WebGPU pack failed.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Workload test restore failed.' }
+          dotnet test $project --configuration Release --no-restore `
+            -p:UseSharedCompilation=false -m:1 -nr:false
+          if ($LASTEXITCODE -ne 0) { throw 'Installed workload tests failed.' }
+
+      - name: Verify packaged native tools and managed validation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = Join-Path $PWD 'Sia.Spirv.Workload.Tests/bin/Release/net11.0/spirv'
+          $modules = @(Get-ChildItem -LiteralPath $output -Filter '*.spv')
+          $suffix = if ($IsWindows) { '.exe' } else { '' }
+          $validator = Join-Path $env:DOTNET_ROOT (
+            'packs/Sia.Spirv.Toolchain.${{ matrix.rid }}/' +
+              '${{ needs.prepare.outputs.version }}/tools/${{ matrix.rid }}/spirv-val' +
+              $suffix)
+          $translator = Join-Path $env:DOTNET_ROOT (
+            'packs/Sia.Spirv.Sdk/${{ needs.prepare.outputs.version }}/tools/net11.0/Sia.Spirv.Tool.dll')
+          foreach ($module in $modules) {
+            & $validator --target-env vulkan1.2 $module.FullName
+            if ($LASTEXITCODE -ne 0) {
+              throw "Packaged spirv-val failed for '$($module.Name)'."
+            }
+            $wgsl = Join-Path $output "$($module.BaseName).wgsl"
+            dotnet $translator validate --input $wgsl
+            if ($LASTEXITCODE -ne 0) {
+              throw "Packaged managed validation failed for '$([IO.Path]::GetFileName($wgsl))'."
+            }
+          }
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [prepare, spirv, managed, verify]
+    runs-on: ubuntu-latest
+    environment: nuget.org
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: packages-*
+          merge-multiple: true
+          path: artifacts/packages
 
       - name: Attest packages
         uses: actions/attest@v4
         with:
           subject-path: artifacts/packages/*.nupkg
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.x
 
       - name: NuGet login
         uses: NuGet/login@v1

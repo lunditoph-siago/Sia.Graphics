@@ -1,5 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk.WebAssembly">
-
   <PropertyGroup>
     <TargetFramework>net11.0-browser</TargetFramework>
     <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
@@ -18,6 +17,8 @@
     <PackageReference Include="Sia.Window" Version="0.0.4" />
     <PackageReference Include="Sia.UI" Version="0.0.5" />
   </ItemGroup>
+
   <Import Project="..\Sia.WebGPU\Sia.WebGPU.targets" />
+
   <Import Project="..\Sia.Graphics\Sia.Graphics.targets" />
 </Project>

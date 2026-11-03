@@ -2,8 +2,11 @@
   <PropertyGroup>
     <NativeArtifactsDirectory Condition="'$(NativeArtifactsDirectory)' == ''">$(MSBuildThisFileDirectory)../artifacts/webgpu</NativeArtifactsDirectory>
   </PropertyGroup>
-  <UsingTask TaskName="PrepareWebGpuTask" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
-    <Task><Code Type="Class" Language="cs"><![CDATA[
+
+  <UsingTask TaskName="PrepareWebGpuTask" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <Task>
+      <Code Type="Class" Language="cs"><![CDATA[
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -275,15 +278,20 @@ public sealed class PrepareWebGpuTask : Microsoft.Build.Utilities.Task
     }
 }
 
-    ]]></Code></Task>
+    ]]></Code>
+    </Task>
   </UsingTask>
-  <UsingTask TaskName="GenerateNativeExportsTask" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+
+  <UsingTask TaskName="GenerateNativeExportsTask" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
     <ParameterGroup>
       <Header ParameterType="System.String" Required="true" />
       <OutputDirectory ParameterType="System.String" Required="true" />
     </ParameterGroup>
     <Task>
-      <Using Namespace="System.IO" /><Using Namespace="System.Linq" /><Using Namespace="System.Text.RegularExpressions" />
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.Linq" />
+      <Using Namespace="System.Text.RegularExpressions" />
       <Code Type="Fragment" Language="cs"><![CDATA[
         Directory.CreateDirectory(OutputDirectory);
         var symbols = Regex.Matches(File.ReadAllText(Header), @"(?m)^WGPU_EXPORT[^;\r\n]*\b(wgpu[A-Z]\w*)\(").Cast<Match>().Select(m => m.Groups[1].Value).ToArray();

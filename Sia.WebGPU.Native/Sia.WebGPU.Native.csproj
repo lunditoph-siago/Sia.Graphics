@@ -18,7 +18,6 @@
   <ItemGroup>
     <Content Include="_._" PackagePath="lib\net11.0" />
     <None Include="LICENSE.webgpu" Pack="true" PackagePath="" />
-    <None Include="Sia.WebGPU.Native.targets;NativeBuildTask.cs" Pack="true" PackagePath="buildTransitive" />
     <None Include="$(NativeRuntimeDirectory)\$(RuntimeIdentifier)\native\wgpu_native.dll"
           Condition="$([MSBuild]::IsOSPlatform('Windows'))" Link="%(Filename)%(Extension)" Pack="false"
           CopyToOutputDirectory="PreserveNewest" />

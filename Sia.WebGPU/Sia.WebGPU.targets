@@ -1,6 +1,5 @@
 <Project>
   <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm'">
-    <_SiaWebGpuConfigured>true</_SiaWebGpuConfigured>
     <EmccFlags>$(EmccFlags) --use-port=emdawnwebgpu</EmccFlags>
   </PropertyGroup>
 

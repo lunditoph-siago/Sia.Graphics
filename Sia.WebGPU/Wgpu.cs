@@ -6,6 +6,7 @@ global using WgpuCallbackMessage = Sia.WebGPU.WGPUStringView;
 
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using WgpuCanvasSurfaceSource = Sia.WebGPU.WGPUEmscriptenSurfaceSourceCanvasHTMLSelector;
 
 namespace Sia.WebGPU;
 
@@ -225,7 +226,7 @@ public static unsafe partial class Wgpu
 
         using var selectorString = WgpuOwnedString.Create(selector);
         using var labelString = WgpuOwnedString.Create(label);
-        var source = WGPUEmscriptenSurfaceSourceCanvasHTMLSelector.Default;
+        var source = WgpuCanvasSurfaceSource.Default;
         source.Selector = selectorString.View;
         var descriptor = new WGPUSurfaceDescriptor {
             NextInChain = &source.Chain,

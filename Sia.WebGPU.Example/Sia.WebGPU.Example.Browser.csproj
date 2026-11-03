@@ -46,9 +46,7 @@
 
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk.WebAssembly" />
 
-  <Target Name="RemoveBundledSpirvCoreReference" BeforeTargets="ResolveAssemblyReferences">
-    <ItemGroup>
-      <Reference Remove="Sia.Spirv.Core" />
-    </ItemGroup>
-  </Target>
+  <ItemGroup>
+    <Reference Remove="Sia.Spirv.Core" />
+  </ItemGroup>
 </Project>

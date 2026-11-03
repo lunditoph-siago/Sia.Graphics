@@ -1,4 +1,4 @@
-<Project DefaultTargets="Build">
+<Project>
   <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
 
   <PropertyGroup>
@@ -7,9 +7,6 @@
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <EnableDefaultItems>false</EnableDefaultItems>
     <PackageId>Sia.WebGPU.Native</PackageId>
-    <Description>Native WebGPU libraries for desktop platforms.</Description>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/lunditoph-siago/Sia.Graphics</RepositoryUrl>
     <NativeRuntimeIdentifiers Condition="'$(NativeRuntimeIdentifiers)' == ''">win-x86;win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</NativeRuntimeIdentifiers>
     <NativeRuntimeDirectory Condition="'$(NativeRuntimeDirectory)' == ''">$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)\..\artifacts\webgpu-runtimes'))</NativeRuntimeDirectory>
     <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);CollectNativeBinaries</TargetsForTfmSpecificContentInPackage>
@@ -50,7 +47,7 @@
     <Error Condition="'%(_NativeRuntime.Library)' == ''"
            Text="Unsupported native runtime %(_NativeRuntime.Identity)." />
     <Error Condition="!Exists('$(NativeRuntimeDirectory)\%(_NativeRuntime.Identity)\native\%(_NativeRuntime.Library)')"
-           Text="Run dotnet build Sia.WebGPU.Native\Sia.WebGPU.Native.cppproj -r %(_NativeRuntime.Identity) before packing." />
+           Text="Run dotnet build Sia.WebGPU.Native\Sia.WebGPU.Native.csproj -r %(_NativeRuntime.Identity) before packing." />
     <Error Condition="!Exists('%(_NativeRuntime.Receipt)')"
            Text="Missing WebGPU native release receipt for %(_NativeRuntime.Identity)." />
     <Error Condition="$([System.IO.File]::ReadAllText('%(_NativeRuntime.Receipt)').Trim()) != '$(NativeRevision)'"
@@ -190,7 +187,7 @@
   <Target Name="ValidateNativeRuntime">
     <Error Condition="!$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' != '$(NETCoreSdkRuntimeIdentifier)'"
            Text="This native target requires a matching host SDK/toolchain; cross-platform builds do not automatically cross-compile." />
-    <Error Condition="$([MSBuild]::IsOSPlatform('Windows')) And !$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win-'))"
+    <Error Condition="$([MSBuild]::IsOSPlatform('Windows')) And !$(RuntimeIdentifier.StartsWith('win-'))"
            Text="Windows builds require a Windows target and its native SDK." />
   </Target>
 
@@ -261,7 +258,7 @@
       <NativeIncludeDirectory Include="$(NativeSdkRoot)\include" />
       <NativeIncludeDirectory Include="$(NativeSourceRoot);$(NativeSourceRoot)\src;$(NativeSourceRoot)\src\dawn\partition_alloc"
                               Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
-      <NativeCompileOption Include="/DDAWN_FORCE_SYSTEM_COMPONENT_LOAD;/DDAWN_HAVE_UTILS_BUILD_CONFIG;/DNDEBUG"
+      <NativeCompileOption Include="/DDAWN_FORCE_SYSTEM_COMPONENT_LOAD;/DNDEBUG"
                            Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
       <NativeLibrary Include="$(NativeSdkRoot)\lib\webgpu_dawn.lib" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
       <NativeLibrary Include="$(NativeSdkRoot)\lib*\libwebgpu_dawn.a"

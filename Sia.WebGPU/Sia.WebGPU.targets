@@ -1,10 +1,10 @@
 <Project>
-  <PropertyGroup>
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm'">
     <_SiaWebGpuConfigured>true</_SiaWebGpuConfigured>
     <EmccFlags>$(EmccFlags) --use-port=emdawnwebgpu</EmccFlags>
   </PropertyGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm'">
     <_WasmPInvokeModules Include="__Internal_emscripten" />
   </ItemGroup>
 </Project>

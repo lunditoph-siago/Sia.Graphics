@@ -28,7 +28,7 @@
     <ProjectReference Include="..\Sia.Graphics\Sia.Graphics.csproj" />
     <ProjectReference Include="..\Sia.Spirv.Core\Sia.Spirv.Core.csproj" />
     <ProjectReference Include="..\Sia.WebGPU\Sia.WebGPU.csproj" />
-    <ProjectReference Include="..\Sia.WebGPU.Native\Sia.WebGPU.Native.cppproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Sia.WebGPU.Native\Sia.WebGPU.Native.csproj" ReferenceOutputAssembly="false" />
     <PackageReference Include="Sia.GLFW" Version="0.0.8" />
     <PackageReference Include="Sia.GLFW.Native" Version="0.0.8" />
     <PackageReference Include="Sia.Math" Version="0.0.4" />
@@ -37,9 +37,7 @@
 
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
 
-  <Target Name="RemoveBundledSpirvCoreReference" BeforeTargets="ResolveAssemblyReferences">
-    <ItemGroup>
-      <Reference Remove="Sia.Spirv.Core" />
-    </ItemGroup>
-  </Target>
+  <ItemGroup>
+    <Reference Remove="Sia.Spirv.Core" />
+  </ItemGroup>
 </Project>

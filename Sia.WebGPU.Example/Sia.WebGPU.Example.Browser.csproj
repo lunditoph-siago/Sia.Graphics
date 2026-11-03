@@ -14,7 +14,7 @@
     <ProjectReference Include="..\Sia.Graphics\Sia.Graphics.csproj" />
     <ProjectReference Include="..\Sia.Spirv.Core\Sia.Spirv.Core.csproj" />
     <ProjectReference Include="..\Sia.WebGPU\Sia.WebGPU.csproj" />
-    <PackageReference Include="Sia.Window" Version="0.0.4" />
+    <PackageReference Include="Sia.Window" Version="0.0.8" />
     <PackageReference Include="Sia.UI" Version="0.0.5" />
   </ItemGroup>
 

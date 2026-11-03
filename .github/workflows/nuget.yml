@@ -406,7 +406,9 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: artifacts/webgpu
-          key: webgpu-native-${{ matrix.rid }}-${{ needs.prepare.outputs.webgpu_release }}-${{ hashFiles('Sia.WebGPU.Native/NativeTasks.targets') }}
+          key: >-
+            webgpu-native-${{ matrix.rid }}-${{ needs.prepare.outputs.webgpu_release }}-${{
+            hashFiles('Sia.WebGPU.Native/NativeTasks.targets', 'Sia.WebGPU.Native/PrepareWebGpuTask.cs') }}
           restore-keys: webgpu-native-${{ matrix.rid }}-
       - name: Build native WebGPU library
         shell: pwsh

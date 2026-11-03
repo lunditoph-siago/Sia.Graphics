@@ -1,6 +1,7 @@
 <Project>
   <PropertyGroup>
     <NativeArtifactsDirectory Condition="'$(NativeArtifactsDirectory)' == ''">$(MSBuildThisFileDirectory)../artifacts/webgpu</NativeArtifactsDirectory>
+    <NativeHeaderFile Condition="'$(NativeHeaderFile)' == ''">$(MSBuildThisFileDirectory)Resources/webgpu.h</NativeHeaderFile>
   </PropertyGroup>
 
   <UsingTask TaskName="PrepareWebGpuTask" TaskFactory="RoslynCodeTaskFactory"
@@ -24,7 +25,7 @@ using Microsoft.Build.Framework;
 
 public sealed class PrepareWebGpuTask : Microsoft.Build.Utilities.Task
 {
-    [Required] public string HeaderDirectory { get; set; }
+    [Required] public string HeaderFile { get; set; }
     [Required] public string ArtifactsDirectory { get; set; }
     public string RuntimeIdentifier { get; set; }
     public string OutputDirectory { get; set; }
@@ -37,7 +38,7 @@ public sealed class PrepareWebGpuTask : Microsoft.Build.Utilities.Task
     public override bool Execute()
     {
         try {
-            HeaderDirectory = Path.GetFullPath(HeaderDirectory);
+            HeaderFile = Path.GetFullPath(HeaderFile);
             ArtifactsDirectory = Path.GetFullPath(ArtifactsDirectory);
             Directory.CreateDirectory(ArtifactsDirectory);
             using (var client = new HttpClient { Timeout = TimeSpan.FromMinutes(15) }) {
@@ -58,8 +59,7 @@ public sealed class PrepareWebGpuTask : Microsoft.Build.Utilities.Task
                     } finally { Directory.Delete(Path.GetDirectoryName(extracted), true); }
                 }
                 var header = Path.Combine(HeaderRoot, "include", "dawn", "webgpu.h");
-                var destination = Path.Combine(HeaderDirectory, "dawn", "webgpu.h");
-                if (!File.Exists(destination) || !File.ReadAllBytes(header).SequenceEqual(File.ReadAllBytes(destination))) Copy(header, destination);
+                if (!File.Exists(HeaderFile) || !File.ReadAllBytes(header).SequenceEqual(File.ReadAllBytes(HeaderFile))) Copy(header, HeaderFile);
                 if (string.IsNullOrEmpty(RuntimeIdentifier)) return true;
                 SdkRoot = Path.Combine(root, "native-" + RuntimeIdentifier);
                 SourceRoot = Path.Combine(root, "source");

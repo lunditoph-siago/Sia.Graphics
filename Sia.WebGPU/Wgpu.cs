@@ -225,13 +225,8 @@ public static unsafe partial class Wgpu
 
         using var selectorString = WgpuOwnedString.Create(selector);
         using var labelString = WgpuOwnedString.Create(label);
-        var source = new WGPUEmscriptenSurfaceSourceCanvasHTMLSelector {
-            Chain = new WGPUChainedStruct {
-                Next = null,
-                SType = WGPUSType.EmscriptenSurfaceSourceCanvasHTMLSelector,
-            },
-            Selector = selectorString.View,
-        };
+        var source = WGPUEmscriptenSurfaceSourceCanvasHTMLSelector.Default;
+        source.Selector = selectorString.View;
         var descriptor = new WGPUSurfaceDescriptor {
             NextInChain = &source.Chain,
             Label = labelString.View,

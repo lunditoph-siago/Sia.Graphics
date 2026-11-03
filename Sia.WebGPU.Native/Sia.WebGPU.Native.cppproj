@@ -3,9 +3,8 @@
 
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
-    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">$(NETCoreSdkRuntimeIdentifier)</RuntimeIdentifier>
+    <UseCurrentRuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">true</UseCurrentRuntimeIdentifier>
     <IncludeBuildOutput>false</IncludeBuildOutput>
-    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <EnableDefaultItems>false</EnableDefaultItems>
     <PackageId>Sia.WebGPU.Native</PackageId>
     <Description>Native WebGPU libraries for desktop platforms.</Description>
@@ -36,7 +35,7 @@
   </ItemGroup>
 
   <Target Name="CollectNativeBinaries">
-    <PrepareWebGpuTask HeaderDirectory="$(MSBuildProjectDirectory)/../Sia.WebGPU.Generators/Resources"
+    <PrepareWebGpuTask HeaderFile="$(NativeHeaderFile)"
                        ArtifactsDirectory="$(NativeArtifactsDirectory)" ReleaseTag="$(WebGpuRelease)">
       <Output TaskParameter="Revision" PropertyName="NativeRevision" />
       <Output TaskParameter="HeaderRoot" PropertyName="NativeHeaderRoot" />
@@ -93,7 +92,6 @@
     <NativeOutputFile Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(NativeOutputDirectory)/wgpu_native.dll</NativeOutputFile>
     <NativeOutputFile Condition="$([MSBuild]::IsOSPlatform('Linux'))">$(NativeOutputDirectory)/libwgpu_native.so</NativeOutputFile>
     <NativeOutputFile Condition="$([MSBuild]::IsOSPlatform('OSX'))">$(NativeOutputDirectory)/libwgpu_native.dylib</NativeOutputFile>
-    <NativeMaxParallelism Condition="'$(NativeMaxParallelism)' == ''">2</NativeMaxParallelism>
   </PropertyGroup>
 
   <UsingTask TaskName="NativeBuildTask" TaskFactory="RoslynCodeTaskFactory"
@@ -108,7 +106,7 @@
            Text="This native target requires a matching host SDK/toolchain; cross-platform builds do not automatically cross-compile." />
     <Error Condition="$([MSBuild]::IsOSPlatform('Windows')) And !$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win-'))"
            Text="Windows builds require a Windows target and its native SDK." />
-    <PrepareWebGpuTask HeaderDirectory="$(MSBuildProjectDirectory)/../Sia.WebGPU.Generators/Resources"
+    <PrepareWebGpuTask HeaderFile="$(NativeHeaderFile)"
                        ArtifactsDirectory="$(NativeArtifactsDirectory)" ReleaseTag="$(WebGpuRelease)"
                        RuntimeIdentifier="$(RuntimeIdentifier)" OutputDirectory="$(NativeOutputDirectory)">
       <Output TaskParameter="SdkRoot" PropertyName="NativeSdkRoot" />
@@ -145,11 +143,9 @@
   <Target Name="Build" DependsOnTargets="PrepareNative">
     <NativeBuildTask Sources="@(NativeSource)" RuntimeIdentifier="$(RuntimeIdentifier)"
                      OutputFile="$(NativeOutputFile)" IntermediateDirectory="$(NativeIntermediateDirectory)"
-                     Toolchain="$(NativeToolchain)" Compiler="$(NativeCompiler)"
-                     WindowsSdkRoot="$(NativeWindowsSdkRoot)" IncludeDirectories="@(NativeIncludeDirectory)"
-                     Libraries="@(NativeLibrary)" CompileOptions="@(NativeCompileOption)"
-                     LinkOptions="@(NativeLinkOption)" DefinitionFile="$(NativeIntermediateDirectory)/Native.def"
-                     MaxParallelism="$(NativeMaxParallelism)" />
+                     IncludeDirectories="@(NativeIncludeDirectory)" Libraries="@(NativeLibrary)"
+                     CompileOptions="@(NativeCompileOption)" LinkOptions="@(NativeLinkOption)"
+                     DefinitionFile="$(NativeIntermediateDirectory)/Native.def" />
     <WriteLinesToFile File="$(NativeOutputDirectory)/native-release.txt" Lines="$(NativeRevision)" Overwrite="true"
                       WriteOnlyWhenDifferent="true" />
   </Target>

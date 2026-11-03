@@ -48,7 +48,7 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
         var optionsProvider = context.AnalyzerConfigOptionsProvider
             .Select(static (provider, _) => WgpuGenerationOptions.From(provider.GlobalOptions));
         context.RegisterSourceOutput(optionsProvider, static (context, options) => {
-            var headerSource = TryGetEmbeddedHeader("Sia.WebGPU.Generators.dawn.webgpu.h") ?? TryGetEmbeddedHeader(k_EmbeddedHeaderResourceName);
+            var headerSource = TryGetEmbeddedHeader(k_EmbeddedHeaderResourceName);
             if (string.IsNullOrWhiteSpace(headerSource)) {
                 context.ReportDiagnostic(Diagnostic.Create(s_MissingHeader, Location.None));
                 return;

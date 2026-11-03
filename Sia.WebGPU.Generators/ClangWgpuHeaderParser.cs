@@ -231,8 +231,7 @@ internal static class ClangWgpuHeaderParser
         """ + source
             .Replace("#include <stdint.h>", string.Empty)
             .Replace("#include <stddef.h>", string.Empty)
-            .Replace("#include <math.h>", string.Empty)
-            .Replace("#include \"dawn/dawn_version.h\"", string.Empty);
+            .Replace("#include <math.h>", string.Empty);
 
     private static string[] CreateParseArguments() =>
     [

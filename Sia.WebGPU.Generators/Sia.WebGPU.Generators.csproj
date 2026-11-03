@@ -11,6 +11,7 @@
     <IsRoslynComponent>true</IsRoslynComponent>
     <NoWarn>$(NoWarn);RS1035;RS2008</NoWarn>
     <PackageId>Sia.WebGPU.Generators</PackageId>
+    <DawnTag Condition="'$(DawnTag)' == ''">v20260423.175430</DawnTag>
     <LibClangVersion>16.0.6</LibClangVersion>
   </PropertyGroup>
 
@@ -53,8 +54,6 @@
     <EmbeddedResource Include="Resources\webgpu.h" LogicalName="Sia.WebGPU.Generators.webgpu.h" />
   </ItemGroup>
 
-  <Import Project="..\WebGPU.props" />
-
   <ItemGroup>
     <Compile Remove="Build\**\*.cs" />
   </ItemGroup>
@@ -75,12 +74,12 @@
   </UsingTask>
 
   <Target Name="SyncWebGpuHeader" BeforeTargets="BeforeBuild">
-    <ResolveWebGpuHeaderTask ReleaseTag="$(WebGpuRelease)">
+    <ResolveWebGpuHeaderTask ReleaseTag="$(DawnTag)">
       <Output TaskParameter="HeaderUrl" PropertyName="_GeneratorWebGpuHeaderUrl" />
       <Output TaskParameter="Revision" PropertyName="_GeneratorWebGpuHeaderRevision" />
     </ResolveWebGpuHeaderTask>
     <DownloadWebGpuHeaderTask HeaderUrl="$(_GeneratorWebGpuHeaderUrl)"
         OutputFile="$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)\Resources\webgpu.h'))" />
-    <Message Importance="Normal" Text="WebGPU header $(WebGpuRelease): $(_GeneratorWebGpuHeaderRevision)" />
+    <Message Importance="Normal" Text="WebGPU header $(DawnTag): $(_GeneratorWebGpuHeaderRevision)" />
   </Target>
 </Project>

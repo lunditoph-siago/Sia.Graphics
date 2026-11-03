@@ -397,7 +397,7 @@ jobs:
           path: artifacts/webgpu
           key: >-
             webgpu-native-${{ matrix.rid }}-${{
-            hashFiles('WebGPU.props', 'Sia.WebGPU.Native/Sia.WebGPU.Native.csproj', 'Sia.WebGPU.Native/Build/**') }}
+            hashFiles('Sia.WebGPU.Native/Sia.WebGPU.Native.csproj', 'Sia.WebGPU.Native/Build/**') }}
           restore-keys: webgpu-native-${{ matrix.rid }}-
       - name: Build native WebGPU library
         shell: pwsh

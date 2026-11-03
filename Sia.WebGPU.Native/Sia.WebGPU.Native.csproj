@@ -7,13 +7,13 @@
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <EnableDefaultItems>false</EnableDefaultItems>
     <PackageId>Sia.WebGPU.Native</PackageId>
+    <DawnTag Condition="'$(DawnTag)' == ''">v20260423.175430</DawnTag>
     <NativeRuntimeIdentifiers Condition="'$(NativeRuntimeIdentifiers)' == ''">win-x86;win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</NativeRuntimeIdentifiers>
     <NativeRuntimeDirectory Condition="'$(NativeRuntimeDirectory)' == ''">$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)\..\artifacts\webgpu-runtimes'))</NativeRuntimeDirectory>
     <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);CollectNativeBinaries</TargetsForTfmSpecificContentInPackage>
   </PropertyGroup>
 
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
-  <Import Project="..\WebGPU.props" />
 
   <ItemGroup>
     <Content Include="_._" PackagePath="lib\net11.0" />
@@ -154,14 +154,14 @@
   </UsingTask>
 
   <Target Name="PrepareNativeHeaders">
-    <ResolveNativeReleaseTask ReleaseTag="$(WebGpuRelease)"
-        MetadataFile="$([MSBuild]::NormalizePath('$(NativeArtifactsDirectory)', '$(WebGpuRelease).json'))">
+    <ResolveNativeReleaseTask ReleaseTag="$(DawnTag)"
+        MetadataFile="$([MSBuild]::NormalizePath('$(NativeArtifactsDirectory)', '$(DawnTag).json'))">
       <Output TaskParameter="Revision" PropertyName="NativeRevision" />
       <Output TaskParameter="HeaderAsset" ItemName="_NativeHeaderAsset" />
       <Output TaskParameter="SdkAssets" ItemName="_NativeSdkCandidate" />
     </ResolveNativeReleaseTask>
     <PropertyGroup>
-      <NativeReleaseDirectory>$([MSBuild]::NormalizePath('$(NativeArtifactsDirectory)', '$(WebGpuRelease)'))</NativeReleaseDirectory>
+      <NativeReleaseDirectory>$([MSBuild]::NormalizePath('$(NativeArtifactsDirectory)', '$(DawnTag)'))</NativeReleaseDirectory>
       <NativeHeaderRoot>$([MSBuild]::NormalizePath('$(NativeReleaseDirectory)', 'headers'))</NativeHeaderRoot>
       <NativeSdkRoot>$([MSBuild]::NormalizePath('$(NativeReleaseDirectory)', 'native-$(RuntimeIdentifier)'))</NativeSdkRoot>
       <NativeSourceRoot>$([MSBuild]::NormalizePath('$(NativeReleaseDirectory)', 'source'))</NativeSourceRoot>
@@ -274,7 +274,7 @@
       <NativeLinkOption Include="/DEBUG"
                         Condition="$([MSBuild]::IsOSPlatform('Windows')) And '$(Configuration)' == 'Debug'" />
     </ItemGroup>
-    <Message Importance="High" Text="WebGPU SDK $(WebGpuRelease): $(NativeSdkRoot)" />
+    <Message Importance="High" Text="WebGPU SDK $(DawnTag): $(NativeSdkRoot)" />
   </Target>
 
   <Target Name="Build" DependsOnTargets="PrepareNative">

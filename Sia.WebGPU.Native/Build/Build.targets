@@ -127,7 +127,8 @@
   <UsingTask TaskName="NativeBuildTask" TaskFactory="RoslynCodeTaskFactory"
              AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
     <Task>
-      <Code Type="Class" Language="cs" Source="$(MSBuildProjectDirectory)\NativeBuildTask.cs" />
+      <Code Type="Class" Language="cs"
+            Source="$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', 'NativeBuildTask.cs'))" />
     </Task>
   </UsingTask>
 

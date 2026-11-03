@@ -89,7 +89,7 @@
 
   <Target Name="SyncWebGpuHeader" BeforeTargets="BeforeBuild">
     <DownloadWebGpuHeaderTask
-        HeaderUrl="https://raw.githubusercontent.com/webgpu-native/webgpu-headers/refs/heads/main/webgpu.h"
+        HeaderUrl="https://raw.githubusercontent.com/webgpu-native/webgpu-headers/main/webgpu.h"
         OutputFile="$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)\Resources\webgpu.h'))" />
   </Target>
 </Project>

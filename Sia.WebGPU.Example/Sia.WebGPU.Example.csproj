@@ -1,8 +1,8 @@
-<Project>
+<Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
-    <ImportDirectoryBuildProps>false</ImportDirectoryBuildProps>
-    <ImportDirectoryBuildTargets>false</ImportDirectoryBuildTargets>
     <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -10,15 +10,13 @@
     <EnableSpirvCompilation>true</EnableSpirvCompilation>
     <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
     <SpirvOptimizationLevel>3</SpirvOptimizationLevel>
-    <BaseIntermediateOutputPath>$(MSBuildProjectDirectory)\obj_desktop\</BaseIntermediateOutputPath>
-    <DefaultItemExcludes>$(DefaultItemExcludes);obj_browser\**</DefaultItemExcludes>
   </PropertyGroup>
 
-  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
-
-  <PropertyGroup>
-    <TargetFramework>net11.0</TargetFramework>
-  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="obj_browser\**" />
+    <EmbeddedResource Remove="obj_browser\**" />
+    <None Remove="obj_browser\**" />
+  </ItemGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="Assets\Fonts\*.ttf">
@@ -36,8 +34,6 @@
     <PackageReference Include="Sia.Math" Version="0.0.4" />
     <PackageReference Include="Sia.UI" Version="0.0.5" />
   </ItemGroup>
-
-  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
 
   <Target Name="RemoveBundledSpirvCoreReference" BeforeTargets="ResolveAssemblyReferences">
     <ItemGroup>

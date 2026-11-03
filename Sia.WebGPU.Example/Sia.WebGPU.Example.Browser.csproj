@@ -1,27 +1,27 @@
-<Project>
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+
   <PropertyGroup>
-    <ImportDirectoryBuildProps>false</ImportDirectoryBuildProps>
-    <ImportDirectoryBuildTargets>false</ImportDirectoryBuildTargets>
     <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0-browser</TargetFramework>
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <WasmBuildNative>true</WasmBuildNative>
+    <WasmEnableSIMD>true</WasmEnableSIMD>
+    <WasmEnableThreads>true</WasmEnableThreads>
     <EnableSpirvCompilation>true</EnableSpirvCompilation>
     <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
     <SpirvOptimizationLevel>3</SpirvOptimizationLevel>
-    <BaseIntermediateOutputPath>$(MSBuildProjectDirectory)\obj_browser\</BaseIntermediateOutputPath>
-    <DefaultItemExcludes>$(DefaultItemExcludes);obj_desktop\**;publish\**</DefaultItemExcludes>
   </PropertyGroup>
 
-  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk.WebAssembly" />
-
-  <PropertyGroup>
-    <TargetFramework>net11.0-browser</TargetFramework>
-    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
-    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
-    <WasmEnableThreads>true</WasmEnableThreads>
-  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="obj_desktop\**" />
+    <EmbeddedResource Remove="obj_desktop\**" />
+    <None Remove="obj_desktop\**" />
+  </ItemGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="Assets\Fonts\*.ttf">
@@ -42,10 +42,7 @@
   </ItemGroup>
 
   <Import Project="..\Sia.WebGPU\Sia.WebGPU.targets" />
-
   <Import Project="..\Sia.Graphics\Sia.Graphics.targets" />
-
-  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk.WebAssembly" />
 
   <Target Name="RemoveBundledSpirvCoreReference" BeforeTargets="ResolveAssemblyReferences">
     <ItemGroup>

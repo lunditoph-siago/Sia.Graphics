@@ -1,9 +1,7 @@
 <Project>
   <PropertyGroup>
     <SiaNativeBuildTaskSource>$(MSBuildThisFileDirectory)NativeBuildTask.cs</SiaNativeBuildTaskSource>
-    <SiaWebGpuIncludeDirectory>$([MSBuild]::NormalizePath(
-      '$(MSBuildThisFileDirectory)..\include'
-    ))</SiaWebGpuIncludeDirectory>
+    <SiaWebGpuIncludeDirectory>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)..\include'))</SiaWebGpuIncludeDirectory>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(MSBuildProjectExtension)' == '.cppproj'">

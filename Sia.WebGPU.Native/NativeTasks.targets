@@ -1,18 +1,22 @@
 <Project>
   <PropertyGroup>
-    <NativeArtifactsDirectory Condition="'$(NativeArtifactsDirectory)' == ''">$(MSBuildThisFileDirectory)../artifacts/webgpu</NativeArtifactsDirectory>
-    <NativeHeaderFile Condition="'$(NativeHeaderFile)' == ''">$(MSBuildThisFileDirectory)Resources/webgpu.h</NativeHeaderFile>
+    <NativeArtifactsDirectory Condition="'$(NativeArtifactsDirectory)' == ''">$([MSBuild]::NormalizePath(
+      '$(MSBuildThisFileDirectory)..\artifacts\webgpu'
+    ))</NativeArtifactsDirectory>
+    <NativeHeaderFile Condition="'$(NativeHeaderFile)' == ''">$([MSBuild]::NormalizePath(
+      '$(MSBuildThisFileDirectory)Resources\webgpu.h'
+    ))</NativeHeaderFile>
   </PropertyGroup>
 
   <UsingTask TaskName="PrepareWebGpuTask" TaskFactory="RoslynCodeTaskFactory"
-             AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
     <Task>
       <Code Type="Class" Language="cs" Source="$(MSBuildThisFileDirectory)PrepareWebGpuTask.cs" />
     </Task>
   </UsingTask>
 
   <UsingTask TaskName="GenerateNativeExportsTask" TaskFactory="RoslynCodeTaskFactory"
-             AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
     <ParameterGroup>
       <Header ParameterType="System.String" Required="true" />
       <OutputDirectory ParameterType="System.String" Required="true" />

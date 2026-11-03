@@ -1,16 +1,18 @@
 <Project>
   <PropertyGroup>
     <SiaNativeBuildTaskSource>$(MSBuildThisFileDirectory)NativeBuildTask.cs</SiaNativeBuildTaskSource>
-    <SiaWebGpuIncludeDirectory>$(MSBuildThisFileDirectory)../include</SiaWebGpuIncludeDirectory>
+    <SiaWebGpuIncludeDirectory>$([MSBuild]::NormalizePath(
+      '$(MSBuildThisFileDirectory)..\include'
+    ))</SiaWebGpuIncludeDirectory>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(MSBuildProjectExtension)' == '.cppproj'">
     <NativeIncludeDirectory Include="$(SiaWebGpuIncludeDirectory)" />
-    <NativeLibrary Include="$(MSBuildThisFileDirectory)../build/native/lib/$(RuntimeIdentifier)/wgpu_native.lib"
+    <NativeLibrary Include="$(MSBuildThisFileDirectory)..\build\native\lib\$(RuntimeIdentifier)\wgpu_native.lib"
                    Condition="$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win-'))" />
-    <NativeLibrary Include="$(MSBuildThisFileDirectory)../runtimes/$(RuntimeIdentifier)/native/libwgpu_native.so"
+    <NativeLibrary Include="$(MSBuildThisFileDirectory)..\runtimes\$(RuntimeIdentifier)\native\libwgpu_native.so"
                    Condition="$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('linux-'))" />
-    <NativeLibrary Include="$(MSBuildThisFileDirectory)../runtimes/$(RuntimeIdentifier)/native/libwgpu_native.dylib"
+    <NativeLibrary Include="$(MSBuildThisFileDirectory)..\runtimes\$(RuntimeIdentifier)\native\libwgpu_native.dylib"
                    Condition="$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('osx-'))" />
   </ItemGroup>
 </Project>

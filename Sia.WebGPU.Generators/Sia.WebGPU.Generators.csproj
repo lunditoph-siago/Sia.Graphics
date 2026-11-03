@@ -32,9 +32,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers\dotnet\cs" Visible="false" />
     <None Include="$(NuGetPackageRoot)clangsharp.interop\16.0.0\lib\netstandard2.0\ClangSharp.Interop.dll"
-          Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+          Pack="true" PackagePath="analyzers\dotnet\cs" Visible="false" />
     <EmbeddedResource Include="$(NuGetPackageRoot)libclang.runtime.win-x64\$(LibClangVersion)\runtimes\win-x64\native\libclang.dll"
                       LogicalName="Sia.WebGPU.Generators.Native.libclang.win-x64.dll" />
     <EmbeddedResource Include="$(NuGetPackageRoot)libclang.runtime.linux-x64\$(LibClangVersion)\runtimes\linux-x64\native\libclang.so"
@@ -57,7 +57,7 @@
   </ItemGroup>
 
   <UsingTask TaskName="DownloadWebGpuHeaderTask" TaskFactory="RoslynCodeTaskFactory"
-             AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
     <ParameterGroup>
       <HeaderUrl ParameterType="System.String" Required="true" />
       <OutputFile ParameterType="System.String" Required="true" />
@@ -88,10 +88,8 @@
   </UsingTask>
 
   <Target Name="SyncWebGpuHeader" BeforeTargets="BeforeBuild">
-    <PropertyGroup>
-      <WebGpuHeaderUrl>https://raw.githubusercontent.com/webgpu-native/webgpu-headers/main/webgpu.h</WebGpuHeaderUrl>
-      <WebGpuHeaderOutput>$(MSBuildProjectDirectory)\Resources\webgpu.h</WebGpuHeaderOutput>
-    </PropertyGroup>
-    <DownloadWebGpuHeaderTask HeaderUrl="$(WebGpuHeaderUrl)" OutputFile="$(WebGpuHeaderOutput)" />
+    <DownloadWebGpuHeaderTask
+        HeaderUrl="https://raw.githubusercontent.com/webgpu-native/webgpu-headers/refs/heads/main/webgpu.h"
+        OutputFile="$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)\Resources\webgpu.h'))" />
   </Target>
 </Project>

@@ -455,7 +455,6 @@ jobs:
             dotnet pack $project --configuration Release `
               --output artifacts/packages `
               -p:Version=${{ needs.prepare.outputs.version }} `
-              -p:WebGpuRelease=${{ needs.prepare.outputs.webgpu_release }} `
               -p:SiaSpirvSdkFeatureBand=${{ needs.prepare.outputs.feature_band }}
             if ($LASTEXITCODE -ne 0) { throw "Packing '$project' failed." }
           }

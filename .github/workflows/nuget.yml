@@ -20,6 +20,7 @@ env:
 
 jobs:
   prepare:
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.release.outputs.version }}
@@ -55,7 +56,8 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           "feature_band=$featureBand" >> $env:GITHUB_OUTPUT
 
-  native:
+  spirv:
+    if: github.ref_type == 'tag'
     needs: prepare
     strategy:
       fail-fast: false
@@ -142,9 +144,9 @@ jobs:
             [Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
           "fingerprint=$fingerprint" >> $env:GITHUB_OUTPUT
 
-      - name: Restore native cache
+      - name: Cache native toolchain
         id: native-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache@v6
         with:
           path: |
             artifacts/llvm-build-${{ matrix.rid }}
@@ -195,15 +197,6 @@ jobs:
         run: |
           ./Sia.Spirv.Toolchain.linux-x64/BuildLLVM.sh
           ./Sia.Spirv.Toolchain.linux-x64/BuildSpirvTools.sh
-
-      - name: Save native cache
-        if: steps.native-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: |
-            artifacts/llvm-build-${{ matrix.rid }}
-            artifacts/spirv-tools-build-${{ matrix.rid }}
-          key: ${{ steps.native-cache.outputs.cache-primary-key }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -359,13 +352,76 @@ jobs:
       - name: Upload native package
         uses: actions/upload-artifact@v7
         with:
-          name: packages-native-${{ matrix.rid }}
+          name: packages-spirv-${{ matrix.rid }}
           path: artifacts/packages/*.nupkg
           if-no-files-found: error
           compression-level: 0
 
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x86
+            runner: windows-latest
+          - rid: win-x64
+            runner: windows-latest
+          - rid: win-arm64
+            runner: windows-11-arm
+          - rid: linux-x64
+            runner: ubuntu-latest
+          - rid: linux-arm64
+            runner: ubuntu-24.04-arm
+          - rid: osx-x64
+            runner: macos-15-intel
+          - rid: osx-arm64
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.x
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install Linux build dependencies
+        if: startsWith(matrix.rid, 'linux-')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libx11-dev libx11-xcb-dev libxcb1-dev libxrandr-dev \
+            libxinerama-dev libxcursor-dev libxi-dev libwayland-dev \
+            wayland-protocols libxkbcommon-dev libegl-dev libgles-dev
+
+      - uses: actions/cache@v6
+        with:
+          path: artifacts/webgpu
+          key: >-
+            webgpu-native-${{ matrix.rid }}-${{
+            hashFiles('Sia.WebGPU.Native/Sia.WebGPU.Native.csproj', 'Sia.WebGPU.Native/Build/**') }}
+          restore-keys: webgpu-native-${{ matrix.rid }}-
+
+      - name: Build native WebGPU library
+        shell: pwsh
+        run: >-
+          dotnet build Sia.WebGPU.Native/Sia.WebGPU.Native.csproj
+          -c Release
+          -r '${{ matrix.rid }}'
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: webgpu-native-${{ matrix.rid }}
+          path: artifacts/webgpu-runtimes
+          if-no-files-found: error
+
   managed:
-    needs: prepare
+    if: github.ref_type == 'tag'
+    needs: [prepare, native]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -380,6 +436,13 @@ jobs:
 
       - name: Install compiler WebAssembly workload
         run: dotnet workload install wasm-tools
+
+      - name: Download native WebGPU libraries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: webgpu-native-*
+          merge-multiple: true
+          path: artifacts/webgpu-runtimes
 
       - name: Pack managed packages
         shell: pwsh
@@ -398,7 +461,13 @@ jobs:
             'Sia.WebGPU.Generators/Sia.WebGPU.Generators.csproj',
             'Sia.WebGPU.Native/Sia.WebGPU.Native.csproj')
           foreach ($project in $projects) {
-            dotnet pack $project --configuration Release `
+            $packArguments = @()
+            if ($project -eq 'Sia.WebGPU.Native/Sia.WebGPU.Native.csproj') {
+              dotnet restore $project
+              if ($LASTEXITCODE -ne 0) { throw 'Native WebGPU restore failed.' }
+              $packArguments += '--no-build'
+            }
+            dotnet pack $project @packArguments --configuration Release `
               --output artifacts/packages `
               -p:Version=${{ needs.prepare.outputs.version }} `
               -p:SiaSpirvSdkFeatureBand=${{ needs.prepare.outputs.feature_band }}
@@ -418,7 +487,8 @@ jobs:
           compression-level: 0
 
   verify:
-    needs: [prepare, native, managed]
+    if: github.ref_type == 'tag'
+    needs: [prepare, spirv, managed]
     strategy:
       fail-fast: false
       matrix:
@@ -509,7 +579,7 @@ jobs:
 
   release:
     if: github.ref_type == 'tag'
-    needs: [prepare, native, managed, verify]
+    needs: [prepare, spirv, managed, verify]
     runs-on: ubuntu-latest
     environment: nuget.org
     permissions:

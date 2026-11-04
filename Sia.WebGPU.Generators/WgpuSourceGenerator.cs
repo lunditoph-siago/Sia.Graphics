@@ -48,7 +48,7 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
         var optionsProvider = context.AnalyzerConfigOptionsProvider
             .Select(static (provider, _) => WgpuGenerationOptions.From(provider.GlobalOptions));
         context.RegisterSourceOutput(optionsProvider, static (context, options) => {
-            var headerSource = TryGetEmbeddedHeader();
+            var headerSource = TryGetEmbeddedHeader(k_EmbeddedHeaderResourceName);
             if (string.IsNullOrWhiteSpace(headerSource)) {
                 context.ReportDiagnostic(Diagnostic.Create(s_MissingHeader, Location.None));
                 return;
@@ -59,8 +59,9 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
                 var nativeDirectory = GetNativeDependencyDirectory(platform);
                 Directory.CreateDirectory(nativeDirectory);
 
+                using var process = Process.GetCurrentProcess();
                 using var clangLock = AcquireExclusiveFileLock(
-                    Path.Combine(nativeDirectory, ".clang.lock"));
+                    Path.Combine(nativeDirectory, $".clang-{process.Id}.lock"));
                 EnsureNativeDependencies(platform, nativeDirectory);
                 var header = ClangWgpuHeaderParser.Parse(headerSource!);
                 AddGeneratedSources(context, header, options);
@@ -188,10 +189,10 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
     private static string CreateHintName(string directory, string name) =>
         $"{directory}/{name}.g.cs";
 
-    private static string? TryGetEmbeddedHeader()
+    private static string? TryGetEmbeddedHeader(string name)
     {
         using var stream = typeof(WgpuSourceGenerator).Assembly
-            .GetManifestResourceStream(k_EmbeddedHeaderResourceName);
+            .GetManifestResourceStream(name);
         if (stream is null) {
             return null;
         }
@@ -240,7 +241,6 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
             Path.GetTempPath(),
             "Sia.WebGPU.Generators",
             assembly.ManifestModule.ModuleVersionId.ToString("N"),
-            Process.GetCurrentProcess().Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
             platform.Rid);
     }
 
@@ -258,13 +258,6 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
             }
 
             ExtractNativeDependencies(platform, directory);
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) {
-                if (!Windows.SetDllDirectory(directory)) {
-                    throw new InvalidOperationException(
-                        $"Failed to set DLL directory '{directory}'. Win32Error={Marshal.GetLastWin32Error()}");
-                }
-            }
 
             s_LibClangHandle = LoadNativeDependency(
                 Path.Combine(directory, "libclang" + platform.Extension));
@@ -344,7 +337,7 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
     private static IntPtr LoadNativeDependency(string path)
     {
         var handle =
-            RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? Windows.LoadLibrary(path) :
+            RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? Windows.LoadLibraryEx(path, IntPtr.Zero, 0x1100) :
             RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? MacOS.Dlopen(path, k_RtldNow) :
             RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? Linux.Load(path, k_RtldNow) :
             throw new PlatformNotSupportedException(RuntimeInformation.OSDescription);
@@ -360,19 +353,11 @@ public sealed class WgpuSourceGenerator : IIncrementalGenerator
     {
         [DllImport(
             "kernel32",
-            EntryPoint = "SetDllDirectoryW",
+            EntryPoint = "LoadLibraryExW",
             ExactSpelling = true,
             CharSet = CharSet.Unicode,
             SetLastError = true)]
-        public static extern bool SetDllDirectory(string path);
-
-        [DllImport(
-            "kernel32",
-            EntryPoint = "LoadLibraryW",
-            ExactSpelling = true,
-            CharSet = CharSet.Unicode,
-            SetLastError = true)]
-        public static extern IntPtr LoadLibrary(string fileName);
+        public static extern IntPtr LoadLibraryEx(string fileName, IntPtr file, uint flags);
     }
 
     private static class MacOS

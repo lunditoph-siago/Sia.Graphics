@@ -7,4 +7,9 @@ public unsafe struct WGPUEmscriptenSurfaceSourceCanvasHTMLSelector
 {
     public WGPUChainedStruct Chain;
     public WGPUStringView Selector;
+
+    public static WGPUEmscriptenSurfaceSourceCanvasHTMLSelector Default => new() {
+        Chain = new() { SType = (WGPUSType)0x00040000 },
+        Selector = WGPUStringView.Default,
+    };
 }

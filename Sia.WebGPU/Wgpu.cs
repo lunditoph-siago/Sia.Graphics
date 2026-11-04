@@ -1,5 +1,12 @@
+#if BROWSER
+global using unsafe WgpuCallbackMessage = Sia.WebGPU.WGPUStringView*;
+#else
+global using WgpuCallbackMessage = Sia.WebGPU.WGPUStringView;
+#endif
+
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using WgpuCanvasSurfaceSource = Sia.WebGPU.WGPUEmscriptenSurfaceSourceCanvasHTMLSelector;
 
 namespace Sia.WebGPU;
 
@@ -219,19 +226,24 @@ public static unsafe partial class Wgpu
 
         using var selectorString = WgpuOwnedString.Create(selector);
         using var labelString = WgpuOwnedString.Create(label);
-        var source = new WGPUEmscriptenSurfaceSourceCanvasHTMLSelector {
-            Chain = new WGPUChainedStruct {
-                Next = null,
-                SType = (WGPUSType)0x00040000,
-            },
-            Selector = selectorString.View,
-        };
+        var source = WgpuCanvasSurfaceSource.Default;
+        source.Selector = selectorString.View;
         var descriptor = new WGPUSurfaceDescriptor {
             NextInChain = &source.Chain,
             Label = labelString.View,
         };
 
         return CreateSurface(instance, in descriptor);
+    }
+
+    private static T[] CopyNativeArray<T>(T* pointer, nuint count)
+        where T : unmanaged
+    {
+        var length = checked((int)count);
+        if (pointer == null && length != 0) {
+            throw new WgpuException("WebGPU returned a null array with a nonzero length.");
+        }
+        return new ReadOnlySpan<T>(pointer, length).ToArray();
     }
 
     internal static WgpuException CreateRequestException(string operation, string status, WGPUStringView message)
@@ -244,15 +256,11 @@ public static unsafe partial class Wgpu
 
     internal sealed class AsyncRequestState<T> : IDisposable
     {
-        private readonly CancellationTokenRegistration _cancellationRegistration;
         private GCHandle _selfHandle;
 
-        private AsyncRequestState(TaskCompletionSource<T> completion, CancellationToken cancellationToken)
+        private AsyncRequestState(TaskCompletionSource<T> completion)
         {
             Completion = completion;
-            _cancellationRegistration = cancellationToken.CanBeCanceled
-                ? cancellationToken.Register(static state => ((AsyncRequestState<T>)state!).TrySetCanceled(), this)
-                : default;
         }
 
         public TaskCompletionSource<T> Completion { get; }
@@ -261,10 +269,10 @@ public static unsafe partial class Wgpu
 
         public void* UserData => (void*)GCHandle.ToIntPtr(_selfHandle);
 
-        public static AsyncRequestState<T> Create(CancellationToken cancellationToken)
+        public static AsyncRequestState<T> Create()
         {
             var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var state = new AsyncRequestState<T>(completion, cancellationToken);
+            var state = new AsyncRequestState<T>(completion);
             state._selfHandle = GCHandle.Alloc(state);
             return state;
         }
@@ -279,14 +287,72 @@ public static unsafe partial class Wgpu
 
         public void TrySetException(Exception exception) => Completion.TrySetException(exception);
 
-        private void TrySetCanceled() => Completion.TrySetCanceled();
-
         public void Dispose()
         {
-            _cancellationRegistration.Dispose();
             if (_selfHandle.IsAllocated) {
                 _selfHandle.Free();
             }
+        }
+    }
+
+    internal static WGPUStringView ReadCallbackMessage(WgpuCallbackMessage message) =>
+#if BROWSER
+        message == null ? default : *message;
+#else
+        message;
+#endif
+}
+
+public static partial class Wgpu
+{
+    private static async Task AwaitBufferMapAsync(
+        Task<bool> nativeTask,
+        WgpuHandle<WGPUBuffer> buffer,
+        CancellationToken cancellationToken)
+    {
+        try {
+            await nativeTask;
+            if (cancellationToken.IsCancellationRequested) {
+                UnmapBuffer(buffer);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+        }
+        finally {
+            Release(ref buffer);
+        }
+    }
+
+    private static Task<WgpuHandle<T>> AwaitHandleAsync<T>(
+        Task<WgpuHandle<T>> nativeTask,
+        CancellationToken cancellationToken)
+        where T : unmanaged =>
+        cancellationToken.CanBeCanceled
+            ? AwaitCancelableHandleAsync(nativeTask, cancellationToken)
+            : nativeTask;
+
+    private static async Task<WgpuHandle<T>> AwaitCancelableHandleAsync<T>(
+        Task<WgpuHandle<T>> nativeTask,
+        CancellationToken cancellationToken)
+        where T : unmanaged
+    {
+        try {
+            return await nativeTask.WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
+            _ = ReleaseWhenCompletedAsync(nativeTask);
+            throw;
+        }
+
+        static async Task ReleaseWhenCompletedAsync(Task<WgpuHandle<T>> task)
+        {
+            WgpuHandle<T> result;
+            try {
+                result = await task;
+            }
+            catch {
+                return;
+            }
+            Release(ref result);
         }
     }
 }

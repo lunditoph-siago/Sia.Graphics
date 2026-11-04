@@ -60,7 +60,30 @@ public static unsafe partial class Wgpu
         ulong size,
         CancellationToken cancellationToken = default)
     {
-        var state = AsyncRequestState<bool>.Create(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        WgpuUnsafe.wgpuBufferAddRef(GetPointer(buffer));
+        try {
+            return AwaitBufferMapAsync(BeginBufferMap(buffer, offset, size), buffer, cancellationToken);
+        }
+        catch {
+            Release(ref buffer);
+            throw;
+        }
+    }
+
+    private static Task<bool> BeginBufferMap(
+        WgpuHandle<WGPUBuffer> buffer,
+        ulong offset,
+        ulong size)
+    {
+        var nativeOffset = checked((nuint)offset);
+        if (size == ulong.MaxValue) {
+            var bufferSize = GetBufferSize(buffer);
+            if (offset > bufferSize) throw new ArgumentOutOfRangeException(nameof(offset));
+            size = bufferSize - offset;
+        }
+        var nativeSize = checked((nuint)size);
+        var state = AsyncRequestState<bool>.Create();
 
         try {
             var callbackInfo = new WGPUBufferMapCallbackInfo {
@@ -71,13 +94,14 @@ public static unsafe partial class Wgpu
                     WGPUStringView,
                     void*,
                     void*,
-                    void>)&OnBufferMap,
+                    void>)(delegate* unmanaged[Cdecl]<WGPUMapAsyncStatus,
+                    WgpuCallbackMessage, void*, void*, void>)&OnBufferMap,
                 Userdata1 = state.UserData,
                 Userdata2 = null,
             };
 
             WgpuUnsafe.wgpuBufferMapAsync(
-                GetPointer(buffer), WGPUMapMode.Read, (nuint)offset, (nuint)size, callbackInfo);
+                GetPointer(buffer), WGPUMapMode.Read, nativeOffset, nativeSize, callbackInfo);
             return state.Task;
         }
         catch {
@@ -93,14 +117,31 @@ public static unsafe partial class Wgpu
         ulong size,
         TimeSpan? timeout = null)
     {
-        var task = MapBufferReadAsync(buffer, offset, size);
-        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(5));
+        if (OperatingSystem.IsBrowser()) {
+            throw new PlatformNotSupportedException("Use MapBufferReadAsync in the browser.");
+        }
+        _ = GetPointer(instance);
+        var duration = timeout ?? TimeSpan.FromSeconds(5);
+        if (duration < TimeSpan.Zero && duration != Timeout.InfiniteTimeSpan) {
+            throw new ArgumentOutOfRangeException(nameof(timeout));
+        }
+        var task = BeginBufferMap(buffer, offset, size);
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var spinner = new SpinWait();
         while (!task.IsCompleted) {
             ProcessEvents(instance);
-            if (DateTime.UtcNow > deadline) {
+            if (task.IsCompleted) break;
+            if (duration != Timeout.InfiniteTimeSpan
+                && System.Diagnostics.Stopwatch.GetElapsedTime(started) >= duration) {
+                UnmapBuffer(buffer);
+                _ = task.ContinueWith(static failed => _ = failed.Exception,
+                    CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
                 throw new TimeoutException(
                     "Timed out waiting for the WebGPU buffer map callback.");
             }
+            spinner.SpinOnce();
         }
         task.GetAwaiter().GetResult();
     }
@@ -111,8 +152,9 @@ public static unsafe partial class Wgpu
         int count)
         where T : unmanaged
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
         var byteSize = checked((nuint)count * (nuint)sizeof(T));
-        var pointer = WgpuUnsafe.wgpuBufferGetConstMappedRange(GetPointer(buffer), (nuint)offset, byteSize);
+        var pointer = WgpuUnsafe.wgpuBufferGetConstMappedRange(GetPointer(buffer), checked((nuint)offset), byteSize);
         if (pointer == null) {
             throw new InvalidOperationException(
                 "WebGPU could not get the mapped buffer range.");
@@ -120,10 +162,42 @@ public static unsafe partial class Wgpu
         return new ReadOnlySpan<T>(pointer, count);
     }
 
+    public static void ReadMappedRange<T>(
+        WgpuHandle<WGPUBuffer> buffer,
+        ulong offset,
+        Span<T> destination)
+        where T : unmanaged
+    {
+        var pointer = GetPointer(buffer);
+        var nativeOffset = checked((nuint)offset);
+        var byteSize = checked((nuint)destination.Length * (nuint)sizeof(T));
+        fixed (T* data = destination) {
+            if (WgpuUnsafe.wgpuBufferReadMappedRange(pointer, nativeOffset, data, byteSize) != WGPUStatus.Success) {
+                throw new WgpuException("WebGPU could not read the mapped buffer range.");
+            }
+        }
+    }
+
+    public static void WriteMappedRange<T>(
+        WgpuHandle<WGPUBuffer> buffer,
+        ulong offset,
+        ReadOnlySpan<T> source)
+        where T : unmanaged
+    {
+        var pointer = GetPointer(buffer);
+        var nativeOffset = checked((nuint)offset);
+        var byteSize = checked((nuint)source.Length * (nuint)sizeof(T));
+        fixed (T* data = source) {
+            if (WgpuUnsafe.wgpuBufferWriteMappedRange(pointer, nativeOffset, data, byteSize) != WGPUStatus.Success) {
+                throw new WgpuException("WebGPU could not write the mapped buffer range.");
+            }
+        }
+    }
+
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
     private static void OnBufferMap(
         WGPUMapAsyncStatus status,
-        WGPUStringView message,
+        WgpuCallbackMessage message,
         void* userdata1,
         void* userdata2)
     {
@@ -133,7 +207,7 @@ public static unsafe partial class Wgpu
                 state.TrySetResult(true);
             }
             else {
-                state.TrySetException(CreateRequestException("MapBufferRead", status.ToString(), message));
+                state.TrySetException(CreateRequestException("MapBufferRead", status.ToString(), ReadCallbackMessage(message)));
             }
         }
         finally {

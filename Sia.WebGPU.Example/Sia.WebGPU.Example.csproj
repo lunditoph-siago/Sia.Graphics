@@ -1,24 +1,43 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project>
   <PropertyGroup>
-    <TargetFramework>net11.0</TargetFramework>
+    <BaseIntermediateOutputPath>obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
   </PropertyGroup>
+
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;obj_desktop\**;obj_browser\**;publish\**</DefaultItemExcludes>
+    <EnableSpirvCompilation>true</EnableSpirvCompilation>
+    <SpirvTargetEnvironment>vulkan1.2</SpirvTargetEnvironment>
+    <SpirvOptimizationLevel>3</SpirvOptimizationLevel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\Fonts\*.ttf">
+      <LogicalName>Sia.WebGPU.Example.Fonts.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Sia.Graphics\Sia.Graphics.csproj" />
     <ProjectReference Include="..\Sia.Spirv.Core\Sia.Spirv.Core.csproj" />
     <ProjectReference Include="..\Sia.WebGPU\Sia.WebGPU.csproj" />
-    <ProjectReference Include="..\Sia.WebGPU.Native\Sia.WebGPU.Native.csproj" />
-    <PackageReference Include="Sia.GLFW" Version="0.0.4" />
-    <PackageReference Include="Sia.GLFW.Native" Version="0.0.4" />
-    <PackageReference Include="Sia.Math" Version="0.0.3" />
+    <ProjectReference Include="..\Sia.WebGPU.Native\Sia.WebGPU.Native.csproj" ReferenceOutputAssembly="false" />
+    <PackageReference Include="Sia.GLFW" Version="0.0.8" />
+    <PackageReference Include="Sia.GLFW.Native" Version="0.0.8" />
+    <PackageReference Include="Sia.Math" Version="0.0.4" />
+    <PackageReference Include="Sia.UI" Version="0.0.5" />
   </ItemGroup>
 
-  <ItemGroup Condition="Exists('..\..\Sia.Engine\Sia.UI\Sia.UI.csproj')">
-    <ProjectReference Include="..\..\Sia.Engine\Sia.UI\Sia.UI.csproj" />
-  </ItemGroup>
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
 
-  <ItemGroup Condition="!Exists('..\..\Sia.Engine\Sia.UI\Sia.UI.csproj')">
-    <PackageReference Include="Sia.UI" Version="0.0.1" />
+  <ItemGroup>
+    <Reference Remove="Sia.Spirv.Core" />
   </ItemGroup>
-
 </Project>

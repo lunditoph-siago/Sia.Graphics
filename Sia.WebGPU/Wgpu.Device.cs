@@ -48,7 +48,8 @@ public static unsafe partial class Wgpu
         in WGPURequestAdapterOptions options,
         CancellationToken cancellationToken = default)
     {
-        var state = AsyncRequestState<WgpuHandle<WGPUAdapter>>.Create(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        var state = AsyncRequestState<WgpuHandle<WGPUAdapter>>.Create();
 
         try {
             var callbackInfo = new WGPURequestAdapterCallbackInfo {
@@ -60,7 +61,8 @@ public static unsafe partial class Wgpu
                     WGPUStringView,
                     void*,
                     void*,
-                    void>)&OnRequestAdapter,
+                    void>)(delegate* unmanaged[Cdecl]<WGPURequestAdapterStatus,
+                    WGPUAdapter*, WgpuCallbackMessage, void*, void*, void>)&OnRequestAdapter,
                 Userdata1 = state.UserData,
                 Userdata2 = null,
             };
@@ -69,7 +71,7 @@ public static unsafe partial class Wgpu
                 WgpuUnsafe.wgpuInstanceRequestAdapter(GetPointer(instance), optionsPtr, callbackInfo);
             }
 
-            return state.Task;
+            return AwaitHandleAsync(state.Task, cancellationToken);
         }
         catch {
             state.Dispose();
@@ -160,7 +162,8 @@ public static unsafe partial class Wgpu
         in WGPUDeviceDescriptor descriptor,
         CancellationToken cancellationToken = default)
     {
-        var state = AsyncRequestState<WgpuHandle<WGPUDevice>>.Create(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        var state = AsyncRequestState<WgpuHandle<WGPUDevice>>.Create();
 
         try {
             var callbackInfo = new WGPURequestDeviceCallbackInfo {
@@ -172,7 +175,8 @@ public static unsafe partial class Wgpu
                     WGPUStringView,
                     void*,
                     void*,
-                    void>)&OnRequestDevice,
+                    void>)(delegate* unmanaged[Cdecl]<WGPURequestDeviceStatus,
+                    WGPUDevice*, WgpuCallbackMessage, void*, void*, void>)&OnRequestDevice,
                 Userdata1 = state.UserData,
                 Userdata2 = null,
             };
@@ -181,7 +185,7 @@ public static unsafe partial class Wgpu
                 WgpuUnsafe.wgpuAdapterRequestDevice(GetPointer(adapter), descriptorPtr, callbackInfo);
             }
 
-            return state.Task;
+            return AwaitHandleAsync(state.Task, cancellationToken);
         }
         catch {
             state.Dispose();
@@ -192,6 +196,29 @@ public static unsafe partial class Wgpu
     public static WgpuHandle<WGPUQueue> GetQueue(WgpuHandle<WGPUDevice> device) =>
         WgpuHandle<WGPUQueue>.FromPointer(
             WgpuUnsafe.wgpuDeviceGetQueue(GetPointer(device)));
+
+    public static Task OnSubmittedWorkDoneAsync(
+        WgpuHandle<WGPUQueue> queue,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var state = AsyncRequestState<bool>.Create();
+        try {
+            var callback = new WGPUQueueWorkDoneCallbackInfo {
+                Mode = WGPUCallbackMode.AllowSpontaneous,
+                Callback = (delegate* unmanaged[Cdecl]<WGPUQueueWorkDoneStatus,
+                    WGPUStringView, void*, void*, void>)(delegate* unmanaged[Cdecl]<WGPUQueueWorkDoneStatus,
+                    WgpuCallbackMessage, void*, void*, void>)&OnSubmittedWorkDone,
+                Userdata1 = state.UserData,
+            };
+            WgpuUnsafe.wgpuQueueOnSubmittedWorkDone(GetPointer(queue), callback);
+            return state.Task.WaitAsync(cancellationToken);
+        }
+        catch {
+            state.Dispose();
+            throw;
+        }
+    }
 
     public static WGPULimits GetLimits(WgpuHandle<WGPUDevice> device)
     {
@@ -223,14 +250,93 @@ public static unsafe partial class Wgpu
         return limits;
     }
 
+    public static bool HasFeature(WgpuHandle<WGPUAdapter> adapter, WGPUFeatureName feature) =>
+        WgpuUnsafe.wgpuAdapterHasFeature(GetPointer(adapter), feature) != 0;
+    public static bool HasFeature(WgpuHandle<WGPUDevice> device, WGPUFeatureName feature) =>
+        WgpuUnsafe.wgpuDeviceHasFeature(GetPointer(device), feature) != 0;
+    public static WGPUFeatureName[] GetFeatures(WgpuHandle<WGPUAdapter> adapter)
+    {
+        var pointer = GetPointer(adapter);
+        var features = WGPUSupportedFeatures.Default;
+        try {
+            WgpuUnsafe.wgpuAdapterGetFeatures(pointer, &features);
+            return CopyNativeArray(features.Features, features.FeatureCount);
+        }
+        finally {
+            WgpuUnsafe.wgpuSupportedFeaturesFreeMembers(features);
+        }
+    }
+    public static WGPUFeatureName[] GetFeatures(WgpuHandle<WGPUDevice> device)
+    {
+        var pointer = GetPointer(device);
+        var features = WGPUSupportedFeatures.Default;
+        try {
+            WgpuUnsafe.wgpuDeviceGetFeatures(pointer, &features);
+            return CopyNativeArray(features.Features, features.FeatureCount);
+        }
+        finally {
+            WgpuUnsafe.wgpuSupportedFeaturesFreeMembers(features);
+        }
+    }
+    public static WGPULimits GetLimits(WgpuHandle<WGPUAdapter> adapter)
+    {
+        var limits = WGPULimits.Default;
+        if (WgpuUnsafe.wgpuAdapterGetLimits(GetPointer(adapter), &limits) != WGPUStatus.Success) {
+            throw new WgpuException("WebGPU failed to report the adapter limits.");
+        }
+        return limits;
+    }
+    public static WgpuAdapterInfo GetAdapterInfo(WgpuHandle<WGPUAdapter> adapter)
+    {
+        var pointer = GetPointer(adapter);
+        var info = WGPUAdapterInfo.Default;
+        try {
+            if (WgpuUnsafe.wgpuAdapterGetInfo(pointer, &info) != WGPUStatus.Success) {
+                throw new WgpuException("WebGPU failed to report the adapter information.");
+            }
+            return new(
+                WgpuStringViewText.ToString(info.Vendor),
+                WgpuStringViewText.ToString(info.Architecture),
+                WgpuStringViewText.ToString(info.Device),
+                WgpuStringViewText.ToString(info.Description),
+                info.BackendType, info.AdapterType, info.VendorID, info.DeviceID,
+                info.SubgroupMinSize, info.SubgroupMaxSize);
+        }
+        finally {
+            WgpuUnsafe.wgpuAdapterInfoFreeMembers(info);
+        }
+    }
+
     public static void DestroyDevice(WgpuHandle<WGPUDevice> device) =>
         WgpuUnsafe.wgpuDeviceDestroy(GetPointer(device));
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void OnSubmittedWorkDone(
+        WGPUQueueWorkDoneStatus status,
+        WgpuCallbackMessage message,
+        void* userdata1,
+        void* userdata2)
+    {
+        var state = AsyncRequestState<bool>.FromUserData(userdata1);
+        try {
+            if (status == WGPUQueueWorkDoneStatus.Success) {
+                state.TrySetResult(true);
+            }
+            else {
+                state.TrySetException(CreateRequestException(
+                    "OnSubmittedWorkDone", status.ToString(), ReadCallbackMessage(message)));
+            }
+        }
+        finally {
+            state.Dispose();
+        }
+    }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
     private static void OnRequestAdapter(
         WGPURequestAdapterStatus status,
         WGPUAdapter* adapter,
-        WGPUStringView message,
+        WgpuCallbackMessage message,
         void* userdata1,
         void* userdata2)
     {
@@ -238,12 +344,10 @@ public static unsafe partial class Wgpu
         try {
             if (status == WGPURequestAdapterStatus.Success && adapter != null) {
                 var result = WgpuHandle<WGPUAdapter>.FromPointer(adapter);
-                if (!state.TrySetResult(result)) {
-                    Release(ref result);
-                }
+                state.TrySetResult(result);
             }
             else {
-                state.TrySetException(CreateRequestException("RequestAdapter", status.ToString(), message));
+                state.TrySetException(CreateRequestException("RequestAdapter", status.ToString(), ReadCallbackMessage(message)));
             }
         }
         finally {
@@ -255,7 +359,7 @@ public static unsafe partial class Wgpu
     private static void OnRequestDevice(
         WGPURequestDeviceStatus status,
         WGPUDevice* device,
-        WGPUStringView message,
+        WgpuCallbackMessage message,
         void* userdata1,
         void* userdata2)
     {
@@ -263,12 +367,10 @@ public static unsafe partial class Wgpu
         try {
             if (status == WGPURequestDeviceStatus.Success && device != null) {
                 var result = WgpuHandle<WGPUDevice>.FromPointer(device);
-                if (!state.TrySetResult(result)) {
-                    Release(ref result);
-                }
+                state.TrySetResult(result);
             }
             else {
-                state.TrySetException(CreateRequestException("RequestDevice", status.ToString(), message));
+                state.TrySetException(CreateRequestException("RequestDevice", status.ToString(), ReadCallbackMessage(message)));
             }
         }
         finally {

@@ -16,28 +16,22 @@
 
   <ItemGroup>
     <PackageReference Include="ClangSharp.Interop" Version="16.0.0" PrivateAssets="all" />
-
     <PackageReference Include="libclang.runtime.win-x64" Version="$(LibClangVersion)" PrivateAssets="all" />
     <PackageReference Include="libclang.runtime.linux-x64" Version="$(LibClangVersion)" PrivateAssets="all" />
     <PackageReference Include="libclang.runtime.osx-x64" Version="$(LibClangVersion)" PrivateAssets="all" />
     <PackageReference Include="libclang.runtime.osx-arm64" Version="$(LibClangVersion)" PrivateAssets="all" />
-
     <PackageReference Include="libClangSharp.runtime.win-x64" Version="$(LibClangVersion)" PrivateAssets="all" />
     <PackageReference Include="libClangSharp.runtime.linux-x64" Version="$(LibClangVersion)" PrivateAssets="all" />
     <PackageReference Include="libClangSharp.runtime.osx-x64" Version="$(LibClangVersion)" PrivateAssets="all" />
     <PackageReference Include="libClangSharp.runtime.osx-arm64" Version="$(LibClangVersion)" PrivateAssets="all" />
-
-    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="5.3.0">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.3.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="5.3.0" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-    <None Include="$(NuGetPackageRoot)clangsharp.interop\16.0.0\lib\netstandard2.0\ClangSharp.Interop.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-
+    <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers\dotnet\cs" Visible="false" />
+    <None Include="$(NuGetPackageRoot)clangsharp.interop\16.0.0\lib\netstandard2.0\ClangSharp.Interop.dll"
+          Pack="true" PackagePath="analyzers\dotnet\cs" Visible="false" />
     <EmbeddedResource Include="$(NuGetPackageRoot)libclang.runtime.win-x64\$(LibClangVersion)\runtimes\win-x64\native\libclang.dll"
                       LogicalName="Sia.WebGPU.Generators.Native.libclang.win-x64.dll" />
     <EmbeddedResource Include="$(NuGetPackageRoot)libclang.runtime.linux-x64\$(LibClangVersion)\runtimes\linux-x64\native\libclang.so"
@@ -46,7 +40,6 @@
                       LogicalName="Sia.WebGPU.Generators.Native.libclang.osx-x64.dylib" />
     <EmbeddedResource Include="$(NuGetPackageRoot)libclang.runtime.osx-arm64\$(LibClangVersion)\runtimes\osx-arm64\native\libclang.dylib"
                       LogicalName="Sia.WebGPU.Generators.Native.libclang.osx-arm64.dylib" />
-
     <EmbeddedResource Include="$(NuGetPackageRoot)libclangsharp.runtime.win-x64\$(LibClangVersion)\runtimes\win-x64\native\libClangSharp.dll"
                       LogicalName="Sia.WebGPU.Generators.Native.libClangSharp.win-x64.dll" />
     <EmbeddedResource Include="$(NuGetPackageRoot)libclangsharp.runtime.linux-x64\$(LibClangVersion)\runtimes\linux-x64\native\libClangSharp.so"
@@ -55,56 +48,8 @@
                       LogicalName="Sia.WebGPU.Generators.Native.libClangSharp.osx-x64.dylib" />
     <EmbeddedResource Include="$(NuGetPackageRoot)libclangsharp.runtime.osx-arm64\$(LibClangVersion)\runtimes\osx-arm64\native\libClangSharp.dylib"
                       LogicalName="Sia.WebGPU.Generators.Native.libClangSharp.osx-arm64.dylib" />
-
-    <EmbeddedResource Include="Resources\webgpu.h"
-                      LogicalName="Sia.WebGPU.Generators.webgpu.h"
-                      Condition="Exists('Resources\webgpu.h')" />
     <EmbeddedResource Include="$(NuGetPackageRoot)clangsharp.interop\16.0.0\lib\netstandard2.0\ClangSharp.Interop.dll"
                       LogicalName="Sia.WebGPU.Generators.ClangSharp.Interop.dll" />
+    <EmbeddedResource Include="Resources\webgpu.h" LogicalName="Sia.WebGPU.Generators.webgpu.h" />
   </ItemGroup>
-
-  <UsingTask TaskName="DownloadWebGpuHeaderTask"
-             TaskFactory="RoslynCodeTaskFactory"
-             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
-    <ParameterGroup>
-      <HeaderUrl ParameterType="System.String" Required="true" />
-      <OutputFile ParameterType="System.String" Required="true" />
-      <Force ParameterType="System.Boolean" Required="false" />
-    </ParameterGroup>
-    <Task>
-      <Using Namespace="System.IO" />
-      <Using Namespace="System.Net" />
-      <Code Type="Fragment" Language="cs">
-        <![CDATA[
-          if (Force || !File.Exists(OutputFile))
-          {
-              Log.LogMessage(MessageImportance.High, $"Syncing webgpu.h from {HeaderUrl}...");
-              using var client = new WebClient();
-              var dir = Path.GetDirectoryName(OutputFile);
-              if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                  Directory.CreateDirectory(dir);
-              client.DownloadFile(HeaderUrl, OutputFile);
-              Log.LogMessage(MessageImportance.High, "webgpu.h synced successfully.");
-          }
-          else
-          {
-              Log.LogMessage(MessageImportance.Normal,
-                  "webgpu.h already exists. Set ForceDownloadWebGpuHeader=true to force resync.");
-          }
-        ]]>
-      </Code>
-    </Task>
-  </UsingTask>
-
-  <Target Name="SyncWebGpuHeader" BeforeTargets="BeforeBuild">
-    <PropertyGroup>
-      <WebGpuHeaderUrl>https://raw.githubusercontent.com/webgpu-native/webgpu-headers/main/webgpu.h</WebGpuHeaderUrl>
-      <WebGpuHeaderOutput>Resources\webgpu.h</WebGpuHeaderOutput>
-    </PropertyGroup>
-    <DownloadWebGpuHeaderTask
-      HeaderUrl="$(WebGpuHeaderUrl)"
-      OutputFile="$(WebGpuHeaderOutput)"
-      Force="$(ForceDownloadWebGpuHeader)" />
-  </Target>
-
 </Project>

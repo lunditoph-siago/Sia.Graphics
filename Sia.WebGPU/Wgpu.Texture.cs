@@ -44,6 +44,43 @@ public static unsafe partial class Wgpu
         }
     }
 
+    public static void WriteTexture<T>(
+        WgpuHandle<WGPUQueue> queue,
+        WgpuHandle<WGPUTexture> texture,
+        ReadOnlySpan<T> data,
+        in WGPUTexelCopyBufferLayout layout,
+        in WGPUExtent3D size,
+        uint mipLevel = 0,
+        WGPUOrigin3D origin = default,
+        WGPUTextureAspect aspect = WGPUTextureAspect.All)
+        where T : unmanaged
+    {
+        var destination = new WGPUTexelCopyTextureInfo {
+            Texture = GetPointer(texture),
+            MipLevel = mipLevel,
+            Origin = origin,
+            Aspect = aspect,
+        };
+        WriteTexture(queue, in destination, data, in layout, in size);
+    }
+    public static void WriteTexture<T>(
+        WgpuHandle<WGPUQueue> queue,
+        in WGPUTexelCopyTextureInfo destination,
+        ReadOnlySpan<T> data,
+        in WGPUTexelCopyBufferLayout layout,
+        in WGPUExtent3D size)
+        where T : unmanaged
+    {
+        var byteSize = checked((nuint)data.Length * (nuint)sizeof(T));
+        fixed (T* dataPointer = data)
+        fixed (WGPUTexelCopyTextureInfo* destinationPointer = &destination)
+        fixed (WGPUTexelCopyBufferLayout* layoutPointer = &layout)
+        fixed (WGPUExtent3D* sizePointer = &size) {
+            WgpuUnsafe.wgpuQueueWriteTexture(
+                GetPointer(queue), destinationPointer, dataPointer, byteSize, layoutPointer, sizePointer);
+        }
+    }
+
     public static void DestroyTexture(WgpuHandle<WGPUTexture> texture) =>
         WgpuUnsafe.wgpuTextureDestroy(GetPointer(texture));
 

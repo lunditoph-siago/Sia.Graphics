@@ -56,23 +56,6 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           "feature_band=$featureBand" >> $env:GITHUB_OUTPUT
 
-      - name: Resolve native WebGPU release metadata
-        shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $project = 'Sia.WebGPU.Native/Sia.WebGPU.Native.csproj'
-          $metadata = dotnet msbuild $project -target:ResolveNativeRelease -getProperty:_NativeReleaseCacheFile
-          if ($LASTEXITCODE -ne 0) { throw 'Native WebGPU release resolution failed.' }
-          Copy-Item -LiteralPath $metadata -Destination artifacts/webgpu-release.json
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: webgpu-release-metadata
-          path: artifacts/webgpu-release.json
-          if-no-files-found: error
-
   spirv:
     if: github.ref_type == 'tag'
     needs: prepare
@@ -375,7 +358,6 @@ jobs:
           compression-level: 0
 
   native:
-    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -424,16 +406,10 @@ jobs:
             hashFiles('Sia.WebGPU.Native/Sia.WebGPU.Native.csproj', 'Sia.WebGPU.Native/Build/**') }}
           restore-keys: webgpu-native-${{ matrix.rid }}-
 
-      - name: Download native WebGPU release metadata
-        uses: actions/download-artifact@v8
-        with:
-          name: webgpu-release-metadata
-          path: artifacts
-
       - name: Build native WebGPU library
         shell: pwsh
         env:
-          NativeReleaseMetadataFile: ${{ github.workspace }}/artifacts/webgpu-release.json
+          GITHUB_TOKEN: ${{ github.token }}
         run: >-
           dotnet build Sia.WebGPU.Native/Sia.WebGPU.Native.csproj
           -c Release
@@ -470,16 +446,10 @@ jobs:
           merge-multiple: true
           path: artifacts/webgpu-runtimes
 
-      - name: Download native WebGPU release metadata
-        uses: actions/download-artifact@v8
-        with:
-          name: webgpu-release-metadata
-          path: artifacts
-
       - name: Pack managed packages
         shell: pwsh
         env:
-          NativeReleaseMetadataFile: ${{ github.workspace }}/artifacts/webgpu-release.json
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
           $projects = @(

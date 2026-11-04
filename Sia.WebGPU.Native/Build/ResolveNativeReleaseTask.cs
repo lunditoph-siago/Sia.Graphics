@@ -17,8 +17,6 @@ public sealed class ResolveNativeReleaseTask : Microsoft.Build.Utilities.Task
     [Required]
     public string MetadataFile { get; set; }
 
-    public string SnapshotFile { get; set; }
-
     [Output]
     public string Revision { get; set; }
 
@@ -59,17 +57,10 @@ public sealed class ResolveNativeReleaseTask : Microsoft.Build.Utilities.Task
         if (!Regex.IsMatch(ReleaseTag, @"^v\d{8}\.\d{6}$"))
             throw new InvalidDataException("Invalid native release tag.");
 
-        if (!string.IsNullOrEmpty(SnapshotFile)) {
-            var snapshot = ReadRelease(SnapshotFile);
-            if (!MatchesRelease(snapshot))
-                throw new InvalidDataException("The native release snapshot does not match the selected tag.");
-            return snapshot;
-        }
-
         var path = MetadataFile;
         try {
             var cached = ReadRelease(path);
-            if (MatchesRelease(cached)) return cached;
+            if (MatchesRelease(cached) && cached.Tag == ReleaseTag) return cached;
         }
         catch (SerializationException) {
             Log.LogMessage(MessageImportance.Normal, "Ignoring invalid release cache: {0}", path);
@@ -85,7 +76,7 @@ public sealed class ResolveNativeReleaseTask : Microsoft.Build.Utilities.Task
         using (var stream = client.GetStreamAsync(url).GetAwaiter().GetResult()) {
             var serializer = new DataContractJsonSerializer(typeof(Release));
             var release = (Release)serializer.ReadObject(stream);
-            if (!MatchesRelease(release))
+            if (!MatchesRelease(release) || release.Tag != ReleaseTag)
                 throw new InvalidDataException("Invalid native release metadata.");
 
             CacheRelease(release);
@@ -120,8 +111,8 @@ public sealed class ResolveNativeReleaseTask : Microsoft.Build.Utilities.Task
         }
     }
 
-    private bool MatchesRelease(Release release) =>
-        release != null && release.Tag == ReleaseTag && release.Assets != null &&
+    private static bool MatchesRelease(Release release) =>
+        release != null && Regex.IsMatch(release.Tag ?? "", @"^v\d{8}\.\d{6}$") && release.Assets != null &&
         release.Assets.Count(asset =>
             asset != null && Regex.IsMatch(asset.Name ?? "", @"^dawn-headers-[a-f0-9]{40}\.tar\.gz$")) == 1;
 

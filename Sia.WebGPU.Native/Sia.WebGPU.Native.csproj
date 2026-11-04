@@ -59,11 +59,15 @@
       <TfmSpecificPackageFile Include="$(NativeHeaderRoot)\include\dawn\webgpu.h" PackagePath="include\dawn\webgpu.h" />
       <TfmSpecificPackageFile Include="$(NativeRuntimeDirectory)\%(_NativeRuntime.Identity)\native\%(_NativeRuntime.Library)"
                               PackagePath="runtimes\%(_NativeRuntime.Identity)\native\%(_NativeRuntime.Library)" />
-      <TfmSpecificPackageFile Include="$(NativeRuntimeDirectory)\%(_NativeRuntime.Identity)\native\dxcompiler.dll;
-                                       $(NativeRuntimeDirectory)\%(_NativeRuntime.Identity)\native\dxil.dll;
-                                       $(NativeRuntimeDirectory)\%(_NativeRuntime.Identity)\native\LICENSE.dxc"
+      <TfmSpecificPackageFile Include="$(NativeRuntimeDirectory)\%(_NativeRuntime.Identity)\native\dxcompiler.dll"
                               Condition="$([System.String]::Copy('%(_NativeRuntime.Identity)').StartsWith('win-'))"
-                              PackagePath="runtimes\%(_NativeRuntime.Identity)\native\" />
+                              PackagePath="runtimes\%(_NativeRuntime.Identity)\native\dxcompiler.dll" />
+      <TfmSpecificPackageFile Include="$(NativeRuntimeDirectory)\%(_NativeRuntime.Identity)\native\dxil.dll"
+                              Condition="$([System.String]::Copy('%(_NativeRuntime.Identity)').StartsWith('win-'))"
+                              PackagePath="runtimes\%(_NativeRuntime.Identity)\native\dxil.dll" />
+      <TfmSpecificPackageFile Include="$(NativeRuntimeDirectory)\%(_NativeRuntime.Identity)\native\LICENSE.dxc"
+                              Condition="$([System.String]::Copy('%(_NativeRuntime.Identity)').StartsWith('win-'))"
+                              PackagePath="runtimes\%(_NativeRuntime.Identity)\native\LICENSE.dxc" />
       <TfmSpecificPackageFile Include="$(NativeRuntimeDirectory)\%(_NativeRuntime.Identity)\native\wgpu_native.lib"
                               Condition="$([System.String]::Copy('%(_NativeRuntime.Identity)').StartsWith('win-'))"
                               PackagePath="build\native\lib\%(_NativeRuntime.Identity)\wgpu_native.lib" />

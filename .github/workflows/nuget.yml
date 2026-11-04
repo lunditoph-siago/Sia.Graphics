@@ -1,7 +1,6 @@
 name: Publish
 
 on:
-  pull_request:
   push:
     tags:
       - 'v*.*.*'
@@ -381,17 +380,24 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
+
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 11.x
+
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
+
       - name: Install Linux build dependencies
         if: startsWith(matrix.rid, 'linux-')
         run: |
           sudo apt-get update
-          sudo apt-get install -y libx11-dev libx11-xcb-dev libxcb1-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libwayland-dev wayland-protocols libxkbcommon-dev libegl-dev libgles-dev
+          sudo apt-get install -y \
+            libx11-dev libx11-xcb-dev libxcb1-dev libxrandr-dev \
+            libxinerama-dev libxcursor-dev libxi-dev libwayland-dev \
+            wayland-protocols libxkbcommon-dev libegl-dev libgles-dev
+
       - uses: actions/cache@v6
         with:
           path: artifacts/webgpu
@@ -399,10 +405,14 @@ jobs:
             webgpu-native-${{ matrix.rid }}-${{
             hashFiles('Sia.WebGPU.Native/Sia.WebGPU.Native.csproj', 'Sia.WebGPU.Native/Build/**') }}
           restore-keys: webgpu-native-${{ matrix.rid }}-
+
       - name: Build native WebGPU library
         shell: pwsh
-        run: |
-          dotnet build Sia.WebGPU.Native/Sia.WebGPU.Native.csproj -c Release -r '${{ matrix.rid }}'
+        run: >-
+          dotnet build Sia.WebGPU.Native/Sia.WebGPU.Native.csproj
+          -c Release
+          -r '${{ matrix.rid }}'
+
       - uses: actions/upload-artifact@v7
         with:
           name: webgpu-native-${{ matrix.rid }}

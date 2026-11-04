@@ -1,6 +1,8 @@
 name: Publish
 
 on:
+  pull_request:
+    types: [labeled]
   push:
     tags:
       - 'v*.*.*'
@@ -358,6 +360,7 @@ jobs:
           compression-level: 0
 
   native:
+    if: github.ref_type == 'tag' || github.event.label.name == 'ci:native-build'
     strategy:
       fail-fast: false
       matrix:
@@ -418,6 +421,43 @@ jobs:
           name: webgpu-native-${{ matrix.rid }}
           path: artifacts/webgpu-runtimes
           if-no-files-found: error
+
+  native-preview:
+    if: github.event_name == 'pull_request' && github.event.label.name == 'ci:native-build'
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.x
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: webgpu-native-*
+          merge-multiple: true
+          path: artifacts/webgpu-runtimes
+
+      - name: Pack native preview from uploaded runtimes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $project = 'Sia.WebGPU.Native/Sia.WebGPU.Native.csproj'
+          dotnet restore $project
+          if ($LASTEXITCODE -ne 0) { throw 'Native WebGPU restore failed.' }
+          dotnet pack $project --no-build --configuration Release `
+            --output artifacts/packages -p:Version=0.0.0-preview.${{ github.run_id }}
+          if ($LASTEXITCODE -ne 0) { throw 'Native WebGPU preview pack failed.' }
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: webgpu-preview-package
+          path: artifacts/packages/*.nupkg
+          if-no-files-found: error
+          compression-level: 0
 
   managed:
     if: github.ref_type == 'tag'

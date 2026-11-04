@@ -14,65 +14,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  metadata-prepare:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 11.x
-
-      - name: Resolve native WebGPU release metadata
-        shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $project = 'Sia.WebGPU.Native/Sia.WebGPU.Native.csproj'
-          $metadata = dotnet msbuild $project -target:ResolveNativeRelease -getProperty:_NativeReleaseCacheFile
-          if ($LASTEXITCODE -ne 0) { throw 'Native WebGPU release resolution failed.' }
-          Copy-Item -LiteralPath $metadata -Destination artifacts/webgpu-release.json
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: webgpu-release-metadata
-          path: artifacts/webgpu-release.json
-          if-no-files-found: error
-
-  metadata-consumer:
-    if: github.event_name == 'workflow_dispatch'
-    needs: metadata-prepare
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 11.x
-
-      - name: Download native WebGPU release metadata
-        uses: actions/download-artifact@v8
-        with:
-          name: webgpu-release-metadata
-          path: artifacts
-
-      - name: Prepare headers from the injected snapshot
-        shell: pwsh
-        env:
-          NativeReleaseMetadataFile: ${{ github.workspace }}/artifacts/webgpu-release.json
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $project = 'Sia.WebGPU.Native/Sia.WebGPU.Native.csproj'
-          dotnet msbuild $project -target:PrepareNativeHeaders -getProperty:NativeRevision,NativeHeaderRoot
-          if ($LASTEXITCODE -ne 0) { throw 'Injected WebGPU metadata failed.' }
-          if (Get-ChildItem artifacts/webgpu -Filter '*.json') { throw 'Consumer fetched fresh metadata.' }
-
   test:
     runs-on: ubuntu-latest
     steps:

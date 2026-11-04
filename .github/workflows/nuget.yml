@@ -408,6 +408,8 @@ jobs:
 
       - name: Build native WebGPU library
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: >-
           dotnet build Sia.WebGPU.Native/Sia.WebGPU.Native.csproj
           -c Release
@@ -446,6 +448,8 @@ jobs:
 
       - name: Pack managed packages
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
           $projects = @(

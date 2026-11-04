@@ -3,6 +3,7 @@ using Microsoft.Build.Utilities;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Runtime.Serialization.Json;
 using System.Runtime.Serialization;
 using System.Text.RegularExpressions;
@@ -69,6 +70,9 @@ public sealed class ResolveNativeReleaseTask : Microsoft.Build.Utilities.Task
         }
 
         var url = "https://api.github.com/repos/google/dawn/releases/tags/" + Uri.EscapeDataString(ReleaseTag);
+        var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+        if (!string.IsNullOrEmpty(token))
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         using (var stream = client.GetStreamAsync(url).GetAwaiter().GetResult()) {
             var serializer = new DataContractJsonSerializer(typeof(Release));
             var release = (Release)serializer.ReadObject(stream);

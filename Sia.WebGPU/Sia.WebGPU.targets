@@ -1,5 +1,6 @@
 <Project>
   <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm'">
+    <WasmBuildNative Condition="'$(WasmBuildNative)' == ''">true</WasmBuildNative>
     <EmccFlags>$(EmccFlags) --use-port=emdawnwebgpu</EmccFlags>
   </PropertyGroup>
 

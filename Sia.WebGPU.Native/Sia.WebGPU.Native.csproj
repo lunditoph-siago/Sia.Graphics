@@ -149,13 +149,20 @@
     </Task>
   </UsingTask>
 
-  <Target Name="PrepareNativeHeaders">
+  <Target Name="ResolveNativeRelease">
+    <PropertyGroup>
+      <_NativeReleaseCacheFile>$([MSBuild]::NormalizePath('$(NativeArtifactsDirectory)', '$(DawnTag).json'))</_NativeReleaseCacheFile>
+    </PropertyGroup>
     <ResolveNativeReleaseTask ReleaseTag="$(DawnTag)"
-        MetadataFile="$([MSBuild]::NormalizePath('$(NativeArtifactsDirectory)', '$(DawnTag).json'))">
+                              MetadataFile="$(_NativeReleaseCacheFile)"
+                              SnapshotFile="$(NativeReleaseMetadataFile)">
       <Output TaskParameter="Revision" PropertyName="NativeRevision" />
       <Output TaskParameter="HeaderAsset" ItemName="_NativeHeaderAsset" />
       <Output TaskParameter="SdkAssets" ItemName="_NativeSdkCandidate" />
     </ResolveNativeReleaseTask>
+  </Target>
+
+  <Target Name="PrepareNativeHeaders" DependsOnTargets="ResolveNativeRelease">
     <PropertyGroup>
       <NativeReleaseDirectory>$([MSBuild]::NormalizePath('$(NativeArtifactsDirectory)', '$(DawnTag)'))</NativeReleaseDirectory>
       <NativeHeaderRoot>$([MSBuild]::NormalizePath('$(NativeReleaseDirectory)', 'headers'))</NativeHeaderRoot>

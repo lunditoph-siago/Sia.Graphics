@@ -1,0 +1,87 @@
+using Sia.Spirv.Compiler.Compilation;
+using Sia.Spirv.Compiler.Translation;
+using Sia.Spirv.Compiler.Translation.Front;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
+using Sia.Spirv.Compiler.Translation.Legalization;
+using Sia.Spirv.Compiler.Translation.Spirv;
+
+namespace Sia.Spirv.Compiler.Tests;
+
+public sealed class SpirvNonzeroDivisorTests
+{
+    [Theory]
+    [InlineData("x / (y | 1u)", "u32", (int)Op.UDiv)]
+    [InlineData("x % (y | 1u)", "u32", (int)Op.UMod)]
+    [InlineData("x / (8u | y)", "u32", (int)Op.UDiv)]
+    [InlineData("x / select(y | 1u, y | 2u, x == 0u)", "u32", (int)Op.UDiv)]
+    [InlineData("x / u32(i32(y) | 1i)", "u32", (int)Op.UDiv)]
+    [InlineData("x / (y | vec3<u32>(1u, 2u, 4u))", "vec3<u32>", (int)Op.UDiv)]
+    [InlineData("x % (y | vec3<u32>(1u, 2u, 4u))", "vec3<u32>", (int)Op.UMod)]
+    public void ProvenUnsignedDivisorsAvoidSafetyHelpers(string expression, string type, int opcode)
+    {
+        var binary = SpirvIntegerArithmeticTests.Compile(expression, type);
+        Assert.Single(binary.Instructions, i => i.Opcode == (ushort)Op.FunctionCall);
+        Assert.Single(binary.Instructions, i => i.Opcode == (ushort)opcode);
+    }
+
+    [Theory]
+    [InlineData("x / (y & 1u)", "u32")]
+    [InlineData("x / ((y | 1u) & 2u)", "u32")]
+    [InlineData("x / (y + 1u)", "u32")]
+    [InlineData("x / select(0u, y | 1u, x == 0u)", "u32")]
+    [InlineData("x / (y | vec3<u32>(1u, 0u, 2u))", "vec3<u32>")]
+    [InlineData("x / (y | 1i)", "i32")]
+    [InlineData("x % (y | 1i)", "i32")]
+    public void ZeroLanesAndSignedOverflowKeepSafetyHelpers(string expression, string type)
+    {
+        var binary = SpirvIntegerArithmeticTests.Compile(expression, type);
+        Assert.Equal(2, binary.Instructions.Count(i => i.Opcode == (ushort)Op.FunctionCall));
+        Assert.Contains(binary.Instructions, i => i.Opcode == (ushort)Op.Select);
+    }
+
+    [Fact]
+    public void NonzeroProofPreservesAtomicOperandEvaluation()
+    {
+        const string source = """
+            @group(0) @binding(0) var<storage, read_write> data: array<atomic<u32>>;
+            @compute @workgroup_size(1) fn main() {
+                atomicStore(&data[1], atomicAdd(&data[0], 1u) / (atomicAdd(&data[0], 1u) | 1u));
+            }
+            """;
+        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default));
+        Assert.Equal(2, binary.Instructions.Count(i => i.Opcode == (ushort)Op.AtomicIAdd));
+        Assert.Single(binary.Instructions, i => i.Opcode == (ushort)Op.FunctionCall);
+        string wgsl = ShaderTranslator.SpirvToWgsl(binary.ToBytes(), SpirvCompilationTarget.Default);
+        Assert.Equal(new uint[] { 9, 0 }, WgslExecutionTests.Execute(wgsl).Memory);
+    }
+
+    [Fact]
+    public void NarrowingCannotKeepAProofFromDiscardedHighBits()
+    {
+        var module = WgslReader.Parse("""
+            enable wgpu_int16;
+            fn calculate(x: u32, y: u32) -> u32 { return x / u32(u16(y | 65536u)); }
+            """);
+        var canonical = ShaderTargetLowering.PrepareSpirv(CanonicalShaderPipeline.Prepare(module), null);
+        Assert.Single(canonical.Functions["calculate"].Blocks.SelectMany(b => b.Instructions),
+            i => i.Operation is ValueOperation.Call);
+    }
+
+    [Fact]
+    public void AZeroIncomingBranchCannotInheritANonzeroProof()
+    {
+        string source = SpirvIntegerArithmeticTests.Source("x / divisor")
+            .Replace("data[2] =", "var divisor = 1u; if y == 0u { divisor = 0u; } data[2] =", StringComparison.Ordinal);
+        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default));
+        Assert.Equal(2, binary.Instructions.Count(i => i.Opcode == (ushort)Op.FunctionCall));
+    }
+
+    [Fact]
+    public void AnOverrideMaskedNonzeroDoesNotDependOnItsDefault()
+    {
+        string source = "override divisor: u32 = 0u;\n" + SpirvIntegerArithmeticTests.Source("x / (divisor | 1u)");
+        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default));
+        Assert.Single(binary.Instructions, i => i.Opcode == (ushort)Op.FunctionCall);
+        Assert.Contains(binary.Instructions, i => i.Opcode == (ushort)Op.SpecConstant);
+    }
+}

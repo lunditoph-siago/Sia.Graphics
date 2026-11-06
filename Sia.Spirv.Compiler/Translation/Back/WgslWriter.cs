@@ -98,12 +98,23 @@ public static partial class WgslWriter
             Expression.Convert { Bitcast: true } c => bitcast is null ? $"bitcast<{TypeName(c.Type)}>({E(c.Operand)})" : bitcast(c),
             Expression.Convert c when ConstantEvaluator.TryEvaluateRuntime(c, out var converted) => E(converted),
             Expression.Convert c => $"{TypeName(c.Type)}({E(c.Operand)})",
-            Expression.Access a => $"{E(a.Base)}[{E(a.Index)}]",
+            Expression.Access a => AccessExpression(a, E),
             Expression.Member m => $"{E(m.Base)}.{m.Name}",
             Expression.Swizzle s => $"{E(s.Vector)}.{s.Components}",
             Expression.Select s => $"select({E(s.Reject)}, {E(s.Accept)}, {E(s.Condition)})",
             _ => throw new ShaderException(DiagnosticStage.WgslWrite, $"Unsupported expression {expression.GetType().Name}.")
         };
+    }
+
+    private static string AccessExpression(Expression.Access access, Func<Expression, string> expr)
+    {
+        var type = access.Base.Type is ShaderType.Pointer pointer ? pointer.Base : access.Base.Type;
+        if (type is ShaderType.Vector vector && ConstantEvaluator.TryEvaluateRuntime(access.Index, out var index)
+            && index is Expression.Literal literal) {
+            int component = literal.Value switch { 0 or 0u => 0, 1 or 1u => 1, 2 or 2u => 2, 3 or 3u => 3, _ => -1 };
+            if (component >= 0 && component < vector.Size) return expr(access.Base) + "." + "xyzw"[component];
+        }
+        return $"{expr(access.Base)}[{expr(access.Index)}]";
     }
 
     private static string Address(Expression.Unary address, Func<Expression, string> expr)
@@ -245,6 +256,7 @@ public static partial class WgslWriter
             void IoEnable(IoBinding? binding)
             {
                 if (binding?.BlendSource is not null) enables.Add("dual_source_blending");
+                if (binding?.Builtin is "subgroup_size" or "subgroup_invocation_id" or "num_subgroups" or "subgroup_id") enables.Add("subgroups");
                 if (binding?.Builtin is "primitive_index" or "clip_distances" or "draw_index") enables.Add(binding.Builtin);
                 if (binding?.Interpolation == "per_vertex") enables.Add("wgpu_per_vertex");
                 if (binding?.PerPrimitive == true) enables.Add("wgpu_mesh_shader");

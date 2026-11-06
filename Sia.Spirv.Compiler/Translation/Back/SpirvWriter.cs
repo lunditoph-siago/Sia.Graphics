@@ -48,6 +48,7 @@ public static partial class SpirvWriter
         private readonly Dictionary<string, Symbol> globals = new(StringComparer.Ordinal);
         private readonly Dictionary<string, (uint Id, ShaderFunction Function)> functions = new(StringComparer.Ordinal);
         private readonly Dictionary<string, uint> constantIds = new(StringComparer.Ordinal);
+        private readonly HashSet<uint> negativeIndexConstants = [];
         private uint? glsl;
         private bool usesDeviceScope;
         private bool usesSequentialMemoryOrder;
@@ -293,7 +294,10 @@ public static partial class SpirvWriter
             else throw Error("Expected a literal or composite constant.");
             string key = $"{(uint)op}:{typeId}:" + string.Join(',', data);
             if (constantIds.TryGetValue(key, out uint existing)) return existing;
-            uint id = Id(); declarations.Add(I(op, new uint[] { typeId, id }.Concat(data).ToArray())); constantIds.Add(key, id); return id;
+            uint id = Id(); declarations.Add(I(op, new uint[] { typeId, id }.Concat(data).ToArray())); constantIds.Add(key, id);
+            if (value is Expression.Literal { Value: int negative32 } && negative32 < 0 || value is Expression.Literal { Value: long negative64 } && negative64 < 0
+                || value is Expression.Literal { Value: short negative16 } && negative16 < 0) negativeIndexConstants.Add(id);
+            return id;
         }
         private uint Override(ShaderConstant constant)
         {

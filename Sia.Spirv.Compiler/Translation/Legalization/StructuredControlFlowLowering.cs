@@ -9,19 +9,19 @@ namespace Sia.Spirv.Compiler.Translation.Legalization;
 internal static class StructuredControlFlowLowering
 {
     /// <summary>Explicit representation boundary for consumers requiring structured target data.</summary>
-    public static Module Run(CanonicalModule canonical, bool nativeValidation = false)
+    public static Module Run(CanonicalModule canonical, bool nativeValidation = false, bool compactValues = false)
     {
         var input = canonical.Declarations;
         var output = new Module { VulkanMemoryModel = input.VulkanMemoryModel, WorkgroupInitializationRequired = input.WorkgroupInitializationRequired };
         output.Structures.AddRange(input.Structures); output.Constants.AddRange(input.Constants); output.Globals.AddRange(input.Globals);
         output.Enables.UnionWith(input.Enables); output.DiagnosticFilters.AddRange(input.DiagnosticFilters);
         foreach (var function in input.Functions)
-            output.Functions.Add(canonical.Functions.TryGetValue(function.Name, out var graph) ? Run(graph, input) : function);
+            output.Functions.Add(canonical.Functions.TryGetValue(function.Name, out var graph) ? Run(graph, input, compactValues) : function);
         if (nativeValidation) ModuleValidator.ValidateNative(output); else ModuleValidator.Validate(output);
         return output;
     }
 
-    public static ShaderFunction Run(ControlFlowFunction function, Module module)
+    public static ShaderFunction Run(ControlFlowFunction function, Module module, bool compactValues = false)
     {
         var signature = function.Signature;
         var output = new ShaderFunction(signature.Name) {
@@ -61,6 +61,25 @@ internal static class StructuredControlFlowLowering
             .Where(v => owners.TryGetValue(v.Id, out int owner) && owner != b.Id)).Select(v => v.Id).ToHashSet();
         var used = function.Blocks.SelectMany(b => b.Instructions.SelectMany(i => i.Operation.Operands)
             .Concat(b.Terminator!.Operands).Concat(b.Terminator.Edges.SelectMany(e => e.Arguments))).Select(v => v.Id).ToHashSet();
+        var inline = new HashSet<int>();
+        if (compactValues) {
+            var uses = function.Blocks.SelectMany(b => b.Instructions.SelectMany(i => i.Operation.Operands)
+                .Concat(b.Terminator!.Operands).Concat(b.Terminator.Edges.SelectMany(e => e.Arguments)))
+                .GroupBy(v => v.Id).ToDictionary(g => g.Key, g => g.Count());
+            var costs = new Dictionary<int, int>();
+            foreach (var instruction in function.Blocks.SelectMany(b => b.Instructions)) {
+                if (instruction.Result is not { } value || !CanonicalTypes.Data(value.Type) || instruction.Effects != ShaderEffects.None
+                    || instruction.DiagnosticFilters.Count != 0 || crossBlock.Contains(value.Id) || uses.GetValueOrDefault(value.Id) == 0
+                    || instruction.Operation is ValueOperation.Literal or ValueOperation.Symbol or ValueOperation.Let) continue;
+                if (uses[value.Id] != 1 && (instruction.Operation is not (ValueOperation.Access or ValueOperation.Member or ValueOperation.Swizzle)
+                    || instruction.Operation.Operands.Any(v => inline.Contains(v.Id)))) continue;
+                // Memory reads and convergent operations are never delayed. Bound
+                // expression growth so a long SSA chain still has useful names.
+                int cost = 1 + instruction.Operation.Operands.Sum(v => costs.GetValueOrDefault(v.Id, 1));
+                if (cost > 24) continue;
+                inline.Add(value.Id); costs.Add(value.Id, cost);
+            }
+        }
         foreach (var value in function.Blocks.SelectMany(b => b.Parameters.Concat(b.Instructions.Where(i => i.Result is not null).Select(i => i.Result!.Value)))) {
             if (value.Type is ShaderType.Pointer && definitions.TryGetValue(value.Id, out var instruction) && instruction.Operation is ValueOperation.Local) {
                 var type = ((ShaderType.Pointer)value.Type).Base; string name = Fresh();
@@ -74,6 +93,7 @@ internal static class StructuredControlFlowLowering
                 expressions.Add(value.Id, new Expression.Unary("*", new Expression.Reference(name, value.Type), value.Type));
             }
             else if (CanonicalTypes.Data(value.Type)) {
+                if (inline.Contains(value.Id)) continue;
                 bool parameter = !definitions.TryGetValue(value.Id, out var definition);
                 if (!parameter && definition!.Operation is ValueOperation.Literal or ValueOperation.Symbol) continue;
                 string name = ValueName(definition);
@@ -89,6 +109,10 @@ internal static class StructuredControlFlowLowering
         Expression Use(SsaValue value) {
             if (expressions.TryGetValue(value.Id, out var expression)) return expression;
             var instruction = definitions[value.Id];
+            if (inline.Contains(value.Id)) {
+                expression = DataValue(instruction, value);
+                expressions.Add(value.Id, expression); return expression;
+            }
             expression = instruction.Operation switch {
                 ValueOperation.Symbol symbol when value.Type is ShaderType.Pointer && signature.Arguments.Any(a => a.Name == symbol.Name)
                     => new Expression.Unary("*", new Expression.Reference(symbol.Name, value.Type), value.Type),
@@ -104,13 +128,46 @@ internal static class StructuredControlFlowLowering
         Expression CallArgument(SsaValue value) => value.Type is not ShaderType.Pointer ? Use(value)
             : Use(value) is Expression.Unary { Operator: "*" } dereference ? dereference.Operand
             : new Expression.Unary("&", Use(value), value.Type);
+        Expression DataValue(ControlFlowInstruction instruction, SsaValue result) => (instruction.Operation switch {
+            ValueOperation.HelperInvocation => (Expression)new Expression.HelperInvocation(),
+            ValueOperation.Literal literal => new Expression.Literal(literal.Value, result.Type),
+            ValueOperation.Let let => Use(let.Value),
+            ValueOperation.Symbol source => new Expression.Reference(source.Name, result.Type),
+            ValueOperation.Load load => new Expression.Load(Use(load.Pointer)) { MemoryAccess = load.MemoryAccess },
+            ValueOperation.Unary unary => new Expression.Unary(unary.Operator, Use(unary.Operand), result.Type),
+            ValueOperation.Binary binary => new Expression.Binary(binary.Operator, Use(binary.Left), Use(binary.Right), result.Type),
+            ValueOperation.Convert convert => new Expression.Convert(result.Type, Use(convert.Operand), convert.Bitcast),
+            ValueOperation.Construct construct => new Expression.Construct(result.Type, construct.Components.Select(Use).ToArray()),
+            ValueOperation.Select select => new Expression.Select(Use(select.Condition), Use(select.Accept), Use(select.Reject)),
+            ValueOperation.Access access => new Expression.Access(Use(access.Base), Use(access.Index), result.Type),
+            ValueOperation.Member member => new Expression.Member(Use(member.Base), member.Name, result.Type),
+            ValueOperation.Swizzle swizzle => new Expression.Swizzle(Use(swizzle.Vector), swizzle.Components, result.Type),
+            ValueOperation.Call call => new Expression.Call(call.Function, call.Arguments.Select(CallArgument).ToArray(), call.ReturnType, CallBinding.Function)
+                { AtomicMemory = call.AtomicMemory, MemoryAccess = call.MemoryAccess },
+            ValueOperation.Builtin builtin => new Expression.Call(builtin.Function, builtin.Arguments.Select(CallArgument).ToArray(), result.Type, CallBinding.Builtin)
+                { AtomicMemory = builtin.AtomicMemory, MemoryAccess = builtin.MemoryAccess, ImageAccess = builtin.ImageAccess },
+            _ => throw new ShaderException(DiagnosticStage.Validation, "Unsupported value in CFG target adapter.")
+        }) with { Span = instruction.Span };
         var blocks = function.Blocks.ToDictionary(b => b.Id);
         Block EdgeCopies(ControlFlowEdge edge) {
             var body = new Block(); var snapshots = new List<(Expression Target, Expression Value)>();
+            var targets = blocks[edge.Target].Parameters.Select(p => ((Expression.Reference)((Expression.Load)Use(p)).Pointer).Name).ToHashSet(StringComparer.Ordinal);
+            bool ReadsTarget(Expression expression) => expression switch {
+                Expression.Reference reference => targets.Contains(reference.Name), Expression.Load load => ReadsTarget(load.Pointer),
+                Expression.Unary unary => ReadsTarget(unary.Operand), Expression.Binary binary => ReadsTarget(binary.Left) || ReadsTarget(binary.Right),
+                Expression.Convert convert => ReadsTarget(convert.Operand), Expression.Construct construct => construct.Components.Any(ReadsTarget),
+                Expression.Access access => ReadsTarget(access.Base) || ReadsTarget(access.Index), Expression.Member member => ReadsTarget(member.Base),
+                Expression.Swizzle swizzle => ReadsTarget(swizzle.Vector), Expression.Select select => ReadsTarget(select.Condition) || ReadsTarget(select.Accept) || ReadsTarget(select.Reject),
+                Expression.Call call => call.Arguments.Any(ReadsTarget), _ => false
+            };
+            // Independent SSA sources cannot observe any destination update.
+            // Cycles (including loop-carried swaps) retain parallel snapshots.
+            bool direct = compactValues && edge.Arguments.All(v => !ReadsTarget(Use(v)));
             for (int i = 0; i < edge.Arguments.Count; i++) {
                 var argument = edge.Arguments[i]; var parameter = blocks[edge.Target].Parameters[i];
                 var target = ((Expression.Load)Use(parameter)).Pointer;
                 var value = Use(argument);
+                if (direct) { body.Statements.Add(new Statement.Store(target, value)); continue; }
                 string name = Fresh(); body.Statements.Add(new Statement.Declare(name, value.Type, value, false));
                 snapshots.Add((target, new Expression.Reference(name, value.Type)));
             }
@@ -122,6 +179,7 @@ internal static class StructuredControlFlowLowering
             var body = new Block();
             for (int instructionIndex = 0; instructionIndex < block.Instructions.Count; instructionIndex++) {
                 var instruction = block.Instructions[instructionIndex];
+                if (instruction.Result is { } inlineValue && inline.Contains(inlineValue.Id)) continue;
                 if (instruction.Operation is ValueOperation.Local) {
                     if (instruction.Result is { Type: ShaderType.Pointer { Base: ShaderType.RayQuery query } } handle)
                         // Query state starts fresh at the original allocation,
@@ -177,26 +235,7 @@ internal static class StructuredControlFlowLowering
                     }
                     continue;
                 }
-                Expression value = instruction.Operation switch {
-                    ValueOperation.HelperInvocation => new Expression.HelperInvocation(),
-                    ValueOperation.Literal literal => new Expression.Literal(literal.Value, result.Type),
-                    ValueOperation.Let let => Use(let.Value),
-                    ValueOperation.Symbol source => new Expression.Reference(source.Name, result.Type),
-                    ValueOperation.Load load => new Expression.Load(Use(load.Pointer)) { MemoryAccess = load.MemoryAccess },
-                    ValueOperation.Unary unary => new Expression.Unary(unary.Operator, Use(unary.Operand), result.Type),
-                    ValueOperation.Binary binary => new Expression.Binary(binary.Operator, Use(binary.Left), Use(binary.Right), result.Type),
-                    ValueOperation.Convert convert => new Expression.Convert(result.Type, Use(convert.Operand), convert.Bitcast),
-                    ValueOperation.Construct construct => new Expression.Construct(result.Type, construct.Components.Select(Use).ToArray()),
-                    ValueOperation.Select select => new Expression.Select(Use(select.Condition), Use(select.Accept), Use(select.Reject)),
-                    ValueOperation.Access access => new Expression.Access(Use(access.Base), Use(access.Index), result.Type),
-                    ValueOperation.Member member => new Expression.Member(Use(member.Base), member.Name, result.Type),
-                    ValueOperation.Swizzle swizzle => new Expression.Swizzle(Use(swizzle.Vector), swizzle.Components, result.Type),
-                    ValueOperation.Call call => new Expression.Call(call.Function, call.Arguments.Select(CallArgument).ToArray(), call.ReturnType, CallBinding.Function)
-                                                { AtomicMemory = call.AtomicMemory,MemoryAccess = call.MemoryAccess },
-                    ValueOperation.Builtin builtin => new Expression.Call(builtin.Function, builtin.Arguments.Select(CallArgument).ToArray(), result.Type, CallBinding.Builtin)
-                                                { AtomicMemory = builtin.AtomicMemory,MemoryAccess = builtin.MemoryAccess, ImageAccess = builtin.ImageAccess },
-                    _ => throw new ShaderException(DiagnosticStage.Validation, "Unsupported value in CFG target adapter.")
-                };
+                Expression value = DataValue(instruction, result);
                 var destination = Use(result);
                 if (!used.Contains(result.Id) && instruction.Operation is ValueOperation.Builtin or ValueOperation.Call) {
                     emission.Statements.Add(new Statement.Evaluate(value with { Span = instruction.Span }) { Span = instruction.Span }); continue;

@@ -19,7 +19,7 @@ namespace Sia.Spirv.Compiler.IL;
 internal sealed partial class RuntimeShaderLowering(PEReader pe, MetadataReader metadata, CilCallResolver calls)
 {
     private readonly Module module = new();
-    private readonly Dictionary<int, ShaderFunction> helpers = [];
+    private readonly Dictionary<int, List<ShaderFunction>> helpers = [];
     private readonly HashSet<int> activeHelpers = [];
     private readonly Dictionary<IntrinsicKind, Expression> builtins = [];
     private readonly Dictionary<string, ShaderType.Structure> structures = [];

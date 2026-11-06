@@ -20,6 +20,9 @@ public sealed class LlvmIrEmitter
     private readonly HashSet<LlvmBufferBinding> _bufferBindings = [];
     private readonly Dictionary<StageLocation, StageLocationInfo> _stageLocations = [];
     private readonly HashSet<int> _inlineCallStack = [];
+    private readonly StringBuilder _inlineLocalAllocations = new();
+    private string _localPrefix = "local";
+    private int _nextInlineId;
     private SpirvKernelAbi _kernelAbi;
     private SpirvShaderStage _shaderStage;
     private SpirvWorkgroupSize _currentWorkgroupSize;
@@ -76,6 +79,9 @@ public sealed class LlvmIrEmitter
         _bufferBindings.Clear();
         _stageLocations.Clear();
         _inlineCallStack.Clear();
+        _inlineLocalAllocations.Clear();
+        _localPrefix = "local";
+        _nextInlineId = 0;
         _kernelAbi = kernelAbi;
         _shaderStage = kernel.Stage;
         _currentWorkgroupSize = kernel.WorkgroupSize;
@@ -133,6 +139,7 @@ public sealed class LlvmIrEmitter
             methodBody.LocalVariablesInitialized,
             prologue);
         EmitBlocks(view, localTypes, parameterValues, prologue);
+        _body.Replace("  ; sia.inline.locals", _inlineLocalAllocations.ToString());
         if (kernel.Stage == SpirvShaderStage.Vertex && !_writesPosition) {
             throw new InvalidDataException(
                 $"Vertex shader '{kernel.QualifiedName}' must call Gpu.SetPosition.");
@@ -214,6 +221,7 @@ public sealed class LlvmIrEmitter
             _body.AppendLine(phiMarker);
             if (block.Id == 0) {
                 _body.Append(prologue);
+                _body.AppendLine("  ; sia.inline.locals");
             }
 
             var stack = new Stack<LlvmValue>();
@@ -417,7 +425,7 @@ public sealed class LlvmIrEmitter
         if (TryGetLocalIndex(opCode, operand, offset, true, out var localIndex)) {
             var type = localTypes[localIndex];
             var value = NextValue();
-            EmitLine($"{value} = load {GetLlvmType(type)}, ptr %local.{localIndex}, align {GetAlignment(type)}");
+            EmitLine($"{value} = load {GetLlvmType(type)}, ptr %{_localPrefix}.{localIndex}, align {GetAlignment(type)}");
             stack.Push(new LlvmValue(value, type));
             return false;
         }
@@ -425,11 +433,11 @@ public sealed class LlvmIrEmitter
             var value = Pop(stack, offset);
             var type = localTypes[localIndex];
             EnsureCompatible(type, value.Type, offset);
-            EmitLine($"store {GetLlvmType(type)} {value.Expression}, ptr %local.{localIndex}, align {GetAlignment(type)}");
+            EmitLine($"store {GetLlvmType(type)} {value.Expression}, ptr %{_localPrefix}.{localIndex}, align {GetAlignment(type)}");
             return false;
         }
         if (TryGetLocalAddressIndex(opCode, operand, offset, out localIndex)) {
-            stack.Push(new LlvmValue($"%local.{localIndex}", localTypes[localIndex], true));
+            stack.Push(new LlvmValue($"%{_localPrefix}.{localIndex}", localTypes[localIndex], true));
             return false;
         }
         if (TryGetInt32Constant(opCode, operand, offset, out var constant)) {
@@ -678,15 +686,16 @@ public sealed class LlvmIrEmitter
     private void EmitLocalAllocations(
         IReadOnlyList<LlvmValueType> localTypes,
         bool initializeLocals,
-        StringBuilder prologue)
+        StringBuilder prologue,
+        string prefix = "local")
     {
         for (var index = 0; index < localTypes.Count; index++) {
             var type = localTypes[index];
-            prologue.Append("  %local.").Append(index).Append(" = alloca ")
+            prologue.Append("  %").Append(prefix).Append('.').Append(index).Append(" = alloca ")
                 .Append(GetLlvmType(type)).Append(", align ").Append(GetAlignment(type)).AppendLine();
             if (initializeLocals) {
                 prologue.Append("  store ").Append(GetLlvmType(type))
-                    .Append(" zeroinitializer, ptr %local.").Append(index)
+                    .Append(" zeroinitializer, ptr %").Append(prefix).Append('.').Append(index)
                     .Append(", align ").Append(GetAlignment(type)).AppendLine();
             }
         }
@@ -1202,6 +1211,7 @@ public sealed class LlvmIrEmitter
                 $"Recursive helper call '{call.DeclaringType}.{call.Name}' is not supported.");
         }
 
+        string callerLocalPrefix = _localPrefix;
         try {
             var methodHandle = (MethodDefinitionHandle)handle;
             var method = _reader.GetMethodDefinition(methodHandle);
@@ -1210,56 +1220,72 @@ public sealed class LlvmIrEmitter
             }
             var body = _peReader.GetMethodBody(method.RelativeVirtualAddress);
             var localTypes = DecodeLocalTypes(_reader, body.LocalSignature);
-            if (localTypes.Count != 0) {
-                throw CreateUnsupported(
-                    callOffset,
-                    $"Inline helper '{call.DeclaringType}.{call.Name}' cannot declare locals yet.");
-            }
 
             var il = body.GetILBytes() ?? throw CreateUnsupported(
                 callOffset,
                 $"Inline helper '{call.DeclaringType}.{call.Name}' has no CIL body.");
             var instructions = CilInstructionDecoder.Decode(il);
             var graph = CilControlFlowGraph.Create(instructions, il.Length);
-            if (graph.Blocks.Count != 1) {
-                throw CreateUnsupported(
-                    callOffset,
-                    $"Inline helper '{call.DeclaringType}.{call.Name}' must be straight-line CIL.");
+            var helperBlocks = new List<CilBasicBlock>();
+            var visited = new HashSet<int>();
+            var nextBlock = graph.Blocks[0];
+            while (true) {
+                if (!visited.Add(nextBlock.Id) || nextBlock.Successors.Count > 1) {
+                    throw CreateUnsupported(
+                        callOffset,
+                        $"Inline helper '{call.DeclaringType}.{call.Name}' must have an acyclic single path.");
+                }
+                helperBlocks.Add(nextBlock);
+                if (nextBlock.Successors.Count == 0) break;
+                nextBlock = graph.Blocks[nextBlock.Successors[0]];
             }
             var helperView = new ShaderCilView(graph, callerView.Resolver);
             new CilStackAnalyzer(_reader, methodHandle).Validate(helperView);
-            var helperStack = new Stack<LlvmValue>();
-            var block = graph.Blocks[0];
-            for (var index = 0; index < block.Instructions.Count; index++) {
-                var instruction = block.Instructions[index];
-                if (instruction.OpCode == OpCodes.Ret) {
-                    if (call.ReturnsVoid) {
-                        if (helperStack.Count != 0) {
-                            throw CreateUnsupported(
-                                callOffset,
-                                "Void inline helper left values on the evaluation stack.");
-                        }
-                    }
-                    else {
-                        callerStack.Push(Pop(helperStack, instruction.Offset));
-                    }
-                    return true;
+            _localPrefix = $"inline.{_nextInlineId++}.local";
+            // Keep allocations in the kernel entry block for LLVM promotion;
+            // initialization belongs at each call, including calls in loops.
+            EmitLocalAllocations(localTypes, false, _inlineLocalAllocations, _localPrefix);
+            if (body.LocalVariablesInitialized) {
+                for (int index = 0; index < localTypes.Count; index++) {
+                    var type = localTypes[index];
+                    EmitLine($"store {GetLlvmType(type)} zeroinitializer, ptr %{_localPrefix}.{index}, align {GetAlignment(type)}");
                 }
-                var terminated = EmitInstruction(
-                    helperView,
-                    block,
-                    index,
-                    instruction.OpCode,
-                    instruction.Operand,
-                    instruction.Offset,
-                    localTypes,
-                    arguments,
-                    new Dictionary<int, int>(),
-                    helperStack);
-                if (terminated) {
-                    throw CreateUnsupported(
-                        callOffset,
-                        $"Inline helper '{call.DeclaringType}.{call.Name}' contains control flow.");
+            }
+            var helperStack = new Stack<LlvmValue>();
+            foreach (var block in helperBlocks) {
+                for (var index = 0; index < block.Instructions.Count; index++) {
+                    var instruction = block.Instructions[index];
+                    // Debug CIL commonly branches to a shared return block.
+                    if (instruction.OpCode == OpCodes.Br || instruction.OpCode == OpCodes.Br_S) continue;
+                    if (instruction.OpCode == OpCodes.Ret) {
+                        if (call.ReturnsVoid) {
+                            if (helperStack.Count != 0) {
+                                throw CreateUnsupported(
+                                    callOffset,
+                                    "Void inline helper left values on the evaluation stack.");
+                            }
+                        }
+                        else {
+                            callerStack.Push(Pop(helperStack, instruction.Offset));
+                        }
+                        return true;
+                    }
+                    var terminated = EmitInstruction(
+                        helperView,
+                        block,
+                        index,
+                        instruction.OpCode,
+                        instruction.Operand,
+                        instruction.Offset,
+                        localTypes,
+                        arguments,
+                        new Dictionary<int, int>(),
+                        helperStack);
+                    if (terminated) {
+                        throw CreateUnsupported(
+                            callOffset,
+                            $"Inline helper '{call.DeclaringType}.{call.Name}' contains control flow.");
+                    }
                 }
             }
             throw CreateUnsupported(
@@ -1267,6 +1293,7 @@ public sealed class LlvmIrEmitter
                 $"Inline helper '{call.DeclaringType}.{call.Name}' does not return.");
         }
         finally {
+            _localPrefix = callerLocalPrefix;
             _inlineCallStack.Remove(call.MetadataToken);
         }
     }

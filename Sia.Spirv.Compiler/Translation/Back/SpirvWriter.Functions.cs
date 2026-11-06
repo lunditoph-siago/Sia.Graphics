@@ -173,6 +173,14 @@ public static partial class SpirvWriter
                 Expression.Access a => IsPlace(a.Base), Expression.Member m => IsPlace(m.Base), _ => false
             };
             private static ShaderType DataType(ShaderType type) => type is ShaderType.Pointer p ? p.Base : type;
+            private uint AddressIndex(Expression expression)
+            {
+                uint value = Value(expression);
+                // A runtime WGSL index may be negative. SPIR-V disallows a
+                // negative OpConstant operand of OpAccessChain, even though a
+                // non-constant signed index has the required runtime behavior.
+                return owner.negativeIndexConstants.Contains(value) ? Result(Op.CopyObject, expression.Type, value) : value;
+            }
             private uint Place(Expression expression)
             {
                 switch (expression)
@@ -183,7 +191,7 @@ public static partial class SpirvWriter
                         return symbol.BufferWrapper ? Result(Op.AccessChain, new ShaderType.Pointer(symbol.Type, Address(symbol.Storage)), symbol.Id, owner.Constant(Expression.U32(0))) : symbol.Id;
                     case Expression.Unary { Operator: "*" } dereference: return Value(dereference.Operand);
                     case Expression.Access access:
-                        uint container = Place(access.Base), index = Value(access.Index);
+                        uint container = Place(access.Base), index = AddressIndex(access.Index);
                         if (DataType(access.Base.Type) is ShaderType.BindingArray bindingArray)
                         {
                             uint bindingPointer = Result(Op.AccessChain, PointerType(access.Type, access.Base), container, index);
@@ -286,7 +294,7 @@ public static partial class SpirvWriter
                             return bindingValue;
                         }
                         if (IsPlace(access)) return MemoryLoad(access, DataType(access.Type));
-                        uint aggregate = Value(access.Base), index = Value(access.Index);
+                        uint aggregate = Value(access.Base), index = AddressIndex(access.Index);
                         if (access.Base.Type is ShaderType.Vector) return Result(Op.VectorExtractDynamic, access.Type, aggregate, index);
                         if (ConstantEvaluator.TryEvaluate(access.Index, out var indexValue) && indexValue is Expression.Literal indexLiteral)
                             return Result(Op.CompositeExtract, access.Type, aggregate, System.Convert.ToUInt32(indexLiteral.Value));
@@ -332,6 +340,8 @@ public static partial class SpirvWriter
                 else if (binary.Operator == "*" && a is ShaderType.Vector && b is ShaderType.Matrix) op = Op.VectorTimesMatrix;
                 else if (binary.Operator == "*" && a is ShaderType.Matrix or ShaderType.CooperativeMatrix && b is ShaderType.Scalar) op = Op.MatrixTimesScalar;
                 else if (binary.Operator == "*" && b is ShaderType.Matrix or ShaderType.CooperativeMatrix && a is ShaderType.Scalar) { (left, right) = (right, left); op = Op.MatrixTimesScalar; }
+                else if (binary.Operator == "*" && floating && a is ShaderType.Vector && b is ShaderType.Scalar) op = Op.VectorTimesScalar;
+                else if (binary.Operator == "*" && floating && b is ShaderType.Vector && a is ShaderType.Scalar) { (left, right) = (right, left); op = Op.VectorTimesScalar; }
                 else
                 {
                     if (a is ShaderType.Vector av && b is ShaderType.Scalar) right = Splat(right, av);

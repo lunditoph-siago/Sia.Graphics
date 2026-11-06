@@ -6,7 +6,7 @@ using Sia.Spirv.Compiler.Translation.Valid;
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
 /// <summary>Materialize SPIR-V integer safety and signed remainder before serialization.</summary>
-internal static class SpirvIntegerArithmeticLowering
+internal static partial class SpirvIntegerArithmeticLowering
 {
     public static Module Run(Module input, bool divisionChecks)
         => ShaderTargetLowering.ForStructured(Run(SpirvControlFlowLowering.Capture(input), divisionChecks));
@@ -89,22 +89,63 @@ internal static class SpirvIntegerArithmeticLowering
         bool RequiresHelper(ShaderType type, string op) => op is "/" or "%"
             && Scalar(type) is { Kind: ScalarKind.Sint or ScalarKind.Uint } scalar
             && (divisionChecks || op == "%" && scalar.Kind == ScalarKind.Sint);
-        foreach (var graph in graphs.Values.ToArray())
+        foreach (var graph in graphs.Values.ToArray()) {
+            var facts = new IntegerFacts(graph, input);
             foreach (var block in graph.Blocks) {
                 var instructions = block.Instructions.ToArray(); block.Instructions.Clear();
+                SsaValue Define(Expression expression, ControlFlowInstruction origin) {
+                    var value = graph.Value(expression.Type);
+                    ValueOperation operation = expression switch {
+                        Expression.Literal literal => new ValueOperation.Literal(literal.Value),
+                        Expression.Construct construct => new ValueOperation.Construct(construct.Components.Select(c => Define(c, origin)).ToArray()),
+                        _ => throw new InvalidOperationException("Expected an integer constant.")
+                    };
+                    block.Instructions.Add(origin with { Result = value, Operation = operation }); return value;
+                }
                 foreach (var instruction in instructions) {
                     if (instruction.Result is not { } result || instruction.Operation is not ValueOperation.Binary binary
-                        || !RequiresHelper(result.Type, binary.Operator)) { block.Instructions.Add(instruction); continue; }
+                        || Scalar(result.Type) is not { Kind: ScalarKind.Sint or ScalarKind.Uint } scalar) {
+                        block.Instructions.Add(instruction); continue;
+                    }
+                    if (binary.Operator == "&" && (facts.RedundantMask(binary.Left, binary.Right) || facts.RedundantMask(binary.Right, binary.Left))) {
+                        var value = facts.RedundantMask(binary.Left, binary.Right) ? binary.Left : binary.Right;
+                        block.Instructions.Add(instruction with { Operation = new ValueOperation.Let("sia_spv_masked", value) }); continue;
+                    }
+                    if (binary.Operator is "<<" or ">>") {
+                        if (facts.BoundedShift(binary.Right, scalar.Width * 8)) { block.Instructions.Add(instruction); continue; }
+                        var mask = Define(Splat(Expression.U32((uint)(scalar.Width * 8 - 1)), binary.Right.Type), instruction);
+                        var count = graph.Value(binary.Right.Type);
+                        block.Instructions.Add(instruction with { Result = count, Operation = new ValueOperation.Binary("&", binary.Right, mask) });
+                        block.Instructions.Add(instruction with { Operation = binary with { Right = count } }); continue;
+                    }
+                    if (binary.Operator is not ("/" or "%")) { block.Instructions.Add(instruction); continue; }
                     SsaValue Broadcast(SsaValue value) {
                         if (value.Type == result.Type) return value;
                         var broadcast = graph.Value(result.Type);
                         block.Instructions.Add(new(broadcast, new ValueOperation.Construct([value]), instruction.Span) { DiagnosticFilters = instruction.DiagnosticFilters });
                         return broadcast;
                     }
-                    var left = Broadcast(binary.Left); var right = Broadcast(binary.Right);
-                    block.Instructions.Add(instruction with { Operation = new ValueOperation.Call(Helper(result.Type, binary.Operator).Name, [left, right], result.Type) });
+                    var divisor = facts.Constant(binary.Right);
+                    if (SafeDivisor(divisor, scalar)) {
+                        var left = Broadcast(binary.Left); var right = Broadcast(binary.Right);
+                        if (UnsignedReduction(divisor!, result.Type, binary.Operator) is { } reduction)
+                            block.Instructions.Add(instruction with { Operation = new ValueOperation.Binary(reduction.Operator, left, Define(reduction.Operand, instruction)) });
+                        else if (binary.Operator == "%" && scalar.Kind == ScalarKind.Sint) {
+                            // Reuse the evaluated operands. OpSRem is undefined for
+                            // negative operands in the baseline Vulkan environment.
+                            var quotient = graph.Value(result.Type); var product = graph.Value(result.Type);
+                            block.Instructions.Add(instruction with { Result = quotient, Operation = new ValueOperation.Binary("/", left, right) });
+                            block.Instructions.Add(instruction with { Result = product, Operation = new ValueOperation.Binary("*", right, quotient) });
+                            block.Instructions.Add(instruction with { Operation = new ValueOperation.Binary("-", left, product) });
+                        }
+                        else block.Instructions.Add(instruction with { Operation = binary with { Left = left, Right = right } });
+                        continue;
+                    }
+                    if (!RequiresHelper(result.Type, binary.Operator)) { block.Instructions.Add(instruction); continue; }
+                    block.Instructions.Add(instruction with { Operation = new ValueOperation.Call(Helper(result.Type, binary.Operator).Name, [Broadcast(binary.Left), Broadcast(binary.Right)], result.Type) });
                 }
             }
+        }
         Expression Expr(Expression expression) {
             var mapped = expression switch {
                 Expression.Load l => l with { Pointer = Expr(l.Pointer) }, Expression.Unary u => u with { Operand = Expr(u.Operand) },
@@ -115,7 +156,21 @@ internal static class SpirvIntegerArithmeticLowering
                 Expression.Member m => m with { Base = Expr(m.Base) }, Expression.Swizzle s => s with { Vector = Expr(s.Vector) },
                 Expression.Select s => s with { Condition = Expr(s.Condition), Accept = Expr(s.Accept), Reject = Expr(s.Reject) }, _ => expression
             };
-            if (mapped is not Expression.Binary binary || !RequiresHelper(binary.Type, binary.Operator)) return mapped;
+            if (mapped is not Expression.Binary binary || Scalar(binary.Type) is not { Kind: ScalarKind.Sint or ScalarKind.Uint } scalar) return mapped;
+            if (binary.Operator is "<<" or ">>") {
+                if (BoundedShift(binary.Right, scalar.Width * 8)) return binary;
+                var mask = Splat(Expression.U32((uint)(scalar.Width * 8 - 1)), binary.Right.Type);
+                return binary with { Right = new Expression.Binary("&", binary.Right, mask, binary.Right.Type) };
+            }
+            if (binary.Operator is not ("/" or "%")) return mapped;
+            if (ConstantEvaluator.TryEvaluateRuntime(binary.Right, out var divisor) && SafeDivisor(divisor, scalar)) {
+                if (UnsignedReduction(divisor, binary.Type, binary.Operator) is { } reduction)
+                    return new Expression.Binary(reduction.Operator, binary.Left.Type == binary.Type ? binary.Left : new Expression.Construct(binary.Type, [binary.Left]), reduction.Operand, binary.Type) { Span = binary.Span };
+                // The structured adapter cannot duplicate effectful operands for
+                // signed remainder; the helper snapshots them in source order.
+                if (binary.Operator != "%" || scalar.Kind != ScalarKind.Sint) return binary;
+            }
+            if (!RequiresHelper(binary.Type, binary.Operator)) return mapped;
             Expression Broadcast(Expression value) => value.Type == binary.Type ? value : new Expression.Construct(binary.Type, [value]) { Span = value.Span };
             // Function arguments snapshot the two evaluated operands once, in source order.
             return new Expression.Call(Helper(binary.Type, binary.Operator).Name, [Broadcast(binary.Left), Broadcast(binary.Right)], binary.Type, CallBinding.Function) { Span = binary.Span };

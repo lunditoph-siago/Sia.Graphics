@@ -1,4 +1,5 @@
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Front;
 
@@ -240,6 +241,11 @@ public static partial class WgslReader
                     }
                     if (function == "textureSampleGrad")
                         for (int i = 0; i < 2 && cursor < arguments.Length; i++, cursor++) arguments[cursor] = Materialize(arguments[cursor], coordinate);
+                    if (cursor < arguments.Length) {
+                        var offset = Materialize(arguments[cursor], DefaultType(arguments[cursor].Type));
+                        if (!ConstantEvaluator.TryEvaluate(offset, out var constant)) throw Error("Texture offsets require a constant expression.", name.Span);
+                        arguments[cursor] = constant;
+                    }
                 }
                 if (function == "textureStore" && arguments.Length > 1) arguments[^1] = Materialize(arguments[^1], new ShaderType.Vector(4, image.Component));
                 if (function.StartsWith("textureAtomic", StringComparison.Ordinal) && arguments.Length > 1 && arguments[^1].Type is ShaderType.Scalar { Kind: ScalarKind.AbstractInt or ScalarKind.AbstractFloat })
@@ -248,6 +254,9 @@ public static partial class WgslReader
                 snapshot = true;
             }
             else throw Error($"Unknown function '{function}'.", name.Span);
+            if (WgslBuiltinConstantRules.InvalidArgument(function, result, index =>
+                ConstantEvaluator.TryEvaluate(arguments[index], out var value) ? value : null) is not null)
+                throw Error($"Constant arguments to '{function}' violate its builtin bounds.", name.Span);
             var call = new Expression.Call(function, arguments, result, CallBinding.Builtin) { Span = name.Span };
             return snapshot && result is not ShaderType.Void ? Snapshot(call, block) : call;
         }

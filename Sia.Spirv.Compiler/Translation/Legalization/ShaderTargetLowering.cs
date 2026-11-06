@@ -39,13 +39,18 @@ internal static class ShaderTargetLowering
         canonical = WgslEntryPointLowering.Run(canonical);
         canonical = CanonicalReferenceLowering.Run(CanonicalHelperInliner.RunTargetHelpers(canonical, taskDispatch: true));
         canonical = CollectiveReadRecovery.Run(canonical);
+        canonical = WgslUniformInputLowering.Run(canonical);
         UniformityAnalysis.Validate(canonical.Declarations, canonical.Functions, DiagnosticStage.WgslWrite);
         // Check original non-returning control before WGSL introduces a return.
         canonical = WgslTerminationLowering.Run(canonical);
         canonical = WgslImageAtomicLowering.Run(canonical);
         // Remaining WGSL memory/query/layout passes consume structured target data.
         // All owned graph semantics stay authoritative until this explicit boundary.
-        var module = StructuredControlFlowLowering.Run(canonical);
+        canonical = WgslValueLowering.Run(canonical);
+        var module = StructuredControlFlowLowering.Run(canonical, compactValues: true);
+        if (canonical.Functions.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions)
+            .Any(i => i.Operation is ValueOperation.Builtin builtin && SubgroupBuiltins.Contains(builtin.Function)))
+            module.Enables.Add("subgroups");
         UniformityAnalysis.Validate(module, DiagnosticStage.WgslWrite);
         ModuleValidator.Validate(module);
         PointerAliasAnalysis.Validate(module, DiagnosticStage.WgslWrite);
@@ -61,6 +66,8 @@ internal static class ShaderTargetLowering
         UniformityAnalysis.Validate(module, DiagnosticStage.WgslWrite);
         PointerAliasAnalysis.Validate(module, DiagnosticStage.WgslWrite);
         module = WgslBuiltinNameLowering.Run(module);
+        module = WgslLetPromotion.Run(module);
+        ModuleValidator.Validate(module);
         return module;
     }
 

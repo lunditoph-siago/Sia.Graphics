@@ -71,6 +71,7 @@ internal static class CanonicalShaderPipeline
             // SSA values, before target address dispatch erases those native facts.
             verifyFrontend?.Invoke(graph!, input);
             before = traces is null ? null : ControlFlowPrinter.Write(graph);
+            AggregateReadPromotion.Run(graph);
             LocalValuePromotion.Run(graph, analyses);
             traces?.Add(new(function.Name, "local-value-promotion", before!, ControlFlowPrinter.Write(graph),
                 "CFG topology, predecessor edges, block dominance, external memory effects", "value definitions and value dominance") {
@@ -84,6 +85,11 @@ internal static class CanonicalShaderPipeline
                 "CFG topology, predecessor edges, dominance, SSA identities and ordered effects", "converted constant values") {
                 Preserved = ControlFlowAnalyses.All
             });
+            before = traces is null ? null : ControlFlowPrinter.Write(graph);
+            DeadValueElimination.Run(graph);
+            ControlFlowVerifier.Validate(graph, input, analyses);
+            traces?.Add(new(function.Name, "dead-value-elimination", before!, ControlFlowPrinter.Write(graph),
+                "CFG topology, dominance and ordered effects", "unused pure definitions and phi arguments") { Preserved = ControlFlowAnalyses.All });
             functions.Add(function.Name, graph);
         }
         var result = new CanonicalModule(input, functions.ToFrozenDictionary(StringComparer.Ordinal),

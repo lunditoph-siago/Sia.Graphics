@@ -47,7 +47,7 @@ internal static class CollectiveReadRecovery
             var hypothesis = Rewrite(graphs,candidates.Values,false);
             foreach (var graph in hypothesis.Values) ControlFlowVerifier.Validate(graph,module,calleeEffects: effects);
             var divergent = new HashSet<(string Function,int Value)>();
-            _ = UniformityAnalysis.AnalyzeCore(module,hypothesis,divergent);
+            _ = UniformityAnalysis.AnalyzeCore(module,hypothesis,divergent, privateInputCopies: true);
             bool removed = false;
             foreach (var site in divergent) removed |= candidates.Remove(site);
             if (!removed) {

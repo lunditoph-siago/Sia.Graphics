@@ -166,3 +166,7 @@ tint INPUT.spv --format wgsl -o OUTPUT.wgsl
 spirv-val --target-env vulkan1.2 OUTPUT.spv
 naga OUTPUT.wgsl
 ```
+
+The [nonzero-divisor follow-up](FuzzOptimization.md) adds three-writer integer
+fuzz validation and a measured removal of redundant safety helpers. Its results
+are separate from this original-source characterization snapshot.

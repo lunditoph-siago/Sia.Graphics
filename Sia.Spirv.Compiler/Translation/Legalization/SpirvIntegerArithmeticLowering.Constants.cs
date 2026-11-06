@@ -50,7 +50,7 @@ internal static partial class SpirvIntegerArithmeticLowering
 
     // Prove only concrete values. Override defaults and block parameters remain
     // unknown; no memory reads or calls are evaluated or moved by these facts.
-    private sealed class IntegerFacts(ControlFlowFunction graph, Module module)
+    private sealed partial class IntegerFacts(ControlFlowFunction graph, Module module)
     {
         private readonly Dictionary<int, ValueOperation> definitions = graph.Blocks.SelectMany(b => b.Instructions)
             .Where(i => i.Result is not null).ToDictionary(i => i.Result!.Value.Id, i => i.Operation);

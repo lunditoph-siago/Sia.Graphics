@@ -9,6 +9,23 @@ namespace Sia.Spirv.Compiler.Tests;
 public sealed class CanonicalIntegerSemanticsTests
 {
     [Theory]
+    [InlineData("x / (y | 1u)", false)]
+    [InlineData("x % (y | 1u)", true)]
+    public void NonzeroUnsignedDivisorsMatchBoundaryResults(string expression, bool remainder)
+    {
+        var canonical = Lower(expression, "u32", "u32");
+        foreach (uint x in new[] { 0u, 1u, 7u, 8u, 0x80000000u, uint.MaxValue })
+            foreach (uint y in new[] { 0u, 1u, 2u, 7u, 0x80000000u, uint.MaxValue })
+                Assert.Equal(remainder ? x % (y | 1u) : x / (y | 1u), Evaluate(canonical, "calculate", [x, y]));
+    }
+
+    [Theory]
+    [InlineData("x / (y | 1i)", int.MinValue)]
+    [InlineData("x % (y | 1i)", 0)]
+    public void NonzeroSignedDivisorsStillHandleOverflow(string expression, int expected)
+        => Assert.Equal(expected, Evaluate(Lower(expression, "i32", "i32"), "calculate", [int.MinValue, -1]));
+
+    [Theory]
     [InlineData("x / y", int.MinValue, -1, int.MinValue)]
     [InlineData("x % y", int.MinValue, -1, 0)]
     [InlineData("x / y", -7, 0, -7)]
@@ -105,11 +122,11 @@ public sealed class CanonicalIntegerSemanticsTests
                 : op == "<<" ? (uint)left << (int)count : (uint)left >> (int)count;
         }
         if (left is uint a && right is uint b) return op switch {
-            "/" => a / b, "%" => a % b, "&" => a & b, "*" => unchecked(a * b), "-" => unchecked(a - b),
+            "/" => a / b, "%" => a % b, "&" => a & b, "|" => a | b, "*" => unchecked(a * b), "-" => unchecked(a - b),
             _ => throw new InvalidOperationException("Unexpected unsigned operation.")
         };
         if (left is int x && right is int y) return op switch {
-            "/" => x / y, "%" => x % y, "*" => unchecked(x * y), "-" => unchecked(x - y),
+            "/" => x / y, "%" => x % y, "|" => x | y, "*" => unchecked(x * y), "-" => unchecked(x - y),
             _ => throw new InvalidOperationException("Unexpected signed operation.")
         };
         throw new InvalidOperationException("Unexpected arithmetic operands.");

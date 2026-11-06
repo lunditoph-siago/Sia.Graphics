@@ -126,9 +126,9 @@ internal static partial class SpirvIntegerArithmeticLowering
                         return broadcast;
                     }
                     var divisor = facts.Constant(binary.Right);
-                    if (SafeDivisor(divisor, scalar)) {
+                    if (SafeDivisor(divisor, scalar) || scalar.Kind == ScalarKind.Uint && facts.Nonzero(binary.Right)) {
                         var left = Broadcast(binary.Left); var right = Broadcast(binary.Right);
-                        if (UnsignedReduction(divisor!, result.Type, binary.Operator) is { } reduction)
+                        if (divisor is not null && UnsignedReduction(divisor, result.Type, binary.Operator) is { } reduction)
                             block.Instructions.Add(instruction with { Operation = new ValueOperation.Binary(reduction.Operator, left, Define(reduction.Operand, instruction)) });
                         else if (binary.Operator == "%" && scalar.Kind == ScalarKind.Sint) {
                             // Reuse the evaluated operands. OpSRem is undefined for
@@ -170,6 +170,7 @@ internal static partial class SpirvIntegerArithmeticLowering
                 // signed remainder; the helper snapshots them in source order.
                 if (binary.Operator != "%" || scalar.Kind != ScalarKind.Sint) return binary;
             }
+            if (scalar.Kind == ScalarKind.Uint && Nonzero(binary.Right)) return binary;
             if (!RequiresHelper(binary.Type, binary.Operator)) return mapped;
             Expression Broadcast(Expression value) => value.Type == binary.Type ? value : new Expression.Construct(binary.Type, [value]) { Span = value.Span };
             // Function arguments snapshot the two evaluated operands once, in source order.

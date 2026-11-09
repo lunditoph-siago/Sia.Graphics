@@ -27,12 +27,13 @@ $env:SIA_TEST_NAGA = '<native Naga executable>'
 dotnet test Sia.Graphics.slnx -c Release --blame-hang --blame-hang-timeout 5m -m:1 -p:UseSharedCompilation=false
 ```
 
-The latest recorded full run passed 194 tests with zero failures/skips. Without
-both executable paths the two optional native tests explicitly skip. The retained
-regressions cover integer boundaries and operand effects, aggregate/phi lowering,
-evaluation stages, builtin types, uniformity, and IL helper/control behavior.
+The historical full run passed 194 tests with zero failures/skips. The current
+[test guide](README.md) describes reorganized coverage and independent optional
+Tint/Naga selection. Regressions cover integer boundaries and operand effects,
+aggregate/phi lowering, evaluation stages, builtin types, uniformity, and IL
+helper/control behavior.
 
-Recreate the console projects and scripts embedded in the archived records,
+Use the archived revisions when recreating their console projects and scripts,
 remap workspace paths to the pinned checkouts, then use their recorded commands:
 
 ```text

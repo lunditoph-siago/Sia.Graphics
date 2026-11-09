@@ -7,7 +7,7 @@
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <EnableDefaultItems>false</EnableDefaultItems>
     <PackageId>Sia.WebGPU.Native</PackageId>
-    <DawnTag Condition="'$(DawnTag)' == ''">v20260423.175430</DawnTag>
+    <DawnTag Condition="'$(DawnTag)' == ''">v20261106.204713</DawnTag>
     <NativeRuntimeIdentifiers Condition="'$(NativeRuntimeIdentifiers)' == ''">win-x86;win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</NativeRuntimeIdentifiers>
     <NativeRuntimeDirectory Condition="'$(NativeRuntimeDirectory)' == ''">$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)\..\artifacts\webgpu-runtimes'))</NativeRuntimeDirectory>
     <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);CollectNativeBinaries</TargetsForTfmSpecificContentInPackage>
@@ -245,7 +245,7 @@
       <NativeIncludeDirectory Include="$(NativeSdkRoot)\include" />
       <NativeIncludeDirectory Include="$(NativeSourceRoot);$(NativeSourceRoot)\src;$(NativeSourceRoot)\src\dawn\partition_alloc"
                               Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
-      <NativeCompileOption Include="/DDAWN_FORCE_SYSTEM_COMPONENT_LOAD;/DNDEBUG"
+      <NativeCompileOption Include="/DDAWN_FORCE_SYSTEM_COMPONENT_LOAD;/DDAWN_HAVE_UTILS_BUILD_CONFIG;/DNDEBUG"
                            Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
       <NativeLibrary Include="$(NativeSdkRoot)\lib\webgpu_dawn.lib" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
       <NativeLibrary Include="$(NativeSdkRoot)\lib*\libwebgpu_dawn.a"

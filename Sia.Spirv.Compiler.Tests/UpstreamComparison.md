@@ -1,144 +1,25 @@
-# Native compiler comparison
+# Native compiler validation
 
-Local Windows x64 results, 2026-11-06. The accompanying
-[evidence](UpstreamComparison.json) identifies original fixtures by pinned
-repository path and SHA-256, records each outcome, and preserves the comparison
-harness. This is a characterization corpus, including extensions and deliberately
-problematic upstream fixtures, rather than a language conformance percentage.
+Windows x64 results from 2026-11-06, retained for PR #119. Full per-case outcomes,
+source/binary hashes, build commands and reproduction harnesses are archived in
+[the original-source record](https://github.com/lunditoph-siago/Sia.Graphics/blob/43dcd6d56fbdb2468a78bbe1e669b39200618ad4/Sia.Spirv.Compiler.Tests/UpstreamComparison.json)
+and [the integer fuzz record](https://github.com/lunditoph-siago/Sia.Graphics/blob/43dcd6d56fbdb2468a78bbe1e669b39200618ad4/Sia.Spirv.Compiler.Tests/FuzzOptimization.json).
+These are historical characterization results, not conformance or GPU benchmarks.
 
-## Builds and profiles
+## Tools and reproduction
 
-Both executables were built from source for this comparison:
-
-| Tool | Source | Build |
-| --- | --- | --- |
-| Tint | [Dawn 77ca1f2](https://github.com/google/dawn/tree/77ca1f229d3ff915d4992fd8c937583871e97237) | Release CMake/Ninja, target `tint_cmd_tint_cmd`; WGSL/SPIR-V readers and writers enabled |
-| Naga CLI 30.0.0 | [wgpu a553529](https://github.com/gfx-rs/wgpu/tree/a55352911bb26a1b33bc8d5fc03bdebb0a967f5a) | Rust 1.95.0, `cargo build --release --locked -p naga-cli` |
-
-Tint SHA-256:
-`8dacbd9f880cda3a5a11ab8f6787a40576d57f900160111301762e97b37558e3`.
-Naga SHA-256:
-`85fe42dd056746845f2be9c195a87e89a230f39f84ffc95980ea003f64d5860a`.
-Tint has no `--version` option; its source revision and executable hash identify
-the build. Its reader validates Vulkan 1.1/SPIR-V 1.3. Runtime IL comparison
-therefore compiles SPIR-V 1.3 directly, with no binary header rewriting.
-The installed LLVM 23.0.0git toolchain rejects the requested SPIR-V 1.3 target;
-offline IL comparison retains its supported Vulkan 1.2/SPIR-V 1.5 profile.
-
-WGSL-to-SPIR-V commands use Naga `--spirv-version 1.5` and Tint
-`--disable-robustness`, matching Naga CLI's unchecked indexing policy. Validation
-stays enabled. Tint selects the first entry point for 27 multi-entry fixtures;
-those binaries are not size comparisons with Naga's whole modules. Overrides
-without defaults are not assigned arbitrary values. Sia uses its default WebGPU
-target. Independent binary validation uses SPIRV-Tools 2026.2
-`0539c81f69a3daeb706fd3477dca61435b475156`, `--target-env vulkan1.2`.
-
-## Coverage and results
-
-The source corpus contains all 183 Naga WGSL inputs and the first 100 sorted
-original Tint `test/tint/bug/tint/*.wgsl` inputs. Expected-output WGSL files are
-excluded. An initial run accidentally included expected-output fixtures; it is
-excluded from the counts below. The Sia baseline is the preceding compiler stage
-before this native follow-up, rather than a clean release checkout.
-
-| Check | Result |
+| Tool | Pinned source / build |
 | --- | --- |
-| Sia WGSL → SPIR-V | 262 → 264 of 283 compile |
-| Sia WGSL → SPIR-V → WGSL | 254 → 260 of 283 complete |
-| Naga WGSL → SPIR-V | 267 binaries; 13 diagnostics, 3 CLI panics |
-| Tint WGSL → SPIR-V | 227 binaries; 55 diagnostics, 1 library emits no binary |
-| Runtime IL → SPIR-V → WGSL | 29 kernels compiled and independently validated |
-| Same runtime IL binaries → native WGSL | Tint 28/29, Naga 28/29 |
-| Offline IL → LLVM → SPIR-V → WGSL | 29 kernels compiled and independently validated |
-| Same offline IL binaries → Naga WGSL | 29/29 |
-| Sia reads native Naga/Tint SPIR-V and emits WGSL text | 242/267 and 214/227 |
-| Naga validates that native-input WGSL text | 424/456; failures classified below |
-| Independent checks on Sia's own WGSL round trips | 519/524; failures classified below |
-| Tint recompiles Sia WGSL within its original-source common profile | 214/215; fixture 1518 fails |
-| Full Release solution tests with native tools supplied | 172 passed, 0 failed, 0 skipped |
+| Tint | [Dawn 77ca1f2](https://github.com/google/dawn/tree/77ca1f229d3ff915d4992fd8c937583871e97237), Release CMake/Ninja target `tint_cmd_tint_cmd`, WGSL/SPIR-V readers and writers enabled |
+| Naga CLI 30.0.0 | [wgpu a553529](https://github.com/gfx-rs/wgpu/tree/a55352911bb26a1b33bc8d5fc03bdebb0a967f5a), Rust 1.95.0, `cargo build --release --locked -p naga-cli` |
+| SPIRV-Tools 2026.2 | `0539c81f69a3daeb706fd3477dca61435b475156` |
 
-Both native readers reject runtime `ShortCircuitShaders.Fragment` because it
-contains `IsNan`. Sia preserves that operation; replacing it with a constant to
-make another compiler accept the binary would change its semantics. Offline
-Tint translation is outside the common input profile and is not counted as a
-compiler failure or a passed check.
+The records include executable SHA-256 fingerprints. Tint's reader requires
+Vulkan 1.1/SPIR-V 1.3; runtime IL compiles that version directly. Offline LLVM
+23.0.0git output retains its supported Vulkan 1.2/SPIR-V 1.5 profile and is
+outside Tint's reader profile. No binary version headers were rewritten.
 
-The new IL kernels exercise cyclic loop values, switch/continue edges, reads
-captured before helper writes, and nested helper calls repeated in a loop.
-Starting with storage `[7, 0]`, their independent expected results are `[1, 2]`,
-`[7, 11]`, `[10, 18]`, and `[10, 66]`. The managed WGSL interpreter checks these
-results for Sia output and native Tint/Naga output from identical runtime
-SPIR-V inputs. This establishes the tested scalar/control/effect behavior;
-GPU execution and driver performance were not measured.
-
-## Changes exercised
-
-- Preserve WGSL integer division/remainder and shift boundaries while replacing
-  provably safe constant operations and using native float vector multiplication.
-- Promote nonescaping aggregate reads, remove unused pure SSA work, compact
-  structured expressions and phi transfers, and promote safe local stores to
-  immutable declarations. Retain ordered effects and runtime evaluation stages.
-- Materialize abstract bitcast operands according to overload rules. Discarded
-  abstract constants need no unnecessary i32 representation; invalid source
-  expressions still report errors before optimization.
-- Fold constant texture offsets into legal SPIR-V constants; keep runtime
-  negative indices out of constant `OpAccessChain` operands. Preserve native
-  dynamic index stages without allowing invalid constant source indexing.
-- Recover native collective reads with a conservative proof of private builtin
-  copies, then expose those values directly in generated WGSL. Apply the proof
-  only during native recovery; source WGSL private reads retain standard
-  uniformity diagnostics. Conditional, partial, divergent and helper writes
-  remain disqualifying.
-- Accept and emit the standard `subgroups` enable directive for subgroup
-  operations and entry builtins, including native inputs without source metadata.
-- Pass actual buffer addresses and specialize runtime helper signatures by
-  resource shape. Offline single-path helper inlining supports independent local
-  storage, nested calls and Debug CIL return blocks. Allocate locals in the kernel
-  entry block and initialize at each call so loops do not retain prior state.
-- Decode additional native GLSL.std.450 overloads with correct scalar shapes and
-  signedness, including integer min/max/clamp, ldexp and geometric operations.
-
-For 25 byte-identical offline SPIR-V inputs preserved before the earlier
-aggregate/SSA quality pass, LF-normalized UTF-8 WGSL falls from 86,513 to 34,159
-bytes. On the 28 common runtime inputs, totals are Sia 46,552, Naga 45,577 and
-Tint 34,782 bytes; `var` token counts are 121, 126 and 107 respectively. These
-format-sensitive static measures leave substantial room to improve Sia and do
-not establish GPU speed, register pressure or compile-time improvements.
-
-## Remaining gaps
-
-- Tint fixture `1518` passes as original WGSL but the generated structured WGSL
-  exceeds Tint's nesting/chaining limit of 127. CFG structuring remains a quality
-  target.
-- Native SPIR-V reading still has gaps for narrow integers, packed dot-product
-  capabilities, storage-image memory decorations, subgroup barrier metadata,
-  ray-query state and some derivative-uniformity propagation. The evidence keeps
-  unsupported inputs and diagnostics separate from successful translations.
-- Twenty-eight vertex modules emitted by Tint introduce a `point_size` output
-  that Sia currently retains in WGSL, where it is not a valid builtin. Producing
-  text does not establish successful WGSL interoperability; these outputs fail
-  independent validation and require proper target lowering or a diagnostic.
-- Naga rejects original and generated runtime out-of-bounds fixtures `1563` and
-  `1666`; Tint accepts both generated WGSL files. No defined value is asserted for
-  these out-of-bounds accesses. A no-entry-point constant library fails the Vulkan
-  executable-module validator by profile.
-- The pinned Naga implements subgroup operations but explicitly rejects the
-  standard `enable subgroups` directive as unimplemented. Two generated WGSL
-  fixtures therefore fail its parser after standard directive emission is fixed.
-  The same two original fixtures do not contain that directive. Native-input WGSL
-  validation has those two parser failures, the 28 `point_size` failures and two
-  runtime out-of-bounds failures; none is hidden in an all-pass total.
-- Naga CLI panics on the three `pointer-function-arg*` original fixtures. These
-  are recorded as upstream outcomes rather than Sia regressions.
-- Private builtin promotion currently requires one fully canonical entry point
-  and a single unconditional copy preceding reads/calls. Multi-entry/deferred
-  variants and general CLR buffer-descriptor locals need further work.
-
-## Verification and reproduction
-
-Run the complete solution tests after installing the repository's SPIR-V
-toolchain and .NET 10/11 runtimes. The native tests skip explicitly unless both
-executables are supplied; they were supplied locally for the recorded run.
+From this repository, with its SPIR-V toolchain and .NET 10/11 runtimes installed:
 
 ```powershell
 $env:SIA_TEST_TINT = '<native Tint executable>'
@@ -146,17 +27,13 @@ $env:SIA_TEST_NAGA = '<native Naga executable>'
 dotnet test Sia.Graphics.slnx -c Release --blame-hang --blame-hang-timeout 5m -m:1 -p:UseSharedCompilation=false
 ```
 
-Before-fix tests reproduced abstract bitcast/index/collective failures and invalid
-SPIR-V ConstOffset/dead pure work. Full-suite runs then exposed offline helper
-locals and Debug return-block limitations; those tests were retained and the
-implementation corrected. A new subgroup regression exposed missing standard
-enable parsing/emission; that implementation was added and the test retained.
-No assertions or compiler validation checks were disabled.
+The latest recorded full run passed 194 tests with zero failures/skips. Without
+both executable paths the two optional native tests explicitly skip. The retained
+regressions cover integer boundaries and operand effects, aggregate/phi lowering,
+evaluation stages, builtin types, uniformity, and IL helper/control behavior.
 
-The evidence contains source hashes, per-fixture outcomes, build commands,
-comparison harness source and exact compiler options. Recreate its console
-project against `Sia.Spirv.Compiler`, remap the manifest to the pinned checkouts,
-and run the recorded harness commands. Native commands are:
+Recreate the console projects and scripts embedded in the archived records,
+remap workspace paths to the pinned checkouts, then use their recorded commands:
 
 ```text
 naga --spirv-version 1.5 INPUT.wgsl OUTPUT.spv
@@ -167,6 +44,66 @@ spirv-val --target-env vulkan1.2 OUTPUT.spv
 naga OUTPUT.wgsl
 ```
 
-The [nonzero-divisor follow-up](FuzzOptimization.md) adds three-writer integer
-fuzz validation and a measured removal of redundant safety helpers. Its results
-are separate from this original-source characterization snapshot.
+## Original-source and IL coverage
+
+The corpus has all 183 Naga WGSL inputs and the first 100 sorted original Tint
+`test/tint/bug/tint/*.wgsl` inputs; expected-output files are excluded. Sia's
+before column is the preceding compiler stage, not a clean release checkout.
+Tint selects one entry for 27 multi-entry fixtures, so native binary totals are
+not matched size comparisons. Overrides without defaults remain unresolved.
+
+| Check | Result |
+| --- | --- |
+| Sia WGSL → SPIR-V / → WGSL | 262 → 264 / 254 → 260 of 283 |
+| Naga WGSL → SPIR-V | 267 binaries, 13 diagnostics, 3 CLI panics |
+| Tint WGSL → SPIR-V | 227 binaries, 55 diagnostics, 1 library without a binary |
+| Runtime / offline IL → SPIR-V → WGSL | 29 / 29 kernels independently validated |
+| Native WGSL from runtime IL | Tint 28/29, Naga 28/29; both reject `IsNan` |
+| Naga WGSL from offline IL | 29/29 |
+| Sia WGSL text from native Naga / Tint binaries | 242/267 / 214/227 |
+| Naga validates that native-input WGSL | 424/456 |
+| Independent checks on Sia's own round trips | 519/524 |
+| Tint recompiles Sia WGSL in its original-source common profile | 214/215 |
+
+The four extended IL fixtures start from storage `[7, 0]` and check independent
+expected results `[1, 2]`, `[7, 11]`, `[10, 18]`, `[10, 66]` through Sia and both
+native readers. They cover loop-carried swaps, switch/continue, captured reads
+before writes, and nested helper calls repeated in a loop.
+
+## Nonzero-divisor fuzz comparison
+
+Against commit `35da7d4f728fc9fc71290d4e04d580019466036c`, the proof removes checked
+unsigned helpers for divisors proven nonzero. Counterexample tests retain checks
+for mutable/unknown values, narrowing, zero lanes, overrides and signed overflow.
+The corpus deliberately stresses this proof: 160 bounded u32 programs from seeds
+`0x5eed` (96) and `0x123400` (64), each with two equivalent variants.
+
+All 320 before/after Sia binaries validate and match an independent Python source
+evaluator through a strict integer SPIR-V interpreter on four boundary vectors
+(1,280 executions per revision). Both native writers recompile all generated WGSL:
+640 more valid binaries and 2,560 matching executions. This run uses SPIR-V 1.3 /
+Vulkan 1.1, Tint `--disable-robustness`, and Naga's `Unchecked` index/buffer bounds
+policies. It does not execute a GPU, floating point or synchronization semantics.
+
+| Static measure, identical inputs/options | Before | After |
+| --- | ---: | ---: |
+| Binary bytes | 655,096 | 598,408 (−8.65%) |
+| Instructions excluding debug | 35,798 | 33,186 (−7.30%) |
+| Function call instructions | 1,536 | 1,168 (−23.96%) |
+
+172 binaries shrink, 148 stay the same size, none grows; loads/stores/phi/local
+counts are unchanged. The three-writer record compares only 268 original sources:
+52 Naga pointer-argument panics are excluded, never treated as empty binaries.
+
+## Known gaps
+
+[Issue #120](https://github.com/lunditoph-siago/Sia.Graphics/issues/120) tracks
+Tint fixture 1518 exceeding nesting/chaining limits and 28 native vertex modules
+retaining invalid WGSL `point_size`. Other classified failures include runtime
+out-of-bounds cases 1563/1666, two pinned-Naga parser failures on standard
+`enable subgroups`, and a no-entry library outside the executable-module profile.
+Native reading still has capability/type/memory/uniformity gaps listed per case
+in the original record. Private builtin promotion requires one canonical entry
+and an unconditional copy before reads/calls. Coherent-memory annotations and
+unsupported diagnostics remain visible. No defined out-of-bounds value, general
+SPIR-V conformance, GPU speed or driver behavior is established by these checks.

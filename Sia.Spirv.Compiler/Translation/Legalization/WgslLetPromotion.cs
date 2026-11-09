@@ -8,11 +8,10 @@ namespace Sia.Spirv.Compiler.Translation.Legalization;
 internal static class WgslLetPromotion
 {
     private sealed class Scope(Scope? parent) { internal Scope? Parent { get; } = parent; }
-    private sealed record Assignment(Statement.Store Store, Scope Scope, int Order);
     private sealed class Candidate(Statement.Declare declaration)
     {
         internal Statement.Declare Declaration { get; } = declaration;
-        internal List<Assignment> Writes { get; } = [];
+        internal List<(Scope Scope, int Order)> Writes { get; } = [];
         internal List<(Scope Scope, int Order)> Reads { get; } = [];
         internal bool Escapes;
     }
@@ -66,7 +65,7 @@ internal static class WgslLetPromotion
                     case Statement.Store store:
                         Read(store.Value, scope);
                         if (store.Target is Expression.Reference target && candidates.TryGetValue(target.Name, out var candidate)) {
-                            candidate.Writes.Add(new(store, scope, order)); candidate.Escapes |= store.MemoryAccess is not null;
+                            candidate.Writes.Add((scope, order)); candidate.Escapes |= store.MemoryAccess is not null;
                         }
                         else Read(store.Target, scope, escape: true); // Partial writes and address uses retain storage.
                         break;

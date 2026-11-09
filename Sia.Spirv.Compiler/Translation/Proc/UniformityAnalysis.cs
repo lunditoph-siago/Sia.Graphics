@@ -81,18 +81,19 @@ internal static partial class UniformityAnalysis
 
     // The recovery proof analyzes its hypothetical collective calls without recursively recovering them.
     internal static IReadOnlyList<UniformityDiagnostic> AnalyzeCore(Module module, IReadOnlyDictionary<string, ControlFlowFunction> graphs,
-        ISet<(string Function, int Value)>? divergentCollectives = null)
+        ISet<(string Function, int Value)>? divergentCollectives = null, bool privateInputCopies = false)
     {
         var summaries = new Dictionary<string, Summary>(StringComparer.Ordinal);
         var functions = module.Functions.ToDictionary(f => f.Name, StringComparer.Ordinal);
         var active = new HashSet<string>(StringComparer.Ordinal);
         var diagnostics = new List<UniformityDiagnostic>();
+        var uniformGlobals = privateInputCopies ? UniformPrivateGlobals(module, graphs) : new HashSet<string>(StringComparer.Ordinal);
         Summary Function(string name) {
             if (summaries.TryGetValue(name, out var summary)) return summary;
             if (!active.Add(name)) throw new ShaderException(DiagnosticStage.Validation, "Recursive shader function calls are forbidden.");
             summary = graphs.TryGetValue(name, out var graph)
-                ? new CanonicalAnalysis(module, graph, Function, divergentCollectives).Run(diagnostics)
-                : new FunctionAnalysis(module, functions[name], Function, functions.ContainsKey, divergentCollectives).Run(diagnostics);
+                ? new CanonicalAnalysis(module, graph, Function, divergentCollectives, uniformGlobals).Run(diagnostics)
+                : new FunctionAnalysis(module, functions[name], Function, functions.ContainsKey, divergentCollectives, uniformGlobals).Run(diagnostics);
             active.Remove(name); summaries.Add(name, summary); return summary;
         }
         foreach (var function in module.Functions) _ = Function(function.Name);
@@ -158,7 +159,7 @@ internal static partial class UniformityAnalysis
     }
 
     private sealed class FunctionAnalysis(Module module, ShaderFunction function, Func<string, Summary> callee, Func<string, bool> userFunction,
-        ISet<(string Function, int Value)>? divergentCollectives)
+        ISet<(string Function, int Value)>? divergentCollectives, IReadOnlySet<string> uniformGlobals)
     {
         private readonly Node nonUniform = new(new(Source.NonUniform));
         private readonly Node start = new(new(Source.Control));
@@ -222,7 +223,7 @@ internal static partial class UniformityAnalysis
         {
             if (address.Variable is { } variable) return Join(state.Control, address.Value, state.Values[variable]);
             bool readOnly = address.Global is { } name && globals.TryGetValue(name, out var global)
-                && (global.Space is AddressSpace.Uniform or AddressSpace.Immediate or AddressSpace.Handle || (global.Access & StorageAccess.Write) == 0);
+                && (global.Space is AddressSpace.Uniform or AddressSpace.Immediate or AddressSpace.Handle || (global.Access & StorageAccess.Write) == 0 || uniformGlobals.Contains(name));
             return Join(state.Control, address.Value, readOnly ? state.Control : nonUniform);
         }
         private void Store(Address address, Node value, State state) {

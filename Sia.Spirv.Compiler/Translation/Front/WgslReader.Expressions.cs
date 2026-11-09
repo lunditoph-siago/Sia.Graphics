@@ -174,6 +174,12 @@ public static partial class WgslReader
             {
                 if (left.Type is ShaderType.Scalar { Kind: ScalarKind.AbstractInt } && !ConstantEvaluator.TryEvaluate(right, out _)) left = Materialize(left, ShaderType.I32);
                 right = Materialize(right, right.Type is ShaderType.Vector v ? new ShaderType.Vector(v.Size, ShaderType.U32) : ShaderType.U32);
+                var component = left.Type is ShaderType.Vector vector ? vector.Component : left.Type as ShaderType.Scalar;
+                if (component is { Kind: ScalarKind.Sint or ScalarKind.Uint } && ConstantEvaluator.TryEvaluate(right, out var count)) {
+                    bool OutOfRange(Expression value) => value is Expression.Literal literal ? System.Convert.ToUInt32(literal.Value) >= component.Width * 8
+                        : value is Expression.Construct composite && composite.Components.Any(OutOfRange);
+                    if (OutOfRange(count)) throw Error("Constant shift count must be less than the shifted value's bit width.", span);
+                }
                 type = left.Type;
             }
             else if (operation == "*" && left.Type is ShaderType.Matrix a && right.Type is ShaderType.Vector b)
@@ -218,7 +224,14 @@ public static partial class WgslReader
             if (name.Text == "bitcast")
             {
                 if (arguments.Length != 1 || name.Templates is not [SExpression.Name target]) throw Error("Invalid bitcast.", source.Span);
-                return new Expression.Convert(ResolveType(target), arguments[0], true);
+                var type = ResolveType(target);
+                // Abstract u32 and same-shape f16 identity overloads take
+                // precedence; other abstract operands use their default type.
+                var component = type is ShaderType.Vector vector ? vector.Component : type as ShaderType.Scalar;
+                bool identity = component is { Kind: ScalarKind.Uint, Width: 4 } or { Kind: ScalarKind.Float, Width: 2 }
+                    && Implicit(arguments[0].Type, type);
+                var operand = Materialize(arguments[0], identity ? type : DefaultType(arguments[0].Type));
+                return new Expression.Convert(type, operand, true) { Span = source.Span };
             }
             if (functions.TryGetValue(name.Text, out var function))
             {

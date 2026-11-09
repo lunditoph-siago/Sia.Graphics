@@ -9,7 +9,7 @@ namespace Sia.Spirv.Compiler.Translation.Proc;
 /// non-returning dispatch and effect order; join actual return values rather than copying pointed-to data.</summary>
 internal static class CanonicalHelperInliner
 {
-    internal static CanonicalModule RunTargetHelpers(CanonicalModule canonical, bool taskDispatch = false)
+    internal static CanonicalModule RunTargetHelpers(CanonicalModule canonical, bool taskDispatch = false, IReadOnlySet<string>? additionalHelpers = null)
     {
         ModuleValidator.Validate(canonical, native: true);
         var module = canonical.Declarations;
@@ -52,7 +52,7 @@ internal static class CanonicalHelperInliner
                 if (Calls(function).Any(privateHelpers.Contains)) privateChanged |= privateHelpers.Add(function.Name);
         } while (privateChanged);
         var selected = module.Functions.Where(f => f.Stage is null && called.Contains(f.Name)
-            && (privateHelpers.Contains(f.Name) || taskHelpers.Contains(f.Name) || f.ReturnType is ShaderType.Pointer || CanonicalTypes.Resource(f.ReturnType)
+            && (additionalHelpers?.Contains(f.Name) == true || privateHelpers.Contains(f.Name) || taskHelpers.Contains(f.Name) || f.ReturnType is ShaderType.Pointer || CanonicalTypes.Resource(f.ReturnType)
                 || ImageAtomicHelper(f) || f.Arguments.Any(a => a.Type is ShaderType.Pointer)
                 || graphs.TryGetValue(f.Name, out var resourceGraph)
                     && resourceGraph.Blocks.Any(b => b.Parameters.Any(p => CanonicalTypes.Resource(p.Type)))))

@@ -58,6 +58,7 @@ public static partial class WgslReader
                         if (a.Operator != "=" || a.Value is null) throw Error("Phony assignment requires '='.");
                         Expression ignored = Eval(a.Value, block);
                         if (ignored.Type is ShaderType.Void) throw Error("Cannot assign void.");
+                        if (DefaultType(ignored.Type) != ignored.Type && ConstantEvaluator.TryEvaluate(ignored, out _)) break;
                         ignored = Materialize(ignored, DefaultType(ignored.Type));
                         block.Statements.Add(new Statement.Declare(Fresh(), ignored.Type, ignored, false)); break;
                     }

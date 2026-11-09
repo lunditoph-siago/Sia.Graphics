@@ -17,6 +17,8 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Using Include="Sia.Spirv.Compiler.Tests.Fixtures" />
+    <Using Include="Sia.Spirv.Compiler.Tests.Support" />
   </ItemGroup>
 
   <ItemGroup>

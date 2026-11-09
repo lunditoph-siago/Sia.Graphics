@@ -65,7 +65,9 @@ internal sealed partial class RuntimeShaderLowering
             if (component < 0 || vector.Type is not ShaderType.Vector shape) throw Error(at, "Invalid math component.");
             Push(new Expression.Access(vector, Expression.U32((uint)component), shape.Component)); return;
         }
-        var values = args.Select((a, i) => call.Intrinsic is null && call.Signature.ParameterTypes[i].IsByReference
+        bool BufferParameter(int index) => call.Signature.ParameterTypes[index].Name is "Sia.Spirv.StorageBuffer`1" or "Sia.Spirv.ReadOnlyStorageBuffer`1"
+            or "Sia.Spirv.UniformBuffer`1" or "Sia.Spirv.WorkgroupMemory`1";
+        var values = args.Select((a, i) => call.Intrinsic is null && (call.Signature.ParameterTypes[i].IsByReference || BufferParameter(i))
             ? a.Place ? Address(a.Expression) : throw Error(at, "By-reference helper argument requires an address.")
             : Read(a, body)).ToArray();
         if (call.Intrinsic is IntrinsicKind.GetInput or IntrinsicKind.GetFlatInput) {
@@ -175,14 +177,19 @@ internal sealed partial class RuntimeShaderLowering
             return;
         }
         if (call.IsInstance) throw Error(at, "Instance helpers require a supported shader intrinsic or constructor.");
-        if (!helpers.TryGetValue(call.MetadataToken, out var helper)) {
+        var parameterTypes = call.Signature.ParameterTypes.Select((type, i) => BufferParameter(i) ? values[i].Type : Type(type)).ToArray();
+        var variants = helpers.GetValueOrDefault(call.MetadataToken);
+        var helper = variants?.FirstOrDefault(h => h.Arguments.Select(a => a.Type).SequenceEqual(parameterTypes));
+        if (helper is null) {
             if (!activeHelpers.Add(call.MetadataToken)) throw Error(at, "Recursive shader helpers are unsupported.");
             helper = new ShaderFunction(Name("helper")) { ReturnType = Type(call.Signature.ReturnType) };
-            var parameters = call.Signature.ParameterTypes.Select((type, i) => new FunctionArgument("p"+i, Type(type))).ToArray();
+            var parameters = parameterTypes.Select((type, i) => new FunctionArgument("p"+i, type)).ToArray();
             helper.Arguments.AddRange(parameters);
             var inputs = parameters.Select(p => new Value(new Expression.Reference(p.Name, p.Type), p.Type is ShaderType.Pointer)).ToArray();
             Function(helper, call.MetadataToken, inputs);
-            activeHelpers.Remove(call.MetadataToken); helpers.Add(call.MetadataToken, helper); module.Functions.Insert(0, helper);
+            activeHelpers.Remove(call.MetadataToken);
+            if (variants is null) helpers.Add(call.MetadataToken, variants = []);
+            variants.Add(helper); module.Functions.Insert(0, helper);
         }
         var invocation = new Expression.Call(helper.Name, values.Select((value, i) => Convert(value, helper.Arguments[i].Type, true)).ToArray(), helper.ReturnType, CallBinding.Function);
         if (helper.ReturnType is ShaderType.Void) body.Statements.Add(new Statement.Evaluate(invocation)); else Push(invocation);

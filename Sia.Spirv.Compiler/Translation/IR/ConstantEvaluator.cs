@@ -379,9 +379,11 @@ public static class ConstantEvaluator
             if (type is ShaderType.Scalar { Kind: ScalarKind.Float or ScalarKind.AbstractFloat })
             {
                 double a = Floating(((Expression.Literal)arguments[0]).Value), b = Floating(((Expression.Literal)arguments[1]).Value);
+                if (name == "clamp" && b > Floating(((Expression.Literal)arguments[2]).Value)) throw new ArithmeticException();
                 return Scalar(name == "min" ? System.Math.Min(a, b) : name == "max" ? System.Math.Max(a, b) : System.Math.Clamp(a, b, Floating(((Expression.Literal)arguments[2]).Value)), type);
             }
             BigInteger x = Integer(((Expression.Literal)arguments[0]).Value), y = Integer(((Expression.Literal)arguments[1]).Value);
+            if (name == "clamp" && y > Integer(((Expression.Literal)arguments[2]).Value)) throw new ArithmeticException();
             return Scalar(name == "min" ? BigInteger.Min(x, y) : name == "max" ? BigInteger.Max(x, y) : BigInteger.Min(BigInteger.Max(x, y), Integer(((Expression.Literal)arguments[2]).Value)), type);
         }
         if (arguments.Length is 2 or 3 && type is ShaderType.Scalar { Kind: ScalarKind.Float or ScalarKind.AbstractFloat })

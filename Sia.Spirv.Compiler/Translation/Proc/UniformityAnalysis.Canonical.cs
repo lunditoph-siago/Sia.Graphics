@@ -9,7 +9,7 @@ internal static partial class UniformityAnalysis
     /// <summary>Dependency graph over SSA values, block predicates and function-memory contents.
     /// Cyclic edges carry loop dependencies without replaying source statements.</summary>
     private sealed class CanonicalAnalysis(Module module, ControlFlowFunction graph, Func<string, Summary> callee,
-        ISet<(string Function, int Value)>? divergentCollectives)
+        ISet<(string Function, int Value)>? divergentCollectives, IReadOnlySet<string> uniformGlobals)
     {
         private readonly Node start = new(new(Source.Control));
         private readonly Node nonUniform = new(new(Source.NonUniform));
@@ -164,7 +164,7 @@ internal static partial class UniformityAnalysis
         {
             var contents = Roots(pointer).Select(root => memory.TryGetValue(root, out var value) ? value
                 : root.Global is { } name && globals.TryGetValue(name, out var global)
-                    && (global.Space is AddressSpace.Uniform or AddressSpace.Immediate or AddressSpace.Handle || (global.Access & StorageAccess.Write) == 0)
+                    && (global.Space is AddressSpace.Uniform or AddressSpace.Immediate or AddressSpace.Handle || (global.Access & StorageAccess.Write) == 0 || uniformGlobals.Contains(name))
                     ? control : nonUniform).ToArray();
             return Join(contents.Prepend(Value(pointer)).Prepend(control).Concat(contents.Length == 0 ? [nonUniform] : []).ToArray());
         }

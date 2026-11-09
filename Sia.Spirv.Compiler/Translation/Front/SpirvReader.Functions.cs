@@ -405,7 +405,8 @@ public static partial class SpirvReader
                     for (int i = 3; i < a.Length; i++)
                     {
                         Expression index = V(i);
-                        if ((directCanonicalFlow || Legalization.MatrixStorageLowering.HasLayout(module) || variablePointers) && index is not Expression.Literal)
+                        if ((directCanonicalFlow || Legalization.MatrixStorageLowering.HasLayout(module) || variablePointers) && index is not Expression.Literal
+                            || RuntimeIndexOutOfBounds(access, index))
                         {
                             // Native addresses and physical projections retain
                             // AccessChain's evaluation time across every later use.
@@ -426,7 +427,7 @@ public static partial class SpirvReader
                     Count(3, 3);
                     if (!directCanonicalFlow || !imageTexelPointers.ContainsKey(a[1])) Result(V(2));
                     break;
-                case Op.VectorExtractDynamic: Count(4, 4); Result(Index(V(2), V(3))); break;
+                case Op.VectorExtractDynamic: Count(4, 4); Result(Index(V(2), CaptureRuntimeIndex(V(2), V(3), block))); break;
                 case Op.CompositeInsert:
                     Count(5);
                     block.Statements.Add(new Statement.Store(V(1), V(3)));
@@ -435,7 +436,7 @@ public static partial class SpirvReader
                     block.Statements.Add(new Statement.Store(inserted, V(2))); break;
                 case Op.VectorInsertDynamic:
                     Count(5, 5); block.Statements.Add(new Statement.Store(V(1), V(2)));
-                    block.Statements.Add(new Statement.Store(Index(V(1), V(4)), V(3))); break;
+                    block.Statements.Add(new Statement.Store(Index(V(1), CaptureRuntimeIndex(V(1), V(4), block)), V(3))); break;
                 case Op.Transpose: Count(3, 3); Result(new Expression.Call("transpose", [V(2)], T(), CallBinding.Builtin)); break;
                 case Op.VectorShuffle:
                     Count(5);
@@ -500,7 +501,7 @@ public static partial class SpirvReader
                 case Op.Any: case Op.All: case Op.IsNan: case Op.IsInf:
                     Count(3, 3); Result(new Expression.Call(op switch { Op.Any => "any", Op.All => "all", Op.IsNan => "isNan", _ => "isInf" }, [V(2)], T(), CallBinding.Builtin)); break;
                 case Op.BitCount: case Op.BitReverse: case Op.QuantizeToF16:
-                    Count(3, 3); Result(new Expression.Call(op == Op.BitCount ? "countOneBits" : op == Op.BitReverse ? "reverseBits" : "quantizeToF16", [V(2)], T(), CallBinding.Builtin)); break;
+                    Count(3, 3); Result(SpecCast(T(), new Expression.Call(op == Op.BitCount ? "countOneBits" : op == Op.BitReverse ? "reverseBits" : "quantizeToF16", [V(2)], V(2).Type, CallBinding.Builtin))); break;
                 case Op.BitFieldInsert:
                     Count(6, 6); Result(new Expression.Call("insertBits", [V(2), V(3), new Expression.Convert(ShaderType.U32, V(4)), new Expression.Convert(ShaderType.U32, V(5))], T(), CallBinding.Builtin)); break;
                 case Op.BitFieldSExtract: case Op.BitFieldUExtract:
@@ -550,7 +551,7 @@ public static partial class SpirvReader
                         else Result(new Expression.Construct(T(), [fraction, whole]));
                         break;
                     }
-                    Result(new Expression.Call(GlslFunction(a[3]), a[4..].Select(Value).ToArray(), T(), CallBinding.Builtin)); break;
+                    Result(NativeGlslBuiltin(a[3], T(), a[4..].Select(Value).ToArray())); break;
                 case Op.ArrayLength:
                     Count(4, 4); Expression member = Index(V(2), Expression.U32(a[3]));
                     Result(new Expression.Call("arrayLength", [new Expression.Unary("&", member, member.Type)], T(), CallBinding.Builtin)); break;
@@ -647,6 +648,27 @@ public static partial class SpirvReader
                     if (member.Binding?.Builtin is string builtin) accessedInterfaceBuiltins.Add(builtin);
                     MarkInterfaceAggregate(member.Type);
                 }
+        }
+
+        private static bool RuntimeIndexOutOfBounds(Expression container, Expression index)
+        {
+            if (index is not Expression.Literal literal) return false;
+            var type = container.Type is ShaderType.Pointer pointer ? pointer.Base : container.Type;
+            uint? count = type switch {
+                ShaderType.Array array => array.Length, ShaderType.BindingArray array => array.Length,
+                ShaderType.Vector vector => (uint)vector.Size, ShaderType.Matrix matrix => (uint)matrix.Columns, _ => null
+            };
+            if (type is not (ShaderType.Array or ShaderType.BindingArray or ShaderType.Vector or ShaderType.Matrix)) return false;
+            double value = System.Convert.ToDouble(literal.Value);
+            return value < 0 || count is uint length && value >= length;
+        }
+
+        private Expression CaptureRuntimeIndex(Expression container, Expression index, Block block)
+        {
+            if (!RuntimeIndexOutOfBounds(container, index)) return index;
+            string name = "sia_dynamic_index_" + current.WordOffset + "_" + pointerCaptureCounter++;
+            block.Statements.Add(new Statement.Declare(name, index.Type, index, false));
+            return new Expression.Reference(name, index.Type);
         }
 
         private Expression Index(Expression expression, Expression index)

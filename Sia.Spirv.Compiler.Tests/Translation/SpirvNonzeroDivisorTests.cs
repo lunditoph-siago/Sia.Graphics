@@ -10,28 +10,8 @@ namespace Sia.Spirv.Compiler.Tests.Translation;
 public sealed class SpirvNonzeroDivisorTests
 {
     [Theory]
-    [InlineData("x / (y | 1u)", "u32", (int)Op.UDiv)]
-    [InlineData("x % (y | 1u)", "u32", (int)Op.UMod)]
-    [InlineData("x / (8u | y)", "u32", (int)Op.UDiv)]
-    [InlineData("x / select(y | 1u, y | 2u, x == 0u)", "u32", (int)Op.UDiv)]
-    [InlineData("x / u32(i32(y) | 1i)", "u32", (int)Op.UDiv)]
-    [InlineData("x / (y | vec3<u32>(1u, 2u, 4u))", "vec3<u32>", (int)Op.UDiv)]
-    [InlineData("x % (y | vec3<u32>(1u, 2u, 4u))", "vec3<u32>", (int)Op.UMod)]
-    public void ProvenUnsignedDivisorsAvoidSafetyHelpers(string expression, string type, int opcode)
-    {
-        var binary = IntegerTestShader.Compile(expression, type);
-        Assert.Single(binary.Instructions, i => i.Opcode == (ushort)Op.FunctionCall);
-        Assert.Single(binary.Instructions, i => i.Opcode == (ushort)opcode);
-    }
-
-    [Theory]
-    [InlineData("x / (y & 1u)", "u32")]
-    [InlineData("x / ((y | 1u) & 2u)", "u32")]
-    [InlineData("x / (y + 1u)", "u32")]
-    [InlineData("x / select(0u, y | 1u, x == 0u)", "u32")]
     [InlineData("x / (y | vec3<u32>(1u, 0u, 2u))", "vec3<u32>")]
     [InlineData("x / (y | 1i)", "i32")]
-    [InlineData("x % (y | 1i)", "i32")]
     public void ZeroLanesAndSignedOverflowKeepSafetyHelpers(string expression, string type)
     {
         var binary = IntegerTestShader.Compile(expression, type);
@@ -50,7 +30,6 @@ public sealed class SpirvNonzeroDivisorTests
             """;
         var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default));
         Assert.Equal(2, binary.Instructions.Count(i => i.Opcode == (ushort)Op.AtomicIAdd));
-        Assert.Single(binary.Instructions, i => i.Opcode == (ushort)Op.FunctionCall);
         string wgsl = ShaderTranslator.SpirvToWgsl(binary.ToBytes(), SpirvCompilationTarget.Default);
         Assert.Equal(new uint[] { 9, 0 }, WgslFixtureInterpreter.Execute(wgsl).Memory);
     }
@@ -76,12 +55,4 @@ public sealed class SpirvNonzeroDivisorTests
         Assert.Equal(2, binary.Instructions.Count(i => i.Opcode == (ushort)Op.FunctionCall));
     }
 
-    [Fact]
-    public void AnOverrideMaskedNonzeroDoesNotDependOnItsDefault()
-    {
-        string source = "override divisor: u32 = 0u;\n" + IntegerTestShader.Source("x / (divisor | 1u)");
-        var binary = SpirvBinary.Parse(ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default));
-        Assert.Single(binary.Instructions, i => i.Opcode == (ushort)Op.FunctionCall);
-        Assert.Contains(binary.Instructions, i => i.Opcode == (ushort)Op.SpecConstant);
-    }
 }

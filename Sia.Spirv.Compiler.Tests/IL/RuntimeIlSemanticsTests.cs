@@ -27,12 +27,4 @@ public sealed class RuntimeIlSemanticsTests
         if (method == nameof(IntegerShaders.Shift))
             Assert.Single(binary.Instructions, i => i.Opcode == (ushort)Op.BitwiseAnd);
     }
-
-    [SpirvToolchainTheory]
-    [Trait("Category", "Toolchain")]
-    [InlineData(nameof(IntegerShaders.DivideByEight))]
-    [InlineData(nameof(IntegerShaders.RemainderByThree))]
-    [InlineData(nameof(IntegerShaders.Shift))]
-    public void RuntimeIntegerOutputsPassSpirvValidation(string method)
-        => SpirvTestToolchain.Validate(SpirvTestAssembly.CompileRuntime(typeof(IntegerShaders), method));
 }

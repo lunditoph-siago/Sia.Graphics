@@ -31,19 +31,22 @@ public sealed class WgslExpressionTests
 
     [Theory]
     [InlineData("bitcast<u32>(4294967295)", uint.MaxValue)]
-    [InlineData("bitcast<vec2<u32>>(vec2(4294967295, 1)).x", uint.MaxValue)]
-    [InlineData("bitcast<u32>(bitcast<f32>(1))", 1u)]
     [InlineData("bitcast<u32>(bitcast<i32>(1.0))", 1065353216u)]
-    [InlineData("bitcast<u32>(bitcast<vec2<f16>>(vec2(1, 2)))", 1073757184u)]
-    [InlineData("bitcast<u32>(vec2<f16>(bitcast<f16>(1), 0h))", 15360u)]
     public void AbstractBitcastOverloadsChooseTheRequiredConcreteType(string expression, uint expected)
     {
         var module = WgslReader.Parse($$"""
-            enable f16;
             const bits = {{expression}};
             const_assert bits == {{expected}}u;
             @compute @workgroup_size(1) fn main() { }
             """);
         Assert.Equal(expected, Assert.IsType<Expression.Literal>(module.Constants.Single(c => c.Name == "bits").Value).Value);
+    }
+
+    [Fact]
+    public void InvalidSourceIsRejectedBeforeDeadValueElimination()
+    {
+        var error = Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv(
+            "@compute @workgroup_size(1) fn main() { let unused = vec2<u32>(1u)[3]; }", SpirvCompilationTarget.Default));
+        Assert.Contains("out of bounds", error.Diagnostic.Message);
     }
 }

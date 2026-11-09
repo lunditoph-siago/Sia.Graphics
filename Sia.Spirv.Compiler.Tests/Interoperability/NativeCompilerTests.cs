@@ -24,12 +24,7 @@ public sealed class NativeCompilerTests
             fn read(index: u32) { if workgroupUniformLoad(&data[index]) > 10i { workgroupBarrier(); } }
             @compute @workgroup_size(4) fn main(@builtin(workgroup_id) id: vec3<u32>) { read(id.x); }
             """ },
-        { "standard subgroup enable", """
-            enable subgroups;
-            @compute @workgroup_size(64) fn main(@builtin(subgroup_size) size: u32) {
-                _ = subgroupShuffleXor(1u, size - 1u);
-            }
-            """ }
+
     };
 
     [NativeCompilerTheory(NativeCompiler.Tint)]

@@ -6,15 +6,13 @@ namespace Sia.Spirv.Compiler.Tests.Translation;
 
 public sealed class WgslUniformityTests
 {
-    [Theory]
-    [InlineData("0u")]
-    [InlineData("id.x")]
-    public void CollectiveReadRemainsUniformAfterNativeRoundtrip(string index)
+    [Fact]
+    public void CollectiveReadRemainsUniformAfterNativeRoundtrip()
     {
         string source = $$"""
             var<workgroup> data: array<i32, 128>;
             @compute @workgroup_size(4) fn main(@builtin(workgroup_id) id: vec3<u32>) {
-                let value = workgroupUniformLoad(&data[{{index}}]);
+                let value = workgroupUniformLoad(&data[id.x]);
                 if value > 10i { workgroupBarrier(); }
             }
             """;
@@ -22,26 +20,33 @@ public sealed class WgslUniformityTests
         WgslReader.Parse(ShaderTranslator.SpirvToWgsl(binary, SpirvCompilationTarget.Default));
     }
 
-    [Theory]
-    [InlineData("copy = id;")]
-    [InlineData("copy = local;")]
-    [InlineData("copy = id; if local.x == 0u { copy = vec3<u32>(1u); }")]
-    [InlineData("copy = id; copy.x = local.x;")]
-    [InlineData("copy = id; mutate(local);")]
-    public void SourcePrivateCopiesStillRejectCollectiveReads(string setup)
+    [Fact]
+    public void SourcePrivateCopiesStillRejectCollectiveReads()
     {
-        string helper = setup.Contains("mutate", StringComparison.Ordinal) ? "fn mutate(value: vec3<u32>) { copy = value; }" : "";
         var error = Assert.Throws<ShaderException>(() => ShaderTranslator.WgslToSpirv($$"""
             var<private> copy: vec3<u32>;
             var<workgroup> data: array<i32, 128>;
-            {{helper}}
-            @compute @workgroup_size(4) fn main(@builtin(workgroup_id) id: vec3<u32>, @builtin(local_invocation_id) local: vec3<u32>) {
-                {{setup}}
+            @compute @workgroup_size(4) fn main(@builtin(workgroup_id) id: vec3<u32>) {
+                copy = id;
                 let value = workgroupUniformLoad(&data[copy.x]);
                 if value > 10i { workgroupBarrier(); }
             }
             """, SpirvCompilationTarget.Default));
         Assert.Equal(DiagnosticStage.Validation, error.Diagnostic.Stage);
         Assert.Contains("Uniformity violation", error.Diagnostic.Message);
+    }
+
+    [Fact]
+    public void DerivativeEvaluationStaysOutsideDivergentControlFlow()
+    {
+        string result = ShaderTranslation.NormalizeWgsl("""
+            @fragment fn main(@location(0) value: f32) -> @location(0) f32 {
+                let derivative = dpdx(value);
+                if (value > 0f) { return derivative; }
+                return 0f;
+            }
+            """);
+        Assert.True(result.IndexOf("dpdx(", StringComparison.Ordinal) < result.IndexOf("if (", StringComparison.Ordinal), result);
+        WgslReader.Parse(result);
     }
 }

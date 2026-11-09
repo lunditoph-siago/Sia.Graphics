@@ -1,3 +1,6 @@
+using Sia.Spirv.Compiler.Compilation;
+using Sia.Spirv.Compiler.Translation;
+
 namespace Sia.Spirv.Compiler.Tests.Translation;
 
 public sealed class WgslSemanticTests
@@ -10,6 +13,7 @@ public sealed class WgslSemanticTests
     [InlineData("data[1] = select(next(), next(), true);", 10u, 10u)]
     [InlineData("let x = 4294967295u; data[1] = x + 1u;", 7u, 0u)]
     [InlineData("let x = 0u; data[1] = data[0] / x;", 7u, 7u)]
+    [InlineData("let x = 0u; data[1] = data[0] % x;", 7u, 0u)]
     [InlineData("let x = 32u; data[1] = data[0] << x;", 7u, 7u)]
     [InlineData("var a = 1u; var b = 2u; for (var i = 0u; i < 3u; i++) { let old = a; a = b; b = old; } data[0] = a; data[1] = b;", 2u, 1u)]
     [InlineData("var x = 1u; if (data[0] > 4u) { x = 5u; } else { x = 6u; } data[1] = x;", 7u, 5u)]
@@ -26,10 +30,12 @@ public sealed class WgslSemanticTests
             @compute @workgroup_size(1) fn main() { {{body}} }
             """;
         var before = WgslFixtureInterpreter.Execute(source);
-        var after = WgslFixtureInterpreter.Execute(ShaderTranslation.NormalizeWgsl(source));
-        Assert.Equal(new[] { first, second }, after.Memory);
-        Assert.Equal(before.Memory, after.Memory);
-        Assert.Equal(before.Effects, after.Effects);
+        foreach (string output in Outputs(source)) {
+            var after = WgslFixtureInterpreter.Execute(output);
+            Assert.Equal(new[] { first, second }, after.Memory);
+            Assert.Equal(before.Memory, after.Memory);
+            Assert.Equal(before.Effects, after.Effects);
+        }
     }
 
     [Fact]
@@ -42,8 +48,17 @@ public sealed class WgslSemanticTests
                 atomicStore(&data[1], x + 1u);
             }
             """;
-        var result = WgslFixtureInterpreter.Execute(ShaderTranslation.NormalizeWgsl(source));
-        Assert.Equal(new[] { 8u, 8u }, result.Memory);
-        Assert.Equal(new[] { "atomicAdd", "atomicStore" }, result.Effects);
+        foreach (string output in Outputs(source)) {
+            var result = WgslFixtureInterpreter.Execute(output);
+            Assert.Equal(new[] { 8u, 8u }, result.Memory);
+            Assert.Equal(new[] { "atomicAdd", "atomicStore" }, result.Effects);
+        }
+    }
+
+    private static IEnumerable<string> Outputs(string source)
+    {
+        yield return ShaderTranslation.NormalizeWgsl(source);
+        byte[] binary = ShaderTranslator.WgslToSpirv(source, SpirvCompilationTarget.Default);
+        yield return ShaderTranslator.SpirvToWgsl(binary, SpirvCompilationTarget.Default);
     }
 }

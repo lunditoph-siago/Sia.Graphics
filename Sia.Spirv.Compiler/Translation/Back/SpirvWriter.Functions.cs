@@ -294,10 +294,17 @@ public static partial class SpirvWriter
                             return bindingValue;
                         }
                         if (IsPlace(access)) return MemoryLoad(access, DataType(access.Type));
-                        uint aggregate = Value(access.Base), index = AddressIndex(access.Index);
-                        if (access.Base.Type is ShaderType.Vector) return Result(Op.VectorExtractDynamic, access.Type, aggregate, index);
+                        uint aggregate = Value(access.Base);
+                        if (access.Base.Type is ShaderType.Vector indexedVector) {
+                            if (ConstantEvaluator.TryEvaluateRuntime(access.Index, out var knownIndex)
+                                && knownIndex is Expression.Literal { Value: int or uint } component
+                                && System.Convert.ToInt64(component.Value) is >= 0 and var offset && offset < indexedVector.Size)
+                                return Result(Op.CompositeExtract, access.Type, aggregate, (uint)offset);
+                            return Result(Op.VectorExtractDynamic, access.Type, aggregate, AddressIndex(access.Index));
+                        }
                         if (ConstantEvaluator.TryEvaluate(access.Index, out var indexValue) && indexValue is Expression.Literal indexLiteral)
                             return Result(Op.CompositeExtract, access.Type, aggregate, System.Convert.ToUInt32(indexLiteral.Value));
+                        uint index = AddressIndex(access.Index);
                         uint scratch = Variable(access.Base.Type); Add(Op.Store, scratch, aggregate);
                         uint ptr = Result(Op.AccessChain, new ShaderType.Pointer(access.Type, AddressSpace.Function), scratch, index);
                         return Result(Op.Load, access.Type, ptr);

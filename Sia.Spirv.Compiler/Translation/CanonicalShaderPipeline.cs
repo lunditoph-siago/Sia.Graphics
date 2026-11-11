@@ -79,6 +79,13 @@ internal static class CanonicalShaderPipeline
             });
             ControlFlowVerifier.Validate(graph, input, analyses);
             before = traces is null ? null : ControlFlowPrinter.Write(graph);
+            LocalValueNumbering.Run(graph, analyses);
+            ControlFlowVerifier.Validate(graph, input, analyses);
+            traces?.Add(new(function.Name, "local-value-numbering", before!, ControlFlowPrinter.Write(graph),
+                "CFG topology, dominance, evaluation stages, operand order and ordered effects", "redundant pure definitions") {
+                Preserved = ControlFlowAnalyses.All
+            });
+            before = traces is null ? null : ControlFlowPrinter.Write(graph);
             ConstantConversionFolding.Run(graph);
             ControlFlowVerifier.Validate(graph, input, analyses);
             traces?.Add(new(function.Name, "constant-conversion-folding", before!, ControlFlowPrinter.Write(graph),

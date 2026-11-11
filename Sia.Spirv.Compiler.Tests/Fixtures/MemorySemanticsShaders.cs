@@ -54,4 +54,11 @@ internal static class MemorySemanticsShaders
         uint second = WriteAndReturn(data);
         return first + second;
     }
+
+    [SpirvKernel(1)]
+    public static void RepeatedProduct(StorageBuffer<uint> data)
+    {
+        var x = data[0];
+        data[1] = x * x + x * x;
+    }
 }

@@ -54,7 +54,7 @@ internal static class SpirvPhysicalLayoutLowering
             else {
                 // Only a target-deferred executable graph crosses this adapter.
                 // The borrowed declaration Body may be empty or obsolete.
-                adapters.Add(pair.Key, ShaderTargetLowering.ForStructured(graph, module)); deferred.Add(pair.Key, reason!);
+                adapters.Add(pair.Key, StructuredModuleLowering.Run(graph, module)); deferred.Add(pair.Key, reason!);
             }
         }
         if (adapters.Count != 0) {

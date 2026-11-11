@@ -1,17 +1,23 @@
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using Sia.Spirv.Compiler.Metadata;
-using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
 using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
-using Sia.Spirv.Compiler.Translation.Proc;
 
 namespace Sia.Spirv.Compiler.IL;
 
 internal sealed partial class RuntimeShaderLowering
 {
     private sealed record CilEdge(int Target, Expression[] Arguments);
-    private sealed record CilBlockBody(int Id, Block Body, Func<StructuredControlFlowReader, Func<CilEdge, ControlFlowEdge>, ControlFlowTerminator> Finish);
+    private abstract record CilTerminator
+    {
+        public sealed record Jump(CilEdge Edge) : CilTerminator;
+        public sealed record Conditional(Expression Condition, CilEdge True, CilEdge False) : CilTerminator;
+        public sealed record Switch(Expression Selector, CilEdge[] Cases, CilEdge Default) : CilTerminator;
+        public sealed record Return(Expression? Value) : CilTerminator;
+    }
+
+    private sealed record CilBlockBody(int Id, Block Body, CilTerminator Terminator);
     private sealed record CilFunctionBody(ShaderFunction Signature, Dictionary<int, Value[]> Incoming, List<CilBlockBody> Blocks);
     private readonly List<CilFunctionBody> cilFunctions = [];
     private Expression? entryResult;
@@ -69,37 +75,42 @@ internal sealed partial class RuntimeShaderLowering
                 if (parameters.Length != edgeValues.Length) throw Error(native.StartOffset, "CIL evaluation stack edge mismatch.");
                 return new(target, edgeValues.Select((v, i) => Convert(v, parameters[i].Expression.Type, true)).ToArray());
             }
-            Func<StructuredControlFlowReader, Func<CilEdge, ControlFlowEdge>, ControlFlowTerminator>? finish = null;
+            CilTerminator? terminator = null;
             foreach (var instruction in native.Instructions) {
                 string op = instruction.OpCode.Name!; int at = instruction.Offset;
                 if (op is "br" or "br.s") {
                     var edge = Edge(byOffset[instruction.Operand.GetInt32(at)].Id);
-                    finish = (_, resolve) => new ControlFlowTerminator.Branch(resolve(edge)); break;
+                    terminator = new CilTerminator.Jump(edge);
+                    break;
                 }
                 if (op == "switch") {
                     var selector = Convert(Read(stack.Pop(), output), ShaderType.I32, true);
                     var edges = instruction.Operand.GetSwitchTargets(at).Select(t => Edge(byOffset[t].Id)).ToArray();
                     var fallback = Edge(byOffset[instruction.EndOffset].Id);
-                    finish = (reader, resolve) => new ControlFlowTerminator.Switch(reader.NativeValue(selector),
-                        edges.Select((edge, i) => new ControlFlowCase([Expression.I32(i)], resolve(edge))).ToArray(), resolve(fallback)); break;
+                    terminator = new CilTerminator.Switch(selector, edges, fallback);
+                    break;
                 }
                 if (instruction.OpCode.FlowControl == System.Reflection.Emit.FlowControl.Cond_Branch) {
                     var condition = Branch(instruction, stack, output);
-                    var yes = Edge(byOffset[instruction.Operand.GetInt32(at)].Id); var no = Edge(byOffset[instruction.EndOffset].Id);
-                    finish = (reader, resolve) => new ControlFlowTerminator.Conditional(reader.NativeValue(condition), resolve(yes), resolve(no)); break;
+                    var yes = Edge(byOffset[instruction.Operand.GetInt32(at)].Id);
+                    var no = Edge(byOffset[instruction.EndOffset].Id);
+                    terminator = new CilTerminator.Conditional(condition, yes, no);
+                    break;
                 }
                 if (op == "ret") {
                     var value = returnOverride ?? (function.ReturnType is ShaderType.Void ? null : Convert(Read(stack.Pop(), output), function.ReturnType, true));
-                    finish = (reader, _) => new ControlFlowTerminator.Return(ReferenceEquals(function, entry) && entryResult is not null
-                        ? reader.NativeValue(entryResult) : value is null ? null : reader.NativeValue(value)); break;
+                    terminator = new CilTerminator.Return(value);
+                    break;
                 }
                 Instruction(instruction, stack, arguments, localValues, output, StoreLocal);
             }
-            if (finish is null && native.Successors.Count == 1) {
-                var edge = Edge(native.Successors[0]); finish = (_, resolve) => new ControlFlowTerminator.Branch(resolve(edge));
+            if (terminator is null && native.Successors.Count == 1) {
+                terminator = new CilTerminator.Jump(Edge(native.Successors[0]));
             }
-            if (finish is null) throw Error(native.StartOffset, "CIL block has no terminator.");
-            blocks.Add(new(id, output, finish));
+            if (terminator is null) {
+                throw Error(native.StartOffset, "CIL block has no terminator.");
+            }
+            blocks.Add(new(id, output, terminator));
         }
         foreach (var local in localValues) {
             var slot = (Expression.Reference)local.Expression;
@@ -109,36 +120,5 @@ internal sealed partial class RuntimeShaderLowering
             });
         }
         cilFunctions.Add(new(function, incoming, blocks));
-    }
-
-    private Dictionary<string, ControlFlowFunction> ReadGraphs()
-    {
-        var result = new Dictionary<string, ControlFlowFunction>(StringComparer.Ordinal);
-        foreach (var input in cilFunctions) {
-            var reader = StructuredControlFlowReader.Native(input.Signature, module); var graph = reader.NativeGraph;
-            reader.NativeBody(input.Signature.Body);
-            var prologue = reader.NativeCurrent;
-            var blocks = input.Blocks.ToDictionary(b => b.Id, _ => graph.Block());
-            foreach (var block in input.Blocks) foreach (var parameter in input.Incoming[block.Id]) {
-                var value = graph.Value(parameter.Expression.Type); blocks[block.Id].Parameters.Add(value);
-                reader.NativeBind(((Expression.Reference)parameter.Expression).Name, value);
-            }
-            prologue.Terminator = new ControlFlowTerminator.Branch(new(blocks[0].Id));
-            foreach (var block in input.Blocks) {
-                reader.NativeBegin(blocks[block.Id]); reader.NativeBody(block.Body);
-                if (reader.NativeCurrent.Terminator is null) {
-                    var terminator = block.Finish(reader, edge => new(blocks[edge.Target].Id, edge.Arguments.Select(reader.NativeValue)));
-                    reader.NativeCurrent.Terminator = terminator;
-                }
-            }
-            // Resource locations are CIL bookkeeping, never mutable target objects.
-            // Shared definite-assignment and escape checks turn them into SSA first.
-            LocalValuePromotion.Run(graph);
-            if (graph.Blocks.SelectMany(b => b.Instructions).Any(i => i.Operation is ValueOperation.Local
-                && i.Result?.Type is ShaderType.Pointer p && CanonicalTypes.Resource(p.Base)))
-                throw Error(0, "Resource local has an uninitialized or escaping address; resource SSA requires an assigned value.");
-            input.Signature.Body = new(); result.Add(input.Signature.Name, graph);
-        }
-        return result;
     }
 }

@@ -9,7 +9,7 @@ namespace Sia.Spirv.Compiler.Translation.Legalization;
 internal static partial class SpirvIntegerArithmeticLowering
 {
     public static Module Run(Module input, bool divisionChecks)
-        => ShaderTargetLowering.ForStructured(Run(SpirvControlFlowLowering.Capture(input), divisionChecks));
+        => StructuredModuleLowering.Run(Run(SpirvControlFlowLowering.Capture(input), divisionChecks));
 
     internal static CanonicalModule Run(CanonicalModule canonical, bool divisionChecks)
     {

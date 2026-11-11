@@ -16,6 +16,36 @@ namespace Sia.Spirv.Compiler.LLVM;
 
 public sealed class LlvmIrEmitter
 {
+    public LlvmIrModule Emit(
+        string assemblyPath,
+        SpirvKernel kernel,
+        SpirvKernelAbi kernelAbi = SpirvKernelAbi.Vulkan)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
+        ArgumentNullException.ThrowIfNull(kernel);
+
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream, PEStreamOptions.PrefetchEntireImage);
+        var reader = peReader.GetMetadataReader();
+        var methodHandle = (MethodDefinitionHandle)MetadataTokens.EntityHandle(kernel.MetadataToken);
+        var method = reader.GetMethodDefinition(methodHandle);
+        var methodBody = peReader.GetMethodBody(method.RelativeVirtualAddress);
+        using var intrinsics = IntrinsicCatalog.Open(assemblyPath);
+        var resolver = new CilCallResolver(reader, intrinsics);
+        var view = new ShaderCilView(kernel.ControlFlowGraph, resolver);
+        return new LlvmShaderEmission(peReader, reader, kernelAbi).Emit(kernel, methodBody, view);
+    }
+
+    internal static string GetTargetStage(SpirvShaderStage stage) => stage switch {
+        SpirvShaderStage.Compute => "compute",
+        SpirvShaderStage.Vertex => "vertex",
+        SpirvShaderStage.Fragment => "pixel",
+        _ => throw new ArgumentOutOfRangeException(nameof(stage))
+    };
+}
+
+internal sealed class LlvmShaderEmission(PEReader peReader, MetadataReader reader, SpirvKernelAbi kernelAbi)
+{
     private readonly StringBuilder _body = new();
     private readonly HashSet<LlvmBufferBinding> _bufferBindings = [];
     private readonly Dictionary<StageLocation, StageLocationInfo> _stageLocations = [];
@@ -23,7 +53,7 @@ public sealed class LlvmIrEmitter
     private readonly StringBuilder _inlineLocalAllocations = new();
     private string _localPrefix = "local";
     private int _nextInlineId;
-    private SpirvKernelAbi _kernelAbi;
+    private readonly SpirvKernelAbi _kernelAbi = kernelAbi;
     private SpirvShaderStage _shaderStage;
     private SpirvWorkgroupSize _currentWorkgroupSize;
     private PhysicalStructLayout[] _physicalStructLayouts = [];
@@ -51,38 +81,12 @@ public sealed class LlvmIrEmitter
     private bool _usesPow;
     private bool _usesAbs;
     private ResolvedCall? _currentCall;
-    private MetadataReader _reader = null!;
-    private PEReader _peReader = null!;
+    private readonly MetadataReader _reader = reader;
+    private readonly PEReader _peReader = peReader;
     private int _nextValueId;
 
-    public LlvmIrModule Emit(
-        string assemblyPath,
-        SpirvKernel kernel,
-        SpirvKernelAbi kernelAbi = SpirvKernelAbi.Vulkan)
+    public LlvmIrModule Emit(SpirvKernel kernel, MethodBodyBlock methodBody, ShaderCilView view)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
-        ArgumentNullException.ThrowIfNull(kernel);
-
-        using var stream = File.OpenRead(assemblyPath);
-        using var peReader = new PEReader(stream, PEStreamOptions.PrefetchEntireImage);
-        _peReader = peReader;
-        var reader = peReader.GetMetadataReader();
-        _reader = reader;
-        var methodHandle = (MethodDefinitionHandle)MetadataTokens.EntityHandle(kernel.MetadataToken);
-        var method = reader.GetMethodDefinition(methodHandle);
-        var methodBody = peReader.GetMethodBody(method.RelativeVirtualAddress);
-        using var intrinsics = IntrinsicCatalog.Open(assemblyPath);
-        var resolver = new CilCallResolver(reader, intrinsics);
-        var view = new ShaderCilView(kernel.ControlFlowGraph, resolver);
-
-        _body.Clear();
-        _bufferBindings.Clear();
-        _stageLocations.Clear();
-        _inlineCallStack.Clear();
-        _inlineLocalAllocations.Clear();
-        _localPrefix = "local";
-        _nextInlineId = 0;
-        _kernelAbi = kernelAbi;
         _shaderStage = kernel.Stage;
         _currentWorkgroupSize = kernel.WorkgroupSize;
         _physicalStructLayouts = kernel.Parameters
@@ -105,31 +109,9 @@ public sealed class LlvmIrEmitter
                 parameter.Kind == SpirvKernelParameterKind.StageInput)
             ?.StageIoLayout;
         _stageOutputLayout = kernel.ReturnLayout;
-        _readsVertexIndex = false;
-        _readsInstanceIndex = false;
-        _readsFragmentPosition = false;
-        _readsFrontFacing = false;
-        _writesPosition = false;
-        _writesFragmentDepth = false;
-        _usesTexture2DLoad = false;
-        _usesTexture2DSampleLevel = false;
-        _usesTexture2DArrayLoad = false;
-        _usesTexture2DArraySampleLevel = false;
-        _usesBarrier = false;
-        _usesMin = false;
-        _usesMax = false;
-        _usesInverseSqrt = false;
-        _usesDiscard = false;
-        _usesSqrt = false;
-        _usesSin = false;
-        _usesCos = false;
-        _usesPow = false;
-        _usesAbs = false;
-        _currentCall = null;
-        _nextValueId = 0;
         RegisterStageIo();
 
-        var localTypes = DecodeLocalTypes(reader, methodBody.LocalSignature);
+        var localTypes = DecodeLocalTypes(_reader, methodBody.LocalSignature);
         var parameterValues = new LlvmValue[kernel.Parameters.Count];
         var entryPoint = SanitizeIdentifier(kernel.Name);
         var prologue = new StringBuilder();
@@ -146,7 +128,7 @@ public sealed class LlvmIrEmitter
         }
 
         var module = new StringBuilder();
-        var targetStage = GetTargetStage(kernel.Stage);
+        var targetStage = LlvmIrEmitter.GetTargetStage(kernel.Stage);
         module.Append("target triple = \"spirv1.5-vulkan1.2-")
             .Append(targetStage).AppendLine("\"");
         module.AppendLine();
@@ -1015,13 +997,6 @@ public sealed class LlvmIrEmitter
             .Append(stage).AppendLine("\" }");
     }
 
-    internal static string GetTargetStage(SpirvShaderStage stage) => stage switch {
-        SpirvShaderStage.Compute => "compute",
-        SpirvShaderStage.Vertex => "vertex",
-        SpirvShaderStage.Fragment => "pixel",
-        _ => throw new ArgumentOutOfRangeException(nameof(stage))
-    };
-
     private void EmitLocationMetadata(StringBuilder module)
     {
         var locations = _stageLocations.Keys
@@ -1098,7 +1073,7 @@ public sealed class LlvmIrEmitter
     }
 
     private delegate void IntrinsicHandler(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1510,7 +1485,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitInvocationBuiltin(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1522,7 +1497,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitBarrier(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1536,7 +1511,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitVertexIndexBuiltin(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1549,7 +1524,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitInstanceIndexBuiltin(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1562,7 +1537,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitRasterInput(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1582,7 +1557,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitFragmentPositionBuiltin(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1596,7 +1571,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitAsFloat(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1620,7 +1595,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitUnpackHalf(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1651,7 +1626,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitInverseSqrt(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1666,7 +1641,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitSelect(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1703,7 +1678,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitDiscard(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1716,7 +1691,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitSetPosition(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1738,7 +1713,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitRasterOutput(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1757,7 +1732,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitBufferIndex(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1773,7 +1748,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitAtomic(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1821,7 +1796,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitTexture2DLoad(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1849,7 +1824,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitTexture2DSampleLevel(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1877,7 +1852,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitTexture2DArrayLoad(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1908,7 +1883,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitTexture2DArraySampleLevel(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1942,7 +1917,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitSqrt(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1957,7 +1932,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitSin(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1972,7 +1947,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitCos(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1987,7 +1962,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitPow(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2003,7 +1978,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitAbs(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2018,7 +1993,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathConstruct(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2080,7 +2055,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathGetComponent(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2107,7 +2082,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathArithmetic(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2137,7 +2112,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathNegate(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2175,7 +2150,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathUnary(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2202,7 +2177,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathPow(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2230,7 +2205,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathMinMax(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2263,7 +2238,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathClamp(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2301,7 +2276,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathSaturate(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2331,7 +2306,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathDot(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2349,7 +2324,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathCross(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2372,7 +2347,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathNormalize(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2392,7 +2367,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathReflect(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2414,7 +2389,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathBooleanReduction(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2437,7 +2412,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathMul(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2491,7 +2466,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathTranspose(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,

@@ -3,6 +3,7 @@ using System.Reflection.PortableExecutable;
 using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Metadata;
 using Sia.Spirv.Compiler.Model;
+using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
 using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 using Sia.Spirv.Compiler.Translation.Legalization;
@@ -37,11 +38,12 @@ internal sealed partial class RuntimeShaderLowering(PEReader pe, MetadataReader 
         SpirvKernel kernel, SpirvKernelAbi abi)
     {
         var frontend = ReadCanonical(assemblyImage, intrinsicImage, kernel, abi);
-        var canonical = CanonicalShaderPipeline.Prepare(frontend.Declarations, frontendGraphs: frontend.Functions,
-            verifyFrontend: (graph, input) => ControlFlowVerifier.Validate(graph, input));
+        var source = new NativeModuleSource(frontend.Declarations, frontend.Functions,
+            static (graph, input) => ControlFlowVerifier.Validate(graph, input));
+        var canonical = CanonicalShaderPipeline.Prepare(source);
         canonical = CanonicalHelperInliner.RunTargetHelpers(canonical);
         canonical = CanonicalReferenceLowering.Run(canonical);
-        return ShaderTargetLowering.ForStructured(CanonicalControlFlowRegions.Run(canonical));
+        return StructuredModuleLowering.Run(CanonicalControlFlowRegions.Run(canonical));
     }
 
     internal static CanonicalModule ReadCanonical(ReadOnlyMemory<byte> assemblyImage, ReadOnlyMemory<byte> intrinsicImage,

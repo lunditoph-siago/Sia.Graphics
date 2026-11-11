@@ -295,11 +295,7 @@ public static partial class SpirvReader
             PrepareMeshEntries();
             ResolveFunctions(traces);
             AddEntryPoints();
-            Module result = directCanonicalFlow ? CanonicalShaderPipeline.Run(module, traces, deferrals,
-                (graph, input) => {
-                    Valid.NativePointerValidator.Validate(graph, input, fullVariablePointers);
-                    ValidateNativeArithmetic(graph, input);
-                }, nativeGraphs)
+            Module result = directCanonicalFlow ? LowerNativeModule(traces, deferrals)
                 : Legalization.MatrixStorageLowering.HasLayout(module) || variablePointers ? Proc.HelperInliner.RunNonFunctionPointers(module,
                 specializedHelpers.Select(id => functions[id].Name).ToHashSet(StringComparer.Ordinal)) : module;
             if (directCanonicalFlow) result = Proc.HelperInliner.RunNonFunctionPointers(result);
@@ -308,6 +304,16 @@ public static partial class SpirvReader
                 descriptorSnapshots: descriptorSnapshotNames, memoryLoad: MemoryLoad, memoryStore: MemoryStore,
                 aggregateCopy: (body, pointer, value, load, memory) => AtomicAggregateCopy(body, pointer, value, load, memory)).Run();
             return Legalization.MatrixStorageLowering.RunDeferred(result);
+        }
+
+        private Module LowerNativeModule(ICollection<CanonicalPassTrace>? traces, ICollection<CanonicalDeferral>? deferrals)
+        {
+            var source = new NativeModuleSource(module, nativeGraphs, (graph, input) => {
+                Valid.NativePointerValidator.Validate(graph, input, fullVariablePointers);
+                ValidateNativeArithmetic(graph, input);
+            });
+            var canonical = CanonicalShaderPipeline.Prepare(source, traces, deferrals);
+            return Legalization.StructuredModuleLowering.Run(canonical, nativeValidation: true);
         }
 
         private void ReadUndefined()

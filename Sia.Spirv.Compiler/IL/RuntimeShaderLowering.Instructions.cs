@@ -6,7 +6,8 @@ namespace Sia.Spirv.Compiler.IL;
 
 internal sealed partial class RuntimeShaderLowering
 {
-    private void Instruction(CilInstruction instruction, Stack<Value> stack, Value[] arguments, Value[] locals, Block body)
+    private void Instruction(CilInstruction instruction, Stack<Value> stack, Value[] arguments, Value[] locals, Block body,
+        Action<int, Value, Block, int> storeLocal)
     {
         string op = instruction.OpCode.Name!; int at = instruction.Offset;
         int Index(string prefix) => op.Length > prefix.Length+1 && int.TryParse(op[(prefix.Length+1)..], out int index) ? index : instruction.Operand.GetInt32(at);
@@ -35,10 +36,13 @@ internal sealed partial class RuntimeShaderLowering
         if (op.StartsWith("ldloc", StringComparison.Ordinal)) {
             int index = Index(op.StartsWith("ldloca", StringComparison.Ordinal) ? "ldloca" : "ldloc");
             if (op.StartsWith("ldloca", StringComparison.Ordinal)) stack.Push(locals[index]);
-            else Push(new Expression.Load(locals[index].Expression));
+            else {
+                var value = Snapshot(new Expression.Load(locals[index].Expression), body);
+                stack.Push(value with { Place = value.Expression.Type is ShaderType.Pointer });
+            }
             return;
         }
-        if (op.StartsWith("stloc", StringComparison.Ordinal)) { Store(locals[Index("stloc")].Expression, Pop(), body); return; }
+        if (op.StartsWith("stloc", StringComparison.Ordinal)) { storeLocal(Index("stloc"), stack.Pop(), body, at); return; }
         if (op.StartsWith("ldc.i4", StringComparison.Ordinal)) {
             int value = op == "ldc.i4.m1" ? -1 : op is "ldc.i4" or "ldc.i4.s" ? instruction.Operand.GetInt32(at) : op[^1]-'0';
             stack.Push(new(Expression.I32(value))); return;

@@ -86,7 +86,7 @@ internal static class CanonicalShaderPipeline
                 Preserved = ControlFlowAnalyses.All
             });
             before = traces is null ? null : ControlFlowPrinter.Write(graph);
-            DeadValueElimination.Run(graph);
+            DeadValueElimination.Run(graph, analyses);
             ControlFlowVerifier.Validate(graph, input, analyses);
             traces?.Add(new(function.Name, "dead-value-elimination", before!, ControlFlowPrinter.Write(graph),
                 "CFG topology, dominance and ordered effects", "unused pure definitions and phi arguments") { Preserved = ControlFlowAnalyses.All });

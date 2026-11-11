@@ -4,9 +4,10 @@ namespace Sia.Spirv.Compiler.Translation.Proc;
 
 internal static class DeadValueElimination
 {
-    internal static void Run(ControlFlowFunction graph)
+    internal static void Run(ControlFlowFunction graph, ControlFlowAnalysisContext? analyses = null)
     {
-        var predecessors = ControlFlowAnalysis.Predecessors(graph);
+        analyses?.RequireFunction(graph);
+        var predecessors = (analyses ?? new ControlFlowAnalysisContext(graph)).Predecessors;
         var definitions = graph.Blocks.SelectMany(b => b.Instructions).Where(i => i.Result is not null).ToDictionary(i => i.Result!.Value.Id);
         var parameters = graph.Blocks.SelectMany(b => b.Parameters.Select((p, index) => (p.Id, Values: predecessors[b.Id].Select(e => e.Edge.Arguments[index]).ToArray())))
             .ToDictionary(p => p.Id, p => p.Values);
@@ -14,7 +15,7 @@ internal static class DeadValueElimination
         foreach (var block in graph.Blocks) {
             foreach (var value in block.Terminator!.Operands) pending.Push(value);
             foreach (var instruction in block.Instructions)
-                if (instruction.Effects != ShaderEffects.None || instruction.Result is not { } value || !CanonicalTypes.Data(value.Type)) {
+                if (instruction.Effects != ShaderEffects.None || instruction.Result is null) {
                     if (instruction.Result is { } result) pending.Push(result);
                     foreach (var operand in instruction.Operation.Operands) pending.Push(operand);
                 }
@@ -27,13 +28,14 @@ internal static class DeadValueElimination
                 foreach (var operand in incoming) pending.Push(operand);
         }
         foreach (var block in graph.Blocks) {
-            block.Instructions.RemoveAll(i => i.Result is { } value && CanonicalTypes.Data(value.Type)
+            block.Instructions.RemoveAll(i => i.Result is { } value
                 && i.Effects == ShaderEffects.None && !live.Contains(value.Id));
             for (int p = block.Parameters.Count - 1; p >= 0; p--)
-                if (CanonicalTypes.Data(block.Parameters[p].Type) && !live.Contains(block.Parameters[p].Id)) {
+                if (!live.Contains(block.Parameters[p].Id)) {
                     block.Parameters.RemoveAt(p);
-                    foreach (var edge in predecessors[block.Id]) edge.Edge.Arguments.RemoveAt(p);
+                    foreach (var edge in predecessors[block.Id].Select(p => p.Edge).Distinct()) edge.Arguments.RemoveAt(p);
                 }
         }
+        analyses?.Preserve(ControlFlowAnalyses.All);
     }
 }

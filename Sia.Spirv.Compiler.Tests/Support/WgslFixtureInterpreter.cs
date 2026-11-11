@@ -44,6 +44,7 @@ internal static class WgslFixtureInterpreter
             }
             object? Builtin(ValueOperation.Builtin builtin) {
                 var args = builtin.Arguments.Select(Read).ToArray();
+                if (builtin.Function == "atomicLoad") { effects.Add(builtin.Function); return ((Cell)args[0]).Read(); }
                 if (builtin.Function == "atomicAdd") {
                     effects.Add(builtin.Function); var cell = (Cell)args[0]; var old = (uint)cell.Read();
                     cell.Write(unchecked(old + (uint)args[1])); return old;

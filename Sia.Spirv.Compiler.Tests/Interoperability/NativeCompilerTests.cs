@@ -1,4 +1,5 @@
 using Sia.Spirv.Compiler.Compilation;
+using Sia.Spirv.Compiler.Tests.IL;
 using Sia.Spirv.Compiler.Translation;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR;
@@ -17,6 +18,24 @@ public sealed class NativeCompilerTests
     [MemberData(nameof(IlSemanticCases.StorageResults), MemberType = typeof(IlSemanticCases))]
     public void NagaPreservesIlStorageResults(string name, uint first, uint second)
         => AssertIlStorageResults(NativeCompiler.Naga, name, first, second);
+
+    [NativeCompilerTheory(NativeCompiler.Tint)]
+    [InlineData(NativeCompiler.Tint)]
+    public void TintPreservesRefLocalResults(string compiler)
+        => AssertRefLocalResults(compiler);
+
+    [NativeCompilerTheory(NativeCompiler.Naga)]
+    [InlineData(NativeCompiler.Naga)]
+    public void NagaPreservesRefLocalResults(string compiler)
+        => AssertRefLocalResults(compiler);
+
+    private static void AssertRefLocalResults(string compiler)
+    {
+        byte[] binary = RuntimeRefLocalTests.Compile(nameof(RefLocalShaders.Loop), new() { Version = 0x00010300 });
+        string output = NativeCompiler.ReadSpirv(compiler, binary);
+        Assert.False(string.IsNullOrWhiteSpace(output));
+        Assert.Equal(new[] { 8u, 5u }, WgslFixtureInterpreter.Execute(output).Memory);
+    }
 
     public static TheoryData<string, string> UniformInputs => new() {
         { "workgroup input copied through helper", """

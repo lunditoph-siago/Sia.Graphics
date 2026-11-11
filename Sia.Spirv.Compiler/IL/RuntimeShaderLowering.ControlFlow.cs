@@ -30,11 +30,24 @@ internal sealed partial class RuntimeShaderLowering
             return new Value(slot, true, true);
         }).ToArray();
         var locals = nativeBody.LocalSignature.IsNil ? [] : metadata.GetStandaloneSignature(nativeBody.LocalSignature).DecodeLocalSignature(new KernelTypeProvider(), null).Select(Type).ToArray();
-        var localValues = locals.Select(type => {
-            var place = Place(Name("local"), type);
-            function.Body.Statements.Add(new Statement.Declare(place.Name, type, null) { Initialize = !CanonicalTypes.Resource(type) });
-            return new Value(place, true);
-        }).ToArray();
+        var localValues = locals.Select(type => new Value(Place(Name("local"), type), true)).ToArray();
+        var referenceTypes = new Dictionary<int, ShaderType.Pointer>();
+        void StoreLocal(int index, Value value, Block output, int offset) {
+            var slot = (Expression.Reference)localValues[index].Expression;
+            if (locals[index] is ShaderType.Pointer declared) {
+                var address = value.Place ? Address(value.Expression) : value.Expression;
+                if (address.Type is not ShaderType.Pointer pointer
+                    || (pointer.Base is ShaderType.Atomic atomic ? atomic.Component : pointer.Base) != declared.Base)
+                    throw Error(offset, "By-reference local requires a compatible address.");
+                if (referenceTypes.TryGetValue(index, out var previous) && previous != pointer)
+                    throw Error(offset, "By-reference local assignments must keep the same address space and access.");
+                referenceTypes[index] = pointer;
+                slot = slot with { Type = new ShaderType.Pointer(pointer, AddressSpace.Function) };
+                localValues[index] = new(slot, true);
+                Store(slot, address, output);
+            }
+            else Store(slot, Read(value, output), output);
+        }
         var byOffset = graph.Blocks.ToDictionary(b => b.StartOffset);
         var incoming = new Dictionary<int, Value[]> { [0] = [] };
         var queue = new Queue<int>(); queue.Enqueue(0);
@@ -80,13 +93,20 @@ internal sealed partial class RuntimeShaderLowering
                     finish = (reader, _) => new ControlFlowTerminator.Return(ReferenceEquals(function, entry) && entryResult is not null
                         ? reader.NativeValue(entryResult) : value is null ? null : reader.NativeValue(value)); break;
                 }
-                Instruction(instruction, stack, arguments, localValues, output);
+                Instruction(instruction, stack, arguments, localValues, output, StoreLocal);
             }
             if (finish is null && native.Successors.Count == 1) {
                 var edge = Edge(native.Successors[0]); finish = (_, resolve) => new ControlFlowTerminator.Branch(resolve(edge));
             }
             if (finish is null) throw Error(native.StartOffset, "CIL block has no terminator.");
             blocks.Add(new(id, output, finish));
+        }
+        foreach (var local in localValues) {
+            var slot = (Expression.Reference)local.Expression;
+            var type = ValueType(slot);
+            function.Body.Statements.Add(new Statement.Declare(slot.Name, type, null) {
+                Initialize = type is not ShaderType.Pointer && !CanonicalTypes.Resource(type)
+            });
         }
         cilFunctions.Add(new(function, incoming, blocks));
     }

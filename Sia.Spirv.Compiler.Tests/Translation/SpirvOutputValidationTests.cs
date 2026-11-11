@@ -6,6 +6,7 @@ namespace Sia.Spirv.Compiler.Tests.Translation;
 public sealed class SpirvOutputValidationTests
 {
     public static TheoryData<string, string> CoreSources => new() {
+        { "repeated product and constant vector index", SpirvValueOptimizationTests.ConstantVectorProduct },
         { "unsigned arithmetic", Compute("let x = data[0]; data[1] = (x << x) / (x | 1u);") },
         { "signed vector remainder", Compute("data[1] = data[0] % vec3<i32>(3i, -2i, 5i);", "vec3<i32>") },
         { "runtime negative index", Compute("let i = -1; data[1] = data[i];") },

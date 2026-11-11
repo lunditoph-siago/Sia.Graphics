@@ -38,6 +38,22 @@ public sealed class NativeCompilerTests
         Assert.Equal(ShaderStage.Compute, Assert.Single(WgslReader.Parse(output).Functions, f => f.Stage is not null).Stage);
     }
 
+    [NativeCompilerTheory(NativeCompiler.Tint)]
+    [InlineData(NativeCompiler.Tint)]
+    public void TintPreservesOptimizedProduct(string compiler) => AssertProduct(compiler);
+
+    [NativeCompilerTheory(NativeCompiler.Naga)]
+    [InlineData(NativeCompiler.Naga)]
+    public void NagaPreservesOptimizedProduct(string compiler) => AssertProduct(compiler);
+
+    private static void AssertProduct(string compiler)
+    {
+        byte[] binary = ShaderTranslator.WgslToSpirv(Translation.SpirvValueOptimizationTests.ConstantVectorProduct,
+            new() { Version = 0x00010300 });
+        string output = NativeCompiler.ReadSpirv(compiler, binary);
+        Assert.Equal(new[] { 7u, 98u }, WgslFixtureInterpreter.Execute(output).Memory);
+    }
+
     private static void AssertIlStorageResults(string compiler, string name, uint first, uint second)
     {
         // Compile SPIR-V 1.3 directly for Tint's reader; never rewrite a header.

@@ -6,6 +6,8 @@ using Sia.Spirv.Compiler.Diagnostics;
 using Sia.Spirv.Compiler.Legalization;
 using Sia.Spirv.Compiler.LLVM;
 using Sia.Spirv.Compiler.Model;
+using Sia.Spirv.Compiler.Translation.Legalization;
+using Sia.Spirv.Compiler.Translation.Spirv;
 using Sia.Spirv.Runtime;
 
 namespace Sia.Spirv.Compiler.Compilation;
@@ -20,7 +22,8 @@ public sealed partial class SpirvCompiler
     public IReadOnlyList<SpirvArtifact> CompileAssembly(SpirvFileCompilationRequest request)
     {
         var artifacts = CompileAssemblyCore(request, null);
-        WriteArtifactList(request.OutputDirectory, artifacts); return artifacts;
+        WriteArtifactList(request.OutputDirectory, artifacts);
+        return artifacts;
     }
 
     private static IReadOnlyList<SpirvArtifact> CompileAssemblyCore(SpirvFileCompilationRequest request, string? targetName)
@@ -29,7 +32,8 @@ public sealed partial class SpirvCompiler
         ArgumentNullException.ThrowIfNull(request.Target);
         var target = request.Target;
         target.Validate(offline: true, wgsl: request.EmitWgsl);
-        var assemblyPath = request.AssemblyPath; var outputDirectory = request.OutputDirectory;
+        var assemblyPath = request.AssemblyPath;
+        var outputDirectory = request.OutputDirectory;
         ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
 
@@ -43,146 +47,143 @@ public sealed partial class SpirvCompiler
         if (frontend.Kernels.Count == 0) {
             return [];
         }
-        foreach (var kernel in frontend.Kernels)
-            Translation.Legalization.ShaderTargetValidator.ValidateStage(target, kernel.Stage.ToString());
+        foreach (var kernel in frontend.Kernels) {
+            ShaderTargetValidator.ValidateStage(target, kernel.Stage.ToString());
+        }
 
         var toolchain = LlvmToolchain.Locate(request.ToolchainDirectory);
-        var llvmVersion = toolchain.GetLlvmVersion();
-        var spirvToolsVersion = toolchain.GetSpirvToolsVersion();
-        var translatorVersion = request.EmitWgsl ? GetShaderTranslatorVersion() : null;
-        var translatorSha256 = request.EmitWgsl ? GetShaderTranslatorSha256() : null;
+        var versions = new SpirvManifestToolchain(
+            toolchain.GetLlvmVersion(),
+            toolchain.GetSpirvToolsVersion(),
+            request.EmitWgsl ? GetShaderTranslatorVersion() : null,
+            request.EmitWgsl ? GetShaderTranslatorSha256() : null);
         var assemblyHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(assemblyPath)));
         Directory.CreateDirectory(outputDirectory);
 
         var artifacts = new List<SpirvArtifact>(frontend.Kernels.Count);
-        foreach (var sourceKernel in frontend.Kernels) {
-            var legalizationPlan = new SpirvLegalizationPlanner().Resolve(
-                sourceKernel,
-                request.Target.ResourceLimits,
-                request.Target.KernelAbi);
-            var kernel = legalizationPlan.Kernel;
-            var fileName = SanitizeFileName(kernel.QualifiedName);
-            if (targetName is not null) {
-                fileName = $"{targetName}--{fileName}";
-            }
-            var llvmPath = Path.Combine(outputDirectory, $"{fileName}.ll");
-            var rawLlvmPath = Path.Combine(outputDirectory, $"{fileName}.raw.ll");
-            var spirvPath = Path.Combine(outputDirectory, $"{fileName}.spv");
-            var wgslPath = Path.Combine(outputDirectory, $"{fileName}.wgsl");
-            var manifestPath = Path.Combine(outputDirectory, $"{fileName}.spv.json");
-            if (!request.EmitWgsl) {
-                File.Delete(wgslPath);
-            }
-            var sourceHash = ComputeSourceHash(
-                assemblyHash,
-                kernel,
-                request,
-                legalizationPlan,
-                llvmVersion,
-                spirvToolsVersion,
-                translatorVersion,
-                translatorSha256,
-                target.Identity);
-            var cachedSpirvPath = targetName is null ? spirvPath : GetCachedBinaryPath(manifestPath, spirvPath);
-            if (IsCacheHit(
-                manifestPath,
-                cachedSpirvPath,
-                wgslPath,
-                llvmPath,
-                sourceHash,
-                request.EmitWgsl,
-                request.EmitLlvmIr)) {
-                artifacts.Add(new SpirvArtifact(
-                    kernel,
-                    cachedSpirvPath,
-                    request.EmitWgsl ? wgslPath : null,
-                    manifestPath,
-                    request.EmitLlvmIr ? llvmPath : null,
-                    true));
-                continue;
-            }
-            if (request.EmitWgsl) {
-                File.Delete(wgslPath);
-            }
-
-            var module = new LlvmIrEmitter().Emit(assemblyPath, kernel, request.Target.KernelAbi);
-            File.WriteAllText(rawLlvmPath, module.Text, new UTF8Encoding(false));
-            try {
-                toolchain.Optimize(
-                    rawLlvmPath,
-                    llvmPath,
-                    request.OptimizationLevel,
-                    request.LlvmPasses);
-                toolchain.Compile(
-                    llvmPath,
-                    spirvPath,
-                    request.OptimizationLevel,
-                    target,
-                    kernel.Stage);
-                toolchain.Validate(spirvPath, request.Target.Environment);
-                if (request.Target.KernelAbi == SpirvKernelAbi.WebGpu) {
-                    toolchain.OptimizeForWebGpu(spirvPath);
-                }
-                SpirvResourceAccessLowering.Rewrite(spirvPath, kernel);
-                Translation.Legalization.ShaderTargetValidator.ValidateBinary(
-                    Translation.Spirv.SpirvBinary.Parse(File.ReadAllBytes(spirvPath)), target);
-                toolchain.Validate(spirvPath, request.Target.Environment);
-                if (request.EmitWgsl) {
-                    ConvertToWgsl(spirvPath, wgslPath, target);
-                }
-            }
-            catch (Exception exception) when (exception is InvalidDataException or IOException) {
-                throw new SpirvCompilationException(
-                    $"Failed to compile '{kernel.QualifiedName}':{Environment.NewLine}{exception.Message}");
-            }
-            finally {
-                File.Delete(rawLlvmPath);
-            }
-
-            if (!request.EmitLlvmIr) {
-                File.Delete(llvmPath);
-            }
-            var spirvSha256 = ComputeFileSha256(spirvPath);
-            if (targetName is not null) {
-                spirvPath = StoreBinary(spirvPath, outputDirectory, spirvSha256);
-            }
-            var manifest = CreateManifest(
-                kernel,
-                request,
-                legalizationPlan,
-                llvmVersion,
-                spirvToolsVersion,
-                translatorVersion,
-                translatorSha256,
-                spirvPath,
-                sourceHash,
-                targetName,
-                Path.GetRelativePath(outputDirectory, spirvPath).Replace('\\', '/'),
-                spirvSha256);
-            manifest = manifest with { CompilationTargetSha256 = target.Identity };
-            File.WriteAllText(
-                manifestPath,
-                JsonSerializer.Serialize(manifest, s_JsonOptions) + Environment.NewLine,
-                new UTF8Encoding(false));
-            artifacts.Add(new SpirvArtifact(
-                kernel,
-                spirvPath,
-                request.EmitWgsl ? wgslPath : null,
-                manifestPath,
-                request.EmitLlvmIr ? llvmPath : null,
-                false));
+        foreach (var kernel in frontend.Kernels) {
+            artifacts.Add(CompileKernel(request, targetName, kernel, toolchain, versions, assemblyHash));
         }
         return artifacts;
+    }
+
+    private static SpirvArtifact CompileKernel(
+        SpirvFileCompilationRequest request,
+        string? targetName,
+        SpirvKernel sourceKernel,
+        LlvmToolchain toolchain,
+        SpirvManifestToolchain versions,
+        string assemblyHash)
+    {
+        var target = request.Target;
+        var outputDirectory = request.OutputDirectory;
+        var legalizationPlan = new SpirvLegalizationPlanner().Resolve(
+            sourceKernel,
+            target.ResourceLimits,
+            target.KernelAbi);
+        var kernel = legalizationPlan.Kernel;
+        var fileName = SanitizeFileName(kernel.QualifiedName);
+        if (targetName is not null) {
+            fileName = $"{targetName}--{fileName}";
+        }
+        var llvmPath = Path.Combine(outputDirectory, $"{fileName}.ll");
+        var rawLlvmPath = Path.Combine(outputDirectory, $"{fileName}.raw.ll");
+        var spirvPath = Path.Combine(outputDirectory, $"{fileName}.spv");
+        var wgslPath = Path.Combine(outputDirectory, $"{fileName}.wgsl");
+        var manifestPath = Path.Combine(outputDirectory, $"{fileName}.spv.json");
+
+        SpirvArtifact Artifact(string binaryPath, bool cacheHit)
+            => new(kernel, binaryPath, request.EmitWgsl ? wgslPath : null, manifestPath,
+                request.EmitLlvmIr ? llvmPath : null, cacheHit);
+
+        if (!request.EmitWgsl) {
+            File.Delete(wgslPath);
+        }
+        var sourceHash = ComputeSourceHash(
+            assemblyHash,
+            kernel,
+            request,
+            legalizationPlan,
+            versions,
+            target.Identity);
+        var cachedSpirvPath = targetName is null ? spirvPath : GetCachedBinaryPath(manifestPath, spirvPath);
+        if (IsCacheHit(
+            manifestPath,
+            cachedSpirvPath,
+            wgslPath,
+            llvmPath,
+            sourceHash,
+            request.EmitWgsl,
+            request.EmitLlvmIr)) {
+            return Artifact(cachedSpirvPath, cacheHit: true);
+        }
+        if (request.EmitWgsl) {
+            File.Delete(wgslPath);
+        }
+
+        var module = new LlvmIrEmitter().Emit(request.AssemblyPath, kernel, target.KernelAbi);
+        File.WriteAllText(rawLlvmPath, module.Text, new UTF8Encoding(false));
+        try {
+            toolchain.Optimize(
+                rawLlvmPath,
+                llvmPath,
+                request.OptimizationLevel,
+                request.LlvmPasses);
+            toolchain.Compile(
+                llvmPath,
+                spirvPath,
+                request.OptimizationLevel,
+                target,
+                kernel.Stage);
+            toolchain.Validate(spirvPath, target.Environment);
+            if (target.KernelAbi == SpirvKernelAbi.WebGpu) {
+                toolchain.OptimizeForWebGpu(spirvPath);
+            }
+            SpirvResourceAccessLowering.Rewrite(spirvPath, kernel);
+            ShaderTargetValidator.ValidateBinary(SpirvBinary.Parse(File.ReadAllBytes(spirvPath)), target);
+            toolchain.Validate(spirvPath, target.Environment);
+            if (request.EmitWgsl) {
+                ConvertToWgsl(spirvPath, wgslPath, target);
+            }
+        }
+        catch (Exception exception) when (exception is InvalidDataException or IOException) {
+            throw new SpirvCompilationException(
+                $"Failed to compile '{kernel.QualifiedName}':{Environment.NewLine}{exception.Message}");
+        }
+        finally {
+            File.Delete(rawLlvmPath);
+        }
+
+        if (!request.EmitLlvmIr) {
+            File.Delete(llvmPath);
+        }
+        var spirvSha256 = ComputeFileSha256(spirvPath);
+        if (targetName is not null) {
+            spirvPath = StoreBinary(spirvPath, outputDirectory, spirvSha256);
+        }
+        var manifest = CreateManifest(
+            kernel,
+            request,
+            legalizationPlan,
+            versions,
+            spirvPath,
+            sourceHash,
+            targetName,
+            Path.GetRelativePath(outputDirectory, spirvPath).Replace('\\', '/'),
+            spirvSha256);
+        manifest = manifest with { CompilationTargetSha256 = target.Identity };
+        File.WriteAllText(
+            manifestPath,
+            JsonSerializer.Serialize(manifest, s_JsonOptions) + Environment.NewLine,
+            new UTF8Encoding(false));
+        return Artifact(spirvPath, cacheHit: false);
     }
 
     private static SpirvArtifactManifest CreateManifest(
         SpirvKernel kernel,
         SpirvFileCompilationRequest request,
         SpirvLegalizationPlan legalizationPlan,
-        string llvmVersion,
-        string spirvToolsVersion,
-        string? translatorVersion,
-        string? translatorSha256,
+        SpirvManifestToolchain versions,
         string spirvPath,
         string sourceHash,
         string? targetName,
@@ -191,78 +192,19 @@ public sealed partial class SpirvCompiler
     {
         var resources = new List<SpirvManifestResource>();
         var pushConstants = new List<SpirvManifestPushConstant>();
-        var binding = 0;
-        var offset = 0;
         foreach (var parameter in kernel.Parameters) {
-            if (parameter.Kind is SpirvKernelParameterKind.WorkgroupMemory or
-                SpirvKernelParameterKind.StageInput) {
+            if (parameter.Kind is SpirvKernelParameterKind.WorkgroupMemory or SpirvKernelParameterKind.StageInput) {
                 continue;
             }
-            if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2D) {
-                resources.Add(new SpirvManifestResource(
-                    parameter.Name,
-                    "sampled-texture-2d",
-                    "read-only",
-                    "float32",
-                    0,
-                    binding++,
-                    0,
-                    0,
-                    0));
-            }
-            else if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2DArray) {
-                resources.Add(new SpirvManifestResource(
-                    parameter.Name,
-                    "sampled-texture-2d-array",
-                    "read-only",
-                    "float32",
-                    0,
-                    binding++,
-                    0,
-                    0,
-                    0));
-            }
-            else if (parameter.Kind == SpirvKernelParameterKind.Sampler) {
-                resources.Add(new SpirvManifestResource(
-                    parameter.Name,
-                    "sampler",
-                    "read-only",
-                    "float32",
-                    0,
-                    binding++,
-                    0,
-                    0,
-                    0));
-            }
-            else if (parameter.Kind is SpirvKernelParameterKind.UniformBuffer or
-                    SpirvKernelParameterKind.ReadOnlyStorageBuffer or
-                    SpirvKernelParameterKind.StorageBuffer) {
-                var layout = parameter.PhysicalLayout;
-                resources.Add(new SpirvManifestResource(
-                    parameter.Name,
-                    parameter.Kind == SpirvKernelParameterKind.UniformBuffer
-                        ? "uniform-buffer"
-                        : "storage-buffer",
-                    parameter.Kind is SpirvKernelParameterKind.ReadOnlyStorageBuffer or
-                        SpirvKernelParameterKind.UniformBuffer
-                        ? "read-only"
-                        : "read-write",
-                    layout?.LogicalType.Name ?? SpirvTypeLayout.GetName(parameter.ScalarType),
-                    0,
-                    binding++,
-                    layout?.Alignment ?? SpirvTypeLayout.GetAlignment(parameter.ScalarType),
-                    layout?.Size ?? SpirvTypeLayout.GetSize(parameter.ScalarType),
-                    layout?.ArrayStride ?? SpirvTypeLayout.GetArrayStride(parameter.ScalarType),
-                    layout == null ? null : CreateManifestFields(layout),
-                    parameter.BufferLength));
+            if (CreateManifestResource(parameter, resources.Count) is { } resource) {
+                resources.Add(resource);
             }
             else {
                 pushConstants.Add(new SpirvManifestPushConstant(
                     parameter.Name,
                     SpirvTypeLayout.GetName(parameter.ScalarType),
-                    offset,
+                    pushConstants.Count * 4,
                     4));
-                offset += 4;
             }
         }
         if (request.Target.KernelAbi == SpirvKernelAbi.WebGpu && pushConstants.Count != 0) {
@@ -273,7 +215,7 @@ public sealed partial class SpirvCompiler
                 "read-only",
                 "uint32x4",
                 0,
-                binding,
+                resources.Count,
                 16,
                 parameterVectorCount * 16,
                 16,
@@ -316,7 +258,7 @@ public sealed partial class SpirvCompiler
             pushConstants,
             stageInputs,
             stageOutputs,
-            new SpirvManifestToolchain(llvmVersion, spirvToolsVersion, translatorVersion, translatorSha256),
+            versions,
             sourceHash,
             request.Target.KernelAbi == SpirvKernelAbi.WebGpu ? "webgpu" : "vulkan",
             kernel.Stage.ToString().ToLowerInvariant(),
@@ -327,6 +269,38 @@ public sealed partial class SpirvCompiler
             spirvSha256,
             layoutSha256,
             bufferRequirements);
+    }
+
+    private static SpirvManifestResource? CreateManifestResource(SpirvKernelParameter parameter, int binding)
+    {
+        var handleKind = parameter.Kind switch {
+            SpirvKernelParameterKind.SampledTexture2D => "sampled-texture-2d",
+            SpirvKernelParameterKind.SampledTexture2DArray => "sampled-texture-2d-array",
+            SpirvKernelParameterKind.Sampler => "sampler",
+            _ => null
+        };
+        if (handleKind is not null) {
+            return new(parameter.Name, handleKind, "read-only", "float32", 0, binding, 0, 0, 0);
+        }
+        if (parameter.Kind is not (SpirvKernelParameterKind.UniformBuffer or
+            SpirvKernelParameterKind.ReadOnlyStorageBuffer or SpirvKernelParameterKind.StorageBuffer)) {
+            return null;
+        }
+
+        var layout = parameter.PhysicalLayout;
+        var scalarType = parameter.ScalarType;
+        return new(
+            parameter.Name,
+            parameter.Kind == SpirvKernelParameterKind.UniformBuffer ? "uniform-buffer" : "storage-buffer",
+            parameter.Kind == SpirvKernelParameterKind.StorageBuffer ? "read-write" : "read-only",
+            layout?.LogicalType.Name ?? SpirvTypeLayout.GetName(scalarType),
+            0,
+            binding,
+            layout?.Alignment ?? SpirvTypeLayout.GetAlignment(scalarType),
+            layout?.Size ?? SpirvTypeLayout.GetSize(scalarType),
+            layout?.ArrayStride ?? SpirvTypeLayout.GetArrayStride(scalarType),
+            layout is null ? null : CreateManifestFields(layout),
+            parameter.BufferLength);
     }
 
     private static ulong GetBindingSize(SpirvManifestResource resource) =>
@@ -394,10 +368,7 @@ public sealed partial class SpirvCompiler
         SpirvKernel kernel,
         SpirvFileCompilationRequest request,
         SpirvLegalizationPlan legalizationPlan,
-        string llvmVersion,
-        string spirvToolsVersion,
-        string? translatorVersion,
-        string? translatorSha256,
+        SpirvManifestToolchain versions,
         string targetIdentity)
     {
         var compilerVersion = typeof(SpirvCompiler).Assembly
@@ -427,10 +398,10 @@ public sealed partial class SpirvCompiler
             request.Target.ResourceLimits.MaxUniformBuffersPerShaderStage,
             request.Target.ResourceLimits.MaxUniformBufferBindingSize,
             string.Join(',', legalizationPlan.StrategyIds),
-            llvmVersion,
-            spirvToolsVersion,
-            translatorVersion,
-            translatorSha256);
+            versions.Llvm,
+            versions.SpirvTools,
+            versions.Translator,
+            versions.TranslatorSha256);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input)));
     }
 

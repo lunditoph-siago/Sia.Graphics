@@ -8,12 +8,10 @@ internal sealed class StructuredHelperInliner
     private readonly Dictionary<string, ShaderFunction> helpers;
     private readonly HashSet<string> names = new(StringComparer.Ordinal);
     private readonly HashSet<string> expanding = new(StringComparer.Ordinal);
-    private readonly string kind;
     private readonly IReadOnlyList<DiagnosticFilter> moduleFilters;
     private int next;
-    private StructuredHelperInliner(Module module, Func<ShaderFunction, bool> select, string kind, IReadOnlySet<string>? rewriteFunctions = null)
+    private StructuredHelperInliner(Module module, Func<ShaderFunction, bool> select, IReadOnlySet<string>? rewriteFunctions = null)
     {
-        this.kind = kind;
         moduleFilters = module.DiagnosticFilters;
         helpers = module.Functions.Where(select).ToDictionary(f => f.Name, StringComparer.Ordinal);
         foreach (var name in module.Constants.Select(c => c.Name).Concat(module.Globals.Select(g => g.Name))
@@ -24,24 +22,22 @@ internal sealed class StructuredHelperInliner
             if (rewriteFunctions is null || rewriteFunctions.Contains(f.Name) || helpers.ContainsKey(f.Name)) Reserve(f.Body);
         }
     }
-    public static Module RunQueries(Module module) => Run(module,
-        f => f.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.RayQuery }), "query");
 
     // Native derived Storage/Workgroup pointers may require capabilities that
     // WGSL cannot express. Expanding calls also keeps member layout context and
     // aliases intact, without a copy-in/copy-out calling convention.
     public static Module RunNonFunctionPointers(Module module, IReadOnlySet<string>? specialized = null) => Run(module,
-        f => f.Stage is null && (f.Arguments.Any(a => a.Type is ShaderType.Pointer { Space: not AddressSpace.Function }) || specialized?.Contains(f.Name) == true), "pointer");
+        f => f.Stage is null && (f.Arguments.Any(a => a.Type is ShaderType.Pointer { Space: not AddressSpace.Function }) || specialized?.Contains(f.Name) == true));
 
     // Explicit per-function adapter for helpers not yet representable in CFG.
     // Unrelated declaration bodies are neither reserved nor traversed.
     internal static Module RunSelected(Module module, IReadOnlySet<string> helpers, IReadOnlySet<string> callers)
-        => Run(module, f => helpers.Contains(f.Name), "pointer", rewriteFunctions: callers);
+        => Run(module, f => helpers.Contains(f.Name), rewriteFunctions: callers);
 
-    private static Module Run(Module module, Func<ShaderFunction, bool> select, string kind,
+    private static Module Run(Module module, Func<ShaderFunction, bool> select,
         IReadOnlySet<string>? rewriteFunctions = null)
     {
-        var pass = new StructuredHelperInliner(module, select, kind, rewriteFunctions);
+        var pass = new StructuredHelperInliner(module, select, rewriteFunctions);
         if (pass.helpers.Count == 0) return module;
         var output = module.WithFunctions([]);
         foreach (var f in module.Functions.Where(f => !pass.helpers.ContainsKey(f.Name)))
@@ -162,8 +158,8 @@ internal sealed class StructuredHelperInliner
     private Expression Inline(Expression.Call call, Expression[] args, Block prelude, Context caller)
     {
         var f = helpers[call.Function];
-        if (!expanding.Add(f.Name)) throw Error($"Recursive {kind} helper calls cannot be inlined.");
-        if (f.Stage is not null || args.Length != f.Arguments.Count) throw Error($"Invalid {kind} helper call.");
+        if (!expanding.Add(f.Name)) throw Error("Recursive pointer helper calls cannot be inlined.");
+        if (f.Stage is not null || args.Length != f.Arguments.Count) throw Error("Invalid pointer helper call.");
         var context = new Context(true, f.DiagnosticFilters, moduleFilters); context.Push(); context.PushDiagnostics(f.Body.DiagnosticFilters);
         var body = new Block();
         var defaults = new[] { new DiagnosticFilter(DiagnosticSeverity.Error, "derivative_uniformity"), new DiagnosticFilter(DiagnosticSeverity.Error, "subgroup_uniformity") };
@@ -252,7 +248,7 @@ internal sealed class StructuredHelperInliner
             case Expression.Select s:
                 var selected = Values([s.Condition, s.Accept, s.Reject], context, prelude);
                 result = new Expression.Select(selected[0], selected[1], selected[2]); break;
-            default: throw Error($"Unknown expression in {kind} helper inlining.");
+            default: throw Error("Unknown expression in pointer helper inlining.");
         }
         return result with { Span = input.Span };
     }

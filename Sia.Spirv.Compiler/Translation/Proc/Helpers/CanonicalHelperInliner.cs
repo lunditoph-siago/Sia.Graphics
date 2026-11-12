@@ -58,7 +58,7 @@ internal static class CanonicalHelperInliner
                 // owned by the loop, not by an additional nested selection.
                 output.SelectionMerges.Add(continuation.Id, null);
             var arguments = callee.Arguments.Select((a, i) => (a.Name, Value: call.Arguments[i])).ToDictionary(a => a.Name, a => a.Value, StringComparer.Ordinal);
-            int entry = Copy(graph, output, arguments, continuation, site.Instruction.DiagnosticFilters, module);
+            int entry = CopyCallee(graph, output, arguments, continuation, site.Instruction.DiagnosticFilters, module);
             output.DiagnosticRanges.AddRange(graph.DiagnosticRanges);
             if (graph.BodyDiagnosticFilters.Count != 0) output.DiagnosticRanges.Add(graph.BodyDiagnosticFilters);
             // A single-arm selection provides the helper's lexical exit target without
@@ -87,9 +87,9 @@ internal static class CanonicalHelperInliner
                 throw Error("callee-local returned address requires lifetime legalization", graph.Signature.Name);
     }
 
-    private static int Copy(ControlFlowFunction source, ControlFlowFunction target,
-        IReadOnlyDictionary<string, SsaValue>? arguments, ControlFlowBlock? continuation,
-        IReadOnlyList<DiagnosticFilter>? callerFilters, Module module)
+    private static int CopyCallee(ControlFlowFunction source, ControlFlowFunction target,
+        IReadOnlyDictionary<string, SsaValue> arguments, ControlFlowBlock continuation,
+        IReadOnlyList<DiagnosticFilter> callerFilters, Module module)
     {
         var blocks = source.Blocks.ToDictionary(b => b.Id, _ => target.Block());
         var values = new Dictionary<int, SsaValue>();
@@ -97,23 +97,23 @@ internal static class CanonicalHelperInliner
             foreach (var parameter in block.Parameters) { var value = target.Value(parameter.Type); values.Add(parameter.Id, value); blocks[block.Id].Parameters.Add(value); }
             foreach (var instruction in block.Instructions.Where(i => i.Result is not null)) {
                 var result = instruction.Result!.Value;
-                values.Add(result.Id, instruction.Operation is ValueOperation.Symbol symbol && arguments?.TryGetValue(symbol.Name, out var argument) == true
+                values.Add(result.Id, instruction.Operation is ValueOperation.Symbol symbol && arguments.TryGetValue(symbol.Name, out var argument)
                     ? argument : target.Value(result.Type));
             }
         }
         SsaValue Value(SsaValue value) => values[value.Id];
         ControlFlowEdge Edge(ControlFlowEdge edge) => new(blocks[edge.Target].Id, edge.Arguments.Select(Value));
         var defaults = new[] { new DiagnosticFilter(DiagnosticSeverity.Error, "derivative_uniformity"), new DiagnosticFilter(DiagnosticSeverity.Error, "subgroup_uniformity") };
-        DiagnosticSeverity CallerSeverity(DiagnosticFilter filter) => callerFilters!.Concat(target.Signature.DiagnosticFilters)
+        DiagnosticSeverity CallerSeverity(DiagnosticFilter filter) => callerFilters.Concat(target.Signature.DiagnosticFilters)
             .Concat(module.DiagnosticFilters).FirstOrDefault(f => f.Namespace == filter.Namespace && f.Rule == filter.Rule)?.Severity ?? DiagnosticSeverity.Error;
         foreach (var block in source.Blocks) {
             var copy = blocks[block.Id];
             foreach (var instruction in block.Instructions) {
-                if (instruction.Operation is ValueOperation.Symbol symbol && arguments?.ContainsKey(symbol.Name) == true) continue;
+                if (instruction.Operation is ValueOperation.Symbol symbol && arguments.ContainsKey(symbol.Name)) continue;
                 var explicitFilters = instruction.DiagnosticFilters.Concat(source.Signature.DiagnosticFilters).ToArray();
                 // Keep lexical callee settings, and restore inherited/default rules only
                 // where they differ from the caller. Equal defaults need no block attribute.
-                var filters = callerFilters is null ? instruction.DiagnosticFilters : explicitFilters
+                var filters = explicitFilters
                     .Concat(module.DiagnosticFilters).Concat(defaults).DistinctBy(f => (f.Namespace, f.Rule))
                     .Where(f => CallerSeverity(f) != f.Severity || explicitFilters.Any(e => e.Namespace == f.Namespace && e.Rule == f.Rule)).ToArray();
                 copy.Instructions.Add(instruction with { Result = instruction.Result is { } result ? Value(result) : null,
@@ -123,8 +123,7 @@ internal static class CanonicalHelperInliner
                 ControlFlowTerminator.Branch b => new ControlFlowTerminator.Branch(Edge(b.Edge)),
                 ControlFlowTerminator.Conditional c => new ControlFlowTerminator.Conditional(Value(c.Condition), Edge(c.Accept), Edge(c.Reject)),
                 ControlFlowTerminator.Switch s => new ControlFlowTerminator.Switch(Value(s.Selector), s.Cases.Select(c => new ControlFlowCase(c.Values, Edge(c.Edge))).ToArray(), Edge(s.Default)),
-                ControlFlowTerminator.Return r when continuation is not null => new ControlFlowTerminator.Branch(new(continuation.Id, r.Value is { } v ? [Value(v)] : [])),
-                ControlFlowTerminator.Return r => r with { Value = r.Value is { } v ? Value(v) : null },
+                ControlFlowTerminator.Return r => new ControlFlowTerminator.Branch(new(continuation.Id, r.Value is { } v ? [Value(v)] : [])),
                 ControlFlowTerminator.Unreachable u => u,
                 ControlFlowTerminator.InvocationKill k => k,
                 ControlFlowTerminator.TaskDispatch d => d with { Dimensions = Value(d.Dimensions) },

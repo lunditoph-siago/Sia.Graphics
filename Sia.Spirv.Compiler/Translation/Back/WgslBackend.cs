@@ -30,7 +30,7 @@ internal sealed class WgslBackend : IShaderBackend<Module, string>
         ShaderTargetValidator.ValidateWgslInvocationFeatures(canonical);
         canonical = ShaderValueLowering.Run(canonical);
         canonical = WgslEntryPointLowering.Run(canonical);
-        canonical = CanonicalHelperInliner.RunTargetHelpers(canonical, taskDispatch: true);
+        canonical = TargetHelperLowering.Run(canonical, taskDispatch: true);
         canonical = CanonicalReferenceLowering.Run(canonical);
         canonical = CollectiveReadRecovery.Run(canonical);
         canonical = WgslUniformInputLowering.Run(canonical);

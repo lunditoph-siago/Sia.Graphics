@@ -45,7 +45,7 @@ internal static class WgslUniformInputLowering
                 if (graph.Blocks.SelectMany(b => b.Instructions).Any(i => i.Operation is ValueOperation.Call call && helpers.Contains(call.Function)))
                     changed |= helpers.Add(graph.Signature.Name);
         } while (changed);
-        var output = CanonicalHelperInliner.RunTargetHelpers(input, additionalHelpers: helpers);
+        var output = TargetHelperLowering.Run(input, additionalHelpers: helpers);
         var promoted = output.Functions[entry.Signature.Name].Copy();
         var allDefinitions = promoted.Blocks.SelectMany(b => b.Instructions).Where(i => i.Result is not null)
             .ToDictionary(i => i.Result!.Value.Id, i => i.Operation);

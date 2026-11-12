@@ -14,7 +14,7 @@ internal sealed partial class MatrixStorageLowering
     {
         if (!HasLayout(input.Declarations)) return input;
         ModuleValidator.Validate(input, native: true);
-        input = CanonicalReferenceLowering.Run(CanonicalHelperInliner.RunTargetHelpers(input));
+        input = CanonicalReferenceLowering.Run(TargetHelperLowering.Run(input));
         return new MatrixStorageLowering(input.Declarations).Graphs(input);
     }
 

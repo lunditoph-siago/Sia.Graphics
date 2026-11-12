@@ -92,7 +92,7 @@ internal static class CanonicalShaderPipeline
         Trace("remove-unreachable", before, "reachable effects and values", "predecessors, dominance", keepsAnalyses: false);
 
         before = Snapshot();
-        var expanded = CanonicalHelperInliner.Run(graph, input, source.NativeGraphs);
+        var expanded = CanonicalHelperInliner.Run(graph, input, StructuredControlFlowReader.ReadHelperGraph, source.NativeGraphs);
         if (!ReferenceEquals(graph, expanded)) {
             graph = expanded;
             analyses = new ControlFlowAnalysisContext(graph);

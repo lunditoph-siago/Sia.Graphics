@@ -28,7 +28,7 @@ internal static partial class PointerAliasAnalysis
     public static void Validate(Module module, IReadOnlyDictionary<string, ControlFlowFunction> graphs,
         DiagnosticStage stage = DiagnosticStage.Validation)
     {
-        graphs = graphs.ToDictionary(p => p.Key, p => CanonicalHelperInliner.Run(p.Value, module), StringComparer.Ordinal);
+        graphs = graphs.ToDictionary(p => p.Key, p => CanonicalHelperInliner.Run(p.Value, module, StructuredControlFlowReader.ReadHelperGraph), StringComparer.Ordinal);
         foreach (var (name, graph) in graphs) {
             if (name != graph.Signature.Name || !module.Functions.Any(f => f.Name == name))
                 throw new ShaderException(stage, "Canonical pointer analysis requires a matching function signature.");

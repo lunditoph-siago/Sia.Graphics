@@ -16,7 +16,7 @@ internal static class AtomicStorageLowering
     {
         if (!input.Functions.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions).Any(i => Native(i.Operation))) return input;
         ModuleValidator.Validate(input, native: true);
-        input = CanonicalReferenceLowering.Run(CanonicalHelperInliner.RunTargetHelpers(input));
+        input = CanonicalReferenceLowering.Run(TargetHelperLowering.Run(input));
         var source = input.Declarations;
         var output = new Module { VulkanMemoryModel = source.VulkanMemoryModel, WorkgroupInitializationRequired = source.WorkgroupInitializationRequired };
         output.Structures.AddRange(source.Structures); output.Constants.AddRange(source.Constants); output.Functions.AddRange(source.Functions);

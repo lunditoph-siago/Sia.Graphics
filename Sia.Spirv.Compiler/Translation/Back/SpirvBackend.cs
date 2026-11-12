@@ -45,7 +45,7 @@ internal sealed class SpirvBackend(SpirvWriteOptions options) : IShaderBackend<S
         if (pipelineConstants is { } values) {
             canonical = PipelineConstantResolver.Resolve(canonical, values);
         }
-        canonical = CanonicalHelperInliner.RunTargetHelpers(canonical);
+        canonical = TargetHelperLowering.Run(canonical);
         canonical = CanonicalReferenceLowering.Run(canonical, lowerPointers: false);
         canonical = InvocationTerminationControlFlow.PrepareSpirv(canonical, DiagnosticStage.SpirvWrite);
         canonical = SpirvRayQueryLowering.Run(canonical);

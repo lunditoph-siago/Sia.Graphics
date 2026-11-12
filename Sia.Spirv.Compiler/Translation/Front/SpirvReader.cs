@@ -332,10 +332,10 @@ public static partial class SpirvReader
             Module result = module;
             if (canonical is not null) {
                 result = Legalization.StructuredModuleLowering.Run(canonical, nativeValidation: true);
-                result = Proc.HelperInliner.RunNonFunctionPointers(result);
+                result = Legalization.StructuredHelperInliner.RunNonFunctionPointers(result);
             }
             else if (Legalization.MatrixStorageLowering.HasLayout(module) || variablePointers) {
-                result = Proc.HelperInliner.RunNonFunctionPointers(module,
+                result = Legalization.StructuredHelperInliner.RunNonFunctionPointers(module,
                     specializedHelpers.Select(id => functions[id].Name).ToHashSet(StringComparer.Ordinal));
             }
             if (pointerSelection) result = new Legalization.PointerSelectionLowering(result, DiagnosticStage.SpirvParse,

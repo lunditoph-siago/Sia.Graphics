@@ -12,7 +12,7 @@ internal static class StructuredModuleLowering
     {
         canonical = ShaderValueLowering.Run(canonical);
         if (RequiresTargetHelperInlining(canonical)) {
-            canonical = CanonicalHelperInliner.RunTargetHelpers(canonical);
+            canonical = TargetHelperLowering.Run(canonical);
         }
         if (canonical.Functions.Values.Any(static graph => graph.Blocks
             .Any(static block => block.Terminator is ControlFlowTerminator.TaskDispatch))) {
@@ -31,7 +31,4 @@ internal static class StructuredModuleLowering
                 .Any(static instruction => instruction.Result?.Type is ShaderType.Pointer { Base: ShaderType.Pointer })
             || canonical.Declarations.Functions.Any(function =>
                 function.ReturnType is ShaderType.Pointer && canonical.EntryFunctions.Contains(function.Name));
-
-    internal static ShaderFunction Run(ControlFlowFunction graph, Module module)
-        => StructuredControlFlowLowering.Run(CanonicalReferenceLowering.Run(UndefinedValueLowering.Run(graph)), module);
 }

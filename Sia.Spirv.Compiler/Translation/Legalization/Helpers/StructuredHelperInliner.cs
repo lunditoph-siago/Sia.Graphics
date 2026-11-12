@@ -1,9 +1,9 @@
 using Sia.Spirv.Compiler.Translation.IR;
 
-namespace Sia.Spirv.Compiler.Translation.Proc;
+namespace Sia.Spirv.Compiler.Translation.Legalization;
 
 /// <summary>Expand helpers while retaining the identity of their pointer arguments.</summary>
-internal sealed class HelperInliner
+internal sealed class StructuredHelperInliner
 {
     private readonly Dictionary<string, ShaderFunction> helpers;
     private readonly HashSet<string> names = new(StringComparer.Ordinal);
@@ -11,7 +11,7 @@ internal sealed class HelperInliner
     private readonly string kind;
     private readonly IReadOnlyList<DiagnosticFilter> moduleFilters;
     private int next;
-    private HelperInliner(Module module, Func<ShaderFunction, bool> select, string kind, IReadOnlySet<string>? rewriteFunctions = null)
+    private StructuredHelperInliner(Module module, Func<ShaderFunction, bool> select, string kind, IReadOnlySet<string>? rewriteFunctions = null)
     {
         this.kind = kind;
         moduleFilters = module.DiagnosticFilters;
@@ -41,10 +41,9 @@ internal sealed class HelperInliner
     private static Module Run(Module module, Func<ShaderFunction, bool> select, string kind,
         IReadOnlySet<string>? rewriteFunctions = null)
     {
-        var pass = new HelperInliner(module, select, kind, rewriteFunctions);
+        var pass = new StructuredHelperInliner(module, select, kind, rewriteFunctions);
         if (pass.helpers.Count == 0) return module;
-        var output = new Module { VulkanMemoryModel = module.VulkanMemoryModel, WorkgroupInitializationRequired = module.WorkgroupInitializationRequired }; output.Enables.UnionWith(module.Enables); output.DiagnosticFilters.AddRange(module.DiagnosticFilters);
-        output.Structures.AddRange(module.Structures); output.Constants.AddRange(module.Constants); output.Globals.AddRange(module.Globals);
+        var output = module.WithFunctions([]);
         foreach (var f in module.Functions.Where(f => !pass.helpers.ContainsKey(f.Name)))
         {
             if (rewriteFunctions is not null && !rewriteFunctions.Contains(f.Name)) { output.Functions.Add(f); continue; }

@@ -74,7 +74,7 @@ internal static partial class UniformityAnalysis
     internal static IReadOnlyDictionary<string, ControlFlowFunction> PrepareGraphs(Module module, IReadOnlyDictionary<string, ControlFlowFunction> graphs)
     {
         var effects = ShaderEffectAnalysis.Compute(module, graphs);
-        graphs = graphs.ToDictionary(p => p.Key, p => CanonicalHelperInliner.Run(p.Value, module, graphs, calleeEffects: effects), StringComparer.Ordinal);
+        graphs = graphs.ToDictionary(p => p.Key, p => CanonicalHelperInliner.Run(p.Value, module, StructuredControlFlowReader.ReadHelperGraph, graphs, calleeEffects: effects), StringComparer.Ordinal);
         foreach (var graph in graphs.Values) ControlFlowVerifier.Validate(graph, module, calleeEffects: effects);
         return graphs;
     }

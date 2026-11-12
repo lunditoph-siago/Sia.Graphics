@@ -13,6 +13,21 @@ public sealed class Module
     public List<ShaderFunction> Functions { get; } = [];
     public HashSet<string> Enables { get; } = new(StringComparer.Ordinal);
     public List<DiagnosticFilter> DiagnosticFilters { get; } = [];
+
+    internal Module WithFunctions(IEnumerable<ShaderFunction> functions)
+    {
+        var output = new Module {
+            VulkanMemoryModel = VulkanMemoryModel,
+            WorkgroupInitializationRequired = WorkgroupInitializationRequired
+        };
+        output.Structures.AddRange(Structures);
+        output.Constants.AddRange(Constants);
+        output.Globals.AddRange(Globals);
+        output.Enables.UnionWith(Enables);
+        output.DiagnosticFilters.AddRange(DiagnosticFilters);
+        output.Functions.AddRange(functions);
+        return output;
+    }
 }
 
 public enum DiagnosticSeverity { Off, Info, Warning, Error }

@@ -181,7 +181,7 @@ public static partial class SpirvReader
                 nativeGraphs = new(StringComparer.Ordinal);
                 foreach (var (name, graph) in originalGraphs) {
                     string? before = traces is null ? null : ControlFlowPrinter.Write(graph);
-                    var expanded = CanonicalHelperInliner.Run(graph, module, originalGraphs, expandPointerSlots: true, expandFunctions: referenceHelpers);
+                    var expanded = CanonicalHelperInliner.Run(graph, module, StructuredControlFlowReader.ReadHelperGraph, originalGraphs, expandPointerSlots: true, expandFunctions: referenceHelpers);
                     LocalValuePromotion.Run(expanded); ControlFlowVerifier.Validate(expanded, module);
                     nativeGraphs.Add(name, expanded);
                     if (traces is not null && !ReferenceEquals(graph, expanded)) slotTraces.Add(new(name,

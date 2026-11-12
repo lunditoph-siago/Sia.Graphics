@@ -33,6 +33,10 @@ internal sealed class StructuredControlFlowReader
         foreach (var argument in signature.Arguments) symbols[argument.Name] = argument.Type;
     }
 
+    internal static bool ReadHelperGraph(ShaderFunction function, Module module,
+        out ControlFlowFunction? graph, out string? reason, IReadOnlyDictionary<string, ShaderEffects> effects)
+        => TryRead(function, module, out graph, out reason, effects);
+
     public static bool TryRead(ShaderFunction input, Module module, out ControlFlowFunction? output, out string? deferredFeature,
         IReadOnlyDictionary<string, ShaderEffects>? calleeEffects = null, bool native = false)
     {

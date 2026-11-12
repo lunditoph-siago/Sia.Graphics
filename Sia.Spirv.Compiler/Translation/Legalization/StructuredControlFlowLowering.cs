@@ -21,7 +21,11 @@ internal static class StructuredControlFlowLowering
         return output;
     }
 
-    public static ShaderFunction Run(ControlFlowFunction function, Module module, bool compactValues = false)
+    // Project one owned graph for a structured adapter without running module-wide lowering.
+    internal static ShaderFunction Project(ControlFlowFunction graph, Module module)
+        => Run(CanonicalReferenceLowering.Run(UndefinedValueLowering.Run(graph)), module);
+
+    private static ShaderFunction Run(ControlFlowFunction function, Module module, bool compactValues = false)
     {
         var signature = function.Signature;
         var output = new ShaderFunction(signature.Name) {

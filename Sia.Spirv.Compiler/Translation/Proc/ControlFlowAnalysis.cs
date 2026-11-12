@@ -18,12 +18,20 @@ internal static class ControlFlowAnalysis
         while (pending.TryDequeue(out string? name)) {
             if (!reachable.Add(name)) continue;
             var calls = frontendGraphs?.TryGetValue(name, out var graph) == true
-                ? graph.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).OfType<ValueOperation.Call>().Select(c => c.Function)
+                ? Calls(graph)
                 : Calls(functions[name].Body);
             foreach (string callee in calls) if (functions.ContainsKey(callee)) pending.Enqueue(callee);
         }
         return reachable;
     }
+
+    internal static IEnumerable<string> Calls(ShaderFunction function, IReadOnlyDictionary<string, ControlFlowFunction> graphs)
+        => graphs.TryGetValue(function.Name, out var graph)
+            ? Calls(graph)
+            : Calls(function.Body);
+
+    private static IEnumerable<string> Calls(ControlFlowFunction graph)
+        => graph.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).OfType<ValueOperation.Call>().Select(c => c.Function);
 
     internal static IEnumerable<string> Calls(Block body)
     {

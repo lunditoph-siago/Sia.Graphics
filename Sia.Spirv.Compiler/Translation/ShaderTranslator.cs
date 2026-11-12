@@ -9,8 +9,13 @@ public static class ShaderTranslator
 {
     public static string SpirvToWgsl(ReadOnlySpan<byte> source, SpirvCompilationTarget target, SpirvReadOptions? options = null)
     {
-        ArgumentNullException.ThrowIfNull(target); target.Validate(wgsl: true);
-        return WgslWriter.Write(SpirvReader.Parse(source, options), target);
+        ArgumentNullException.ThrowIfNull(target);
+        target.Validate(wgsl: true);
+        return SpirvReader.ReadForWgsl(source, options) switch {
+            SpirvReader.WgslInput.Canonical input => WgslWriter.WriteCanonical(input.Module, target),
+            SpirvReader.WgslInput.Structured input => WgslWriter.Write(input.Module, target),
+            _ => throw new InvalidOperationException("Unexpected SPIR-V reader result.")
+        };
     }
 
     public static byte[] WgslToSpirv(string source, SpirvCompilationTarget target, SpirvWriteOptions? options = null)

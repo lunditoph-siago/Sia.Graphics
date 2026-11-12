@@ -28,8 +28,15 @@ internal static class ShaderOutputPipeline
         ArgumentNullException.ThrowIfNull(target);
         backend.ValidateInput(input, target);
 
-        var canonical = CanonicalShaderPipeline.Prepare(input);
-        var prepared = backend.Prepare(canonical, target);
+        return WriteCanonical(CanonicalShaderPipeline.Prepare(input), target, backend);
+    }
+
+    internal static TArtifact WriteCanonical<TPrepared, TArtifact>(
+        CanonicalModule input,
+        SpirvCompilationTarget target,
+        IShaderBackend<TPrepared, TArtifact> backend)
+    {
+        var prepared = backend.Prepare(input, target);
         backend.ValidatePrepared(prepared, target);
 
         var artifact = backend.Emit(prepared);

@@ -1,4 +1,5 @@
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 using Sia.Spirv.Compiler.Translation.Spirv;
 
 namespace Sia.Spirv.Compiler.Translation.Front;
@@ -9,13 +10,26 @@ public static partial class SpirvReader
     public static Module Parse(ReadOnlySpan<uint> words, SpirvReadOptions? options = null) => ReadBinary(SpirvBinary.Parse(words), options);
     internal static Module ReadBinary(SpirvBinary binary, SpirvReadOptions? options = null,
         ICollection<CanonicalPassTrace>? traces = null, ICollection<CanonicalDeferral>? deferrals = null)
+        => CreateReader(binary, options, deferrals).Read(traces, deferrals);
+
+    internal static WgslInput ReadForWgsl(ReadOnlySpan<byte> bytes, SpirvReadOptions? options)
+        => CreateReader(SpirvBinary.Parse(bytes), options, null).ReadForWgsl();
+
+    internal abstract record WgslInput
+    {
+        private WgslInput() { }
+
+        internal sealed record Structured(Module Module) : WgslInput;
+        internal sealed record Canonical(CanonicalModule Module) : WgslInput;
+    }
+
+    private static Reader CreateReader(SpirvBinary binary, SpirvReadOptions? options, ICollection<CanonicalDeferral>? deferrals)
     {
         if (CanReadCanonicalFlow(binary, out var deferred))
-            return new Reader(binary, options ?? new(), new HashSet<uint>(), new Dictionary<uint, string>(), directCanonicalFlow: true)
-                .Read(traces, deferrals);
+            return new Reader(binary, options ?? new(), new HashSet<uint>(), new Dictionary<uint, string>(), directCanonicalFlow: true);
         if (deferred is not null) deferrals?.Add(new("<SPIR-V>", deferred));
         var normalized = PointerPhiLowering.RunWithHelpers(binary, out var helpers, out var snapshots);
-        return new Reader(normalized, options ?? new(), helpers, snapshots).Read();
+        return new Reader(normalized, options ?? new(), helpers, snapshots);
     }
 
     private sealed partial class Reader(SpirvBinary binary, SpirvReadOptions options, IReadOnlySet<uint> specializedHelpers, IReadOnlyDictionary<uint, string> descriptorSnapshots, bool directCanonicalFlow = false)
@@ -86,6 +100,22 @@ public static partial class SpirvReader
         }
 
         public Module Read(ICollection<CanonicalPassTrace>? traces = null, ICollection<CanonicalDeferral>? deferrals = null)
+        {
+            ReadModule(traces);
+            var canonical = directCanonicalFlow ? PrepareNativeModule(traces, deferrals) : null;
+            return FinishStructured(canonical);
+        }
+
+        public WgslInput ReadForWgsl()
+        {
+            ReadModule();
+            var canonical = directCanonicalFlow ? PrepareNativeModule(null, null) : null;
+            return canonical is not null && CanHandOffToWgsl(canonical)
+                ? new WgslInput.Canonical(canonical)
+                : new WgslInput.Structured(FinishStructured(canonical));
+        }
+
+        private void ReadModule(ICollection<CanonicalPassTrace>? traces = null)
         {
             // Names/decorations precede types in logical SPIR-V layout.
             foreach (var instruction in binary.Instructions)
@@ -295,10 +325,19 @@ public static partial class SpirvReader
             PrepareMeshEntries();
             ResolveFunctions(traces);
             AddEntryPoints();
-            Module result = directCanonicalFlow ? LowerNativeModule(traces, deferrals)
-                : Legalization.MatrixStorageLowering.HasLayout(module) || variablePointers ? Proc.HelperInliner.RunNonFunctionPointers(module,
-                specializedHelpers.Select(id => functions[id].Name).ToHashSet(StringComparer.Ordinal)) : module;
-            if (directCanonicalFlow) result = Proc.HelperInliner.RunNonFunctionPointers(result);
+        }
+
+        private Module FinishStructured(CanonicalModule? canonical)
+        {
+            Module result = module;
+            if (canonical is not null) {
+                result = Legalization.StructuredModuleLowering.Run(canonical, nativeValidation: true);
+                result = Proc.HelperInliner.RunNonFunctionPointers(result);
+            }
+            else if (Legalization.MatrixStorageLowering.HasLayout(module) || variablePointers) {
+                result = Proc.HelperInliner.RunNonFunctionPointers(module,
+                    specializedHelpers.Select(id => functions[id].Name).ToHashSet(StringComparer.Ordinal));
+            }
             if (pointerSelection) result = new Legalization.PointerSelectionLowering(result, DiagnosticStage.SpirvParse,
                 nativeVariablePointers: true, fullVariablePointers: fullVariablePointers,
                 descriptorSnapshots: descriptorSnapshotNames, memoryLoad: MemoryLoad, memoryStore: MemoryStore,
@@ -306,14 +345,13 @@ public static partial class SpirvReader
             return Legalization.MatrixStorageLowering.RunDeferred(result);
         }
 
-        private Module LowerNativeModule(ICollection<CanonicalPassTrace>? traces, ICollection<CanonicalDeferral>? deferrals)
+        private CanonicalModule PrepareNativeModule(ICollection<CanonicalPassTrace>? traces, ICollection<CanonicalDeferral>? deferrals)
         {
             var source = new NativeModuleSource(module, nativeGraphs, (graph, input) => {
                 Valid.NativePointerValidator.Validate(graph, input, fullVariablePointers);
                 ValidateNativeArithmetic(graph, input);
             });
-            var canonical = CanonicalShaderPipeline.Prepare(source, traces, deferrals);
-            return Legalization.StructuredModuleLowering.Run(canonical, nativeValidation: true);
+            return CanonicalShaderPipeline.Prepare(source, traces, deferrals);
         }
 
         private void ReadUndefined()

@@ -23,8 +23,8 @@ internal static class ShaderTargetValidator
     public static void ValidateModule(Module module, SpirvCompilationTarget target, bool wgsl = false, bool resources = true)
         => ValidateModule(module, target, wgsl, resources, null);
 
-    internal static void ValidateModule(CanonicalModule canonical, SpirvCompilationTarget target)
-        => ValidateModule(canonical.Declarations, target, false, true, canonical.Functions);
+    internal static void ValidateModule(CanonicalModule canonical, SpirvCompilationTarget target, bool wgsl = false)
+        => ValidateModule(canonical.Declarations, target, wgsl, true, canonical.Functions);
 
     private static void ValidateModule(Module module, SpirvCompilationTarget target, bool wgsl, bool resources,
         IReadOnlyDictionary<string, ControlFlowFunction>? graphs)

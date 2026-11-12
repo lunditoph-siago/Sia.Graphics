@@ -1,4 +1,5 @@
 using Sia.Spirv.Compiler.Compilation;
+using Sia.Spirv.Compiler.Legalization;
 using Sia.Spirv.Compiler.Model;
 using Sia.Spirv.Compiler.Translation;
 
@@ -43,7 +44,11 @@ public sealed class OfflineShaderCompilerTests
         public SpirvManifestToolchain Versions { get; } = new("test-llvm", "test-spirv-tools");
         public List<string> Compiled { get; } = [];
 
-        public void Compile(SpirvFileCompilationRequest request, SpirvKernel kernel, ShaderArtifactPaths paths)
+        public void Compile(
+            SpirvFileCompilationRequest request,
+            SpirvKernel kernel,
+            SpirvKernelAbiLayout layout,
+            ShaderArtifactPaths paths)
         {
             Compiled.Add(kernel.QualifiedName);
             File.WriteAllBytes(paths.Spirv, _binary);

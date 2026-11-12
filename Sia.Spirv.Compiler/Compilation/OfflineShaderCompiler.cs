@@ -56,7 +56,7 @@ internal static class OfflineShaderCompiler
         string assemblyHash)
     {
         var target = request.Target;
-        var plan = new SpirvLegalizationPlanner().Resolve(sourceKernel, target.ResourceLimits, target.KernelAbi);
+        var (plan, layout) = new SpirvLegalizationPlanner().ResolveWithLayout(sourceKernel, target.ResourceLimits, target.KernelAbi);
         var paths = store.GetPaths(plan.Kernel);
 
         if (!request.EmitWgsl) {
@@ -70,8 +70,8 @@ internal static class OfflineShaderCompiler
             File.Delete(paths.Wgsl);
         }
 
-        backend.Compile(request, plan.Kernel, paths);
-        return store.Publish(plan, paths, backend.Versions, sourceHash);
+        backend.Compile(request, plan.Kernel, layout, paths);
+        return store.Publish(plan, layout, paths, backend.Versions, sourceHash);
     }
 
     private static string ComputeSourceHash(

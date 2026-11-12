@@ -15,9 +15,9 @@ internal static class ShaderManifestBuilder
     };
 
     public static SpirvArtifactManifest Create(
-        SpirvKernel kernel,
         SpirvFileCompilationRequest request,
         SpirvLegalizationPlan legalizationPlan,
+        SpirvKernelAbiLayout layout,
         SpirvManifestToolchain versions,
         string spirvPath,
         string sourceHash,
@@ -25,36 +25,33 @@ internal static class ShaderManifestBuilder
         string spirvFile,
         string spirvSha256)
     {
+        var kernel = legalizationPlan.Kernel;
         var resources = new List<SpirvManifestResource>();
         var pushConstants = new List<SpirvManifestPushConstant>();
-        foreach (var parameter in kernel.Parameters) {
-            if (parameter.Kind is SpirvKernelParameterKind.WorkgroupMemory or SpirvKernelParameterKind.StageInput) {
-                continue;
-            }
-            if (CreateManifestResource(parameter, resources.Count) is { } resource) {
+        foreach (var (parameter, slot) in layout.GetParameters(kernel)) {
+            if (slot.Binding is { } binding && CreateManifestResource(parameter, binding) is { } resource) {
                 resources.Add(resource);
             }
-            else {
+            else if (slot.Scalar is { } scalar) {
                 pushConstants.Add(new SpirvManifestPushConstant(
                     parameter.Name,
                     SpirvTypeLayout.GetName(parameter.ScalarType),
-                    pushConstants.Count * 4,
-                    4));
+                    scalar.ByteOffset,
+                    SpirvScalarSlot.Size));
             }
         }
-        if (request.Target.KernelAbi == SpirvKernelAbi.WebGpu && pushConstants.Count != 0) {
-            var parameterVectorCount = (pushConstants.Count + 3) / 4;
+        if (layout.PackedParameters is { } packed) {
             resources.Add(new SpirvManifestResource(
-                "sia.parameters",
+                SpirvPackedParameters.Name,
                 "uniform-buffer",
                 "read-only",
                 "uint32x4",
-                0,
-                resources.Count,
-                16,
-                parameterVectorCount * 16,
-                16,
-                ElementCount: parameterVectorCount));
+                SpirvKernelAbiLayout.DescriptorSet,
+                packed.Binding,
+                SpirvScalarSlot.VectorSize,
+                (int)packed.ByteSize,
+                SpirvScalarSlot.VectorSize,
+                ElementCount: packed.VectorCount));
         }
         var stageInputs = kernel.Parameters
             .Where(static parameter => parameter.Kind == SpirvKernelParameterKind.StageInput)
@@ -115,7 +112,7 @@ internal static class ShaderManifestBuilder
             _ => null
         };
         if (handleKind is not null) {
-            return new(parameter.Name, handleKind, "read-only", "float32", 0, binding, 0, 0, 0);
+            return new(parameter.Name, handleKind, "read-only", "float32", SpirvKernelAbiLayout.DescriptorSet, binding, 0, 0, 0);
         }
         if (parameter.Kind is not (SpirvKernelParameterKind.UniformBuffer or
             SpirvKernelParameterKind.ReadOnlyStorageBuffer or SpirvKernelParameterKind.StorageBuffer)) {
@@ -129,7 +126,7 @@ internal static class ShaderManifestBuilder
             parameter.Kind == SpirvKernelParameterKind.UniformBuffer ? "uniform-buffer" : "storage-buffer",
             parameter.Kind == SpirvKernelParameterKind.StorageBuffer ? "read-write" : "read-only",
             layout?.LogicalType.Name ?? SpirvTypeLayout.GetName(scalarType),
-            0,
+            SpirvKernelAbiLayout.DescriptorSet,
             binding,
             layout?.Alignment ?? SpirvTypeLayout.GetAlignment(scalarType),
             layout?.Size ?? SpirvTypeLayout.GetSize(scalarType),

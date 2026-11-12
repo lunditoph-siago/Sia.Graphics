@@ -149,4 +149,20 @@ internal static class ComputeShaders
         var index = Gpu.GlobalInvocationId.X;
         destination[index] = source[index];
     }
+
+    [SpirvKernel(4)]
+    public static void CopyWithPackedParameters(
+        uint a,
+        [SpirvBufferLength(4)] ReadOnlyStorageBuffer<PackedParticle> source,
+        uint b,
+        WorkgroupMemory<uint> shared,
+        uint c,
+        StorageBuffer<PackedParticle> destination,
+        uint d,
+        uint e)
+    {
+        var index = Gpu.LocalInvocationId.X;
+        shared[index] = (a + b + c + d + e) & 3u;
+        destination[index] = source[shared[index]];
+    }
 }

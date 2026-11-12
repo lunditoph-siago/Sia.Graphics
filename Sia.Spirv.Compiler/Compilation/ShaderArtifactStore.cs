@@ -33,6 +33,7 @@ internal sealed class ShaderArtifactStore(SpirvFileCompilationRequest request, s
 
     public SpirvArtifact Publish(
         SpirvLegalizationPlan plan,
+        SpirvKernelAbiLayout layout,
         ShaderArtifactPaths paths,
         SpirvManifestToolchain versions,
         string sourceHash)
@@ -47,9 +48,9 @@ internal sealed class ShaderArtifactStore(SpirvFileCompilationRequest request, s
             binary = StoreBinary(binary, request.OutputDirectory, sha256);
         }
         var manifest = ShaderManifestBuilder.Create(
-            plan.Kernel,
             request,
             plan,
+            layout,
             versions,
             binary,
             sourceHash,

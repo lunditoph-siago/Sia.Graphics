@@ -1,6 +1,6 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
-using Sia.Spirv.Compiler.Compilation;
+using Sia.Spirv.Compiler.Legalization;
 using Sia.Spirv.Compiler.Metadata;
 using Sia.Spirv.Compiler.Model;
 using Sia.Spirv.Compiler.Translation.Front;
@@ -35,9 +35,9 @@ internal sealed partial class RuntimeShaderLowering(PEReader pe, MetadataReader 
     private static Expression Zero(ShaderType type) => new Expression.Construct(type, []);
 
     public static Module Run(ReadOnlyMemory<byte> assemblyImage, ReadOnlyMemory<byte> intrinsicImage,
-        SpirvKernel kernel, SpirvKernelAbi abi)
+        SpirvKernel kernel, SpirvKernelAbiLayout layout)
     {
-        var frontend = ReadCanonical(assemblyImage, intrinsicImage, kernel, abi);
+        var frontend = ReadCanonical(assemblyImage, intrinsicImage, kernel, layout);
         var source = new NativeModuleSource(frontend.Declarations, frontend.Functions,
             static (graph, input) => ControlFlowVerifier.Validate(graph, input));
         var canonical = CanonicalShaderPipeline.Prepare(source);
@@ -47,14 +47,14 @@ internal sealed partial class RuntimeShaderLowering(PEReader pe, MetadataReader 
     }
 
     internal static CanonicalModule ReadCanonical(ReadOnlyMemory<byte> assemblyImage, ReadOnlyMemory<byte> intrinsicImage,
-        SpirvKernel kernel, SpirvKernelAbi abi)
+        SpirvKernel kernel, SpirvKernelAbiLayout layout)
     {
         using var stream = new MemoryStream(assemblyImage.ToArray(), writable: false);
         using var pe = new PEReader(stream, PEStreamOptions.PrefetchEntireImage);
         using var intrinsics = IntrinsicCatalog.Open(intrinsicImage);
         var metadata = pe.GetMetadataReader();
         var lowering = new RuntimeShaderLowering(pe, metadata, new CilCallResolver(metadata, intrinsics));
-        lowering.LowerEntryPoint(kernel, abi);
+        lowering.LowerEntryPoint(kernel, layout);
         var graphs = lowering.ReadGraphs();
         var canonical = new CanonicalModule(lowering.module, graphs, new Dictionary<string, string>(),
             ControlFlowAnalysis.EntryFunctions(lowering.module, graphs));

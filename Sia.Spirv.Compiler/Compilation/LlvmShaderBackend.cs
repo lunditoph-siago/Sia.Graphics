@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Sia.Spirv.Compiler.Legalization;
 using Sia.Spirv.Compiler.LLVM;
 using Sia.Spirv.Compiler.Model;
 using Sia.Spirv.Compiler.Translation;
@@ -25,10 +26,14 @@ internal sealed class LlvmShaderBackend(LlvmToolchain toolchain, SpirvManifestTo
         return new LlvmShaderBackend(toolchain, versions);
     }
 
-    public void Compile(SpirvFileCompilationRequest request, SpirvKernel kernel, ShaderArtifactPaths paths)
+    public void Compile(
+        SpirvFileCompilationRequest request,
+        SpirvKernel kernel,
+        SpirvKernelAbiLayout layout,
+        ShaderArtifactPaths paths)
     {
         var target = request.Target;
-        var module = new LlvmIrEmitter().Emit(request.AssemblyPath, kernel, target.KernelAbi);
+        var module = new LlvmIrEmitter().Emit(request.AssemblyPath, kernel, layout);
         File.WriteAllText(paths.RawLlvm, module.Text, new UTF8Encoding(false));
         try {
             toolchain.Optimize(
@@ -46,7 +51,7 @@ internal sealed class LlvmShaderBackend(LlvmToolchain toolchain, SpirvManifestTo
             if (target.KernelAbi == SpirvKernelAbi.WebGpu) {
                 toolchain.OptimizeForWebGpu(paths.Spirv);
             }
-            SpirvResourceAccessLowering.Rewrite(paths.Spirv, kernel);
+            SpirvResourceAccessLowering.Rewrite(paths.Spirv, kernel, layout);
             ShaderTargetValidator.ValidateBinary(SpirvBinary.Parse(File.ReadAllBytes(paths.Spirv)), target);
             toolchain.Validate(paths.Spirv, target.Environment);
             if (request.EmitWgsl) {

@@ -62,6 +62,21 @@ public sealed class SpirvCompilerTests
         byte[] packed = mapping.Pack(values);
         Assert.Equal(64, packed.Length);
         Assert.All(packed[16..], value => Assert.Equal(0, value));
+
+        var mixed = Assert.Single(artifacts, a => a.Kernel.QualifiedName ==
+            $"{typeof(ComputeShaders).FullName}.{nameof(ComputeShaders.CopyWithPackedParameters)}");
+        var mixedManifest = SpirvArtifactLoader.Load(mixed.ManifestPath).Manifest;
+        Assert.Equal(new[] { ("source", 0), ("destination", 1), ("sia.parameters", 2) },
+            mixedManifest.Resources.Select(resource => (resource.Name, resource.Binding)));
+        Assert.Equal("uniform-buffer", mixedManifest.Resources[0].Kind);
+        Assert.Equal(new[] { 0, 4, 8, 12, 16 }, mixedManifest.PushConstants.Select(parameter => parameter.Offset));
+        Assert.Equal(32, mixedManifest.Resources[2].Size);
+        Assert.Equal(2, mixedManifest.Resources[2].ElementCount);
+        var mixedShader = WgslReader.Parse(File.ReadAllText(mixed.WgslPath!));
+        Assert.Equal(new uint[] { 0, 1, 2 }, mixedShader.Globals
+            .Where(global => global.Binding is not null)
+            .Select(global => global.Binding!.Binding)
+            .Order());
     }
 
     private static IReadOnlyList<SpirvArtifact> Compile(string output, SpirvCompilationTarget target)

@@ -1,4 +1,3 @@
-using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Legalization;
 using Sia.Spirv.Compiler.Metadata;
 using Sia.Spirv.Compiler.Model;
@@ -8,7 +7,7 @@ namespace Sia.Spirv.Compiler.IL;
 
 internal sealed partial class RuntimeShaderLowering
 {
-    private void LowerEntryPoint(SpirvKernel kernel, SpirvKernelAbi abi)
+    private void LowerEntryPoint(SpirvKernel kernel, SpirvKernelAbiLayout layout)
     {
         entry = new ShaderFunction(kernel.Name) {
             Stage = kernel.Stage switch {
@@ -27,17 +26,14 @@ internal sealed partial class RuntimeShaderLowering
             entry.ReturnType = IoType(result);
         }
 
-        var arguments = BindEntryParameters(kernel, abi);
+        var arguments = BindEntryParameters(kernel, layout);
         Function(entry, kernel.MetadataToken, arguments, kernel.ControlFlowGraph);
         LowerLegacyOutputs(kernel.ReturnLayout);
     }
 
-    private Value[] BindEntryParameters(SpirvKernel kernel, SpirvKernelAbi abi)
+    private Value[] BindEntryParameters(SpirvKernel kernel, SpirvKernelAbiLayout layout)
     {
-        var scalars = kernel.Parameters
-            .Where(static parameter => parameter.Kind == SpirvKernelParameterKind.PushConstant)
-            .ToArray();
-        var (parameters, packedType) = DeclarePushConstants(kernel, scalars, abi);
+        var (parameters, packedType) = DeclarePushConstants(kernel, layout);
         var usesAtomics = kernel.ControlFlowGraph.Blocks
             .SelectMany(static block => block.Instructions)
             .Any(instruction => instruction.OpCode.Name is "call" or "callvirt"
@@ -45,9 +41,7 @@ internal sealed partial class RuntimeShaderLowering
                     is IntrinsicKind.AtomicAdd or IntrinsicKind.AtomicExchange);
 
         var arguments = new Value[kernel.Parameters.Count];
-        uint binding = 0;
-        var scalarIndex = 0;
-        foreach (var parameter in kernel.Parameters) {
+        foreach (var (parameter, slot) in layout.GetParameters(kernel)) {
             var name = $"sia_resource_{parameter.Position}";
             if (parameter.StageIoLayout is { } input) {
                 var type = IoType(input);
@@ -61,15 +55,16 @@ internal sealed partial class RuntimeShaderLowering
                 case SpirvKernelParameterKind.SampledTexture2DArray:
                 case SpirvKernelParameterKind.Sampler:
                     var handle = HandleType(parameter.Kind);
-                    module.Globals.Add(new(name, handle, AddressSpace.Handle, StorageAccess.Read, new(0, binding++)));
+                    module.Globals.Add(new(name, handle, AddressSpace.Handle, StorageAccess.Read,
+                        new(SpirvKernelAbiLayout.DescriptorSet, (uint)slot.Binding!.Value)));
                     arguments[parameter.Position] = new(new Expression.Reference(name, handle));
                     break;
                 case SpirvKernelParameterKind.PushConstant:
                     var element = ParameterElementType(parameter);
-                    arguments[parameter.Position] = new(LoadPushConstant(parameters!, packedType, scalarIndex++, element));
+                    arguments[parameter.Position] = new(LoadPushConstant(parameters!, packedType, slot.Scalar!.Value, element));
                     break;
                 default:
-                    arguments[parameter.Position] = BindBuffer(kernel, parameter, name, usesAtomics, ref binding);
+                    arguments[parameter.Position] = BindBuffer(kernel, parameter, name, usesAtomics, slot.Binding);
                     break;
             }
         }
@@ -78,45 +73,48 @@ internal sealed partial class RuntimeShaderLowering
 
     private (Expression.Reference? Reference, ShaderType.Array? PackedType) DeclarePushConstants(
         SpirvKernel kernel,
-        IReadOnlyList<SpirvKernelParameter> scalars,
-        SpirvKernelAbi abi)
+        SpirvKernelAbiLayout layout)
     {
-        if (scalars.Count == 0) {
+        if (layout.ScalarCount == 0) {
             return (null, null);
         }
 
-        var packedType = abi == SpirvKernelAbi.WebGpu
-            ? new ShaderType.Array(new ShaderType.Vector(4, ShaderType.U32), (uint)((scalars.Count + 3) / 4))
+        var packed = layout.PackedParameters;
+        var packedType = packed is { } block
+            ? new ShaderType.Array(new ShaderType.Vector(SpirvScalarSlot.VectorWidth, ShaderType.U32), (uint)block.VectorCount)
             : null;
         var members = packedType is null
-            ? scalars.Select(static (parameter, index) =>
-                new StructMember($"p{index}", Type(parameter.ScalarType), (uint)index * 4)).ToArray()
+            ? layout.GetParameters(kernel)
+                .Where(static entry => entry.Slot.Scalar is not null)
+                .Select(static entry => {
+                    var slot = entry.Slot.Scalar!.Value;
+                    return new StructMember($"p{slot.Index}", Type(entry.Parameter.ScalarType), (uint)slot.ByteOffset);
+                }).ToArray()
             : [new StructMember("data", packedType)];
         var type = new ShaderType.Structure("SiaParameters", members);
         module.Structures.Add(type);
 
-        var resourceCount = (uint)kernel.Parameters.Count(static parameter => parameter.IsResource);
         var space = packedType is null ? AddressSpace.Immediate : AddressSpace.Uniform;
         const string name = "sia_parameters";
         module.Globals.Add(new(name, type, space, StorageAccess.Read,
-            packedType is null ? null : new(0, resourceCount)));
+            packed is { } binding ? new(SpirvKernelAbiLayout.DescriptorSet, (uint)binding.Binding) : null));
         return (new(name, new ShaderType.Pointer(type, space, StorageAccess.Read)), packedType);
     }
 
     private static Expression LoadPushConstant(
         Expression parameters,
         ShaderType.Array? packedType,
-        int index,
+        SpirvScalarSlot slot,
         ShaderType element)
     {
         if (packedType is null) {
-            return new Expression.Load(new Expression.Member(parameters, $"p{index}", Pointer(parameters, element)));
+            return new Expression.Load(new Expression.Member(parameters, $"p{slot.Index}", Pointer(parameters, element)));
         }
 
         var array = new Expression.Member(parameters, "data", Pointer(parameters, packedType));
-        var vector = new Expression.Access(array, Expression.U32((uint)index / 4), Pointer(array, packedType.Element));
+        var vector = new Expression.Access(array, Expression.U32((uint)slot.VectorIndex), Pointer(array, packedType.Element));
         var value = new Expression.Load(new Expression.Access(
-            vector, Expression.U32((uint)index % 4), Pointer(vector, ShaderType.U32)));
+            vector, Expression.U32((uint)slot.Lane), Pointer(vector, ShaderType.U32)));
         return element == ShaderType.Bool
             ? new Expression.Binary("!=", value, Expression.U32(0), ShaderType.Bool)
             : Convert(value, element, bitcast: true);
@@ -127,7 +125,7 @@ internal sealed partial class RuntimeShaderLowering
         SpirvKernelParameter parameter,
         string name,
         bool usesAtomics,
-        ref uint binding)
+        int? binding)
     {
         var element = ParameterElementType(parameter);
         var space = parameter.Kind switch {
@@ -154,7 +152,7 @@ internal sealed partial class RuntimeShaderLowering
 
         var wrapper = new ShaderType.Structure($"SiaResource{parameter.Position}", [new("data", array)]);
         module.Structures.Add(wrapper);
-        module.Globals.Add(new(name, wrapper, space, access, new(0, binding++)));
+        module.Globals.Add(new(name, wrapper, space, access, new(SpirvKernelAbiLayout.DescriptorSet, (uint)binding!.Value)));
         var reference = new Expression.Reference(name, new ShaderType.Pointer(wrapper, space, access));
         return new(new Expression.Member(reference, "data", Pointer(reference, array)), Place: true);
     }

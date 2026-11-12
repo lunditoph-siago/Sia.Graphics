@@ -5,7 +5,6 @@ using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 
 namespace Sia.Spirv.Compiler.Translation.Valid;
 
-/// <summary>Checks the shared IR independently of either source-language parser.</summary>
 public static partial class ModuleValidator
 {
     public static void Validate(Module module)
@@ -14,8 +13,6 @@ public static partial class ModuleValidator
         new Validator(module).Run();
     }
 
-    // Temporary structured native-input adapter. Native pointer parameter address
-    // spaces are verified on expanded CFG; retain the legacy public WGSL gate.
     internal static void ValidateNative(Module module) => new Validator(module, allowNativePointerParameters: true).Run();
 
     internal static void ValidateNative(Module module, IReadOnlyDictionary<string, ControlFlowFunction> graphs)
@@ -58,8 +55,6 @@ public static partial class ModuleValidator
         private static Dictionary<ShaderType.Array, HashSet<MatrixStorageLayout>> MatrixArrayLayouts(Module module)
         {
             var result = new Dictionary<ShaderType.Array, HashSet<MatrixStorageLayout>>();
-            // A native matrix array's byte stride is interpreted with its owning
-            // member's row/column layout, not the natural layout of matrix values.
             foreach (var member in module.Structures.SelectMany(s => s.Members))
                 if (member.MatrixLayout is { } matrix)
                     for (ShaderType type = member.Type; type is ShaderType.Array array; type = array.Element) {
@@ -79,28 +74,24 @@ public static partial class ModuleValidator
             var constantsByName = new Dictionary<string, ShaderConstant>(StringComparer.Ordinal);
             foreach (var constant in module.Constants) Require(constantsByName.TryAdd(constant.Name, constant), "Duplicate module name.");
             var overrideExpressions = new OverrideExpressions.Checker(constantsByName);
-            foreach (var constant in module.Constants)
-            {
+            foreach (var constant in module.Constants) {
                 Require(names.Add(constant.Name), "Duplicate module name."); Type(constant.Type);
                 Require(!PipelineSized(constant.Type), "Constants cannot have override-sized array types.");
                 Require(!constant.IsSpecialization || !constant.IsOverride && constant.OverrideId is null && constant.Value is not null,
                     "Derived specialization values require an initializer and cannot have an override ID or be independently overridden.");
-                if (constant.IsOverride)
-                {
+                if (constant.IsOverride) {
                     Require(constant.Type is ShaderType.Scalar { Kind: not (ScalarKind.AbstractFloat or ScalarKind.AbstractInt) }, "Override must have a concrete scalar type.");
                     if (constant.OverrideId is uint id) Require(id <= ushort.MaxValue && overrideIds.Add(id), "Invalid or duplicate override ID.");
                     if (constant.Value is not null) Require(overrideExpressions.IsValid(constant.Value), "Override initializer is not an override expression or has cyclic dependencies.");
                 }
-                else if (constant.IsSpecialization)
-                {
+                else if (constant.IsSpecialization) {
                     Require(constant.Type is ShaderType.Scalar { Kind: not (ScalarKind.AbstractFloat or ScalarKind.AbstractInt) }, "Derived specialization must have a concrete scalar type.");
                     Require(overrideExpressions.IsValid(constant.Value!), "Invalid derived specialization expression or cyclic dependency.");
                 }
                 else Require(constant.Value is not null && ConstantEvaluator.TryEvaluate(constant.Value, out _), "const initializer is not constant.");
                 globals.Add(constant.Name, new(constant.Type, false, false));
             }
-            foreach (var global in module.Globals)
-            {
+            foreach (var global in module.Globals) {
                 Require(names.Add(global.Name), "Duplicate module name."); Type(global.Type);
                 bool handle = global.Type is ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure or ShaderType.BindingArray { Element: ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure };
                 Require(global.Type is not ShaderType.RayQuery, "Ray queries require function-local variables.");
@@ -113,8 +104,7 @@ public static partial class ModuleValidator
                 if (global.Type is ShaderType.BindingArray && !handle) Require(global.Space is AddressSpace.Uniform or AddressSpace.Storage, "Buffer binding arrays require uniform or storage address space.");
                 bool resource = handle || global.Space is AddressSpace.Uniform or AddressSpace.Storage;
                 Require(resource == (global.Binding is not null), "Resource variable requires group/binding, and ordinary variables cannot have one.");
-                if (global.Space is AddressSpace.Uniform or AddressSpace.Storage or AddressSpace.Immediate)
-                {
+                if (global.Space is AddressSpace.Uniform or AddressSpace.Storage or AddressSpace.Immediate) {
                     Require(HostShareable(global.Type), "Buffer type is not host-shareable.");
                     if (global.Type is not ShaderType.BindingArray) _ = TypeLayout.Of(global.Type);
                 }
@@ -122,29 +112,25 @@ public static partial class ModuleValidator
                 if (RuntimeSized(global.Type)) Require(global.Space == AddressSpace.Storage, "Runtime array requires storage memory.");
                 if (global.Space == AddressSpace.Storage) Require(global.Access is StorageAccess.Read or StorageAccess.ReadWrite || global.Access == (StorageAccess.ReadWrite | StorageAccess.Atomic), "Invalid storage buffer access.");
                 if (global.Space == AddressSpace.TaskPayload) Require(Data(global.Type) && TypeLayout.Of(global.Type).Size > 0, "Task payload requires nonempty sized data.");
-                if (global.Initializer is not null)
-                {
+                if (global.Initializer is not null) {
                     Require(global.Space == AddressSpace.Private, "Only private module variables can have initializers.");
                     Require(overrideExpressions.IsValid(global.Initializer), "Global initializer is not a constant or override expression.");
                 }
                 globals.Add(global.Name, new(global.Type, !handle, global.Space != AddressSpace.Uniform && (global.Access & StorageAccess.Write) != 0, global.Space, handle));
             }
-            foreach (var f in module.Functions)
-            {
+            foreach (var f in module.Functions) {
                 DiagnosticFilters(f.DiagnosticFilters);
                 Require(names.Add(f.Name), "Duplicate module name."); functions.Add(f.Name, f); calls.Add(f.Name, new(StringComparer.Ordinal)); stages.Add(f.Name, AllStages);
                 payloadUses.Add(f.Name, new(StringComparer.Ordinal));
             }
             foreach (var constant in module.Constants) if (constant.Value is not null) Same(Expr(constant.Value), constant.Type, "Constant initializer type mismatch.");
             foreach (var global in module.Globals) if (global.Initializer is not null) Same(Expr(global.Initializer), global.Type, "Global initializer type mismatch.");
-            foreach (var f in module.Functions)
-            {
+            foreach (var f in module.Functions) {
                 function = f; scopes.Push(new(StringComparer.Ordinal));
                 Type(f.ReturnType);
                 Require(f.ReturnType is not (ShaderType.RayQuery or ShaderType.AccelerationStructure), "Ray handles cannot be returned from functions.");
                 Require(!PipelineSized(f.ReturnType), "Function return type must be constructible before pipeline constant resolution.");
-                foreach (var argument in f.Arguments)
-                {
+                foreach (var argument in f.Arguments) {
                     Type(argument.Type);
                     Require(argument.Type is not ShaderType.RayQuery, "Ray queries cannot be passed by value.");
                     Require(allowNativePointerParameters || argument.Type is not ShaderType.Pointer pointer || pointer.Space is AddressSpace.Function or AddressSpace.Private, "Function pointer parameters require function or private address space in the reference version.");
@@ -161,8 +147,7 @@ public static partial class ModuleValidator
                 Require(f.ReturnType is ShaderType.Void || !fallthrough, "Function can reach its end without returning a value.");
                 scopes.Pop();
                 if (f.Stage is ShaderStage stage) Entry(f, stage);
-                else
-                {
+                else {
                     Require(f.ReturnBinding is null && f.Arguments.All(a => a.Binding is null), "Non-entry function cannot have IO bindings.");
                     Require(!f.EarlyDepthTest, "Early depth test requires a fragment entry point.");
                     Require(f.TaskPayload is null && f.MeshOutput is null, "Non-entry functions cannot have mesh/payload attributes.");
@@ -177,11 +162,9 @@ public static partial class ModuleValidator
                 int allowed = stages[name]; foreach (string callee in calls[name]) { allowed &= Resolve(callee); payloadUses[name].UnionWith(payloadUses[callee]); }
                 active.Remove(name); resolved.Add(name, allowed); return allowed;
             }
-            foreach (var f in module.Functions)
-            {
+            foreach (var f in module.Functions) {
                 int allowed = Resolve(f.Name);
-                if (f.Stage is ShaderStage stage)
-                {
+                if (f.Stage is ShaderStage stage) {
                     Require((allowed & (stage switch { ShaderStage.Vertex => Vertex, ShaderStage.Fragment => Fragment, ShaderStage.Task => Task, ShaderStage.Mesh => Mesh, _ => Compute })) != 0, $"Entry '{f.Name}' calls an operation unavailable in its stage.");
                     Require(payloadUses[f.Name].All(name => name == f.TaskPayload), "Entry uses a task payload not declared by its payload attribute.");
                     if (f.TaskPayload is string payload) Require(TypeLayout.Of(module.Globals.Single(g => g.Name == payload).Type).Size >= 4, "Selected task payload requires at least four bytes.");
@@ -195,8 +178,7 @@ public static partial class ModuleValidator
         private void DiagnosticFilters(IEnumerable<DiagnosticFilter> filters)
         {
             var rules = new HashSet<(string?, string)>();
-            foreach (var filter in filters)
-            {
+            foreach (var filter in filters) {
                 Require(filter is not null && Enum.IsDefined(filter.Severity), "Invalid diagnostic severity.");
                 Require(DiagnosticIdentifier(filter!.Rule) && (filter.Namespace is null || DiagnosticIdentifier(filter.Namespace)), "Invalid diagnostic rule name.");
                 Require(rules.Add((filter.Namespace, filter.Rule)), "Duplicate diagnostic filter in the same scope.");
@@ -207,8 +189,7 @@ public static partial class ModuleValidator
         {
             if (string.IsNullOrEmpty(value) || value == "_" || value.StartsWith("__", StringComparison.Ordinal)) return false;
             int index = 0;
-            while (index < value.Length)
-            {
+            while (index < value.Length) {
                 if (!Rune.TryGetRuneAt(value, index, out var rune)) return false;
                 var category = Rune.GetUnicodeCategory(rune);
                 bool start = rune.Value == '_' || category is UnicodeCategory.UppercaseLetter or UnicodeCategory.LowercaseLetter
@@ -227,12 +208,16 @@ public static partial class ModuleValidator
         {
             if (checkedTypes.Contains(type)) return;
             Require(visitingTypes.Add(type), "Recursive data type.");
-            switch (type)
-            {
+            switch (type) {
                 case ShaderType.Void: break;
                 case ShaderType.Scalar s:
-                    Require(s.Kind switch { ScalarKind.Bool => s.Width == 1, ScalarKind.Float => s.Width is 2 or 4 or 8,
-                        ScalarKind.Sint or ScalarKind.Uint => s.Width is 2 or 4 or 8, ScalarKind.AbstractFloat or ScalarKind.AbstractInt => s.Width == 8, _ => false }, "Invalid scalar width or kind."); break;
+                    Require(s.Kind switch {
+                        ScalarKind.Bool => s.Width == 1,
+                        ScalarKind.Float => s.Width is 2 or 4 or 8,
+                        ScalarKind.Sint or ScalarKind.Uint => s.Width is 2 or 4 or 8,
+                        ScalarKind.AbstractFloat or ScalarKind.AbstractInt => s.Width == 8,
+                        _ => false
+                    }, "Invalid scalar width or kind."); break;
                 case ShaderType.Vector v: Type(v.Component); Require(v.Size is >= 2 and <= 4, "Invalid vector size."); break;
                 case ShaderType.Matrix m:
                     Type(m.Component); Require(m.Columns is >= 2 and <= 4 && m.Rows is >= 2 and <= 4 && m.Component.Kind is ScalarKind.Float or ScalarKind.AbstractFloat, "Invalid matrix type."); break;
@@ -244,8 +229,7 @@ public static partial class ModuleValidator
                     Type(p.Base); Require(p.Space != AddressSpace.Handle && (p.Access is StorageAccess.Read or StorageAccess.Write or StorageAccess.ReadWrite || p.Access == (StorageAccess.ReadWrite | StorageAccess.Atomic)) && p.Base is not ShaderType.Void, "Invalid pointer type."); break;
                 case ShaderType.Array a:
                     Type(a.Element); Require(a.Length != 0 && !RuntimeSized(a.Element) && !PipelineSized(a.Element) && Data(a.Element), "Invalid array element or size.");
-                    if (a.OverrideLength is string length)
-                    {
+                    if (a.OverrideLength is string length) {
                         Require(a.Length is null, "Array cannot have both a constant and override length."); arrayLengthOverrides.Add(length);
                         var layout = TypeLayout.Of(a.Element); uint stride = a.Stride ?? layout.Stride;
                         Require(stride >= layout.Size && stride % layout.Alignment == 0, "Invalid array stride.");
@@ -258,8 +242,7 @@ public static partial class ModuleValidator
                     if (s.BuiltinResult is BuiltinResultKind.RayDesc or BuiltinResultKind.RayIntersection)
                         Require(RayQueryTypes.SameStructure(s, s.BuiltinResult == BuiltinResultKind.RayDesc ? RayQueryTypes.Descriptor : RayQueryTypes.Intersection), "Invalid predeclared ray structure.");
                     Require(s.Members.Count != 0 && s.Members.Select(m => m.Name).Distinct(StringComparer.Ordinal).Count() == s.Members.Count, "Empty structure or duplicate member.");
-                    foreach (var m in s.Members)
-                    {
+                    foreach (var m in s.Members) {
                         Type(m.Type); Require(Data(m.Type) && !PipelineSized(m.Type), "Invalid structure member type.");
                         Require((m.MemoryDecorations & ~(MemoryDecorations.Coherent | MemoryDecorations.Volatile)) == 0, "Unknown member memory decoration.");
                     }
@@ -267,8 +250,7 @@ public static partial class ModuleValidator
                 case ShaderType.AccelerationStructure: case ShaderType.RayQuery: case ShaderType.Sampler: break;
                 case ShaderType.Image image:
                     Type(image.Component); Require(image.StorageFormat == "r64uint" ? image.Component == new ShaderType.Scalar(ScalarKind.Uint, 8) : image.Component.Kind is ScalarKind.Float or ScalarKind.Sint or ScalarKind.Uint && image.Component.Width == 4, "Invalid image scalar.");
-                    if (image.StorageFormat is string format)
-                    {
+                    if (image.StorageFormat is string format) {
                         Require(StorageImageFormats.TryCode(format, out uint code), "Unknown storage image format.");
                         var formatComponent = StorageImageFormats.Component(code);
                         Require(image.Component == formatComponent || image.Component.Width == formatComponent.Width
@@ -282,8 +264,7 @@ public static partial class ModuleValidator
                     Require(!image.Depth || image.Component == ShaderType.F32 && image.StorageFormat is null && image.Dimension is ImageDimension.D2 or ImageDimension.Cube, "Invalid depth image."); break;
                 case ShaderType.BindingArray a:
                     Type(a.Element); Require(a.Length != 0 && !PipelineSized(a.Element), "Invalid binding array element or length.");
-                    if (a.OverrideLength is string count)
-                    { Require(a.Length is null, "Binding array cannot have both a constant and override length."); arrayLengthOverrides.Add(count); }
+                    if (a.OverrideLength is string count) { Require(a.Length is null, "Binding array cannot have both a constant and override length."); arrayLengthOverrides.Add(count); }
                     break;
                 default: throw Error("Unknown type variant.");
             }
@@ -291,20 +272,24 @@ public static partial class ModuleValidator
         }
 
         private static bool Data(ShaderType type) => type is ShaderType.Scalar or ShaderType.Vector or ShaderType.Matrix or ShaderType.CooperativeMatrix or ShaderType.Array or ShaderType.Structure or ShaderType.Atomic;
-        private static bool ContainsCooperative(ShaderType type) => type switch
-        {
-            ShaderType.CooperativeMatrix => true, ShaderType.Array a => ContainsCooperative(a.Element),
-            ShaderType.Structure s => s.Members.Any(m => ContainsCooperative(m.Type)), _ => false
+        private static bool ContainsCooperative(ShaderType type) => type switch {
+            ShaderType.CooperativeMatrix => true,
+            ShaderType.Array a => ContainsCooperative(a.Element),
+            ShaderType.Structure s => s.Members.Any(m => ContainsCooperative(m.Type)),
+            _ => false
         };
         private static bool RuntimeSized(ShaderType type) => type switch { ShaderType.Array a => a.Length is null && a.OverrideLength is null, ShaderType.Structure s => s.Members.Any(m => RuntimeSized(m.Type)), _ => false };
         private static bool PipelineSized(ShaderType type) => type is ShaderType.Array { OverrideLength: not null } or ShaderType.BindingArray { OverrideLength: not null };
         private static bool ContainsAtomic(ShaderType type) => type switch { ShaderType.Atomic => true, ShaderType.Array a => ContainsAtomic(a.Element), ShaderType.BindingArray a => ContainsAtomic(a.Element), ShaderType.Structure s => s.Members.Any(m => ContainsAtomic(m.Type)), _ => false };
-        private static bool HostShareable(ShaderType type) => type switch
-        {
+        private static bool HostShareable(ShaderType type) => type switch {
             ShaderType.Scalar { Kind: ScalarKind.Sint or ScalarKind.Uint or ScalarKind.Float } => true,
-            ShaderType.Vector v => HostShareable(v.Component), ShaderType.Matrix m => HostShareable(m.Component),
-            ShaderType.Atomic a => HostShareable(a.Component), ShaderType.Array a => HostShareable(a.Element), ShaderType.BindingArray a => HostShareable(a.Element),
-            ShaderType.Structure s => s.Members.All(m => HostShareable(m.Type)), _ => false
+            ShaderType.Vector v => HostShareable(v.Component),
+            ShaderType.Matrix m => HostShareable(m.Component),
+            ShaderType.Atomic a => HostShareable(a.Component),
+            ShaderType.Array a => HostShareable(a.Element),
+            ShaderType.BindingArray a => HostShareable(a.Element),
+            ShaderType.Structure s => s.Members.All(m => HostShareable(m.Type)),
+            _ => false
         };
         private void Same(ShaderType actual, ShaderType expected, string message, SourceSpan span = default) => Require(actual == expected, message, span);
         private static ShaderType DataType(ShaderType type) => type is ShaderType.Pointer p ? p.Base : type;
@@ -317,8 +302,7 @@ public static partial class ModuleValidator
             foreach (var scope in scopes) if (scope.TryGetValue(name, out var local)) return local;
             if (!globals.TryGetValue(name, out var global)) throw Error($"Unknown reference '{name}'.");
             if (global.Space == AddressSpace.Workgroup) Restrict(WorkgroupStages);
-            if (global.Space == AddressSpace.TaskPayload)
-            {
+            if (global.Space == AddressSpace.TaskPayload) {
                 Restrict(Task | Mesh);
                 if (function is not null) payloadUses[function.Name].Add(name);
             }
@@ -330,8 +314,7 @@ public static partial class ModuleValidator
             var inputs = new HashSet<string>(StringComparer.Ordinal); var outputs = new HashSet<string>(StringComparer.Ordinal);
             void Io(ShaderType type, IoBinding? binding, bool input, int meshKind = 0)
             {
-                if (type is ShaderType.Structure s)
-                {
+                if (type is ShaderType.Structure s) {
                     Require(binding is null, "Structure IO binding belongs on its members.");
                     foreach (var member in s.Members) { Require(member.Type is not ShaderType.Structure, "Nested IO structures are forbidden."); Io(member.Type, member.Binding, input, meshKind); }
                     return;
@@ -340,12 +323,10 @@ public static partial class ModuleValidator
                 string key = binding!.Builtin is string name ? "b:" + name : "l:" + binding.Location + ":" + binding.BlendSource;
                 Require((input ? inputs : outputs).Add(key), "Duplicate entry IO binding.");
                 Require(!binding.PerPrimitive || binding.Location.HasValue && (stage == ShaderStage.Fragment && input || stage == ShaderStage.Mesh && !input && meshKind == 2), "Per-primitive location requires a fragment input or mesh primitive output.");
-                if (binding.Location.HasValue)
-                {
+                if (binding.Location.HasValue) {
                     bool perVertex = binding.Interpolation == "per_vertex";
                     ShaderType valueType = type;
-                    if (perVertex)
-                    {
+                    if (perVertex) {
                         Require(stage == ShaderStage.Fragment && input, "Per-vertex interpolation requires a fragment input.");
                         Require(type is ShaderType.Array { Length: 3 }, "Per-vertex input requires an array of three elements.");
                         Require(binding.Sampling is null, "Per-vertex interpolation does not accept explicit sampling in the reference version.");
@@ -354,18 +335,15 @@ public static partial class ModuleValidator
                     Require(stage is ShaderStage.Vertex or ShaderStage.Fragment or ShaderStage.Mesh && valueType is ShaderType.Scalar or ShaderType.Vector && Numeric(valueType), "Location IO requires numeric scalar/vector in a graphics stage.");
                     Require(meshKind != 2 || binding.PerPrimitive, "Mesh primitive locations require per_primitive.");
                     Require(binding.Interpolation is null or "flat" or "linear" or "perspective" or "per_vertex", "Invalid interpolation mode.");
-                    if (!perVertex && Integer(type))
-                    {
+                    if (!perVertex && Integer(type)) {
                         Require(binding.Interpolation is null or "flat", "Integer IO requires flat interpolation.");
                         if (stage == ShaderStage.Fragment && input || stage is ShaderStage.Vertex or ShaderStage.Mesh && !input)
                             Require(binding.Interpolation == "flat", "Integer inter-stage IO requires explicit flat interpolation.");
                     }
                     Require(binding.Sampling is null or "center" or "centroid" or "sample" or "first" or "either", "Invalid interpolation sampling.");
                 }
-                else
-                {
-                    (ShaderType Expected, bool Allowed) rule = binding.Builtin switch
-                    {
+                else {
+                    (ShaderType Expected, bool Allowed) rule = binding.Builtin switch {
                         "position" => (new ShaderType.Vector(4, ShaderType.F32), stage == ShaderStage.Vertex && !input || stage == ShaderStage.Mesh && !input && meshKind == 1 || stage == ShaderStage.Fragment && input),
                         "vertex_index" or "instance_index" => (ShaderType.U32, stage == ShaderStage.Vertex && input),
                         "draw_index" => (ShaderType.U32, input && (stage is ShaderStage.Vertex or ShaderStage.Task || stage == ShaderStage.Mesh && entry.TaskPayload is null)),
@@ -399,8 +377,7 @@ public static partial class ModuleValidator
             if (entry.TaskPayload is string payload) Require(module.Globals.Any(g => g.Name == payload && g.Space == AddressSpace.TaskPayload), "Payload attribute requires a task_payload variable.");
             Require((stage == ShaderStage.Mesh) == (entry.MeshOutput is not null), "Mesh output attribute requires a mesh entry.");
             if (stage == ShaderStage.Task) Require(entry.TaskPayload is not null && entry.ReturnBinding == new IoBinding(Builtin: "mesh_task_size") && entry.ReturnType == new ShaderType.Vector(3, ShaderType.U32), "Task entry requires a payload and mesh_task_size vec3u result.");
-            if (stage == ShaderStage.Mesh)
-            {
+            if (stage == ShaderStage.Mesh) {
                 Require(entry.ReturnType is ShaderType.Void, "Mesh entry cannot return a value.");
                 var info = MeshShaderInfo.Inspect(module, entry);
                 Io(info.Vertices.Element, null, false, 1);
@@ -408,11 +385,9 @@ public static partial class ModuleValidator
                 Io(info.Primitives.Element, null, false, 2);
             }
             Require(!entry.EarlyDepthTest || stage == ShaderStage.Fragment, "Early depth test requires a fragment entry.");
-            if (stage is ShaderStage.Compute or ShaderStage.Task or ShaderStage.Mesh)
-            {
+            if (stage is ShaderStage.Compute or ShaderStage.Task or ShaderStage.Mesh) {
                 Require((stage == ShaderStage.Task || entry.ReturnType is ShaderType.Void) && entry.WorkgroupSize.Length == 3, "Workgroup entry has invalid result or workgroup size.");
-                foreach (var size in entry.WorkgroupSize)
-                {
+                foreach (var size in entry.WorkgroupSize) {
                     Expr(size);
                     Require(size.Type is ShaderType.Scalar { Kind: ScalarKind.Sint or ScalarKind.Uint, Width: 4 }, "Workgroup dimension must be an i32 or u32 scalar.");
                     Require(OverrideExpressions.IsValid(size, module.Constants.ToDictionary(c => c.Name, StringComparer.Ordinal)), "Workgroup dimension is not a constant or override expression.");

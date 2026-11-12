@@ -9,8 +9,7 @@ public static partial class ModuleValidator
         private ShaderType Cooperative(Expression.Call call, ShaderType[] args)
         {
             Restrict(Compute);
-            if (call.Function == "coopMultiplyAdd")
-            {
+            if (call.Function == "coopMultiplyAdd") {
                 Require(args.Length == 3, "Cooperative multiply-add requires three matrices.", call.Span);
                 Require(args[0] is ShaderType.CooperativeMatrix { Role: CooperativeRole.A }
                     && args[1] is ShaderType.CooperativeMatrix { Role: CooperativeRole.B }

@@ -11,8 +11,7 @@ public readonly record struct TypeLayout(uint Alignment, uint Size, bool IsRunti
         return checked((size + alignment - 1) & ~(alignment - 1));
     }
 
-    public static TypeLayout Of(ShaderType type) => type switch
-    {
+    public static TypeLayout Of(ShaderType type) => type switch {
         ShaderType.Scalar s when s.Width is 1 or 2 or 4 or 8 => new((uint)s.Width, (uint)s.Width),
         ShaderType.Atomic a => Of(a.Component),
         ShaderType.Vector v when v.Size is >= 2 and <= 4 => new((uint)(v.Component.Width * (v.Size == 3 ? 4 : v.Size)), (uint)(v.Component.Width * v.Size)),
@@ -40,8 +39,7 @@ public readonly record struct TypeLayout(uint Alignment, uint Size, bool IsRunti
     private static TypeLayout Structure(ShaderType.Structure structure)
     {
         uint size = 0, alignment = 1; bool runtime = false;
-        for (int i = 0; i < structure.Members.Count; i++)
-        {
+        for (int i = 0; i < structure.Members.Count; i++) {
             var member = structure.Members[i]; var layout = member.MatrixLayout is { } matrix ? Of(member.Type, matrix) : Of(member.Type);
             uint memberAlignment = member.Alignment ?? layout.Alignment;
             if (memberAlignment < layout.Alignment || (memberAlignment & (memberAlignment - 1)) != 0 || memberAlignment == 0)

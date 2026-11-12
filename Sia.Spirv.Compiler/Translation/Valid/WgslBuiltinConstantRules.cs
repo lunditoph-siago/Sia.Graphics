@@ -2,17 +2,15 @@ using Sia.Spirv.Compiler.Translation.IR;
 
 namespace Sia.Spirv.Compiler.Translation.Valid;
 
-/// <summary>WGSL builtin constraints whose evaluation stage depends on only some arguments.</summary>
 internal static class WgslBuiltinConstantRules
 {
-    // Return an offending argument: a source frontend rejects it, while native/
-    // runtime target lowering must retain that argument's runtime evaluation.
     internal static int? InvalidArgument(string name, ShaderType type, Func<int, Expression?> constant)
     {
         double[]? Numbers(int index) => constant(index) switch {
             Expression.Literal literal => [Number(literal.Value)],
             Expression.Construct construct when construct.Components.All(c => c is Expression.Literal)
-                => construct.Components.Cast<Expression.Literal>().Select(c => Number(c.Value)).ToArray(), _ => null
+                => construct.Components.Cast<Expression.Literal>().Select(c => Number(c.Value)).ToArray(),
+            _ => null
         };
         var scalar = type is ShaderType.Vector vector ? vector.Component : type as ShaderType.Scalar;
         if (name is "clamp" or "smoothstep") {
@@ -31,7 +29,8 @@ internal static class WgslBuiltinConstantRules
     }
 
     private static double Number(object value) => value switch {
-        Half half => (double)half, System.Numerics.BigInteger integer => (double)integer,
+        Half half => (double)half,
+        System.Numerics.BigInteger integer => (double)integer,
         _ => System.Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture)
     };
 }

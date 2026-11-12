@@ -5,7 +5,6 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Choose target atomic storage from native SSA accesses, after address selection and helper expansion.</summary>
 internal static class AtomicStorageLowering
 {
     private static bool Native(ValueOperation operation) => operation is ValueOperation.Builtin { AtomicMemory: not null } call
@@ -16,7 +15,7 @@ internal static class AtomicStorageLowering
     {
         if (!input.Functions.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions).Any(i => Native(i.Operation))) return input;
         ModuleValidator.Validate(input, native: true);
-        input = CanonicalReferenceLowering.Run(CanonicalHelperInliner.RunTargetHelpers(input));
+        input = CanonicalReferenceLowering.Run(TargetHelperLowering.Run(input));
         var source = input.Declarations;
         var output = new Module { VulkanMemoryModel = source.VulkanMemoryModel, WorkgroupInitializationRequired = source.WorkgroupInitializationRequired };
         output.Structures.AddRange(source.Structures); output.Constants.AddRange(source.Constants); output.Functions.AddRange(source.Functions);
@@ -44,14 +43,14 @@ internal static class AtomicStorageLowering
         }
         foreach (var graph in input.Functions.Values) {
             var definitions = graph.Blocks.SelectMany(b => b.Instructions).Where(i => i.Result is not null).ToDictionary(i => i.Result!.Value.Id);
-            (string Root, List<string?> Path) Address(SsaValue value) {
+            (string Root, List<string?> Path) Address(SsaValue value)
+            {
                 if (!definitions.TryGetValue(value.Id, out var instruction)) throw Error("unresolved atomic address");
                 switch (instruction.Operation) {
                     case ValueOperation.Symbol symbol when globals.ContainsKey(symbol.Name): return (symbol.Name, []);
                     case ValueOperation.Let alias: return Address(alias.Value);
                     case ValueOperation.Member member: { var address = Address(member.Base); address.Path.Add(member.Name); return address; }
-                    case ValueOperation.Access access when access.Base.Type is ShaderType.Pointer { Base: ShaderType.Array } or ShaderType.BindingArray:
-                        { var address = Address(access.Base); address.Path.Add(null); return address; }
+                    case ValueOperation.Access access when access.Base.Type is ShaderType.Pointer { Base: ShaderType.Array } or ShaderType.BindingArray: { var address = Address(access.Base); address.Path.Add(null); return address; }
                     default: throw Error("atomic address requires resolved global provenance", instruction.Span);
                 }
             }
@@ -67,7 +66,8 @@ internal static class AtomicStorageLowering
             var graph = original.Copy();
             var definitions = graph.Blocks.SelectMany(b => b.Instructions).Where(i => i.Result is not null).ToDictionary(i => i.Result!.Value.Id);
             var values = new Dictionary<int, SsaValue>();
-            SsaValue Value(SsaValue value) {
+            SsaValue Value(SsaValue value)
+            {
                 if (value.Type is not ShaderType.Pointer && !CanonicalTypes.Resource(value.Type)) return value;
                 if (values.TryGetValue(value.Id, out var known)) return known;
                 var operation = definitions.GetValueOrDefault(value.Id)?.Operation;
@@ -87,23 +87,29 @@ internal static class AtomicStorageLowering
                 var old = block.Instructions.ToArray(); var terminator = block.Terminator!;
                 block.Instructions.Clear(); var current = block;
                 foreach (var originalInstruction in old) {
-                    var instruction = originalInstruction with { Result = originalInstruction.Result is { } result ? Value(result) : null,
-                        Operation = originalInstruction.Operation.Map(Value) };
-                    SsaValue Emit(ShaderType type, ValueOperation operation) {
+                    var instruction = originalInstruction with {
+                        Result = originalInstruction.Result is { } result ? Value(result) : null,
+                        Operation = originalInstruction.Operation.Map(Value)
+                    };
+                    SsaValue Emit(ShaderType type, ValueOperation operation)
+                    {
                         var value = graph.Value(type); current.Instructions.Add(new(value, operation, instruction.Span) { DiagnosticFilters = instruction.DiagnosticFilters }); return value;
                     }
                     void Effect(ValueOperation operation) => current.Instructions.Add(new(null, operation, instruction.Span) { DiagnosticFilters = instruction.DiagnosticFilters });
-                    SsaValue Member(SsaValue parent, string member) {
+                    SsaValue Member(SsaValue parent, string member)
+                    {
                         var type = parent.Type is ShaderType.Pointer p ? p.Base : parent.Type;
                         var field = ((ShaderType.Structure)type).Members.Single(m => m.Name == member).Type;
                         return Emit(parent.Type is ShaderType.Pointer pointer ? pointer with { Base = field } : field, new ValueOperation.Member(parent, member));
                     }
-                    SsaValue Index(SsaValue parent, SsaValue index) {
+                    SsaValue Index(SsaValue parent, SsaValue index)
+                    {
                         var type = parent.Type is ShaderType.Pointer p ? p.Base : parent.Type;
                         var element = ((ShaderType.Array)type).Element;
                         return Emit(parent.Type is ShaderType.Pointer pointer ? pointer with { Base = element } : element, new ValueOperation.Access(parent, index));
                     }
-                    void Copy(SsaValue memory, SsaValue data, ShaderType logical, bool load, SpirvMemoryAccess? access) {
+                    void Copy(SsaValue memory, SsaValue data, ShaderType logical, bool load, SpirvMemoryAccess? access)
+                    {
                         if (logical is ShaderType.Structure structure) {
                             foreach (var member in structure.Members) Copy(Member(memory, member.Name), Member(data, member.Name), member.Type, load, access?.Leaf());
                             return;

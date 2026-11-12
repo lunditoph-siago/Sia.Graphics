@@ -6,16 +6,12 @@ using Sia.Spirv.Compiler.Translation.Proc;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Target contract checks shared by input composition and output preparation.
-/// External environment validation remains an independent check.</summary>
 internal static class ShaderTargetValidator
 {
     public static void ValidateStage(SpirvCompilationTarget target, string stage)
     {
         if (!Enum.TryParse<ShaderStage>(stage, out var value) || !Enum.IsDefined(value))
             throw new ArgumentException("Unsupported shader stage: " + stage);
-        // Policy meaning follows serialized identifiers, independent of a caller's
-        // host set comparer, which is deliberately absent from target identity.
         if (target.AllowedStages is { } stages && !stages.Any(stage => stage == value))
             throw new ShaderException(DiagnosticStage.Validation, "Target does not allow shader stage " + stage + ".");
     }
@@ -23,8 +19,8 @@ internal static class ShaderTargetValidator
     public static void ValidateModule(Module module, SpirvCompilationTarget target, bool wgsl = false, bool resources = true)
         => ValidateModule(module, target, wgsl, resources, null);
 
-    internal static void ValidateModule(CanonicalModule canonical, SpirvCompilationTarget target)
-        => ValidateModule(canonical.Declarations, target, false, true, canonical.Functions);
+    internal static void ValidateModule(CanonicalModule canonical, SpirvCompilationTarget target, bool wgsl = false)
+        => ValidateModule(canonical.Declarations, target, wgsl, true, canonical.Functions);
 
     private static void ValidateModule(Module module, SpirvCompilationTarget target, bool wgsl, bool resources,
         IReadOnlyDictionary<string, ControlFlowFunction>? graphs)
@@ -114,7 +110,8 @@ internal static class ShaderTargetValidator
     private static void ValidateRequirements(Block block, SpirvCompilationTarget? target, bool wgsl = false)
     {
         void Feature(string extension, bool demotion, SourceSpan span) => ValidateInvocationFeature(extension, demotion, span, target, wgsl);
-        void Expr(Expression expression) {
+        void Expr(Expression expression)
+        {
             if (expression is Expression.Call { ImageAccess: { } image }) ValidateImageVersion(image, expression.Span, target, wgsl);
             if (expression is Expression.Call { AtomicMemory: { } atomic })
                 ValidateMemoryOrder(atomic.Semantics | (atomic.UnequalSemantics ?? 0), expression.Span, target, wgsl);
@@ -124,10 +121,17 @@ internal static class ShaderTargetValidator
                 Feature("SPV_EXT_demote_to_helper_invocation", true, expression.Span);
             }
             IEnumerable<Expression> children = expression switch {
-                Expression.Load l => [l.Pointer], Expression.Unary u => [u.Operand], Expression.Binary b => [b.Left, b.Right],
-                Expression.Call c => c.Arguments, Expression.Construct c => c.Components, Expression.Convert c => [c.Operand],
-                Expression.Access a => [a.Base, a.Index], Expression.Member m => [m.Base], Expression.Swizzle s => [s.Vector],
-                Expression.Select s => [s.Condition, s.Accept, s.Reject], _ => []
+                Expression.Load l => [l.Pointer],
+                Expression.Unary u => [u.Operand],
+                Expression.Binary b => [b.Left, b.Right],
+                Expression.Call c => c.Arguments,
+                Expression.Construct c => c.Components,
+                Expression.Convert c => [c.Operand],
+                Expression.Access a => [a.Base, a.Index],
+                Expression.Member m => [m.Base],
+                Expression.Swizzle s => [s.Vector],
+                Expression.Select s => [s.Condition, s.Accept, s.Reject],
+                _ => []
             };
             foreach (var child in children) Expr(child);
         }
@@ -174,37 +178,45 @@ internal static class ShaderTargetValidator
             throw new ShaderException(DiagnosticStage.SpirvWrite, "Selected SPIR-V version cannot preserve the native image access operands.", span);
     }
 
-    // Resolve lexical shadowing before attributing a reference to a module resource.
     private static HashSet<string> UsedGlobals(ShaderFunction function, Module module)
     {
         var globals = module.Globals.Select(g => g.Name).ToHashSet(StringComparer.Ordinal);
         var scopes = new Stack<HashSet<string>>(); scopes.Push(function.Arguments.Select(a => a.Name).ToHashSet(StringComparer.Ordinal));
         var used = new HashSet<string>(StringComparer.Ordinal);
-        void Expr(Expression value) {
+        void Expr(Expression value)
+        {
             if (value is Expression.Reference reference && globals.Contains(reference.Name) && !scopes.Any(s => s.Contains(reference.Name))) used.Add(reference.Name);
             IEnumerable<Expression> children = value switch {
-                Expression.Load l => [l.Pointer], Expression.Unary u => [u.Operand], Expression.Binary b => [b.Left, b.Right],
-                Expression.Call c => c.Arguments, Expression.Construct c => c.Components, Expression.Convert c => [c.Operand],
-                Expression.Access a => [a.Base, a.Index], Expression.Member m => [m.Base], Expression.Swizzle s => [s.Vector],
-                Expression.Select s => [s.Condition, s.Accept, s.Reject], _ => []
+                Expression.Load l => [l.Pointer],
+                Expression.Unary u => [u.Operand],
+                Expression.Binary b => [b.Left, b.Right],
+                Expression.Call c => c.Arguments,
+                Expression.Construct c => c.Components,
+                Expression.Convert c => [c.Operand],
+                Expression.Access a => [a.Base, a.Index],
+                Expression.Member m => [m.Base],
+                Expression.Swizzle s => [s.Vector],
+                Expression.Select s => [s.Condition, s.Accept, s.Reject],
+                _ => []
             };
             foreach (var child in children) Expr(child);
         }
-        void Body(Block body, bool scope = true) {
+        void Body(Block body, bool scope = true)
+        {
             if (scope) scopes.Push(new(StringComparer.Ordinal));
             foreach (var statement in body.Statements) switch (statement) {
-                case Statement.Declare d: if (d.Initializer is { } value) Expr(value); scopes.Peek().Add(d.Name); break;
-                case Statement.Store s: Expr(s.Target); Expr(s.Value); break;
-                case Statement.Evaluate e: Expr(e.Value); break;
-                case Statement.Return { Value: { } returned }: Expr(returned); break;
-                case Statement.Nested n: Body(n.Body); break;
-                case Statement.If i: Expr(i.Condition); Body(i.Accept); Body(i.Reject); break;
-                case Statement.Switch s: Expr(s.Selector); foreach (var arm in s.Cases) Body(arm.Body); break;
-                case Statement.Loop l:
-                    scopes.Push(new(StringComparer.Ordinal)); Body(l.Body, false);
-                    scopes.Push(new(StringComparer.Ordinal)); Body(l.Continuing, false); if (l.BreakIf is { } condition) Expr(condition);
-                    scopes.Pop(); scopes.Pop(); break;
-            }
+                    case Statement.Declare d: if (d.Initializer is { } value) Expr(value); scopes.Peek().Add(d.Name); break;
+                    case Statement.Store s: Expr(s.Target); Expr(s.Value); break;
+                    case Statement.Evaluate e: Expr(e.Value); break;
+                    case Statement.Return { Value: { } returned }: Expr(returned); break;
+                    case Statement.Nested n: Body(n.Body); break;
+                    case Statement.If i: Expr(i.Condition); Body(i.Accept); Body(i.Reject); break;
+                    case Statement.Switch s: Expr(s.Selector); foreach (var arm in s.Cases) Body(arm.Body); break;
+                    case Statement.Loop l:
+                        scopes.Push(new(StringComparer.Ordinal)); Body(l.Body, false);
+                        scopes.Push(new(StringComparer.Ordinal)); Body(l.Continuing, false); if (l.BreakIf is { } condition) Expr(condition);
+                        scopes.Pop(); scopes.Pop(); break;
+                }
             if (scope) scopes.Pop();
         }
         Body(function.Body); return used;

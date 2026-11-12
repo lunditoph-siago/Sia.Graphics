@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.Translation;
 using Sia.Spirv.Compiler.Translation.Front;
@@ -41,7 +42,7 @@ public sealed class SpirvNonzeroDivisorTests
             enable wgpu_int16;
             fn calculate(x: u32, y: u32) -> u32 { return x / u32(u16(y | 65536u)); }
             """);
-        var canonical = ShaderTargetLowering.PrepareSpirv(CanonicalShaderPipeline.Prepare(module), null);
+        var canonical = SpirvBackend.PrepareCanonical(CanonicalShaderPipeline.Prepare(module), null);
         Assert.Single(canonical.Functions["calculate"].Blocks.SelectMany(b => b.Instructions),
             i => i.Operation is ValueOperation.Call);
     }

@@ -1,6 +1,5 @@
 namespace Sia.Spirv.Compiler.Translation.Spirv;
 
-// SPIR-V core opcode numbers; semantic support is defined by the reader/writer.
 internal enum Op : ushort
 {
     Nop = 0, Undef = 1, SourceContinued = 2, Source = 3, SourceExtension = 4,

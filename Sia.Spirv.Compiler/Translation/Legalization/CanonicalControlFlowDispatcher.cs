@@ -5,15 +5,14 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-// A target region for arbitrary data CFGs. Frontends retain their original edges;
-// this pass owns the dispatcher and parallel edge copies needed by structured outputs.
 internal static class CanonicalControlFlowDispatcher
 {
     internal static ControlFlowFunction Run(ControlFlowFunction input)
     {
         var topology = input.Blocks.ToDictionary(b => b.Id);
         var visited = new HashSet<int>(); var active = new HashSet<int>();
-        bool Cyclic(int id) {
+        bool Cyclic(int id)
+        {
             if (active.Contains(id)) return true;
             if (!visited.Add(id)) return false;
             active.Add(id);
@@ -37,7 +36,8 @@ internal static class CanonicalControlFlowDispatcher
         foreach (var block in input.Blocks) foreach (var value in block.Instructions.SelectMany(i => i.Operation.Operands)
             .Concat(block.Terminator!.Operands).Concat(block.Terminator.Edges.SelectMany(e => e.Arguments)))
             if (owners[value.Id] != block.Id && owners[value.Id] != input.Entry) spill.Add(value.Id);
-        SsaValue Emit(ControlFlowBlock block, ShaderType type, ValueOperation operation, SourceSpan span = default) {
+        SsaValue Emit(ControlFlowBlock block, ShaderType type, ValueOperation operation, SourceSpan span = default)
+        {
             var value = output.Value(type); block.Instructions.Add(new(value, operation, span)); return value;
         }
         var slots = new Dictionary<int, SsaValue>();
@@ -66,10 +66,10 @@ internal static class CanonicalControlFlowDispatcher
         });
         SsaValue Use(SsaValue value, ControlFlowBlock block) => slots.TryGetValue(value.Id, out var slot)
             ? Emit(block, value.Type, new ValueOperation.Load(slot)) : value;
-        ControlFlowEdge Schedule(ControlFlowEdge edge, int join) {
+        ControlFlowEdge Schedule(ControlFlowEdge edge, int join)
+        {
             var block = output.Block(); var target = input.Blocks.Single(b => b.Id == edge.Target);
             var values = edge.Arguments.Select(v => Use(v, block)).ToArray();
-            // All incoming values are read before any destination parameter changes.
             for (int i = 0; i < values.Length; i++) block.Instructions.Add(new(null, new ValueOperation.Store(slots[target.Parameters[i].Id], values[i])));
             var next = Emit(block, ShaderType.I32, new ValueOperation.Literal(edge.Target));
             block.Instructions.Add(new(null, new ValueOperation.Store(pc, next)));

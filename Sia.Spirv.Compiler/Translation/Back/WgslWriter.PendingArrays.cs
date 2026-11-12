@@ -8,21 +8,14 @@ public static partial class WgslWriter
     {
         private static IEnumerable<Statement> InlinePendingArrayArguments(IReadOnlyList<Statement> statements)
         {
-            for (int i = 0; i < statements.Count; i++)
-            {
-                // WGSL cannot declare a let with an override-sized array, but
-                // it can pass a loaded array by value. A single argument call
-                // immediately after its snapshot has the same evaluation order.
+            for (int i = 0; i < statements.Count; i++) {
                 if (statements[i] is Statement.Declare { Mutable: false, Type: ShaderType.Array { OverrideLength: not null }, Initializer: { } value } snapshot
-                    && i + 1 < statements.Count && statements.Skip(i + 1).Sum(s => References(s, snapshot.Name)) == 1)
-                {
+                    && i + 1 < statements.Count && statements.Skip(i + 1).Sum(s => References(s, snapshot.Name)) == 1) {
                     var next = statements[i + 1];
                     Expression? expression = next switch { Statement.Declare d => d.Initializer, Statement.Evaluate e => e.Value, _ => null };
-                    if (expression is Expression.Call { Arguments: [Expression.Reference r] } call && r.Name == snapshot.Name)
-                    {
+                    if (expression is Expression.Call { Arguments: [Expression.Reference r] } call && r.Name == snapshot.Name) {
                         var replacement = call with { Arguments = new[] { value } };
-                        yield return next switch
-                        {
+                        yield return next switch {
                             Statement.Declare d => d with { Initializer = replacement },
                             Statement.Evaluate e => e with { Value = replacement },
                             _ => next
@@ -34,8 +27,7 @@ public static partial class WgslWriter
             }
         }
 
-        private static int References(Expression value, string name) => value switch
-        {
+        private static int References(Expression value, string name) => value switch {
             Expression.Reference r => r.Name == name ? 1 : 0,
             Expression.Load l => References(l.Pointer, name),
             Expression.Unary u => References(u.Operand, name),
@@ -51,8 +43,7 @@ public static partial class WgslWriter
         };
 
         private static int References(Block block, string name) => block.Statements.Sum(s => References(s, name));
-        private static int References(Statement statement, string name) => statement switch
-        {
+        private static int References(Statement statement, string name) => statement switch {
             Statement.Declare d => d.Initializer is null ? 0 : References(d.Initializer, name),
             Statement.Store s => References(s.Target, name) + References(s.Value, name),
             Statement.Evaluate e => References(e.Value, name),

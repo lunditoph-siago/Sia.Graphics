@@ -11,8 +11,7 @@ internal static class WgslNumbers
 
     public static Expression.Literal Parse(string source, SourceSpan span)
     {
-        try
-        {
+        try {
             if (source is "true" or "false") return Expression.Bool(source == "true") with { Span = span };
             bool hex = source.StartsWith("0x", StringComparison.OrdinalIgnoreCase);
             bool floating = source.Contains('.') || source.IndexOfAny(hex ? ['p', 'P'] : ['e', 'E']) >= 0;
@@ -22,19 +21,16 @@ internal static class WgslNumbers
             hasSuffix |= wide;
             string text = hasSuffix ? source[..^(wide ? 2 : 1)] : source;
             floating |= hasSuffix && suffix is 'f' or 'h';
-            if (floating)
-            {
+            if (floating) {
                 if (hasSuffix && suffix is 'i' or 'u') throw new FormatException();
                 double value = hex ? HexFloat(text) : double.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture);
                 if (!double.IsFinite(value)) throw new OverflowException();
                 if (wide && suffix == 'f') return new(value, new ShaderType.Scalar(ScalarKind.Float, 8)) { Span = span };
-                if (suffix == 'f' && hasSuffix)
-                {
+                if (suffix == 'f' && hasSuffix) {
                     float f = (float)value; if (!float.IsFinite(f)) throw new OverflowException();
                     return new(f, ShaderType.F32) { Span = span };
                 }
-                if (suffix == 'h' && hasSuffix)
-                {
+                if (suffix == 'h' && hasSuffix) {
                     Half h = (Half)value; if (!Half.IsFinite(h)) throw new OverflowException();
                     return new(h, ShaderType.F16) { Span = span };
                 }
@@ -49,8 +45,7 @@ internal static class WgslNumbers
             if (hasSuffix && suffix == 'i') return new(checked((int)integer), ShaderType.I32) { Span = span };
             return new(checked((long)integer), AbstractInt) { Span = span };
         }
-        catch (Exception e) when (e is FormatException or OverflowException)
-        {
+        catch (Exception e) when (e is FormatException or OverflowException) {
             throw new ShaderException(DiagnosticStage.WgslParse, $"Numeric literal '{source}' is malformed or out of range.", span);
         }
     }

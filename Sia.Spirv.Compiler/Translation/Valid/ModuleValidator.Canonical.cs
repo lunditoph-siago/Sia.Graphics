@@ -5,8 +5,6 @@ namespace Sia.Spirv.Compiler.Translation.Valid;
 
 public static partial class ModuleValidator
 {
-    // Reuse the same expression/memory signature rules for structured and SSA IR.
-    // SSA ownership, dominance and symbol identity are checked by ControlFlowVerifier.
     internal static Action<ControlFlowInstruction> CanonicalInstructions(Module module, ControlFlowFunction graph)
         => new Validator(module, allowNativePointerParameters: true).Canonical(graph);
 
@@ -14,8 +12,6 @@ public static partial class ModuleValidator
     {
         private void CanonicalBody(ControlFlowFunction graph)
         {
-            // Declaration/signature/entry checks remain in Run. Executable facts
-            // come from the graph, including transitive stage and payload rules.
             DiagnosticFilters(graph.Signature.Body.DiagnosticFilters);
             var checker = new Validator(module, allowNativePointerParameters);
             var instruction = checker.Canonical(graph);
@@ -47,7 +43,8 @@ public static partial class ModuleValidator
             var values = new Dictionary<string, Variable>(StringComparer.Ordinal); scopes.Push(values);
             var definitions = graph.Blocks.SelectMany(b => b.Instructions).Where(i => i.Result is not null).ToDictionary(i => i.Result!.Value.Id);
             foreach (var value in graph.Blocks.SelectMany(b => b.Parameters.Concat(b.Instructions.Where(i => i.Result is not null).Select(i => i.Result!.Value)))) Type(value.Type);
-            Expression Operand(SsaValue value) {
+            Expression Operand(SsaValue value)
+            {
                 if (definitions.TryGetValue(value.Id, out var definition)) {
                     if (definition.Operation is ValueOperation.Literal literal) return new Expression.Literal(literal.Value, value.Type);
                     if (definition.Operation is ValueOperation.Symbol symbol && globals.ContainsKey(symbol.Name)
@@ -63,7 +60,8 @@ public static partial class ModuleValidator
                 if (value.Type is ShaderType.Pointer { Space: AddressSpace.Workgroup }) Restrict(WorkgroupStages);
                 return new Expression.Reference(name, value.Type);
             }
-            void Stage() {
+            void Stage()
+            {
                 if (function.Stage is ShaderStage stage)
                     Require((stages[function.Name] & (stage switch { ShaderStage.Vertex => Vertex, ShaderStage.Fragment => Fragment, ShaderStage.Task => Task, ShaderStage.Mesh => Mesh, _ => Compute })) != 0,
                         "Canonical operation is unavailable in its stage.");
@@ -88,7 +86,7 @@ public static partial class ModuleValidator
                 }
                 if (instruction.Operation is ValueOperation.InterfaceLoad or ValueOperation.InterfaceStore) {
                     Type(instruction.Operation is ValueOperation.InterfaceLoad load ? load.Field.Type : ((ValueOperation.InterfaceStore)instruction.Operation).Field.Type);
-                    return; // Direction, exact type and def/use are checked by the CFG verifier.
+                    return;
                 }
                 if (instruction.Operation is ValueOperation.Demote) {
                     Restrict(Fragment); Stage(); return;
@@ -125,8 +123,8 @@ public static partial class ModuleValidator
                     ValueOperation.Member m => new Expression.Member(Operand(m.Base), m.Name, type),
                     ValueOperation.Swizzle s => new Expression.Swizzle(Operand(s.Vector), s.Components, type),
                     ValueOperation.Load l => new Expression.Load(Operand(l.Pointer)) { MemoryAccess = l.MemoryAccess },
-                    ValueOperation.Call c => new Expression.Call(c.Function, c.Arguments.Select(Operand).ToArray(), c.ReturnType, CallBinding.Function) { AtomicMemory = c.AtomicMemory,MemoryAccess = c.MemoryAccess },
-                    ValueOperation.Builtin b => new Expression.Call(b.Function, b.Arguments.Select(Operand).ToArray(), b.ReturnType, CallBinding.Builtin) { AtomicMemory = b.AtomicMemory,MemoryAccess = b.MemoryAccess, ImageAccess = b.ImageAccess },
+                    ValueOperation.Call c => new Expression.Call(c.Function, c.Arguments.Select(Operand).ToArray(), c.ReturnType, CallBinding.Function) { AtomicMemory = c.AtomicMemory, MemoryAccess = c.MemoryAccess },
+                    ValueOperation.Builtin b => new Expression.Call(b.Function, b.Arguments.Select(Operand).ToArray(), b.ReturnType, CallBinding.Builtin) { AtomicMemory = b.AtomicMemory, MemoryAccess = b.MemoryAccess, ImageAccess = b.ImageAccess },
                     _ => throw Error("Unsupported canonical instruction.", instruction.Span)
                 };
                 Same(Expr(expression with { Span = instruction.Span }), type, "Canonical result type mismatch.", instruction.Span);

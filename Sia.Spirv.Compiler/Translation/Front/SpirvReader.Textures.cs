@@ -14,14 +14,12 @@ public static partial class SpirvReader
         {
             var roots = globals.Keys.ToDictionary(id => id, id => id);
             var pairs = new Dictionary<uint, (uint Image, uint Sampler)>();
-            foreach (var instruction in binary.Instructions)
-            {
+            foreach (var instruction in binary.Instructions) {
                 var a = instruction.Operands; Op op = (Op)instruction.Opcode;
                 if (op is Op.Load or Op.CopyObject or Op.AccessChain or Op.InBoundsAccessChain && a.Length >= 3 && roots.TryGetValue(a[2], out uint root)) roots[a[1]] = root;
                 if (op == Op.SampledImage && a.Length == 4) pairs[a[1]] = (a[2], a[3]);
             }
-            foreach (var instruction in binary.Instructions.Where(i => (Op)i.Opcode is Op.ImageSampleDrefImplicitLod or Op.ImageSampleDrefExplicitLod or Op.ImageDrefGather))
-            {
+            foreach (var instruction in binary.Instructions.Where(i => (Op)i.Opcode is Op.ImageSampleDrefImplicitLod or Op.ImageSampleDrefExplicitLod or Op.ImageDrefGather)) {
                 current = instruction; var a = instruction.Operands; Count(5);
                 if (!pairs.TryGetValue(a[2], out var pair)) throw Error("Comparison sampling requires a sampled image.");
                 void Upgrade(uint value, bool sampler)
@@ -49,7 +47,8 @@ public static partial class SpirvReader
                 return Value(a[cursor++]);
             }
             Expression? bias = Next(1), level = Next(2), dx = Next(4), dy = Next(4), offset = Next(8), dynamicOffset = Next(16), sample = Next(64);
-            uint? Scope(uint bit) {
+            uint? Scope(uint bit)
+            {
                 if ((mask & bit) == 0) return null;
                 if (cursor >= a.Length) throw Error("Truncated image memory scope.");
                 uint id = a[cursor++];
@@ -129,8 +128,7 @@ public static partial class SpirvReader
             string name = gather ? compare ? "textureGatherCompare" : "textureGather" : compare ? operands.Level is not null ? "textureSampleCompareLevel" : "textureSampleCompare" : operands.Ddx is not null ? "textureSampleGrad" : operands.Level is not null ? "textureSampleLevel" : operands.Bias is not null ? "textureSampleBias" : "textureSample";
             var args = new List<Expression>(); if (component is not null && !image.Depth) args.Add(ToI32(component));
             args.Add(pair.Image); args.Add(pair.Sampler); args.Add(coordinate); if (layer is not null) args.Add(layer); if (depth is not null) args.Add(depth);
-            if (compare && operands.Level is not null)
-            {
+            if (compare && operands.Level is not null) {
                 if (!ConstantEvaluator.TryEvaluate(operands.Level, out var level) || level is not Expression.Literal literal || System.Convert.ToDouble(literal.Value) != 0) throw Error("WGSL comparison sampling only supports level zero.");
             }
             else if (operands.Level is not null) args.Add(image.Depth ? ToI32(operands.Level) : operands.Level.Type == ShaderType.F32 ? operands.Level : new Expression.Convert(ShaderType.F32, operands.Level));
@@ -151,8 +149,7 @@ public static partial class SpirvReader
             ShaderType result = name == "textureDimensions" ? dimensions : ShaderType.U32;
             var args = new List<Expression> { texture }; if (op == Op.ImageQuerySizeLod) args.Add(Value(a[3]));
             Expression query = new Expression.Call(name, args, result, CallBinding.Builtin);
-            if (name == "textureDimensions" && image.Arrayed)
-            {
+            if (name == "textureDimensions" && image.Arrayed) {
                 query = new Expression.Construct(new ShaderType.Vector(rank + 1, ShaderType.U32), [query, new Expression.Call("textureNumLayers", [texture], ShaderType.U32, CallBinding.Builtin)]);
             }
             return query.Type == Type(a[0]) ? query : new Expression.Convert(Type(a[0]), query);

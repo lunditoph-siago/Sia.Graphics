@@ -2,8 +2,6 @@ using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 
 namespace Sia.Spirv.Compiler.Translation.IR;
 
-/// <summary>Intrinsic effect facts shared by type admission and the canonical IR.
-/// Unknown operations remain conservative; stage and memory legality use the shared validator.</summary>
 internal static class ShaderBuiltinEffects
 {
     private static readonly HashSet<string> FloatUnary = new("acos acosh asin asinh atan atanh ceil cos cosh degrees exp exp2 floor fract inverseSqrt log log2 quantizeToF16 radians round saturate sin sinh sqrt tan tanh trunc".Split(' '), StringComparer.Ordinal);

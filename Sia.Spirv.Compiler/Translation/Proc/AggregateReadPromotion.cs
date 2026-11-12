@@ -3,7 +3,6 @@ using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 
 namespace Sia.Spirv.Compiler.Translation.Proc;
 
-/// <summary>Expose non-escaping aggregate reads to ordinary local SSA promotion.</summary>
 internal static class AggregateReadPromotion
 {
     private sealed record Address(SsaValue Root, IReadOnlyList<ControlFlowInstruction> Path);
@@ -13,7 +12,8 @@ internal static class AggregateReadPromotion
         var instructions = graph.Blocks.SelectMany(b => b.Instructions).ToArray();
         var definitions = instructions.Where(i => i.Result is not null).ToDictionary(i => i.Result!.Value.Id, i => i.Operation);
         var roots = instructions.Where(i => i.Operation is ValueOperation.Local && i.Result?.Type is ShaderType.Pointer {
-                Space: AddressSpace.Function, Base: ShaderType.Vector or ShaderType.Matrix or ShaderType.Structure or ShaderType.Array } pointer
+            Space: AddressSpace.Function, Base: ShaderType.Vector or ShaderType.Matrix or ShaderType.Structure or ShaderType.Array
+        } pointer
                 && CanonicalTypes.Data(pointer.Base) && ShaderMemoryRequirements.TypeMemory(pointer.Base) == MemoryDecorations.None)
             .Select(i => i.Result!.Value).ToDictionary(v => v.Id);
         if (roots.Count == 0) return;
@@ -24,8 +24,10 @@ internal static class AggregateReadPromotion
             foreach (var instruction in instructions) {
                 if (instruction.Result is not { Type: ShaderType.Pointer } value || addresses.ContainsKey(value.Id)) continue;
                 var parent = instruction.Operation switch {
-                    ValueOperation.Let alias => alias.Value, ValueOperation.Access access => access.Base,
-                    ValueOperation.Member member => member.Base, _ => (SsaValue?)null
+                    ValueOperation.Let alias => alias.Value,
+                    ValueOperation.Access access => access.Base,
+                    ValueOperation.Member member => member.Base,
+                    _ => (SsaValue?)null
                 };
                 if (parent is not { } source || !addresses.TryGetValue(source.Id, out var address)) continue;
                 var path = instruction.Operation is ValueOperation.Let ? address.Path : address.Path.Append(instruction).ToArray();
@@ -38,8 +40,6 @@ internal static class AggregateReadPromotion
                 if (!addresses.TryGetValue(operand.Id, out var address)) continue;
                 bool allowed = instruction.Operation switch {
                     ValueOperation.Let alias => alias.Value == operand,
-                    // SPIR-V directly indexes vector values, but dynamic array/
-                    // matrix value indexing would spill a fresh copy per read.
                     ValueOperation.Access access => access.Base == operand && (dynamicCompositeIndexing
                         || access.Base.Type is not ShaderType.Pointer { Base: ShaderType.Array or ShaderType.Matrix }
                         || definitions.GetValueOrDefault(access.Index.Id) is ValueOperation.Literal),

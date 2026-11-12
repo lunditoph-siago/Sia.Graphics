@@ -4,8 +4,6 @@ namespace Sia.Spirv.Compiler.Translation.Front;
 
 public static partial class SpirvReader
 {
-    // Finite logical addresses are defunctionalized into scalar SSA state.
-    // Scalar phis retain simultaneous edge semantics, including loop backedges.
     private sealed partial class PointerPhiLowering(SpirvBinary binary)
     {
         private readonly Dictionary<uint, SpirvInstruction> types = [];
@@ -46,9 +44,6 @@ public static partial class SpirvReader
                 .Select(i => i.Operands[0]).ToHashSet();
             var slotTypes = binary.Instructions.Where(i => (Op)i.Opcode == Op.TypePointer && i.Operands.Length == 3 && pointerTypes.Contains(i.Operands[2]))
                 .Select(i => i.Operands[0]).ToHashSet();
-            // Only value-producing instructions have a typed result ID in
-            // operand 1. OpTypePointer puts its storage class there instead;
-            // that number can also be a perfectly valid variable ID.
             var pointerDefinitions = binary.Instructions.Where(i => i.Operands.Length >= 2 && pointerTypes.Contains(i.Operands[0])
                 && (Op)i.Opcode is Op.Variable or Op.ConstantNull or Op.Undef or Op.Function or Op.FunctionParameter
                     or Op.FunctionCall or Op.AccessChain or Op.InBoundsAccessChain or Op.PtrAccessChain or Op.CopyObject or Op.Select or Op.Phi or Op.Load)
@@ -56,8 +51,7 @@ public static partial class SpirvReader
             bool Direct(uint id, HashSet<uint> visited)
             {
                 if (!visited.Add(id) || !pointerDefinitions.TryGetValue(id, out var i)) return false;
-                return (Op)i.Opcode switch
-                {
+                return (Op)i.Opcode switch {
                     Op.Variable or Op.ConstantNull => true,
                     Op.AccessChain or Op.InBoundsAccessChain or Op.CopyObject when i.Operands.Length >= 3 => Direct(i.Operands[2], visited),
                     Op.Select when i.Operands.Length == 5 => Direct(i.Operands[3], new(visited)) && Direct(i.Operands[4], new(visited)),
@@ -74,21 +68,18 @@ public static partial class SpirvReader
             if (!binary.Instructions.Any(i => (Op)i.Opcode == Op.Capability && i.Operands is [4441 or 4442]))
                 throw Error("Pointer Phi/load/return requires a variable-pointer capability.", firstPhi);
             foreach (var i in binary.Instructions)
-                if (((Op)i.Opcode).ToString().StartsWith("Type", StringComparison.Ordinal) && i.Operands.Length > 0)
-                {
+                if (((Op)i.Opcode).ToString().StartsWith("Type", StringComparison.Ordinal) && i.Operands.Length > 0) {
                     if (i.Operands[0] == 0 || i.Operands[0] >= binary.Bound) throw Error("Native type exceeds its original header bound.", i);
                     if (!types.TryAdd(i.Operands[0], i)) throw Error("Duplicate native type ID.", i);
                 }
             bool function = false; uint owner = 0;
-            foreach (var i in binary.Instructions)
-            {
+            foreach (var i in binary.Instructions) {
                 Op op = (Op)i.Opcode; var a = i.Operands;
                 if (op == Op.Function) { function = true; owner = a.Length >= 2 ? a[1] : 0; }
                 if (op == Op.Label && (a.Length != 1 || a[0] == 0 || a[0] >= binary.Bound)) throw Error("Invalid native label ID.", i);
                 bool constant = op is Op.Constant or Op.ConstantTrue or Op.ConstantFalse or Op.ConstantComposite or Op.ConstantNull
                     or Op.SpecConstant or Op.SpecConstantTrue or Op.SpecConstantFalse or Op.SpecConstantComposite or Op.SpecConstantOp;
-                if ((function || constant || op is Op.Variable or Op.Undef) && a.Length >= 2 && types.ContainsKey(a[0]))
-                {
+                if ((function || constant || op is Op.Variable or Op.Undef) && a.Length >= 2 && types.ContainsKey(a[0])) {
                     if (a[1] == 0 || a[1] >= binary.Bound) throw Error("Native value exceeds its original header bound.", i);
                     if (!definitions.TryAdd(a[1], i)) throw Error("Duplicate native value ID.", i);
                     definitionOwners.Add(a[1], owner);
@@ -103,18 +94,14 @@ public static partial class SpirvReader
             foreach (var i in binary.Instructions.Where(Comparison)) PreparePointerComparison(i);
             CompleteSlotSources();
             bool changed;
-            do
-            {
+            do {
                 changed = false;
-                foreach (var node in nodes.Values)
-                {
+                foreach (var node in nodes.Values) {
                     var i = node.Instruction; var a = i.Operands;
-                    if (!node.Arithmetic && ((Op)i.Opcode == Op.PtrAccessChain || NodeSources(i).Any(id => nodes[id].Arithmetic)))
-                    { node.Arithmetic = true; changed = true; }
+                    if (!node.Arithmetic && ((Op)i.Opcode == Op.PtrAccessChain || NodeSources(i).Any(id => nodes[id].Arithmetic))) { node.Arithmetic = true; changed = true; }
                     IEnumerable<Shape> incoming = node.Null ? [ShapeFor(0, [])] : node.Root ? [ShapeFor(a[1], [])]
                         : NodeSources(i).SelectMany(id => nodes[id].Shapes.Values).ToArray();
-                    foreach (var shape in incoming)
-                    {
+                    foreach (var shape in incoming) {
                         Shape result = (Op)i.Opcode == Op.PtrAccessChain ? ArithmeticShape(shape, i)
                             : (Op)i.Opcode is Op.AccessChain or Op.InBoundsAccessChain
                             ? ShapeFor(shape.Root, [.. shape.Parts, .. a[3..].Select(IndexPart)]) : shape;
@@ -124,8 +111,7 @@ public static partial class SpirvReader
                 }
             } while (changed);
             uintType = FindType(Op.TypeInt, [32, 0]); boolType = FindType(Op.TypeBool, []);
-            foreach (var node in nodes.Values)
-            {
+            foreach (var node in nodes.Values) {
                 if (node.Shapes.Count == 0) throw Error("Pointer has no initialized finite provenance.", node.Instruction);
                 if ((Op)node.Instruction.Opcode is Op.AccessChain or Op.InBoundsAccessChain or Op.PtrAccessChain && node.Shapes.Values.Any(s => s.Root == 0))
                     throw Error("Access chains based on null pointers require separate address semantics.", node.Instruction);
@@ -140,23 +126,18 @@ public static partial class SpirvReader
             PrepareSignatures();
             var output = new List<SpirvInstruction>(); var pending = new List<Node>(); var pendingParameters = new List<Node>();
             bool entryStarted = false;
-            foreach (var i in binary.Instructions)
-            {
+            foreach (var i in binary.Instructions) {
                 Op op = (Op)i.Opcode;
-                if (entryStarted && op is not (Op.Variable or Op.Line or Op.NoLine or Op.Nop))
-                {
+                if (entryStarted && op is not (Op.Variable or Op.Line or Op.NoLine or Op.Nop)) {
                     foreach (var parameter in pendingParameters) Materialize(parameter, output);
                     pendingParameters.Clear(); entryStarted = false;
                 }
-                if (op is not (Op.Phi or Op.Line or Op.NoLine or Op.Nop))
-                {
+                if (op is not (Op.Phi or Op.Line or Op.NoLine or Op.Nop)) {
                     foreach (var pendingNode in pending) Materialize(pendingNode, output);
                     pending.Clear();
                 }
-                if (op == Op.Phi && i.Operands.Length >= 2 && nodes.TryGetValue(i.Operands[1], out var phi))
-                { Shadows(phi, output); pending.Add(phi); continue; }
-                if (op == Op.PtrAccessChain && nodes.TryGetValue(i.Operands[1], out var arithmetic))
-                { ArithmeticShadows(arithmetic, output); Materialize(arithmetic, output); continue; }
+                if (op == Op.Phi && i.Operands.Length >= 2 && nodes.TryGetValue(i.Operands[1], out var phi)) { Shadows(phi, output); pending.Add(phi); continue; }
+                if (op == Op.PtrAccessChain && nodes.TryGetValue(i.Operands[1], out var arithmetic)) { ArithmeticShadows(arithmetic, output); Materialize(arithmetic, output); continue; }
                 if (RewritePointerComparison(i, output)) continue;
                 if (RewriteReturnInstruction(i, output)) continue;
                 if (RewriteCallInstruction(i, output, pendingParameters)) continue;
@@ -187,14 +168,12 @@ public static partial class SpirvReader
                 || op == Op.PtrAccessChain && a.Length < 4 || op == Op.Function && a.Length != 4 || op == Op.ConstantNull && a.Length != 2)
                 throw Error("Invalid pointer provenance operands.", i);
             var result = new Node(i); nodes.Add(id, result);
-            foreach (uint source in NodeSources(i))
-            {
+            foreach (uint source in NodeSources(i)) {
                 var parent = NodeFor(source);
                 if (op is Op.Phi or Op.Select or Op.CopyObject or Op.Load or Op.FunctionParameter or Op.Function or Op.FunctionCall && !types[a[0]].Operands.AsSpan(1).SequenceEqual(types[parent.Instruction.Operands[0]].Operands.AsSpan(1)))
                     throw Error("Pointer provenance source type mismatch.", i);
             }
-            if (op is Op.Phi or Op.Load or Op.FunctionCall or Op.ConstantNull or Op.PtrAccessChain)
-            {
+            if (op is Op.Phi or Op.Load or Op.FunctionCall or Op.ConstantNull or Op.PtrAccessChain) {
                 uint space = types[a[0]].Operands[1];
                 if (space is not (4 or 12)) throw Error("Pointer Phi/load requires storage or workgroup memory.", i);
                 if (space == 4 && !binary.Instructions.Any(x => (Op)x.Opcode == Op.Capability && x.Operands is [4442]))
@@ -202,10 +181,11 @@ public static partial class SpirvReader
                 bool Matrix(uint type, HashSet<uint> visited)
                 {
                     if (!visited.Add(type) || !types.TryGetValue(type, out var t)) return false;
-                    return (Op)t.Opcode switch
-                    {
-                        Op.TypeMatrix => true, Op.TypeArray or Op.TypeRuntimeArray => Matrix(t.Operands[1], visited),
-                        Op.TypeStruct => t.Operands[1..].Any(member => Matrix(member, visited)), _ => false
+                    return (Op)t.Opcode switch {
+                        Op.TypeMatrix => true,
+                        Op.TypeArray or Op.TypeRuntimeArray => Matrix(t.Operands[1], visited),
+                        Op.TypeStruct => t.Operands[1..].Any(member => Matrix(member, visited)),
+                        _ => false
                     };
                 }
                 if (Matrix(types[a[0]].Operands[2], [])) throw Error("Variable pointers cannot point to objects containing matrices.", i);
@@ -217,8 +197,7 @@ public static partial class SpirvReader
         private static IEnumerable<uint> Sources(SpirvInstruction i)
         {
             var a = i.Operands;
-            switch ((Op)i.Opcode)
-            {
+            switch ((Op)i.Opcode) {
                 case Op.AccessChain: case Op.InBoundsAccessChain: case Op.PtrAccessChain: case Op.CopyObject: yield return a[2]; break;
                 case Op.Select: yield return a[3]; yield return a[4]; break;
                 case Op.Phi: for (int p = 2; p < a.Length; p += 2) yield return a[p]; break;
@@ -234,11 +213,9 @@ public static partial class SpirvReader
         private void ValidateAccess(SpirvInstruction i)
         {
             var a = i.Operands; uint type = types[nodes[a[2]].Instruction.Operands[0]].Operands[2];
-            foreach (uint index in a[3..])
-            {
+            foreach (uint index in a[3..]) {
                 if (!types.TryGetValue(type, out var t)) throw Error("Undefined pointer access type.", i);
-                if ((Op)t.Opcode == Op.TypeStruct)
-                {
+                if ((Op)t.Opcode == Op.TypeStruct) {
                     if (!definitions.TryGetValue(index, out var c) || (Op)c.Opcode != Op.Constant || c.Operands.Length != 3
                         || c.Operands[2] >= t.Operands.Length - 1) throw Error("Invalid pointer structure index.", i);
                     type = t.Operands[1 + (int)c.Operands[2]];
@@ -273,8 +250,7 @@ public static partial class SpirvReader
         private void Shadows(Node node, List<SpirvInstruction> output)
         {
             var i = node.Instruction; var a = i.Operands; Op op = (Op)i.Opcode;
-            if (op == Op.Phi)
-            {
+            if (op == Op.Phi) {
                 uint[] Incoming(Func<Node, uint> value) => a[2..].Select((id, p) => p % 2 == 0 ? value(nodes[id]) : id).ToArray();
                 Add(output, i, Op.Phi, [uintType, node.Selector, .. Incoming(n => n.Selector)]);
                 foreach (var shape in node.Shapes.Values)
@@ -282,8 +258,7 @@ public static partial class SpirvReader
                         Add(output, i, Op.Phi, [shape.Parts[p].Type, Slot(node, shape, p), .. Incoming(n => Slot(n, shape, p))]);
                 return;
             }
-            if (op == Op.Select)
-            {
+            if (op == Op.Select) {
                 var left = nodes[a[3]]; var right = nodes[a[4]];
                 Add(output, i, Op.Select, uintType, node.Selector, a[2], left.Selector, right.Selector);
                 foreach (var shape in node.Shapes.Values)
@@ -292,8 +267,7 @@ public static partial class SpirvReader
                 return;
             }
             var source = nodes[a[2]];
-            if (op == Op.CopyObject)
-            {
+            if (op == Op.CopyObject) {
                 Add(output, i, Op.CopyObject, uintType, node.Selector, source.Selector);
                 foreach (var shape in node.Shapes.Values)
                     for (int p = 0; p < shape.Parts.Length; p++) if (shape.Parts[p].Constant == 0)
@@ -302,8 +276,7 @@ public static partial class SpirvReader
             }
             var pairs = source.Shapes.Values.Select(s => (Source: s, Target: ShapeFor(s.Root, [.. s.Parts, .. a[3..].Select(IndexPart)]))).ToArray();
             uint selected = Literal(uintType, pairs[0].Target.Tag);
-            for (int p = 1; p < pairs.Length; p++)
-            {
+            for (int p = 1; p < pairs.Length; p++) {
                 uint condition = Id(), result = Id();
                 Add(output, i, Op.IEqual, boolType, condition, source.Selector, Literal(uintType, pairs[p].Source.Tag));
                 Add(output, i, Op.Select, uintType, result, condition, Literal(uintType, pairs[p].Target.Tag), selected); selected = result;
@@ -316,12 +289,10 @@ public static partial class SpirvReader
         private void Materialize(Node node, List<SpirvInstruction> output)
         {
             var i = node.Instruction; var a = i.Operands; uint selected = 0; int p = 0;
-            foreach (var shape in node.Shapes.Values)
-            {
+            foreach (var shape in node.Shapes.Values) {
                 uint pointer;
                 if (shape.Root == 0) pointer = NullConstant(a[0]);
-                else
-                {
+                else {
                     pointer = Id();
                     if (!node.Arithmetic || !MaterializeArithmetic(node, shape, pointer, output))
                         Add(output, i, Op.AccessChain, [a[0], pointer, shape.Root, .. shape.Parts.Select((part, index) => part.Constant != 0 ? part.Constant : Slot(node, shape, index))]);

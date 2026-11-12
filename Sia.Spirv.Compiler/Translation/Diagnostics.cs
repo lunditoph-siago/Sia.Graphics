@@ -1,6 +1,5 @@
 namespace Sia.Spirv.Compiler.Translation;
 
-/// <summary>UTF-16 source range, or byte range for binary input.</summary>
 public readonly record struct SourceSpan(int Start, int Length)
 {
     public int End => checked(Start + Length);

@@ -1,4 +1,5 @@
 using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 using Sia.Spirv.Compiler.Translation.Spirv;
 
 namespace Sia.Spirv.Compiler.Translation.Front;
@@ -9,13 +10,26 @@ public static partial class SpirvReader
     public static Module Parse(ReadOnlySpan<uint> words, SpirvReadOptions? options = null) => ReadBinary(SpirvBinary.Parse(words), options);
     internal static Module ReadBinary(SpirvBinary binary, SpirvReadOptions? options = null,
         ICollection<CanonicalPassTrace>? traces = null, ICollection<CanonicalDeferral>? deferrals = null)
+        => CreateReader(binary, options, deferrals).Read(traces, deferrals);
+
+    internal static WgslInput ReadForWgsl(ReadOnlySpan<byte> bytes, SpirvReadOptions? options)
+        => CreateReader(SpirvBinary.Parse(bytes), options, null).ReadForWgsl();
+
+    internal abstract record WgslInput
+    {
+        private WgslInput() { }
+
+        internal sealed record Structured(Module Module) : WgslInput;
+        internal sealed record Canonical(CanonicalModule Module) : WgslInput;
+    }
+
+    private static Reader CreateReader(SpirvBinary binary, SpirvReadOptions? options, ICollection<CanonicalDeferral>? deferrals)
     {
         if (CanReadCanonicalFlow(binary, out var deferred))
-            return new Reader(binary, options ?? new(), new HashSet<uint>(), new Dictionary<uint, string>(), directCanonicalFlow: true)
-                .Read(traces, deferrals);
+            return new Reader(binary, options ?? new(), new HashSet<uint>(), new Dictionary<uint, string>(), directCanonicalFlow: true);
         if (deferred is not null) deferrals?.Add(new("<SPIR-V>", deferred));
         var normalized = PointerPhiLowering.RunWithHelpers(binary, out var helpers, out var snapshots);
-        return new Reader(normalized, options ?? new(), helpers, snapshots).Read();
+        return new Reader(normalized, options ?? new(), helpers, snapshots);
     }
 
     private sealed partial class Reader(SpirvBinary binary, SpirvReadOptions options, IReadOnlySet<uint> specializedHelpers, IReadOnlyDictionary<uint, string> descriptorSnapshots, bool directCanonicalFlow = false)
@@ -87,13 +101,26 @@ public static partial class SpirvReader
 
         public Module Read(ICollection<CanonicalPassTrace>? traces = null, ICollection<CanonicalDeferral>? deferrals = null)
         {
-            // Names/decorations precede types in logical SPIR-V layout.
-            foreach (var instruction in binary.Instructions)
-            {
+            ReadModule(traces);
+            var canonical = directCanonicalFlow ? PrepareNativeModule(traces, deferrals) : null;
+            return FinishStructured(canonical);
+        }
+
+        public WgslInput ReadForWgsl()
+        {
+            ReadModule();
+            var canonical = directCanonicalFlow ? PrepareNativeModule(null, null) : null;
+            return canonical is not null && CanHandOffToWgsl(canonical)
+                ? new WgslInput.Canonical(canonical)
+                : new WgslInput.Structured(FinishStructured(canonical));
+        }
+
+        private void ReadModule(ICollection<CanonicalPassTrace>? traces = null)
+        {
+            foreach (var instruction in binary.Instructions) {
                 current = instruction;
                 var a = instruction.Operands;
-                switch ((Op)instruction.Opcode)
-                {
+                switch ((Op)instruction.Opcode) {
                     case Op.Name: Count(2); names[a[0]] = SpirvBinary.ReadString(a.AsSpan(1), out _); break;
                     case Op.MemberName: Count(3); memberNames[(a[0], a[1])] = SpirvBinary.ReadString(a.AsSpan(2), out _); break;
                     case Op.Decorate: Count(2); decorations[(a[0], -1, a[1])] = a[2..]; break;
@@ -122,15 +149,24 @@ public static partial class SpirvReader
             }
 
             bool memoryModel = false;
-            for (int index = 0; index < binary.Instructions.Count; index++)
-            {
+            for (int index = 0; index < binary.Instructions.Count; index++) {
                 current = binary.Instructions[index];
                 var a = current.Operands;
-                switch ((Op)current.Opcode)
-                {
-                    case Op.Nop: case Op.Source: case Op.SourceContinued: case Op.SourceExtension:
-                    case Op.Name: case Op.MemberName: case Op.Decorate: case Op.MemberDecorate:
-                    case Op.EntryPoint: case Op.ExecutionMode: case Op.ExecutionModeId: case Op.Line: case Op.NoLine: case Op.ModuleProcessed:
+                switch ((Op)current.Opcode) {
+                    case Op.Nop:
+                    case Op.Source:
+                    case Op.SourceContinued:
+                    case Op.SourceExtension:
+                    case Op.Name:
+                    case Op.MemberName:
+                    case Op.Decorate:
+                    case Op.MemberDecorate:
+                    case Op.EntryPoint:
+                    case Op.ExecutionMode:
+                    case Op.ExecutionModeId:
+                    case Op.Line:
+                    case Op.NoLine:
+                    case Op.ModuleProcessed:
                         break;
                     case Op.String: Count(2); Define(a[0]); break;
                     case Op.Extension:
@@ -144,16 +180,16 @@ public static partial class SpirvReader
                     case Op.Capability:
                         Count(1, 1);
                         declaredCapabilities.Add(a[0]);
-                        if (a[0] == 5379) break; // DemoteToHelperInvocation
+                        if (a[0] == 5379) break;
                         if (a[0] is 4441 or 4442) { variablePointers = true; fullVariablePointers |= a[0] == 4442; break; }
                         if (a[0] is >= 62 and <= 68) break;
-                        if (a[0] == 12) break; // Int64Atomics; the scalar and atomic instructions are checked separately.
-                        if (a[0] == 6033) break; // AtomicFloat32AddEXT
-                        if (a[0] == 5016) break; // Int64ImageEXT
-                        if (a[0] == 55) break; // StorageImageReadWithoutFormat
-                        if (a[0] == 48) break; // ImageMSArray; shared IR retains the native image type.
-                        if (a[0] is 4472 or 5391) break; // RayQueryKHR / RayQueryPositionFetchKHR
-                        if (a[0] is 6022 or 5346) break; // CooperativeMatrixKHR / VulkanMemoryModelDeviceScope
+                        if (a[0] == 12) break;
+                        if (a[0] == 6033) break;
+                        if (a[0] == 5016) break;
+                        if (a[0] == 55) break;
+                        if (a[0] == 48) break;
+                        if (a[0] is 4472 or 5391) break;
+                        if (a[0] is 6022 or 5346) break;
                         if (a[0] == 5283) { module.Enables.Add("wgpu_mesh_shader"); break; }
                         if (a[0] is 4427 or 4439 or 5284) break;
                         if (a[0] is not (0 or 1 or 2 or 9 or 10 or 11 or 22 or 23 or 25 or 27 or 28 or 29 or 30 or 31 or 32 or 33 or 34 or 35 or 39 or 43 or 44 or 45 or 49 or 50 or 51 or 52 or 56 or 61 or 4433 or 4434 or 4435 or 4436 or 5301 or 5302 or 5306 or 5307 or 5308 or 5309 or 5345))
@@ -205,21 +241,18 @@ public static partial class SpirvReader
                     case Op.TypeStruct:
                         Count(1);
                         var members = new List<StructMember>();
-                        for (int m = 1; m < a.Length; m++)
-                        {
+                        for (int m = 1; m < a.Length; m++) {
                             ShaderType element = Type(a[m]);
                             while (element is ShaderType.Array array) element = array.Element;
                             bool hasRowMajor = HasDecoration(a[0], 4, m - 1), hasColMajor = HasDecoration(a[0], 5, m - 1);
                             if (hasRowMajor && hasColMajor || element is not ShaderType.Matrix && (hasRowMajor || hasColMajor || HasDecoration(a[0], 7, m - 1)))
                                 throw Error("Invalid native matrix layout decorations.");
                             string member = memberNames.TryGetValue((a[0], (uint)(m - 1)), out string? raw) ? "n_" + Identifier(raw) + "_" + (m - 1) : "m" + (m - 1);
-                            members.Add(new(member, Type(a[m]), Decoration(a[0], 35, m - 1), Binding: Io(a[0], m - 1))
-                            {
+                            members.Add(new(member, Type(a[m]), Decoration(a[0], 35, m - 1), Binding: Io(a[0], m - 1)) {
                                 MemoryDecorations = (HasDecoration(a[0], 23, m - 1) ? MemoryDecorations.Coherent : MemoryDecorations.None)
                                     | (HasDecoration(a[0], 21, m - 1) ? MemoryDecorations.Volatile : MemoryDecorations.None)
                             });
-                            if (element is ShaderType.Matrix matrix)
-                            {
+                            if (element is ShaderType.Matrix matrix) {
                                 bool rowMajor = hasRowMajor;
                                 uint natural = TypeLayout.Of(new ShaderType.Vector(matrix.Rows, matrix.Component)).Stride;
                                 uint stride = Decoration(a[0], 7, m - 1) ?? (rowMajor
@@ -227,12 +260,7 @@ public static partial class SpirvReader
                                 if (rowMajor || stride != natural) members[^1] = members[^1] with { MatrixLayout = new(stride, rowMajor) };
                             }
                         }
-                        // Boolean-containing structures cannot be host-shareable.
-                        // Their logical SPIR-V member offsets do not describe a
-                        // buffer ABI (ray-intersection values can have a packed vec2).
-                        // Normalize that irrelevant metadata to a natural layout.
-                        if (members.Any(m => ContainsBoolean(m.Type))) members = members.Select(m =>
-                        {
+                        if (members.Any(m => ContainsBoolean(m.Type))) members = members.Select(m => {
                             var normalized = m with { Offset = null };
                             return normalized;
                         }).ToList();
@@ -244,7 +272,8 @@ public static partial class SpirvReader
                         break;
                     case Op.TypeFunction: Count(2); Define(a[0]); functionTypes[a[0]] = a[1..]; break;
                     case Op.TypeSampler: Count(1, 1); AddType(a[0], new ShaderType.Sampler()); break;
-                    case Op.TypeRayQueryKHR: case Op.TypeAccelerationStructureKHR:
+                    case Op.TypeRayQueryKHR:
+                    case Op.TypeAccelerationStructureKHR:
                         Count(1, 1);
                         bool vertexReturn = binary.Instructions.Any(i => (Op)i.Opcode == Op.Capability && i.Operands is [5391]);
                         AddType(a[0], (Op)current.Opcode == Op.TypeRayQueryKHR ? new ShaderType.RayQuery(vertexReturn) : new ShaderType.AccelerationStructure(vertexReturn));
@@ -261,11 +290,16 @@ public static partial class SpirvReader
                         AddType(a[0], new ShaderType.Image((ImageDimension)a[2], component, a[4] != 0, a[5] != 0, a[3] == 1, format,
                             StorageAccess.ReadWrite)); break;
                     case Op.TypeSampledImage: Count(2, 2); AddType(a[0], Type(a[1])); break;
-                    case Op.ConstantTrue: case Op.ConstantFalse: case Op.SpecConstantTrue: case Op.SpecConstantFalse:
+                    case Op.ConstantTrue:
+                    case Op.ConstantFalse:
+                    case Op.SpecConstantTrue:
+                    case Op.SpecConstantFalse:
                         Count(2, 2); AddConstant(a[1], new Expression.Literal((Op)current.Opcode is Op.ConstantTrue or Op.SpecConstantTrue, Type(a[0])), (Op)current.Opcode is Op.SpecConstantTrue or Op.SpecConstantFalse); break;
-                    case Op.Constant: case Op.SpecConstant:
+                    case Op.Constant:
+                    case Op.SpecConstant:
                         Count(3); AddConstant(a[1], DecodeLiteral(Type(a[0]), a.AsSpan(2)), (Op)current.Opcode == Op.SpecConstant); break;
-                    case Op.ConstantComposite: case Op.SpecConstantComposite:
+                    case Op.ConstantComposite:
+                    case Op.SpecConstantComposite:
                         Count(2); AddConstant(a[1], new Expression.Construct(Type(a[0]), a[2..].Select(Value).ToArray()), false); break;
                     case Op.SpecConstantOp:
                         Count(4); Define(a[1]); values[a[1]] = CaptureSpecialization(a[1], SpecializationOperation()); variableInitializers.Add(a[1]); break;
@@ -284,8 +318,7 @@ public static partial class SpirvReader
             if (!memoryModel) throw Error("Missing OpMemoryModel.");
             if (module.VulkanMemoryModel && binary.Instructions.FirstOrDefault(i =>
                 (Op)i.Opcode == Op.Decorate && i.Operands[1] is 21 or 23
-                || (Op)i.Opcode == Op.MemberDecorate && i.Operands[2] is 21 or 23) is { } banned)
-            {
+                || (Op)i.Opcode == Op.MemberDecorate && i.Operands[2] is 21 or 23) is { } banned) {
                 current = banned;
                 throw Error("Coherent/volatile decorations are banned with the Vulkan memory model; use per-access operands.");
             }
@@ -295,19 +328,33 @@ public static partial class SpirvReader
             PrepareMeshEntries();
             ResolveFunctions(traces);
             AddEntryPoints();
-            Module result = directCanonicalFlow ? CanonicalShaderPipeline.Run(module, traces, deferrals,
-                (graph, input) => {
-                    Valid.NativePointerValidator.Validate(graph, input, fullVariablePointers);
-                    ValidateNativeArithmetic(graph, input);
-                }, nativeGraphs)
-                : Legalization.MatrixStorageLowering.HasLayout(module) || variablePointers ? Proc.HelperInliner.RunNonFunctionPointers(module,
-                specializedHelpers.Select(id => functions[id].Name).ToHashSet(StringComparer.Ordinal)) : module;
-            if (directCanonicalFlow) result = Proc.HelperInliner.RunNonFunctionPointers(result);
+        }
+
+        private Module FinishStructured(CanonicalModule? canonical)
+        {
+            Module result = module;
+            if (canonical is not null) {
+                result = Legalization.StructuredModuleLowering.Run(canonical, nativeValidation: true);
+                result = Legalization.StructuredHelperInliner.RunNonFunctionPointers(result);
+            }
+            else if (Legalization.MatrixStorageLowering.HasLayout(module) || variablePointers) {
+                result = Legalization.StructuredHelperInliner.RunNonFunctionPointers(module,
+                    specializedHelpers.Select(id => functions[id].Name).ToHashSet(StringComparer.Ordinal));
+            }
             if (pointerSelection) result = new Legalization.PointerSelectionLowering(result, DiagnosticStage.SpirvParse,
                 nativeVariablePointers: true, fullVariablePointers: fullVariablePointers,
                 descriptorSnapshots: descriptorSnapshotNames, memoryLoad: MemoryLoad, memoryStore: MemoryStore,
                 aggregateCopy: (body, pointer, value, load, memory) => AtomicAggregateCopy(body, pointer, value, load, memory)).Run();
             return Legalization.MatrixStorageLowering.RunDeferred(result);
+        }
+
+        private CanonicalModule PrepareNativeModule(ICollection<CanonicalPassTrace>? traces, ICollection<CanonicalDeferral>? deferrals)
+        {
+            var source = new NativeModuleSource(module, nativeGraphs, (graph, input) => {
+                Valid.NativePointerValidator.Validate(graph, input, fullVariablePointers);
+                ValidateNativeArithmetic(graph, input);
+            });
+            return CanonicalShaderPipeline.Prepare(source, traces, deferrals);
         }
 
         private void ReadUndefined()
@@ -331,16 +378,16 @@ public static partial class SpirvReader
             ShaderType element = Type(elementId);
             bool bufferDescriptors = element is ShaderType.Structure && (HasDecoration(elementId, 2) || HasDecoration(elementId, 3))
                 && binary.Instructions.Any(i => (Op)i.Opcode == Op.TypePointer && i.Operands is [_, 2 or 12, var pointee] && pointee == id);
-            if (element is ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure || bufferDescriptors)
-            {
+            if (element is ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure || bufferDescriptors) {
                 AddType(id, new ShaderType.BindingArray(element, length) { OverrideLength = overrideLength }); module.Enables.Add("wgpu_binding_array");
             }
             else AddType(id, new ShaderType.Array(element, length, Decoration(id, 6)) { OverrideLength = overrideLength });
         }
-        private static bool ContainsBoolean(ShaderType type) => type switch
-        {
+        private static bool ContainsBoolean(ShaderType type) => type switch {
             ShaderType.Scalar { Kind: ScalarKind.Bool } or ShaderType.Vector { Component.Kind: ScalarKind.Bool } => true,
-            ShaderType.Structure s => s.Members.Any(m => ContainsBoolean(m.Type)), ShaderType.Array a => ContainsBoolean(a.Element), _ => false
+            ShaderType.Structure s => s.Members.Any(m => ContainsBoolean(m.Type)),
+            ShaderType.Array a => ContainsBoolean(a.Element),
+            _ => false
         };
         private void AddConstant(uint id, Expression expression, bool isOverride)
         {
@@ -349,16 +396,16 @@ public static partial class SpirvReader
             valueTypeIds.Add(id, current.Operands[0]);
             if (expression is Expression.Construct { Type: ShaderType.Scalar, Components.Count: 0 })
                 expression = ConstantEvaluator.Evaluate(expression);
-            if (isOverride && Decoration(id, 1) is not null)
-            {
+            if (isOverride && Decoration(id, 1) is not null) {
                 var constant = new ShaderConstant(Name(id, "c"), expression.Type, expression, true, Decoration(id, 1));
                 module.Constants.Add(constant); values[id] = new Expression.Reference(constant.Name, constant.Type);
             }
             else values[id] = expression;
         }
-        private uint ConstantUint(uint id) => ConstantEvaluator.TryEvaluate(Value(id), out var value) && value is Expression.Literal l ? l.Value switch
-        {
-            uint u => u, int i when i >= 0 => (uint)i, _ => throw Error("Expected nonnegative 32-bit integer constant.")
+        private uint ConstantUint(uint id) => ConstantEvaluator.TryEvaluate(Value(id), out var value) && value is Expression.Literal l ? l.Value switch {
+            uint u => u,
+            int i when i >= 0 => (uint)i,
+            _ => throw Error("Expected nonnegative 32-bit integer constant.")
         } : throw Error("Expected integer constant.");
 
         private Expression DecodeLiteral(ShaderType type, ReadOnlySpan<uint> words)
@@ -366,10 +413,11 @@ public static partial class SpirvReader
             if (type is not ShaderType.Scalar scalar) throw Error("OpConstant must be a scalar.");
             int count = scalar.Width > 4 ? 2 : 1;
             if (words.Length != count) throw Error("Literal word count does not match its scalar width.");
-            object value = (scalar.Kind, scalar.Width) switch
-            {
-                (ScalarKind.Uint, 2) => (object)unchecked((ushort)words[0]), (ScalarKind.Sint, 2) => unchecked((short)words[0]),
-                (ScalarKind.Uint, 4) => words[0], (ScalarKind.Sint, 4) => unchecked((int)words[0]),
+            object value = (scalar.Kind, scalar.Width) switch {
+                (ScalarKind.Uint, 2) => (object)unchecked((ushort)words[0]),
+                (ScalarKind.Sint, 2) => unchecked((short)words[0]),
+                (ScalarKind.Uint, 4) => words[0],
+                (ScalarKind.Sint, 4) => unchecked((int)words[0]),
                 (ScalarKind.Float, 4) => BitConverter.UInt32BitsToSingle(words[0]),
                 (ScalarKind.Float, 2) => BitConverter.UInt16BitsToHalf((ushort)words[0]),
                 (ScalarKind.Uint, 8) => ((ulong)words[1] << 32) | words[0],
@@ -380,11 +428,15 @@ public static partial class SpirvReader
             return new Expression.Literal(value, type);
         }
 
-        private AddressSpace Space(uint storage) => storage switch
-        {
-            0 => AddressSpace.Handle, 1 or 3 or 6 => AddressSpace.Private,
-            2 => AddressSpace.Uniform, 4 => AddressSpace.Workgroup, 7 => AddressSpace.Function,
-            9 => AddressSpace.Immediate, 12 => AddressSpace.Storage, 5402 => AddressSpace.TaskPayload,
+        private AddressSpace Space(uint storage) => storage switch {
+            0 => AddressSpace.Handle,
+            1 or 3 or 6 => AddressSpace.Private,
+            2 => AddressSpace.Uniform,
+            4 => AddressSpace.Workgroup,
+            7 => AddressSpace.Function,
+            9 => AddressSpace.Immediate,
+            12 => AddressSpace.Storage,
+            5402 => AddressSpace.TaskPayload,
             _ => throw Error($"Unsupported storage class {storage}.")
         };
 
@@ -396,7 +448,6 @@ public static partial class SpirvReader
             if (a[2] == 7) throw Error("Function variable outside a function.");
             Define(a[1]); valueTypeIds.Add(a[1], a[0]);
             AddressSpace space = Space(a[2]);
-            // Vulkan 1.0 storage buffers use Uniform + BufferBlock.
             uint pointeeId = binary.Instructions.First(i => (Op)i.Opcode == Op.TypePointer && i.Operands[0] == a[0]).Operands[2];
             if (a[2] == 2 && HasDecoration(pointeeId, 3)) space = AddressSpace.Storage;
             StorageAccess access = space == AddressSpace.Uniform ? StorageAccess.Read : StorageAccess.ReadWrite;
@@ -405,8 +456,7 @@ public static partial class SpirvReader
             ResourceBinding? binding = Decoration(a[1], 33) is uint slot ? new(Decoration(a[1], 34) ?? 0, slot) : null;
             ShaderType dataType = pointer.Base;
             dataType = ResourceAccess(dataType, access);
-            var variable = new GlobalVariable(Name(a[1], "g"), dataType, space, access, binding, a.Length == 4 ? Value(a[3]) : null)
-            {
+            var variable = new GlobalVariable(Name(a[1], "g"), dataType, space, access, binding, a.Length == 4 ? Value(a[3]) : null) {
                 MemoryDecorations = (HasDecoration(a[1], 23) ? MemoryDecorations.Coherent : MemoryDecorations.None)
                     | (HasDecoration(a[1], 21) ? MemoryDecorations.Volatile : MemoryDecorations.None)
             };
@@ -415,10 +465,10 @@ public static partial class SpirvReader
             variableInitializers.Add(a[1]);
         }
 
-        private static ShaderType ResourceAccess(ShaderType type, StorageAccess access) => type switch
-        {
+        private static ShaderType ResourceAccess(ShaderType type, StorageAccess access) => type switch {
             ShaderType.Image { StorageFormat: not null } image => image with { Access = access },
-            ShaderType.BindingArray array => array with { Element = ResourceAccess(array.Element, access) }, _ => type
+            ShaderType.BindingArray array => array with { Element = ResourceAccess(array.Element, access) },
+            _ => type
         };
 
         private bool AllMembersDecorated(uint id, uint decoration) => Type(id) is ShaderType.Structure structure
@@ -431,21 +481,41 @@ public static partial class SpirvReader
             string? interpolation = HasDecoration(id, 5285, member) ? "per_vertex" : HasDecoration(id, 14, member) ? "flat" : HasDecoration(id, 13, member) ? "linear" : null;
             string? sampling = HasDecoration(id, 16, member) ? "centroid" : HasDecoration(id, 17, member) ? "sample" : null;
             if (sampling is not null && interpolation is null) interpolation = "perspective";
-            // Builtin interpolation is intrinsic; WGSL only accepts this attribute on locations.
             if (builtin is not null) { interpolation = null; sampling = null; }
             return new(location, builtin is uint b ? Builtin(b) : null, interpolation, sampling, HasDecoration(id, 18, member), Decoration(id, 32, member), location is not null && HasDecoration(id, 5271, member));
         }
 
-        private string Builtin(uint value) => value switch
-        {
-            0 => "position", 1 => "point_size", 3 => "clip_distances", 4 => "cull_distance",
-            5 or 42 => "vertex_index", 6 or 43 => "instance_index", 7 => "primitive_index",
-            4426 => "draw_index", 4440 => "view_index", 5286 => "barycentric", 5287 => "barycentric_no_perspective",
-            15 => "position", 17 => "front_facing", 18 => "sample_index", 20 => "sample_mask",
-            22 => "frag_depth", 24 => "num_workgroups", 26 => "workgroup_id", 27 => "local_invocation_id",
-            28 => "global_invocation_id", 29 => "local_invocation_index", 36 => "subgroup_size",
-            38 => "num_subgroups", 40 => "subgroup_id", 41 => "subgroup_invocation_id",
-            5294 => "point_index", 5295 => "line_indices", 5296 => "triangle_indices", 5299 => "cull_primitive", _ => throw Error($"Unsupported builtin {value}.")
+        private string Builtin(uint value) => value switch {
+            0 => "position",
+            1 => "point_size",
+            3 => "clip_distances",
+            4 => "cull_distance",
+            5 or 42 => "vertex_index",
+            6 or 43 => "instance_index",
+            7 => "primitive_index",
+            4426 => "draw_index",
+            4440 => "view_index",
+            5286 => "barycentric",
+            5287 => "barycentric_no_perspective",
+            15 => "position",
+            17 => "front_facing",
+            18 => "sample_index",
+            20 => "sample_mask",
+            22 => "frag_depth",
+            24 => "num_workgroups",
+            26 => "workgroup_id",
+            27 => "local_invocation_id",
+            28 => "global_invocation_id",
+            29 => "local_invocation_index",
+            36 => "subgroup_size",
+            38 => "num_subgroups",
+            40 => "subgroup_id",
+            41 => "subgroup_invocation_id",
+            5294 => "point_index",
+            5295 => "line_indices",
+            5296 => "triangle_indices",
+            5299 => "cull_primitive",
+            _ => throw Error($"Unsupported builtin {value}.")
         };
 
         private string ImageFormat(uint format) => StorageImageFormats.Name(format) ?? throw Error(format == 0
@@ -454,14 +524,12 @@ public static partial class SpirvReader
 
         private void AddEntryPoints()
         {
-            foreach (var entry in entries)
-            {
+            foreach (var entry in entries) {
                 if (!functions.TryGetValue(entry.Id, out var callee)) throw Error($"Undefined entry function %{entry.Id}.");
                 if (callee.Arguments.Count != 0 || callee.ReturnType is not ShaderType.Void) throw Error("SPIR-V entry functions must be void with no parameters.");
                 var function = new ShaderFunction(entry.Name) { Stage = entry.Stage, EarlyDepthTest = earlyDepth.Contains(entry.Id), ConservativeDepth = conservativeDepth.GetValueOrDefault(entry.Id) };
                 uint[] sizeBuiltins = decorations.Where(d => d.Key.Member == -1 && d.Key.Decoration == 11 && d.Value is [25] && values.ContainsKey(d.Key.Id)).Select(d => d.Key.Id).ToArray();
-                if (entry.Stage is ShaderStage.Compute or ShaderStage.Task or ShaderStage.Mesh && sizeBuiltins.Length != 0)
-                {
+                if (entry.Stage is ShaderStage.Compute or ShaderStage.Task or ShaderStage.Mesh && sizeBuiltins.Length != 0) {
                     if (sizeBuiltins.Length != 1 || Value(sizeBuiltins[0]).Type is not ShaderType.Vector { Size: 3, Component.Kind: ScalarKind.Sint or ScalarKind.Uint, Component.Width: 4 }) throw Error("WorkgroupSize must be one three-component 32-bit integer constant.");
                     function.WorkgroupSize = Enumerable.Range(0, 3).Select(i => SpecIndex(Value(sizeBuiltins[0]), (uint)i)).ToArray();
                 }
@@ -470,16 +538,12 @@ public static partial class SpirvReader
                 else if (entry.Stage is ShaderStage.Compute or ShaderStage.Task or ShaderStage.Mesh) throw Error("Workgroup entry point is missing LocalSize.");
                 ConfigureMeshEntry(entry, function);
                 var outputs = new List<(Expression Place, StructMember Member)>();
-                foreach (uint id in entry.Interfaces)
-                {
+                foreach (uint id in entry.Interfaces) {
                     if (!globals.TryGetValue(id, out var global)) throw Error($"Invalid entry interface %{id}.");
                     if (entry.Stage == ShaderStage.Mesh && global.Storage == 3) continue;
                     if (global.Storage is not (1 or 3)) continue;
-                    if (global.Variable.Type is ShaderType.Structure structure)
-                    {
-                        foreach (var member in structure.Members)
-                        {
-                            // glslang declares these even when no function accesses them.
+                    if (global.Variable.Type is ShaderType.Structure structure) {
+                        foreach (var member in structure.Members) {
                             if (global.Storage == 3 && member.Binding?.Builtin is "point_size" or "clip_distances" or "cull_distance" && !accessedInterfaceBuiltins.Contains(member.Binding.Builtin)) continue;
                             Interface(new Expression.Member(Value(id), member.Name, new ShaderType.Pointer(member.Type, AddressSpace.Private)), member.Type, member.Binding, global.Variable.Name + "_" + member.Name);
                         }
@@ -490,10 +554,8 @@ public static partial class SpirvReader
                     {
                         if (binding is null) throw Error("Entry IO requires a location or builtin.");
                         if (binding.Location.HasValue && HasDecoration(id, 5271)) binding = binding with { PerPrimitive = true };
-                        if (binding.Builtin == "sample_mask" && type is ShaderType.Array { Length: 1 } mask)
-                        { place = Index(place, Expression.U32(0)); type = mask.Element; }
-                        if (global.Storage == 1)
-                        {
+                        if (binding.Builtin == "sample_mask" && type is ShaderType.Array { Length: 1 } mask) { place = Index(place, Expression.U32(0)); type = mask.Element; }
+                        if (global.Storage == 1) {
                             ShaderType interfaceType = type;
                             if (binding.Builtin is "vertex_index" or "instance_index" or "primitive_index" or "sample_index" or "sample_mask" or "local_invocation_index" or "draw_index" or "view_index" or "subgroup_size" or "num_subgroups" or "subgroup_id" or "subgroup_invocation_id")
                                 interfaceType = ShaderType.U32;
@@ -514,13 +576,11 @@ public static partial class SpirvReader
                     ? new Expression.Construct(function.ReturnType, []) : new Expression.Load(taskDispatchSize!)));
                 AdjustMeshPosition(entry, function);
                 if (options.AdjustCoordinateSpace)
-                    foreach (var output in outputs.Where(o => o.Member.Binding?.Builtin == "position"))
-                    {
+                    foreach (var output in outputs.Where(o => o.Member.Binding?.Builtin == "position")) {
                         Expression y = Index(output.Place, Expression.U32(1));
                         function.Body.Statements.Add(new Statement.Store(y, new Expression.Unary("-", new Expression.Load(y), ValueTypeOf(y.Type))));
                     }
-                if (outputs.Count != 0)
-                {
+                if (outputs.Count != 0) {
                     var result = new ShaderType.Structure("Output_" + entry.Id, outputs.Select(o => o.Member).ToArray());
                     module.Structures.Add(result); function.ReturnType = result;
                     function.Body.Statements.Add(new Statement.Return(new Expression.Construct(result, outputs.Select(o => new Expression.Load(o.Place)).Cast<Expression>().ToArray())));

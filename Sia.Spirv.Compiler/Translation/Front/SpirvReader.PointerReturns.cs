@@ -19,8 +19,7 @@ public static partial class SpirvReader
         }
         private void PrepareReturns()
         {
-            foreach (var node in nodes.Values.Where(n => (Op)n.Instruction.Opcode == Op.Function))
-            {
+            foreach (var node in nodes.Values.Where(n => (Op)n.Instruction.Opcode == Op.Function)) {
                 uint type = FindType(Op.TypeStruct, [uintType, .. ReturnFields(node).Select(p => p.Shape.Parts[p.Position].Type)]);
                 returns.Add(node.Instruction.Operands[1], new(node, type));
             }

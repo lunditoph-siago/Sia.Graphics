@@ -8,7 +8,8 @@ internal static partial class CanonicalReferenceLowering
     private static void RewriteComparisons(ControlFlowFunction graph, Dictionary<int, ControlFlowInstruction> definitions,
         Func<SsaValue, ControlFlowBlock, Choice[]> choices)
     {
-        SsaValue Source(SsaValue value) {
+        SsaValue Source(SsaValue value)
+        {
             while (definitions.GetValueOrDefault(value.Id)?.Operation is ValueOperation.Let alias) value = alias.Value;
             return value;
         }
@@ -19,13 +20,15 @@ internal static partial class CanonicalReferenceLowering
                     block.Instructions.Add(instruction); continue;
                 }
                 int first = block.Instructions.Count;
-                SsaValue Emit(ShaderType type, ValueOperation operation) {
+                SsaValue Emit(ShaderType type, ValueOperation operation)
+                {
                     var value = graph.Value(type); block.Instructions.Add(instruction with { Result = value, Operation = operation }); return value;
                 }
                 SsaValue Bool(bool value) => Emit(ShaderType.Bool, new ValueOperation.Literal(value));
                 SsaValue Binary(string op, SsaValue a, SsaValue b) => Emit(op == "-" ? a.Type : ShaderType.Bool, new ValueOperation.Binary(op, a, b));
                 SsaValue IndexAs(SsaValue value, ShaderType.Scalar type) => ConvertIndex(value, type, Emit);
-                SsaValue EqualIndex(SsaValue a, SsaValue b) {
+                SsaValue EqualIndex(SsaValue a, SsaValue b)
+                {
                     var type = new ShaderType.Scalar(ScalarKind.Uint, Math.Max(4, Math.Max(((ShaderType.Scalar)a.Type).Width, ((ShaderType.Scalar)b.Type).Width)));
                     return Binary("==", IndexAs(a, type), IndexAs(b, type));
                 }
@@ -60,7 +63,8 @@ internal static partial class CanonicalReferenceLowering
                             else {
                                 condition = Binary("&&", condition, EqualIndex(a.Indices[i]!.Value, b.Indices[i]!.Value));
                                 parent = parent switch {
-                                    ShaderType.Array array => array.Element, ShaderType.Vector vector => vector.Component,
+                                    ShaderType.Array array => array.Element,
+                                    ShaderType.Vector vector => vector.Component,
                                     ShaderType.Matrix matrix => new ShaderType.Vector(matrix.Rows, matrix.Component),
                                     _ => throw new ShaderException(DiagnosticStage.Validation, "Invalid pointer comparison projection.", instruction.Span)
                                 };
@@ -68,8 +72,6 @@ internal static partial class CanonicalReferenceLowering
                         }
                         if (!same) continue;
                         if (difference) {
-                            // The source operation defines subtraction only within
-                            // one array object. Other pairs retain the zero policy.
                             if (parent is not ShaderType.Array || a.Indices[^1] is not { } x || b.Indices[^1] is not { } y) continue;
                             var value = Binary("-", IndexAs(x, (ShaderType.Scalar)result.Type), IndexAs(y, (ShaderType.Scalar)result.Type));
                             answer = Emit(result.Type, new ValueOperation.Select(condition, value, answer));
@@ -78,8 +80,6 @@ internal static partial class CanonicalReferenceLowering
                     }
                 }
                 if (binary.Operator == "!=") answer = Emit(ShaderType.Bool, new ValueOperation.Unary("!", answer));
-                // Choice tag predicates are emitted by the shared provenance pass.
-                // They belong to this operation's diagnostic location as well.
                 for (int i = first; i < block.Instructions.Count; i++)
                     if (block.Instructions[i].Span == default)
                         block.Instructions[i] = block.Instructions[i] with { Span = instruction.Span, DiagnosticFilters = instruction.DiagnosticFilters };

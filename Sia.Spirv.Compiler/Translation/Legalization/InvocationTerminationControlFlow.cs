@@ -6,8 +6,6 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Prepare terminating continue constructs while retaining invocation termination.
-/// Both targets use owned CFG edges; only explicitly deferred bodies cross the reader boundary.</summary>
 internal static class InvocationTerminationControlFlow
 {
     internal static CanonicalModule PrepareSpirv(CanonicalModule input, DiagnosticStage stage)
@@ -23,7 +21,6 @@ internal static class InvocationTerminationControlFlow
         var deferred = input.DeferredFunctions.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
         var effects = ShaderEffectAnalysis.Compute(input);
         foreach (var function in input.Declarations.Functions) {
-            // Only an explicit deferred body may cross this reader boundary.
             if (graphs.ContainsKey(function.Name) || !(unreachable ? NeedsWgslRelocation(function.Body) : NeedsRelocation(function.Body))) continue;
             if (!StructuredControlFlowReader.TryRead(function, input.Declarations, out var graph, out var reason, effects, native: true))
                 throw new ShaderException(stage, "Invocation termination relocation requires canonical control flow: " + reason);
@@ -34,7 +31,8 @@ internal static class InvocationTerminationControlFlow
         foreach (var pair in graphs.ToArray()) {
             var graph = pair.Value;
             var blocks = graph.Blocks.ToDictionary(b => b.Id);
-            bool ContainsKill(int start, int header, int? merge) {
+            bool ContainsKill(int start, int header, int? merge)
+            {
                 var visited = new HashSet<int>(); var pending = new Stack<int>(); pending.Push(start);
                 while (pending.TryPop(out int id)) {
                     if (id == header || id == merge || !visited.Add(id)) continue;
@@ -51,7 +49,8 @@ internal static class InvocationTerminationControlFlow
             foreach (int header in affected) {
                 var analyses = new ControlFlowAnalysisContext(graph);
                 int oldContinuing = graph.Loops[header].Continuing!.Value;
-                bool BypassesMerge(int start, int? merge) {
+                bool BypassesMerge(int start, int? merge)
+                {
                     var seen = new HashSet<int>(); var work = new Stack<int>(); work.Push(start);
                     while (work.TryPop(out int id)) {
                         if (id == oldContinuing) return true;
@@ -60,10 +59,6 @@ internal static class InvocationTerminationControlFlow
                     }
                     return false;
                 }
-                // Body continue edges used to leave nested selections legally.
-                // Once the old continuing is body code, give each such selection
-                // a distinct convergence block. Process inner selections first;
-                // an outer join then forwards the inner join's evaluated values.
                 var selections = graph.SelectionMerges.Where(p => p.Value != oldContinuing
                     && analyses.Dominance[p.Key].Contains(header) && !analyses.Dominance[p.Key].Contains(oldContinuing)
                     && graph.Blocks.Single(b => b.Id == p.Key).Terminator!.Edges.Any(e => BypassesMerge(e.Target, p.Value)))
@@ -86,9 +81,6 @@ internal static class InvocationTerminationControlFlow
                     latch.Terminator = new ControlFlowTerminator.Branch(new(header, latch.Parameters));
                     foreach (var block in backedges.Select(p => p.Block).Distinct()) {
                         int target = latch.Id;
-                        // A former break-if is now in the loop body. Give its
-                        // selection a merge inside that body, before the new
-                        // continue target, retaining both exit argument sets.
                         if (block.Terminator is ControlFlowTerminator.Conditional or ControlFlowTerminator.Switch
                             && !graph.SelectionMerges.ContainsKey(block.Id)) {
                             var join = graph.Block();
@@ -100,8 +92,6 @@ internal static class InvocationTerminationControlFlow
                     }
                     continuing = latch.Id;
                 }
-                // The old continuing instructions become ordinary loop-body
-                // blocks. Their edges, effects and SSA values stay in place.
                 graph.Loops[header] = graph.Loops[header] with { Continuing = continuing };
             }
             ControlFlowVerifier.Validate(graph, input.Declarations, calleeEffects: effects); graphs[pair.Key] = graph;
@@ -123,31 +113,37 @@ internal static class InvocationTerminationControlFlow
     }
 
     private static bool ContainsKill(Block body) => body.Statements.Any(s => s switch {
-        Statement.InvocationKill or Statement.TaskDispatch => true, Statement.Nested n => ContainsKill(n.Body),
+        Statement.InvocationKill or Statement.TaskDispatch => true,
+        Statement.Nested n => ContainsKill(n.Body),
         Statement.If i => ContainsKill(i.Accept) || ContainsKill(i.Reject),
         Statement.Loop l => ContainsKill(l.Body) || ContainsKill(l.Continuing),
-        Statement.Switch sw => sw.Cases.Any(c => ContainsKill(c.Body)), _ => false
+        Statement.Switch sw => sw.Cases.Any(c => ContainsKill(c.Body)),
+        _ => false
     });
     internal static bool NeedsRelocation(Block body) => body.Statements.Any(s => s switch {
         Statement.Loop l => ContainsKill(l.Continuing) || NeedsRelocation(l.Body) || NeedsRelocation(l.Continuing),
         Statement.Nested n => NeedsRelocation(n.Body),
         Statement.If i => NeedsRelocation(i.Accept) || NeedsRelocation(i.Reject),
-        Statement.Switch sw => sw.Cases.Any(c => NeedsRelocation(c.Body)), _ => false
+        Statement.Switch sw => sw.Cases.Any(c => NeedsRelocation(c.Body)),
+        _ => false
     });
 
     private static bool NeedsWgslRelocation(Block body)
     {
         bool Terminates(Block block) => block.Statements.Any(s => s switch {
-            Statement.InvocationKill or Statement.Unreachable or Statement.TaskDispatch => true, Statement.Nested n => Terminates(n.Body),
+            Statement.InvocationKill or Statement.Unreachable or Statement.TaskDispatch => true,
+            Statement.Nested n => Terminates(n.Body),
             Statement.If i => Terminates(i.Accept) || Terminates(i.Reject),
             Statement.Loop l => Terminates(l.Body) || Terminates(l.Continuing),
-            Statement.Switch choice => choice.Cases.Any(c => Terminates(c.Body)), _ => false
+            Statement.Switch choice => choice.Cases.Any(c => Terminates(c.Body)),
+            _ => false
         });
         return body.Statements.Any(s => s switch {
             Statement.Loop l => Terminates(l.Continuing) || NeedsWgslRelocation(l.Body) || NeedsWgslRelocation(l.Continuing),
             Statement.Nested n => NeedsWgslRelocation(n.Body),
             Statement.If i => NeedsWgslRelocation(i.Accept) || NeedsWgslRelocation(i.Reject),
-            Statement.Switch choice => choice.Cases.Any(c => NeedsWgslRelocation(c.Body)), _ => false
+            Statement.Switch choice => choice.Cases.Any(c => NeedsWgslRelocation(c.Body)),
+            _ => false
         });
     }
 }

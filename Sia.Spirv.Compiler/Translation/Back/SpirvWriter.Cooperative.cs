@@ -16,7 +16,6 @@ public static partial class SpirvWriter
                 if (call.Arguments[load ? 0 : 1].Type is not ShaderType.Pointer { Space: AddressSpace.Storage or AddressSpace.Workgroup })
                     throw owner.Error("Vulkan cooperative memory operations require storage or workgroup memory.", call.Span);
                 uint[] args = call.Arguments.Select(Value).ToArray();
-                // The pinned WGSL extension uses T for row-major memory.
                 uint layout = owner.Constant(Expression.U32(call.Function.EndsWith('T') ? 0u : 1u));
                 var memory = call.MemoryAccess;
                 if (load) return Result(Op.CooperativeMatrixLoadKHR, call.Type, new[] { args[0], layout, args[1] }.Concat(MemoryOperands(memory)).ToArray());

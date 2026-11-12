@@ -5,19 +5,20 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Expose proven entry builtin values without assuming shader-language uniformity exceptions.</summary>
 internal static class WgslEntryPointLowering
 {
     internal static CanonicalModule Run(CanonicalModule input)
     {
         ModuleValidator.Validate(input, native: true);
-        Module Deferred(Module declarations) {
+        Module Deferred(Module declarations)
+        {
             var result = new Module { VulkanMemoryModel = declarations.VulkanMemoryModel, WorkgroupInitializationRequired = declarations.WorkgroupInitializationRequired };
             result.Globals.AddRange(declarations.Globals); result.Constants.AddRange(declarations.Constants); result.Structures.AddRange(declarations.Structures);
             result.Enables.UnionWith(declarations.Enables); result.DiagnosticFilters.AddRange(declarations.DiagnosticFilters);
             result.Functions.AddRange(declarations.Functions.Where(f => input.DeferredFunctions.ContainsKey(f.Name))); return result;
         }
-        Module Replace(Module declarations, Module deferred) {
+        Module Replace(Module declarations, Module deferred)
+        {
             var result = Deferred(declarations); result.Functions.Clear();
             var mapped = deferred.Functions.ToDictionary(f => f.Name, StringComparer.Ordinal);
             result.Functions.AddRange(declarations.Functions.Select(f => mapped.GetValueOrDefault(f.Name) ?? f)); return result;
@@ -77,28 +78,35 @@ internal static class WgslEntryPointLowering
         return zeros.Count == 0 ? output : Run(output, zeros);
     }
 
-    // Native entry wrappers may transfer a builtin through a private IO slot.
-    // Fold only zero-initialized u32 slots whose every write is zero and whose address never escapes.
     private static HashSet<string> PrivateZeroFacts(Module input, IReadOnlyDictionary<string, ControlFlowFunction>? graphs = null)
     {
         bool Zero(Expression e) => ConstantEvaluator.TryEvaluateRuntime(e, out var value) && value is Expression.Literal { Value: uint n } && n == 0;
         var candidates = input.Globals.Where(g => g.Space == AddressSpace.Private && g.Type == ShaderType.U32
             && g.MemoryDecorations == MemoryDecorations.None && (g.Initializer is null || Zero(g.Initializer))).Select(g => g.Name).ToHashSet(StringComparer.Ordinal);
-        void Expr(Expression e) {
+        void Expr(Expression e)
+        {
             if (e is Expression.Reference { Type: ShaderType.Pointer } pointer) { candidates.Remove(pointer.Name); return; }
             if (e is Expression.Load { Pointer: Expression.Reference root } load) {
                 if (load.MemoryAccess is not null) candidates.Remove(root.Name);
                 return;
             }
             IEnumerable<Expression> children = e switch {
-                Expression.Load l => [l.Pointer], Expression.Unary u => [u.Operand], Expression.Binary b => [b.Left, b.Right],
-                Expression.Call c => c.Arguments, Expression.Construct c => c.Components, Expression.Convert c => [c.Operand],
-                Expression.Access a => [a.Base, a.Index], Expression.Member m => [m.Base], Expression.Swizzle s => [s.Vector],
-                Expression.Select s => [s.Condition, s.Accept, s.Reject], _ => []
+                Expression.Load l => [l.Pointer],
+                Expression.Unary u => [u.Operand],
+                Expression.Binary b => [b.Left, b.Right],
+                Expression.Call c => c.Arguments,
+                Expression.Construct c => c.Components,
+                Expression.Convert c => [c.Operand],
+                Expression.Access a => [a.Base, a.Index],
+                Expression.Member m => [m.Base],
+                Expression.Swizzle s => [s.Vector],
+                Expression.Select s => [s.Condition, s.Accept, s.Reject],
+                _ => []
             };
             foreach (var child in children) Expr(child);
         }
-        void Body(Block block) {
+        void Body(Block block)
+        {
             foreach (var statement in block.Statements) {
                 switch (statement) {
                     case Statement.Declare d: candidates.Remove(d.Name); if (d.Initializer is { } value) Expr(value); break;
@@ -156,7 +164,8 @@ internal static class WgslEntryPointLowering
             Expression? Zero(ShaderType type, IoBinding? binding) => binding?.Builtin is "local_invocation_id" or "local_invocation_index"
                 ? type is ShaderType.Vector vector ? new Expression.Construct(type, Enumerable.Range(0, vector.Size).Select(_ => (Expression)Expression.U32(0)).ToArray())
                     : new Expression.Literal(0u, type) : null;
-            Expression Expr(Expression e) {
+            Expression Expr(Expression e)
+            {
                 if (e is Expression.Reference referenceZero && privateZeros.Contains(referenceZero.Name) && e.Type == ShaderType.U32
                     || e is Expression.Load { Pointer: Expression.Reference pointerZero } && privateZeros.Contains(pointerZero.Name))
                     return new Expression.Literal(0u, ShaderType.U32) { Span = e.Span };
@@ -166,14 +175,21 @@ internal static class WgslEntryPointLowering
                     && argument.Type is ShaderType.Structure structure && structure.Members.FirstOrDefault(m => m.Name == member.Name) is { } field
                     && Zero(field.Type, field.Binding) is { } component) return component with { Span = e.Span };
                 return e switch {
-                    Expression.Load l => l with { Pointer = Expr(l.Pointer) }, Expression.Unary u => u with { Operand = Expr(u.Operand) },
-                    Expression.Binary b => b with { Left = Expr(b.Left), Right = Expr(b.Right) }, Expression.Call c => c with { Arguments = c.Arguments.Select(Expr).ToArray() },
-                    Expression.Construct c => c with { Components = c.Components.Select(Expr).ToArray() }, Expression.Convert c => c with { Operand = Expr(c.Operand) },
-                    Expression.Access a => a with { Base = Expr(a.Base), Index = Expr(a.Index) }, Expression.Member m => m with { Base = Expr(m.Base) },
-                    Expression.Swizzle s => s with { Vector = Expr(s.Vector) }, Expression.Select s => new Expression.Select(Expr(s.Condition), Expr(s.Accept), Expr(s.Reject)) { Span = s.Span }, _ => e
+                    Expression.Load l => l with { Pointer = Expr(l.Pointer) },
+                    Expression.Unary u => u with { Operand = Expr(u.Operand) },
+                    Expression.Binary b => b with { Left = Expr(b.Left), Right = Expr(b.Right) },
+                    Expression.Call c => c with { Arguments = c.Arguments.Select(Expr).ToArray() },
+                    Expression.Construct c => c with { Components = c.Components.Select(Expr).ToArray() },
+                    Expression.Convert c => c with { Operand = Expr(c.Operand) },
+                    Expression.Access a => a with { Base = Expr(a.Base), Index = Expr(a.Index) },
+                    Expression.Member m => m with { Base = Expr(m.Base) },
+                    Expression.Swizzle s => s with { Vector = Expr(s.Vector) },
+                    Expression.Select s => new Expression.Select(Expr(s.Condition), Expr(s.Accept), Expr(s.Reject)) { Span = s.Span },
+                    _ => e
                 };
             }
-            Block Body(Block body, bool scoped = true) {
+            Block Body(Block body, bool scoped = true)
+            {
                 var saved = arguments.ToArray(); var result = new Block();
                 result.DiagnosticFilters.AddRange(body.DiagnosticFilters);
                 foreach (var statement in body.Statements) {
@@ -185,11 +201,16 @@ internal static class WgslEntryPointLowering
                         arguments.Clear(); foreach (var item in before) arguments.Add(item.Key, item.Value);
                     }
                     else mapped = statement switch {
-                        Statement.Nested n => n with { Body = Body(n.Body) }, Statement.Store s => s with {
-                            Target = s.Target is Expression.Reference root && privateZeros.Contains(root.Name) ? s.Target : Expr(s.Target), Value = Expr(s.Value) },
-                        Statement.Evaluate e => e with { Value = Expr(e.Value) }, Statement.If i => i with { Condition = Expr(i.Condition), Accept = Body(i.Accept), Reject = Body(i.Reject) },
+                        Statement.Nested n => n with { Body = Body(n.Body) },
+                        Statement.Store s => s with {
+                            Target = s.Target is Expression.Reference root && privateZeros.Contains(root.Name) ? s.Target : Expr(s.Target),
+                            Value = Expr(s.Value)
+                        },
+                        Statement.Evaluate e => e with { Value = Expr(e.Value) },
+                        Statement.If i => i with { Condition = Expr(i.Condition), Accept = Body(i.Accept), Reject = Body(i.Reject) },
                         Statement.Switch s => s with { Selector = Expr(s.Selector), Cases = s.Cases.Select(c => c with { Body = Body(c.Body) }).ToArray() },
-                        Statement.Return r => r with { Value = r.Value is null ? null : Expr(r.Value) }, _ => statement
+                        Statement.Return r => r with { Value = r.Value is null ? null : Expr(r.Value) },
+                        _ => statement
                     };
                     result.Statements.Add(mapped);
                 }

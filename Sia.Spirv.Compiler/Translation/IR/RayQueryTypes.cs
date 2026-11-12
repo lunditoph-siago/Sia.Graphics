@@ -14,10 +14,7 @@ internal static class RayQueryTypes
          new("object_to_world", new ShaderType.Matrix(4, 3, ShaderType.F32)),
          new("world_to_object", new ShaderType.Matrix(4, 3, ShaderType.F32))], BuiltinResultKind.RayIntersection);
     public static readonly ShaderType.Array Vertices = new(new ShaderType.Vector(3, ShaderType.F32), 3);
-    // Raw committed getters can observe in-progress traversal, which WGSL's
-    // committed-intersection builtin cannot represent. Keep them distinct in IR.
-    public static ShaderType? RawGetterType(string name) => name switch
-    {
+    public static ShaderType? RawGetterType(string name) => name switch {
         "spirvRayQueryGetIntersectionTypeKHR" or "spirvRayQueryGetIntersectionInstanceCustomIndexKHR"
             or "spirvRayQueryGetIntersectionInstanceIdKHR" or "spirvRayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetKHR"
             or "spirvRayQueryGetIntersectionGeometryIndexKHR" or "spirvRayQueryGetIntersectionPrimitiveIndexKHR" => ShaderType.U32,
@@ -38,16 +35,20 @@ internal static class RayQueryTypes
 
     public static bool TryConstant(string name, out uint value)
     {
-        value = name switch
-        {
+        value = name switch {
             "RAY_FLAG_NONE" or "RAY_QUERY_INTERSECTION_NONE" => 0,
             "RAY_FLAG_FORCE_OPAQUE" or "RAY_QUERY_INTERSECTION_TRIANGLE" => 1,
             "RAY_FLAG_FORCE_NO_OPAQUE" or "RAY_QUERY_INTERSECTION_GENERATED" => 2,
             "RAY_QUERY_INTERSECTION_AABB" => 3,
-            "RAY_FLAG_TERMINATE_ON_FIRST_HIT" => 4, "RAY_FLAG_SKIP_CLOSEST_HIT_SHADER" => 8,
-            "RAY_FLAG_CULL_BACK_FACING" => 16, "RAY_FLAG_CULL_FRONT_FACING" => 32,
-            "RAY_FLAG_CULL_OPAQUE" => 64, "RAY_FLAG_CULL_NO_OPAQUE" => 128,
-            "RAY_FLAG_SKIP_TRIANGLES" => 256, "RAY_FLAG_SKIP_AABBS" => 512, _ => uint.MaxValue
+            "RAY_FLAG_TERMINATE_ON_FIRST_HIT" => 4,
+            "RAY_FLAG_SKIP_CLOSEST_HIT_SHADER" => 8,
+            "RAY_FLAG_CULL_BACK_FACING" => 16,
+            "RAY_FLAG_CULL_FRONT_FACING" => 32,
+            "RAY_FLAG_CULL_OPAQUE" => 64,
+            "RAY_FLAG_CULL_NO_OPAQUE" => 128,
+            "RAY_FLAG_SKIP_TRIANGLES" => 256,
+            "RAY_FLAG_SKIP_AABBS" => 512,
+            _ => uint.MaxValue
         };
         return value != uint.MaxValue;
     }

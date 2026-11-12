@@ -5,7 +5,6 @@ using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 
 namespace Sia.Spirv.Compiler.Translation.Proc;
 
-/// <summary>Resolve pipeline-overridable constants into an independent, validated module.</summary>
 public static class PipelineConstantResolver
 {
     internal static Func<string, Expression> DefaultValues(Module module)
@@ -53,9 +52,7 @@ public static class PipelineConstantResolver
 
         public Module Run(CanonicalModule? canonical = null)
         {
-            // An explicit @id replaces the name as the pipeline API identifier.
-            foreach (var pair in values)
-            {
+            foreach (var pair in values) {
                 var constant = input.Constants.FirstOrDefault(c => c.IsOverride && (c.OverrideId is uint id
                     ? uint.TryParse(pair.Key, NumberStyles.None, CultureInfo.InvariantCulture, out uint key) && key == id
                     : pair.Key == c.Name));
@@ -69,13 +66,11 @@ public static class PipelineConstantResolver
             output.Constants.AddRange(input.Constants.Select(c => c with { Type = Type(c.Type), Value = resolved[c.Name], IsOverride = false, OverrideId = null, IsSpecialization = false }));
             foreach (var global in input.Globals)
                 output.Globals.Add(global with { Type = Type(global.Type), Initializer = global.Initializer is null ? null : ConstantEvaluator.Evaluate(Expr(global.Initializer).Value) });
-            foreach (var function in input.Functions)
-            {
+            foreach (var function in input.Functions) {
                 locals = new(StringComparer.Ordinal);
                 var dimensions = function.WorkgroupSize.Select(e => ConstantEvaluator.Evaluate(Expr(e).Value)).ToArray();
                 locals = function.Arguments.Select(a => a.Name).ToHashSet(StringComparer.Ordinal);
-                var copy = new ShaderFunction(function.Name)
-                {
+                var copy = new ShaderFunction(function.Name) {
                     ReturnType = Type(function.ReturnType), ReturnBinding = function.ReturnBinding, Stage = function.Stage,
                     TaskPayload = function.TaskPayload, MeshOutput = function.MeshOutput,
                     EarlyDepthTest = function.EarlyDepthTest, ConservativeDepth = function.ConservativeDepth,
@@ -106,8 +101,10 @@ public static class PipelineConstantResolver
             foreach (var block in graph.Blocks) {
                 for (int i = 0; i < block.Parameters.Count; i++) block.Parameters[i] = Value(block.Parameters[i]);
                 var instructions = block.Instructions.ToArray(); block.Instructions.Clear();
-                void Define(Expression expression, SsaValue result, ControlFlowInstruction origin) {
-                    SsaValue Child(Expression child) {
+                void Define(Expression expression, SsaValue result, ControlFlowInstruction origin)
+                {
+                    SsaValue Child(Expression child)
+                    {
                         var value = graph.Value(Type(child.Type)); Define(child, value, origin); return value;
                     }
                     var operation = expression switch {
@@ -118,8 +115,10 @@ public static class PipelineConstantResolver
                     block.Instructions.Add(origin with { Result = result, Operation = operation });
                 }
                 foreach (var instruction in instructions) {
-                    var mapped = instruction with { Result = instruction.Result is { } result ? Value(result) : null,
-                        Operation = Operation(instruction.Operation) };
+                    var mapped = instruction with {
+                        Result = instruction.Result is { } result ? Value(result) : null,
+                        Operation = Operation(instruction.Operation)
+                    };
                     if (instruction.Result is { } oldValue && instruction.Operation is ValueOperation.Symbol symbol
                         && !arguments.Contains(symbol.Name) && constants.ContainsKey(symbol.Name))
                         Define(resolved[symbol.Name], Value(oldValue), mapped);
@@ -137,8 +136,7 @@ public static class PipelineConstantResolver
         private uint Length(string name)
         {
             if (Resolve(name) is not Expression.Literal literal) throw Error("Array length override did not resolve to an integer.");
-            try
-            {
+            try {
                 uint count = System.Convert.ToUInt32(literal.Value, CultureInfo.InvariantCulture);
                 return count != 0 ? count : throw Error("Resolved array length must be positive.");
             }
@@ -148,16 +146,14 @@ public static class PipelineConstantResolver
         private ShaderType Type(ShaderType input)
         {
             if (types.TryGetValue(input, out var mapped)) return mapped;
-            mapped = input switch
-            {
+            mapped = input switch {
                 ShaderType.Array a => a with { Element = Type(a.Element), Length = a.OverrideLength is string n ? Length(n) : a.Length, OverrideLength = null },
                 ShaderType.BindingArray a => a with { Element = Type(a.Element), Length = a.OverrideLength is string n ? Length(n) : a.Length, OverrideLength = null },
                 ShaderType.Pointer p => p with { Base = Type(p.Base) },
                 ShaderType.Structure s => s with { Members = s.Members.Select(m => m with { Type = Type(m.Type) }).ToArray() },
                 _ => input
             };
-            if (mapped is ShaderType.Array array)
-            {
+            if (mapped is ShaderType.Array array) {
                 try { _ = TypeLayout.Of(array); }
                 catch (OverflowException) { throw Error("Resolved array layout is too large."); }
             }
@@ -181,22 +177,22 @@ public static class PipelineConstantResolver
             if (type.Kind == ScalarKind.Bool) return Expression.Bool(value != 0 && !double.IsNaN(value));
             if (!double.IsFinite(value)) throw Error("Pipeline constant must be finite for a numeric destination.");
             object converted;
-            if (type.Kind is ScalarKind.Sint or ScalarKind.Uint)
-            {
+            if (type.Kind is ScalarKind.Sint or ScalarKind.Uint) {
                 var integer = new BigInteger(Math.Truncate(value)); int bits = type.Width * 8;
                 BigInteger min = type.Kind == ScalarKind.Sint ? -(BigInteger.One << (bits - 1)) : BigInteger.Zero;
                 BigInteger max = (BigInteger.One << (type.Kind == ScalarKind.Sint ? bits - 1 : bits)) - 1;
                 if (integer < min || integer > max) throw Error("Pipeline constant is outside its destination type range.");
-                converted = (type.Kind, type.Width) switch
-                {
-                    (ScalarKind.Sint, 2) => (object)(short)integer, (ScalarKind.Uint, 2) => (ushort)integer,
-                    (ScalarKind.Sint, 4) => (int)integer, (ScalarKind.Uint, 4) => (uint)integer,
-                    (ScalarKind.Sint, 8) => (long)integer, (ScalarKind.Uint, 8) => (ulong)integer,
+                converted = (type.Kind, type.Width) switch {
+                    (ScalarKind.Sint, 2) => (object)(short)integer,
+                    (ScalarKind.Uint, 2) => (ushort)integer,
+                    (ScalarKind.Sint, 4) => (int)integer,
+                    (ScalarKind.Uint, 4) => (uint)integer,
+                    (ScalarKind.Sint, 8) => (long)integer,
+                    (ScalarKind.Uint, 8) => (ulong)integer,
                     _ => throw Error("Unsupported pipeline constant integer type.")
                 };
             }
-            else
-            {
+            else {
                 converted = type.Width switch { 2 => (object)(Half)value, 4 => (float)value, 8 => value, _ => throw Error("Unsupported pipeline constant float type.") };
                 if (converted is Half h && !Half.IsFinite(h) || converted is float f && !float.IsFinite(f)) throw Error("Pipeline constant is outside its destination type range.");
             }
@@ -208,14 +204,13 @@ public static class PipelineConstantResolver
             if (input is Expression.Reference r && !locals.Contains(r.Name) && constants.TryGetValue(r.Name, out var constant)) return (Resolve(r.Name), constant.IsOverride || constant.IsSpecialization);
             bool changed = false;
             Expression Child(Expression e) { var result = Expr(e); changed |= result.Override; return result.Value; }
-            Expression mapped = input switch
-            {
+            Expression mapped = input switch {
                 Expression.Literal or Expression.HelperInvocation => input,
                 Expression.Reference reference => new Expression.Reference(reference.Name, Type(reference.Type)),
                 Expression.Load l => new Expression.Load(Child(l.Pointer)) { MemoryAccess = l.MemoryAccess },
                 Expression.Unary u => new Expression.Unary(u.Operator, Child(u.Operand), Type(u.Type)),
                 Expression.Binary b => new Expression.Binary(b.Operator, Child(b.Left), Child(b.Right), Type(b.Type)),
-                Expression.Call c => new Expression.Call(c.Function, c.Arguments.Select(Child).ToArray(), Type(c.Type), c.Binding) { AtomicMemory = c.AtomicMemory,MemoryAccess = c.MemoryAccess, ImageAccess = c.ImageAccess },
+                Expression.Call c => new Expression.Call(c.Function, c.Arguments.Select(Child).ToArray(), Type(c.Type), c.Binding) { AtomicMemory = c.AtomicMemory, MemoryAccess = c.MemoryAccess, ImageAccess = c.ImageAccess },
                 Expression.Construct c => new Expression.Construct(Type(c.Type), c.Components.Select(Child).ToArray()),
                 Expression.Convert c => new Expression.Convert(Type(c.Type), Child(c.Operand), c.Bitcast),
                 Expression.Access a => new Expression.Access(Child(a.Base), Child(a.Index), Type(a.Type)),
@@ -236,22 +231,18 @@ public static class PipelineConstantResolver
             var output = new Block();
             output.DiagnosticFilters.AddRange(input.DiagnosticFilters);
             Expression E(Expression e) => Expr(e).Value;
-            foreach (var statement in input.Statements)
-            {
+            foreach (var statement in input.Statements) {
                 Statement mapped;
-                if (statement is Statement.Declare d)
-                {
+                if (statement is Statement.Declare d) {
                     mapped = d with { Type = Type(d.Type), Initializer = d.Initializer is null ? null : E(d.Initializer) };
                     locals.Add(d.Name);
                 }
-                else if (statement is Statement.Loop l)
-                {
+                else if (statement is Statement.Loop l) {
                     var loopOuter = locals; locals = new(locals, StringComparer.Ordinal);
                     var body = Body(l.Body, false); var continuing = Body(l.Continuing, false);
                     mapped = new Statement.Loop(body, continuing, l.BreakIf is null ? null : E(l.BreakIf)); locals = loopOuter;
                 }
-                else mapped = statement switch
-                {
+                else mapped = statement switch {
                     Statement.Nested n => new Statement.Nested(Body(n.Body)),
                     Statement.Store s => s with { Target = E(s.Target), Value = E(s.Value) },
                     Statement.Evaluate e => new Statement.Evaluate(E(e.Value)),

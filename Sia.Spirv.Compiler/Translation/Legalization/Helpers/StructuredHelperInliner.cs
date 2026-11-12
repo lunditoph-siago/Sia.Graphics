@@ -1,57 +1,46 @@
 using Sia.Spirv.Compiler.Translation.IR;
 
-namespace Sia.Spirv.Compiler.Translation.Proc;
+namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Expand helpers while retaining the identity of their pointer arguments.</summary>
-internal sealed class HelperInliner
+internal sealed class StructuredHelperInliner
 {
     private readonly Dictionary<string, ShaderFunction> helpers;
     private readonly HashSet<string> names = new(StringComparer.Ordinal);
     private readonly HashSet<string> expanding = new(StringComparer.Ordinal);
-    private readonly string kind;
     private readonly IReadOnlyList<DiagnosticFilter> moduleFilters;
     private int next;
-    private HelperInliner(Module module, Func<ShaderFunction, bool> select, string kind, IReadOnlySet<string>? rewriteFunctions = null)
+    private StructuredHelperInliner(Module module, Func<ShaderFunction, bool> select, IReadOnlySet<string>? rewriteFunctions = null)
     {
-        this.kind = kind;
         moduleFilters = module.DiagnosticFilters;
         helpers = module.Functions.Where(select).ToDictionary(f => f.Name, StringComparer.Ordinal);
         foreach (var name in module.Constants.Select(c => c.Name).Concat(module.Globals.Select(g => g.Name))
             .Concat(module.Structures.Select(s => s.Name)).Concat(module.Functions.Select(f => f.Name))) names.Add(name);
-        foreach (var f in module.Functions)
-        {
+        foreach (var f in module.Functions) {
             foreach (var a in f.Arguments) names.Add(a.Name);
             if (rewriteFunctions is null || rewriteFunctions.Contains(f.Name) || helpers.ContainsKey(f.Name)) Reserve(f.Body);
         }
     }
-    public static Module RunQueries(Module module) => Run(module,
-        f => f.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.RayQuery }), "query");
 
-    // Native derived Storage/Workgroup pointers may require capabilities that
-    // WGSL cannot express. Expanding calls also keeps member layout context and
-    // aliases intact, without a copy-in/copy-out calling convention.
     public static Module RunNonFunctionPointers(Module module, IReadOnlySet<string>? specialized = null) => Run(module,
-        f => f.Stage is null && (f.Arguments.Any(a => a.Type is ShaderType.Pointer { Space: not AddressSpace.Function }) || specialized?.Contains(f.Name) == true), "pointer");
+        f => f.Stage is null && (f.Arguments.Any(a => a.Type is ShaderType.Pointer { Space: not AddressSpace.Function }) || specialized?.Contains(f.Name) == true));
 
-    // Explicit per-function adapter for helpers not yet representable in CFG.
-    // Unrelated declaration bodies are neither reserved nor traversed.
     internal static Module RunSelected(Module module, IReadOnlySet<string> helpers, IReadOnlySet<string> callers)
-        => Run(module, f => helpers.Contains(f.Name), "pointer", rewriteFunctions: callers);
+        => Run(module, f => helpers.Contains(f.Name), rewriteFunctions: callers);
 
-    private static Module Run(Module module, Func<ShaderFunction, bool> select, string kind,
+    private static Module Run(Module module, Func<ShaderFunction, bool> select,
         IReadOnlySet<string>? rewriteFunctions = null)
     {
-        var pass = new HelperInliner(module, select, kind, rewriteFunctions);
+        var pass = new StructuredHelperInliner(module, select, rewriteFunctions);
         if (pass.helpers.Count == 0) return module;
-        var output = new Module { VulkanMemoryModel = module.VulkanMemoryModel, WorkgroupInitializationRequired = module.WorkgroupInitializationRequired }; output.Enables.UnionWith(module.Enables); output.DiagnosticFilters.AddRange(module.DiagnosticFilters);
-        output.Structures.AddRange(module.Structures); output.Constants.AddRange(module.Constants); output.Globals.AddRange(module.Globals);
-        foreach (var f in module.Functions.Where(f => !pass.helpers.ContainsKey(f.Name)))
-        {
+        var output = module.WithFunctions([]);
+        foreach (var f in module.Functions.Where(f => !pass.helpers.ContainsKey(f.Name))) {
             if (rewriteFunctions is not null && !rewriteFunctions.Contains(f.Name)) { output.Functions.Add(f); continue; }
-            var copy = new ShaderFunction(f.Name) { Stage = f.Stage, ReturnType = f.ReturnType, ReturnBinding = f.ReturnBinding,
+            var copy = new ShaderFunction(f.Name) {
+                Stage = f.Stage, ReturnType = f.ReturnType, ReturnBinding = f.ReturnBinding,
                 TaskPayload = f.TaskPayload, MeshOutput = f.MeshOutput,
                 WorkgroupSize = f.WorkgroupSize.ToArray(), EarlyDepthTest = f.EarlyDepthTest, ConservativeDepth = f.ConservativeDepth,
-                Body = pass.Body(f.Body, new(false, f.DiagnosticFilters, module.DiagnosticFilters)) };
+                Body = pass.Body(f.Body, new(false, f.DiagnosticFilters, module.DiagnosticFilters))
+            };
             copy.Arguments.AddRange(f.Arguments); copy.DiagnosticFilters.AddRange(f.DiagnosticFilters); output.Functions.Add(copy);
         }
         return output;
@@ -61,8 +50,7 @@ internal sealed class HelperInliner
     private void Reserve(Block body)
     {
         foreach (var s in body.Statements)
-            switch (s)
-            {
+            switch (s) {
                 case Statement.Declare d: names.Add(d.Name); break;
                 case Statement.Nested n: Reserve(n.Body); break;
                 case Statement.If i: Reserve(i.Accept); Reserve(i.Reject); break;
@@ -85,12 +73,13 @@ internal sealed class HelperInliner
         public void Add(string old, string name) => scopes.Peek().Add(old, name);
         public string Name(string name) { foreach (var scope in scopes) if (scope.TryGetValue(name, out string? result)) return result; return name; }
     }
-    private static bool HasReturn(Statement s) => s switch
-    {
-        Statement.Return => true, Statement.Nested n => n.Body.Statements.Any(HasReturn),
+    private static bool HasReturn(Statement s) => s switch {
+        Statement.Return => true,
+        Statement.Nested n => n.Body.Statements.Any(HasReturn),
         Statement.If i => i.Accept.Statements.Any(HasReturn) || i.Reject.Statements.Any(HasReturn),
         Statement.Loop l => l.Body.Statements.Any(HasReturn) || l.Continuing.Statements.Any(HasReturn),
-        Statement.Switch sw => sw.Cases.Any(c => c.Body.Statements.Any(HasReturn)), _ => false
+        Statement.Switch sw => sw.Cases.Any(c => c.Body.Statements.Any(HasReturn)),
+        _ => false
     };
     private static Expression.Reference Place(string name, ShaderType type) => new(name, new ShaderType.Pointer(type, AddressSpace.Function));
     private Expression Capture(Expression value, Block prelude)
@@ -100,10 +89,7 @@ internal sealed class HelperInliner
     }
     private Expression CapturePlace(Expression place, Block prelude)
     {
-        if (place is Expression.Access access && access.Base.Type is ShaderType.Pointer { Base: ShaderType.Vector })
-        {
-            // A vector component is assignable but its address is not a WGSL
-            // pointer. Capture the vector address and component index instead.
+        if (place is Expression.Access access && access.Base.Type is ShaderType.Pointer { Base: ShaderType.Vector }) {
             Expression vector = CapturePlace(access.Base, prelude);
             Expression index = Capture(access.Index, prelude);
             return access with { Base = vector, Index = index };
@@ -116,12 +102,10 @@ internal sealed class HelperInliner
     {
         if (scope) context.Push(); var output = new Block();
         output.DiagnosticFilters.AddRange(input.DiagnosticFilters); context.PushDiagnostics(input.DiagnosticFilters);
-        foreach (var statement in input.Statements)
-        {
+        foreach (var statement in input.Statements) {
             Statement mapped;
             Expression E(Expression e) => Expr(e, context, output);
-            switch (statement)
-            {
+            switch (statement) {
                 case Statement.Declare d:
                     Expression? initializer = d.Initializer is null ? null : E(d.Initializer);
                     string name = context.Rename ? Fresh() : d.Name; context.Add(d.Name, name);
@@ -163,41 +147,35 @@ internal sealed class HelperInliner
     private Expression Inline(Expression.Call call, Expression[] args, Block prelude, Context caller)
     {
         var f = helpers[call.Function];
-        if (!expanding.Add(f.Name)) throw Error($"Recursive {kind} helper calls cannot be inlined.");
-        if (f.Stage is not null || args.Length != f.Arguments.Count) throw Error($"Invalid {kind} helper call.");
+        if (!expanding.Add(f.Name)) throw Error("Recursive pointer helper calls cannot be inlined.");
+        if (f.Stage is not null || args.Length != f.Arguments.Count) throw Error("Invalid pointer helper call.");
         var context = new Context(true, f.DiagnosticFilters, moduleFilters); context.Push(); context.PushDiagnostics(f.Body.DiagnosticFilters);
         var body = new Block();
         var defaults = new[] { new DiagnosticFilter(DiagnosticSeverity.Error, "derivative_uniformity"), new DiagnosticFilter(DiagnosticSeverity.Error, "subgroup_uniformity") };
         foreach (var filter in f.Body.DiagnosticFilters.Concat(f.DiagnosticFilters).Concat(moduleFilters).Concat(defaults).DistinctBy(f => (f.Namespace, f.Rule)))
             if (caller.Severity(filter) != filter.Severity || f.Body.DiagnosticFilters.Concat(f.DiagnosticFilters).Any(f => f.Namespace == filter.Namespace && f.Rule == filter.Rule))
                 body.DiagnosticFilters.Add(filter);
-        for (int i = 0; i < args.Length; i++)
-        {
+        for (int i = 0; i < args.Length; i++) {
             string name = Fresh(); context.Add(f.Arguments[i].Name, name);
             body.Statements.Add(new Statement.Declare(name, args[i].Type, args[i], false));
         }
         Expression.Reference? result = null;
-        if (f.ReturnType is not ShaderType.Void)
-        {
+        if (f.ReturnType is not ShaderType.Void) {
             string name = Fresh(); result = Place(name, f.ReturnType);
             prelude.Statements.Add(new Statement.Declare(name, f.ReturnType, null));
         }
         bool tailOnly = !f.Body.Statements.Take(System.Math.Max(0, f.Body.Statements.Count - 1)).Any(HasReturn)
             && (f.Body.Statements.LastOrDefault() is Statement.Return || !f.Body.Statements.Any(HasReturn));
-        if (tailOnly)
-        {
+        if (tailOnly) {
             var prefix = new Block(); prefix.Statements.AddRange(f.Body.Statements.Where((s, i) => i != f.Body.Statements.Count - 1 || s is not Statement.Return));
             body.Statements.AddRange(Body(prefix, context, false).Statements);
             if (f.Body.Statements.LastOrDefault() is Statement.Return { Value: not null } ret)
                 body.Statements.Add(new Statement.Store(result!, Expr(ret.Value, context, body)));
             prelude.Statements.Add(new Statement.Nested(body));
         }
-        else
-        {
+        else {
             string name = Fresh(); context.Returned = Place(name, ShaderType.Bool); context.ReturnValue = result;
             body.Statements.Add(new Statement.Declare(name, ShaderType.Bool, Expression.Bool(false)));
-            // A one-arm switch provides the exit target without adding a loop.
-            // WGSL permits switches, but not loops, inside continuing blocks.
             var region = Body(f.Body, context, false); region.Statements.Add(new Statement.Break());
             body.Statements.Add(new Statement.Switch(Expression.U32(0), [new([], true, region)]));
             prelude.Statements.Add(new Statement.Nested(body));
@@ -215,8 +193,7 @@ internal sealed class HelperInliner
     {
         Expression E(Expression e) => Expr(e, context, prelude);
         Expression result;
-        switch (input)
-        {
+        switch (input) {
             case Expression.Reference r: result = r with { Name = context.Name(r.Name) }; break;
             case Expression.Literal or Expression.HelperInvocation: result = input; break;
             case Expression.Load l: result = l with { Pointer = E(l.Pointer) }; break;
@@ -229,31 +206,28 @@ internal sealed class HelperInliner
                 bool inline = c.Binding == CallBinding.Function && helpers.ContainsKey(c.Function);
                 var args = Values(c.Arguments, context, prelude, inline);
                 result = inline ? Inline(c, args, prelude, context) : c with { Arguments = args }; break;
-            case Expression.Binary b:
-            {
-                var left = E(b.Left); var rightPrelude = new Block(); var right = Expr(b.Right, context, rightPrelude);
-                if (rightPrelude.Statements.Count == 0) { result = b with { Left = left, Right = right }; break; }
-                if (b.Operator is "&&" or "||")
-                {
-                    string name = Fresh(); var place = Place(name, ShaderType.Bool);
-                    prelude.Statements.Add(new Statement.Declare(name, ShaderType.Bool, left));
-                    rightPrelude.Statements.Add(new Statement.Store(place, right));
-                    prelude.Statements.Add(new Statement.If(b.Operator == "&&" ? new Expression.Load(place) : new Expression.Unary("!", new Expression.Load(place), ShaderType.Bool), rightPrelude, new()));
-                    result = new Expression.Load(place);
+            case Expression.Binary b: {
+                    var left = E(b.Left); var rightPrelude = new Block(); var right = Expr(b.Right, context, rightPrelude);
+                    if (rightPrelude.Statements.Count == 0) { result = b with { Left = left, Right = right }; break; }
+                    if (b.Operator is "&&" or "||") {
+                        string name = Fresh(); var place = Place(name, ShaderType.Bool);
+                        prelude.Statements.Add(new Statement.Declare(name, ShaderType.Bool, left));
+                        rightPrelude.Statements.Add(new Statement.Store(place, right));
+                        prelude.Statements.Add(new Statement.If(b.Operator == "&&" ? new Expression.Load(place) : new Expression.Unary("!", new Expression.Load(place), ShaderType.Bool), rightPrelude, new()));
+                        result = new Expression.Load(place);
+                    }
+                    else { left = Capture(left, prelude); prelude.Statements.AddRange(rightPrelude.Statements); result = b with { Left = left, Right = right }; }
+                    break;
                 }
-                else { left = Capture(left, prelude); prelude.Statements.AddRange(rightPrelude.Statements); result = b with { Left = left, Right = right }; }
-                break;
-            }
-            case Expression.Access a:
-            {
-                Expression parent = E(a.Base); var indexPrelude = new Block(); var index = Expr(a.Index, context, indexPrelude);
-                if (indexPrelude.Statements.Count != 0) parent = parent.Type is ShaderType.Pointer ? CapturePlace(parent, prelude) : Capture(parent, prelude);
-                prelude.Statements.AddRange(indexPrelude.Statements); result = a with { Base = parent, Index = index }; break;
-            }
+            case Expression.Access a: {
+                    Expression parent = E(a.Base); var indexPrelude = new Block(); var index = Expr(a.Index, context, indexPrelude);
+                    if (indexPrelude.Statements.Count != 0) parent = parent.Type is ShaderType.Pointer ? CapturePlace(parent, prelude) : Capture(parent, prelude);
+                    prelude.Statements.AddRange(indexPrelude.Statements); result = a with { Base = parent, Index = index }; break;
+                }
             case Expression.Select s:
                 var selected = Values([s.Condition, s.Accept, s.Reject], context, prelude);
                 result = new Expression.Select(selected[0], selected[1], selected[2]); break;
-            default: throw Error($"Unknown expression in {kind} helper inlining.");
+            default: throw Error("Unknown expression in pointer helper inlining.");
         }
         return result with { Span = input.Span };
     }

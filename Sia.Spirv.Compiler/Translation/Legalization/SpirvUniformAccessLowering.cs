@@ -6,7 +6,6 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Materialize uniform layout reads and captured paths before serialization.</summary>
 internal sealed partial class SpirvUniformAccessLowering(SpirvPhysicalLayout layout)
 {
     private sealed record Step(string? Member, Expression? Index, uint? Constant);
@@ -40,14 +39,15 @@ internal sealed partial class SpirvUniformAccessLowering(SpirvPhysicalLayout lay
         var input = layout.Module;
         names.UnionWith(input.Globals.Select(g => g.Name).Concat(input.Constants.Select(c => c.Name))
             .Concat(input.Structures.Select(s => s.Name)).Concat(input.Functions.Select(f => f.Name)));
-        void Reserve(Block body) {
+        void Reserve(Block body)
+        {
             foreach (var statement in body.Statements) switch (statement) {
-                case Statement.Declare d: names.Add(d.Name); break;
-                case Statement.Nested n: Reserve(n.Body); break;
-                case Statement.If i: Reserve(i.Accept); Reserve(i.Reject); break;
-                case Statement.Loop l: Reserve(l.Body); Reserve(l.Continuing); break;
-                case Statement.Switch s: foreach (var c in s.Cases) Reserve(c.Body); break;
-            }
+                    case Statement.Declare d: names.Add(d.Name); break;
+                    case Statement.Nested n: Reserve(n.Body); break;
+                    case Statement.If i: Reserve(i.Accept); Reserve(i.Reject); break;
+                    case Statement.Loop l: Reserve(l.Body); Reserve(l.Continuing); break;
+                    case Statement.Switch s: foreach (var c in s.Cases) Reserve(c.Body); break;
+                }
         }
         foreach (var f in input.Functions) {
             names.UnionWith(f.Arguments.Select(a => a.Name));
@@ -70,9 +70,11 @@ internal sealed partial class SpirvUniformAccessLowering(SpirvPhysicalLayout lay
             var body = Body(function.Body);
             if (!changed) output.Functions.Add(function);
             else {
-                var copy = new ShaderFunction(function.Name) { Body = body, Stage = function.Stage, ReturnType = function.ReturnType,
+                var copy = new ShaderFunction(function.Name) {
+                    Body = body, Stage = function.Stage, ReturnType = function.ReturnType,
                     ReturnBinding = function.ReturnBinding, WorkgroupSize = function.WorkgroupSize.ToArray(), TaskPayload = function.TaskPayload,
-                    MeshOutput = function.MeshOutput, EarlyDepthTest = function.EarlyDepthTest, ConservativeDepth = function.ConservativeDepth };
+                    MeshOutput = function.MeshOutput, EarlyDepthTest = function.EarlyDepthTest, ConservativeDepth = function.ConservativeDepth
+                };
                 copy.Arguments.AddRange(function.Arguments); copy.DiagnosticFilters.AddRange(function.DiagnosticFilters); output.Functions.Add(copy);
             }
             scopes.Pop();
@@ -130,13 +132,17 @@ internal sealed partial class SpirvUniformAccessLowering(SpirvPhysicalLayout lay
         if (expression is Expression.Reference or Expression.Member or Expression.Access or Expression.Unary { Operator: "*" }
             && Place(expression) is { } implicitRead) return ReadValue(implicitRead, Data(expression.Type), null, expression.Span);
         return expression switch {
-            Expression.Load l => l with { Pointer = Address(l.Pointer) }, Expression.Unary u => u with { Operand = Expr(u.Operand) },
+            Expression.Load l => l with { Pointer = Address(l.Pointer) },
+            Expression.Unary u => u with { Operand = Expr(u.Operand) },
             Expression.Binary b => b with { Left = Expr(b.Left), Right = Expr(b.Right) },
             Expression.Call c => c with { Arguments = c.Arguments.Select(Expr).ToArray() },
-            Expression.Construct c => c with { Components = c.Components.Select(Expr).ToArray() }, Expression.Convert c => c with { Operand = Expr(c.Operand) },
-            Expression.Access a => a with { Base = Expr(a.Base), Index = Expr(a.Index) }, Expression.Member m => m with { Base = Expr(m.Base) },
+            Expression.Construct c => c with { Components = c.Components.Select(Expr).ToArray() },
+            Expression.Convert c => c with { Operand = Expr(c.Operand) },
+            Expression.Access a => a with { Base = Expr(a.Base), Index = Expr(a.Index) },
+            Expression.Member m => m with { Base = Expr(m.Base) },
             Expression.Swizzle s => s with { Vector = Expr(s.Vector) },
-            Expression.Select s => s with { Condition = Expr(s.Condition), Accept = Expr(s.Accept), Reject = Expr(s.Reject) }, _ => expression
+            Expression.Select s => s with { Condition = Expr(s.Condition), Accept = Expr(s.Accept), Reject = Expr(s.Reject) },
+            _ => expression
         };
     }
 
@@ -147,8 +153,10 @@ internal sealed partial class SpirvUniformAccessLowering(SpirvPhysicalLayout lay
     }
 
     private Expression Address(Expression expression) => expression switch {
-        Expression.Access a => a with { Base = Address(a.Base), Index = Expr(a.Index) }, Expression.Member m => m with { Base = Address(m.Base) },
-        Expression.Unary { Operator: "*" } u => u with { Operand = Expr(u.Operand) }, _ => expression
+        Expression.Access a => a with { Base = Address(a.Base), Index = Expr(a.Index) },
+        Expression.Member m => m with { Base = Address(m.Base) },
+        Expression.Unary { Operator: "*" } u => u with { Operand = Expr(u.Operand) },
+        _ => expression
     };
 
     private Block Body(Block input, bool scope = true)
@@ -171,11 +179,14 @@ internal sealed partial class SpirvUniformAccessLowering(SpirvPhysicalLayout lay
                 scopes.Peek().Add(d.Name, null); continue;
             }
             outputBody.Statements.Add(statement switch {
-                Statement.Store s => s with { Target = Address(s.Target), Value = Expr(s.Value) }, Statement.Evaluate e => e with { Value = Expr(e.Value) },
-                Statement.Return r => r with { Value = r.Value is null ? null : Expr(r.Value) }, Statement.Nested n => n with { Body = Body(n.Body) },
+                Statement.Store s => s with { Target = Address(s.Target), Value = Expr(s.Value) },
+                Statement.Evaluate e => e with { Value = Expr(e.Value) },
+                Statement.Return r => r with { Value = r.Value is null ? null : Expr(r.Value) },
+                Statement.Nested n => n with { Body = Body(n.Body) },
                 Statement.If i => i with { Condition = Expr(i.Condition), Accept = Body(i.Accept), Reject = Body(i.Reject) },
                 Statement.Loop l => l with { Body = LoopBody(l.Body, l.Continuing, l.BreakIf, out var continuing, out var breakIf), Continuing = continuing, BreakIf = breakIf },
-                Statement.Switch s => s with { Selector = Expr(s.Selector), Cases = s.Cases.Select(c => c with { Body = Body(c.Body) }).ToArray() }, _ => statement
+                Statement.Switch s => s with { Selector = Expr(s.Selector), Cases = s.Cases.Select(c => c with { Body = Body(c.Body) }).ToArray() },
+                _ => statement
             });
         }
         if (scope) scopes.Pop(); return outputBody;
@@ -240,7 +251,8 @@ internal sealed partial class SpirvUniformAccessLowering(SpirvPhysicalLayout lay
             (ShaderType.Array a, ShaderType.Array b) => (a.Element, b.Element),
             (ShaderType.BindingArray a, ShaderType.BindingArray b) => (a.Element, b.Element),
             (ShaderType.Matrix a, ShaderType.Matrix b) => (new ShaderType.Vector(a.Rows, a.Component), new ShaderType.Vector(b.Rows, b.Component)),
-            (ShaderType.Vector a, ShaderType.Vector b) => (a.Component, b.Component), _ => throw Error("Uniform access path has incompatible types.", pointer.Span)
+            (ShaderType.Vector a, ShaderType.Vector b) => (a.Component, b.Component),
+            _ => throw Error("Uniform access path has incompatible types.", pointer.Span)
         };
         Expression indexValue = step.Constant is uint fixedIndex ? new Expression.Literal(step.Index!.Type == ShaderType.I32 ? (object)(int)fixedIndex : fixedIndex, step.Index.Type) : step.Index!;
         return Path(Child(pointer, mappedElement, indexValue), element, mappedElement, steps, depth + 1, memory, inherited, result);
@@ -248,8 +260,10 @@ internal sealed partial class SpirvUniformAccessLowering(SpirvPhysicalLayout lay
 
     private Expression Load(Expression pointer, ShaderType logical, ShaderType physical, SpirvMemoryAccess? memory, MemoryDecorations inherited)
     {
-        if (logical == physical) return new Expression.Load(pointer) { MemoryAccess = ShaderMemoryRequirements.Decorate(memory,
-            inherited | ShaderMemoryRequirements.TypeMemory(logical), AddressSpace.Uniform, VulkanMemory), Span = pointer.Span };
+        if (logical == physical) return new Expression.Load(pointer) {
+            MemoryAccess = ShaderMemoryRequirements.Decorate(memory,
+            inherited | ShaderMemoryRequirements.TypeMemory(logical), AddressSpace.Uniform, VulkanMemory), Span = pointer.Span
+        };
         memory = memory?.Leaf();
         if (logical is ShaderType.Matrix matrix && physical is ShaderType.Structure columns)
             return new Expression.Construct(matrix, columns.Members.Select(m => Load(Field(pointer, m), m.Type, m.Type, memory, inherited)).ToArray());

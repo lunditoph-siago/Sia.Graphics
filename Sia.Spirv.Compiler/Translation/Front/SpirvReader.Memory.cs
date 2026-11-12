@@ -27,10 +27,7 @@ public static partial class SpirvReader
         private (SpirvMemoryAccess? Target, SpirvMemoryAccess? Source) CopyMemoryAccess()
         {
             Count(2); int index = 2; var target = MemoryAccess(ref index);
-            if (index == current.Operands.Length)
-            {
-                // One mask applies to both pointers. Availability is after the
-                // write and visibility before the read, not to the other half.
+            if (index == current.Operands.Length) {
                 return (target is null ? null : target with { Flags = target.Flags & ~16u, VisibleScope = null },
                     target is null ? null : target with { Flags = target.Flags & ~8u, AvailableScope = null });
             }
@@ -42,20 +39,19 @@ public static partial class SpirvReader
         private SpirvMemoryAccess? FunctionMemoryAccess(Expression place, SpirvMemoryAccess? memory)
         {
             if (place.Type is not ShaderType.Pointer { Space: AddressSpace.Function }) return memory;
-            MemoryDecorations TypeMemory(ShaderType type) => type switch
-            {
-                ShaderType.Pointer p => TypeMemory(p.Base), ShaderType.Array a => TypeMemory(a.Element),
+            MemoryDecorations TypeMemory(ShaderType type) => type switch {
+                ShaderType.Pointer p => TypeMemory(p.Base),
+                ShaderType.Array a => TypeMemory(a.Element),
                 ShaderType.Structure s => s.Members.Aggregate(MemoryDecorations.None, (flags, m) => flags | m.MemoryDecorations | TypeMemory(m.Type)),
                 _ => MemoryDecorations.None
             };
-            MemoryDecorations Path(Expression e) => e switch
-            {
+            MemoryDecorations Path(Expression e) => e switch {
                 Expression.Member m => Path(m.Base) | (((m.Base.Type is ShaderType.Pointer p ? p.Base : m.Base.Type) as ShaderType.Structure)
                     ?.Members.FirstOrDefault(f => f.Name == m.Name)?.MemoryDecorations ?? MemoryDecorations.None),
-                Expression.Access a => Path(a.Base), Expression.Unary { Operator: "&" or "*" } u => Path(u.Operand), _ => MemoryDecorations.None
+                Expression.Access a => Path(a.Base),
+                Expression.Unary { Operator: "&" or "*" } u => Path(u.Operand),
+                _ => MemoryDecorations.None
             };
-            // Capture only original function-memory operations. Newly created
-            // SSA registers/snapshots must not inherit this type's decorations.
             if (((Path(place) | TypeMemory(place.Type)) & MemoryDecorations.Volatile) != 0)
                 return (memory ?? new(0)) with { Flags = (memory?.Flags ?? 0) | 1 };
             return memory;

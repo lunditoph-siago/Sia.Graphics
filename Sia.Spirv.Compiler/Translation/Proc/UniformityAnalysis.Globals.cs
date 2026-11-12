@@ -5,11 +5,10 @@ namespace Sia.Spirv.Compiler.Translation.Proc;
 
 internal static partial class UniformityAnalysis
 {
-    // Native entry adapters copy builtin inputs to private globals. Prove these
-    // copies uniform across the entire module rather than trusting their names.
     internal static IReadOnlySet<string> UniformPrivateGlobals(Module module, IReadOnlyDictionary<string, ControlFlowFunction> graphs)
     {
-        bool ConstantInitializer(Expression? expression) {
+        bool ConstantInitializer(Expression? expression)
+        {
             if (expression is null) return true;
             try { return ConstantEvaluator.TryEvaluate(expression, out _); }
             catch (ShaderException) { return false; }
@@ -20,7 +19,8 @@ internal static partial class UniformityAnalysis
         foreach (var graph in graphs.Values) {
             var origins = PointerAliasAnalysis.Origins(module, graph);
             var definitions = graph.Blocks.SelectMany(b => b.Instructions).Where(i => i.Result is not null).ToDictionary(i => i.Result!.Value.Id, i => i.Operation);
-            bool UniformArgument(SsaValue value) {
+            bool UniformArgument(SsaValue value)
+            {
                 var seen = new HashSet<int>();
                 while (seen.Add(value.Id) && definitions.GetValueOrDefault(value.Id) is ValueOperation.Let alias) value = alias.Value;
                 if (definitions.GetValueOrDefault(value.Id) is not ValueOperation.Symbol symbol) return false;

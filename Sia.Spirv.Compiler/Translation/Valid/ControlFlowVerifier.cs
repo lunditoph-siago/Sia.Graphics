@@ -8,7 +8,8 @@ internal static class ControlFlowVerifier
 {
     public static void Validate(CanonicalModule module)
     {
-        void Require(bool condition, string message) {
+        void Require(bool condition, string message)
+        {
             if (!condition) throw new ShaderException(DiagnosticStage.Validation, "Canonical module: " + message);
         }
         var declarations = new Dictionary<string, ShaderFunction>(StringComparer.Ordinal);
@@ -38,7 +39,8 @@ internal static class ControlFlowVerifier
     {
         analyses?.RequireFunction(function);
         analyses ??= new ControlFlowAnalysisContext(function);
-        void Require(bool condition, string message, SourceSpan span = default) {
+        void Require(bool condition, string message, SourceSpan span = default)
+        {
             if (!condition) throw new ShaderException(DiagnosticStage.Validation, "Canonical " + function.Signature.Name + ": " + message, span);
         }
         Require(function.Blocks.Count != 0, "missing entry block");
@@ -50,7 +52,8 @@ internal static class ControlFlowVerifier
         foreach (var constant in module.Constants) symbols.Add(constant.Name, constant.Type);
         foreach (var argument in function.Signature.Arguments) symbols[argument.Name] = argument.Type;
         var definitions = new Dictionary<int, (SsaValue Value, int Block, int Index)>();
-        void Define(SsaValue value, int block, int index) {
+        void Define(SsaValue value, int block, int index)
+        {
             Require(value.Id >= 0 && definitions.TryAdd(value.Id, (value, block, index)), "duplicate or invalid value v" + value.Id);
         }
         foreach (var block in function.Blocks) {
@@ -90,7 +93,8 @@ internal static class ControlFlowVerifier
             foreach (var (predecessor, _) in predecessors[header].Where(p => dominance[p.Block.Id].Contains(header)))
                 Require(loop.Continuing is int continuing && dominance[predecessor.Id].Contains(continuing), "loop backedge bypasses continuing target");
         }
-        void Use(SsaValue value, int block, int index) {
+        void Use(SsaValue value, int block, int index)
+        {
             Require(definitions.TryGetValue(value.Id, out var definition), "undefined value v" + value.Id);
             Require(definition.Value.Type == value.Type, "inconsistent type for v" + value.Id);
             Require(definition.Block == block ? definition.Index < index : dominance[block].Contains(definition.Block),
@@ -130,8 +134,10 @@ internal static class ControlFlowVerifier
                 };
                 Require(valid, "illegal " + instruction.Operation.GetType().Name + " in b" + block.Id, instruction.Span);
                 try { validateInstruction(instruction); }
-                catch (ShaderException exception) { throw new ShaderException(DiagnosticStage.Validation,
-                    "Canonical " + function.Signature.Name + ": illegal " + instruction.Operation.GetType().Name + ": " + exception.Message, instruction.Span); }
+                catch (ShaderException exception) {
+                    throw new ShaderException(DiagnosticStage.Validation,
+                    "Canonical " + function.Signature.Name + ": illegal " + instruction.Operation.GetType().Name + ": " + exception.Message, instruction.Span);
+                }
             }
             var terminator = block.Terminator!;
             foreach (var operand in terminator.Operands.Concat(terminator.Edges.SelectMany(e => e.Arguments))) Use(operand, block.Id, int.MaxValue);

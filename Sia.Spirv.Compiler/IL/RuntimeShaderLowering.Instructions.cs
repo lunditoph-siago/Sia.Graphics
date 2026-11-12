@@ -10,7 +10,7 @@ internal sealed partial class RuntimeShaderLowering
         Action<int, Value, Block, int> storeLocal)
     {
         string op = instruction.OpCode.Name!; int at = instruction.Offset;
-        int Index(string prefix) => op.Length > prefix.Length+1 && int.TryParse(op[(prefix.Length+1)..], out int index) ? index : instruction.Operand.GetInt32(at);
+        int Index(string prefix) => op.Length > prefix.Length + 1 && int.TryParse(op[(prefix.Length + 1)..], out int index) ? index : instruction.Operand.GetInt32(at);
         Expression Pop() => Read(stack.Pop(), body);
         void Push(Expression expression) => stack.Push(Snapshot(expression, body));
         if (op.StartsWith("ldarg", StringComparison.Ordinal)) {
@@ -44,7 +44,7 @@ internal sealed partial class RuntimeShaderLowering
         }
         if (op.StartsWith("stloc", StringComparison.Ordinal)) { storeLocal(Index("stloc"), stack.Pop(), body, at); return; }
         if (op.StartsWith("ldc.i4", StringComparison.Ordinal)) {
-            int value = op == "ldc.i4.m1" ? -1 : op is "ldc.i4" or "ldc.i4.s" ? instruction.Operand.GetInt32(at) : op[^1]-'0';
+            int value = op == "ldc.i4.m1" ? -1 : op is "ldc.i4" or "ldc.i4.s" ? instruction.Operand.GetInt32(at) : op[^1] - '0';
             stack.Push(new(Expression.I32(value))); return;
         }
         if (op == "ldc.r4") { stack.Push(new(new Expression.Literal(instruction.Operand.GetSingle(at), ShaderType.F32))); return; }
@@ -74,45 +74,96 @@ internal sealed partial class RuntimeShaderLowering
         }
         if (op == "initobj") { var place = stack.Pop(); Store(place.Expression, Zero(ValueType(place.Expression)), body); return; }
         if (op is "conv.i4" or "conv.u4" or "conv.r4" or "conv.r.un") {
-            var value = Pop();
-            if (op == "conv.r.un") value = Convert(value, ShaderType.U32, true);
-            Push(Convert(value, op.StartsWith("conv.r", StringComparison.Ordinal) ? ShaderType.F32 : op == "conv.u4" ? ShaderType.U32 : ShaderType.I32,
-                bitcast: !op.StartsWith("conv.r", StringComparison.Ordinal) && value.Type is ShaderType.Scalar { Kind: ScalarKind.Sint or ScalarKind.Uint }));
+            Push(LowerConversion(op, Pop()));
             return;
         }
         if (op is "ceq" or "cgt" or "cgt.un" or "clt" or "clt.un") {
-            var right = Pop(); var left = Pop();
-            Push(Compare(op.StartsWith("ceq", StringComparison.Ordinal) ? "==" : op.StartsWith("cgt", StringComparison.Ordinal) ? ">" : "<", left, right, op.EndsWith(".un", StringComparison.Ordinal)));
+            var right = Pop();
+            var left = Pop();
+            var comparison = op switch {
+                "ceq" => "==",
+                "cgt" or "cgt.un" => ">",
+                _ => "<"
+            };
+            Push(Compare(comparison, left, right, op.EndsWith(".un", StringComparison.Ordinal)));
             return;
         }
-        if (op is "add" or "sub" or "mul" or "div" or "div.un" or "rem" or "rem.un" or "and" or "or" or "xor" or "shl" or "shr" or "shr.un") {
-            var right = Pop(); var left = Pop();
-            bool unsigned = op.EndsWith(".un", StringComparison.Ordinal);
-            if (unsigned) left = Convert(left, ShaderType.U32, true);
-            string symbol = op switch { "add" => "+", "sub" => "-", "mul" => "*", "div" or "div.un" => "/", "rem" or "rem.un" => "%", "and" => "&", "or" => "|", "xor" => "^", "shl" => "<<", _ => ">>" };
-            if (op is "shl" or "shr" or "shr.un") right = new Expression.Binary("&", Convert(right, ShaderType.U32, true), Expression.U32(31), ShaderType.U32);
-            else {
-                if (left.Type != right.Type) {
-                    ShaderType type = left.Type == ShaderType.F32 || right.Type == ShaderType.F32 ? ShaderType.F32 : left.Type == ShaderType.U32 || right.Type == ShaderType.U32 ? ShaderType.U32 : left.Type;
-                    left = Convert(left, type, type != ShaderType.F32); right = Convert(right, type, type != ShaderType.F32);
-                }
-                if (left.Type == ShaderType.Bool) symbol = op switch { "and" => "&&", "or" => "||", "xor" => "!=", _ => throw Error(at, "Invalid Boolean arithmetic.") };
-            }
-            Push(new Expression.Binary(symbol, left, right, left.Type)); return;
+        if (BinaryOperator(op) is { } symbol) {
+            var right = Pop();
+            var left = Pop();
+            Push(LowerBinary(op, symbol, left, right, at));
+            return;
         }
         if (op is "neg" or "not") { var value = Pop(); Push(new Expression.Unary(op == "neg" ? "-" : value.Type == ShaderType.Bool ? "!" : "~", value, value.Type)); return; }
         if (op == "dup") { stack.Push(stack.Peek()); return; }
         if (op is "pop" or "nop") { if (op == "pop") stack.Pop(); return; }
         throw Error(at, $"Unsupported CIL instruction {op}.");
     }
-    private void Store(Expression pointer, Expression value, Block body) {
+
+    private static Expression LowerConversion(string op, Expression value)
+        => op switch {
+            "conv.r.un" => Convert(Convert(value, ShaderType.U32, bitcast: true), ShaderType.F32),
+            "conv.r4" => Convert(value, ShaderType.F32),
+            _ => Convert(value, op == "conv.u4" ? ShaderType.U32 : ShaderType.I32,
+                bitcast: value.Type is ShaderType.Scalar { Kind: ScalarKind.Sint or ScalarKind.Uint })
+        };
+
+    private static string? BinaryOperator(string op)
+        => op switch {
+            "add" => "+",
+            "sub" => "-",
+            "mul" => "*",
+            "div" or "div.un" => "/",
+            "rem" or "rem.un" => "%",
+            "and" => "&",
+            "or" => "|",
+            "xor" => "^",
+            "shl" => "<<",
+            "shr" or "shr.un" => ">>",
+            _ => null
+        };
+
+    private static Expression LowerBinary(string op, string symbol, Expression left, Expression right, int offset)
+    {
+        if (op.EndsWith(".un", StringComparison.Ordinal)) {
+            left = Convert(left, ShaderType.U32, bitcast: true);
+        }
+        if (op is "shl" or "shr" or "shr.un") {
+            var shift = new Expression.Binary("&", Convert(right, ShaderType.U32, bitcast: true),
+                Expression.U32(31), ShaderType.U32);
+            return new Expression.Binary(symbol, left, shift, left.Type);
+        }
+
+        if (left.Type != right.Type) {
+            var type = (left.Type, right.Type) switch {
+                var (a, b) when a == ShaderType.F32 || b == ShaderType.F32 => ShaderType.F32,
+                var (a, b) when a == ShaderType.U32 || b == ShaderType.U32 => ShaderType.U32,
+                _ => left.Type
+            };
+            left = Convert(left, type, bitcast: type != ShaderType.F32);
+            right = Convert(right, type, bitcast: type != ShaderType.F32);
+        }
+        if (left.Type == ShaderType.Bool) {
+            symbol = op switch {
+                "and" => "&&",
+                "or" => "||",
+                "xor" => "!=",
+                _ => throw Error(offset, "Invalid Boolean arithmetic.")
+            };
+        }
+        return new Expression.Binary(symbol, left, right, left.Type);
+    }
+
+    private void Store(Expression pointer, Expression value, Block body)
+    {
         var type = ValueType(pointer);
         if (type is ShaderType.Atomic atomic) body.Statements.Add(new Statement.Evaluate(new Expression.Call("atomicStore", [Address(pointer), Convert(value, atomic.Component, true)], new ShaderType.Void(), CallBinding.Builtin)));
         else body.Statements.Add(new Statement.Store(pointer, Convert(value, type, true)));
     }
     private static ShaderType.Pointer Pointer(Expression place, ShaderType type) => place.Type is ShaderType.Pointer p ? p with { Base = type }
         : place switch { Expression.Member m => Pointer(m.Base, type), Expression.Access a => Pointer(a.Base, type), _ => new(type, AddressSpace.Function) };
-    private Expression Branch(CilInstruction instruction, Stack<Value> stack, Block body) {
+    private Expression Branch(CilInstruction instruction, Stack<Value> stack, Block body)
+    {
         string op = instruction.OpCode.Name!;
         var right = Read(stack.Pop(), body);
         if (op.StartsWith("brtrue", StringComparison.Ordinal)) return Truth(right);
@@ -122,7 +173,8 @@ internal sealed partial class RuntimeShaderLowering
         return Compare(symbol, left, right, op.Contains(".un", StringComparison.Ordinal));
     }
     private static Expression Truth(Expression value) => value.Type == ShaderType.Bool ? value : new Expression.Binary("!=", value, Zero(value.Type), ShaderType.Bool);
-    private static Expression Compare(string symbol, Expression left, Expression right, bool unsigned) {
+    private static Expression Compare(string symbol, Expression left, Expression right, bool unsigned)
+    {
         ShaderType type = left.Type == ShaderType.F32 || right.Type == ShaderType.F32 ? ShaderType.F32 : unsigned ? ShaderType.U32 : left.Type;
         left = Convert(left, type, type != ShaderType.F32); right = Convert(right, type, type != ShaderType.F32);
         Expression result = new Expression.Binary(symbol, left, right, ShaderType.Bool);

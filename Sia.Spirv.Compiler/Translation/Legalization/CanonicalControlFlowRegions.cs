@@ -5,8 +5,6 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-// Reconstruct reducible regions on owned target graphs. Source CIL topology and
-// SSA remain independent of the merge/continuing constraints of either output.
 internal static class CanonicalControlFlowRegions
 {
     public static CanonicalModule Run(CanonicalModule input)
@@ -56,14 +54,9 @@ internal static class CanonicalControlFlowRegions
         foreach (var (header, nodes) in loops) graph.Loops[header] = graph.Loops[header] with {
             Merge = Nearest(header, full, id => !nodes.Contains(id))
         };
-        // Topology and loop scopes are fixed here. Selections in the same loop
-        // share postdominance; computing it for every branch repeats the fixed point.
         var loopPostdominators = new Dictionary<int, Dictionary<int, HashSet<int>>>();
         foreach (var block in graph.Blocks.Where(b => b.Terminator is ControlFlowTerminator.Conditional or ControlFlowTerminator.Switch)) {
             if (graph.Loops.ContainsKey(block.Id)) {
-                // A conditional header may reach the loop exit through an edge-copy
-                // block. Both arms then end in break/continue rather than at a
-                // selection join; keep that selection inside the loop body.
                 graph.SelectionMerges.Add(block.Id, null); continue;
             }
             var loop = loops.Where(p => p.Value.Contains(block.Id)).OrderBy(p => p.Value.Count).FirstOrDefault();

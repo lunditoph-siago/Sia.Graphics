@@ -11,27 +11,21 @@ public static partial class SpirvWriter
         {
             private uint Call(Expression.Call call)
             {
-                if (call.Binding == CallBinding.Function)
-                {
+                if (call.Binding == CallBinding.Function) {
                     if (!owner.functions.TryGetValue(call.Function, out var function)) throw owner.Error("Unknown resolved function call.", call.Span);
                     owner.functionCalls[functionId].Add(function.Id);
-                    // Target legalization expands calls that need pointer adaptation.
-                    // Serialization must retain the supplied address identity.
                     return Result(Op.FunctionCall, call.Type, new uint[] { function.Id }.Concat(call.Arguments.Select(Value)).ToArray());
                 }
                 string name = call.Function;
-                if (call.MemoryAccess is { } memory && name is "atomicLoad" or "atomicStore")
-                {
+                if (call.MemoryAccess is { } memory && name is "atomicLoad" or "atomicStore") {
                     uint pointer = Value(call.Arguments[0]);
                     if (name == "atomicLoad") return MemoryLoad(pointer, call.Type, memory);
                     MemoryStore(pointer, Value(call.Arguments[1]), memory); return 0;
                 }
                 if (name is "coopLoad" or "coopLoadT" or "coopStore" or "coopStoreT" or "coopMultiplyAdd") return Cooperative(call);
-                if (name.StartsWith("spirvRayQuery", StringComparison.Ordinal))
-                {
+                if (name.StartsWith("spirvRayQuery", StringComparison.Ordinal)) {
                     Op operation = Enum.Parse<Op>(name[5..]);
-                    if (operation == Op.RayQueryGetIntersectionTriangleVertexPositionsKHR)
-                    { owner.capabilities.Add(5391); owner.extensions.Add("SPV_KHR_ray_tracing_position_fetch"); }
+                    if (operation == Op.RayQueryGetIntersectionTriangleVertexPositionsKHR) { owner.capabilities.Add(5391); owner.extensions.Add("SPV_KHR_ray_tracing_position_fetch"); }
                     uint[] raw = call.Arguments.Select(Value).ToArray();
                     if (call.Type is not ShaderType.Void) return Result(operation, call.Type, raw);
                     Add(operation, raw); return 0;
@@ -46,14 +40,12 @@ public static partial class SpirvWriter
                 if (name is "pack4xI8" or "pack4xU8" or "pack4xI8Clamp" or "pack4xU8Clamp" or "unpack4xI8" or "unpack4xU8" or "dot4I8Packed" or "dot4U8Packed") return PackedInteger(name, call.Type, args);
                 if (name is "storageBarrier" or "workgroupBarrier" or "textureBarrier" or "subgroupBarrier" or "workgroupUniformLoad")
                     throw owner.Error("Synchronization builtin was not legalized.", call.Span);
-                if (name == "select")
-                {
+                if (name == "select") {
                     if (call.Type is ShaderType.Vector v && call.Arguments[2].Type is ShaderType.Scalar) args[2] = Splat(args[2], new ShaderType.Vector(v.Size, ShaderType.Bool));
                     return Result(Op.Select, call.Type, args[2], args[1], args[0]);
                 }
                 if (name is "all" or "any") return call.Arguments[0].Type is ShaderType.Scalar ? args[0] : Result(name == "all" ? Op.All : Op.Any, call.Type, args);
-                if (name == "dot")
-                {
+                if (name == "dot") {
                     if (Scalar(call.Type).Kind == ScalarKind.Float) return Result(Op.Dot, call.Type, args);
                     int count = ((ShaderType.Vector)call.Arguments[0].Type).Size; uint sum = owner.Null(call.Type);
                     for (int i = 0; i < count; i++) sum = Result(Op.IAdd, call.Type, sum, Result(Op.IMul, call.Type, Result(Op.CompositeExtract, call.Type, args[0], (uint)i), Result(Op.CompositeExtract, call.Type, args[1], (uint)i)));
@@ -69,15 +61,20 @@ public static partial class SpirvWriter
                 if (name is "countLeadingZeros" or "countTrailingZeros" or "firstLeadingBit" or "firstTrailingBit" && Scalar(call.Type).Width != 4)
                     return BitPosition(name, call.Type, args[0]);
                 if (name is "extractBits" or "insertBits") return BitField(name, call.Type, args);
-                Op derivative = name switch
-                {
-                    "dpdx" => Op.DPdx, "dpdy" => Op.DPdy, "fwidth" => Op.Fwidth,
-                    "dpdxFine" => Op.DPdxFine, "dpdyFine" => Op.DPdyFine, "fwidthFine" => Op.FwidthFine,
-                    "dpdxCoarse" => Op.DPdxCoarse, "dpdyCoarse" => Op.DPdyCoarse, "fwidthCoarse" => Op.FwidthCoarse, _ => Op.Nop
+                Op derivative = name switch {
+                    "dpdx" => Op.DPdx,
+                    "dpdy" => Op.DPdy,
+                    "fwidth" => Op.Fwidth,
+                    "dpdxFine" => Op.DPdxFine,
+                    "dpdyFine" => Op.DPdyFine,
+                    "fwidthFine" => Op.FwidthFine,
+                    "dpdxCoarse" => Op.DPdxCoarse,
+                    "dpdyCoarse" => Op.DPdyCoarse,
+                    "fwidthCoarse" => Op.FwidthCoarse,
+                    _ => Op.Nop
                 };
                 if (derivative != Op.Nop) { if (derivative >= Op.DPdxFine) owner.capabilities.Add(51); return Result(derivative, call.Type, args); }
-                if (name is "countLeadingZeros" or "countTrailingZeros")
-                {
+                if (name is "countLeadingZeros" or "countTrailingZeros") {
                     uint found = Glsl(name == "countLeadingZeros" ? 75u : 73u, call.Type, args);
                     ShaderType boolean = call.Type is ShaderType.Vector v ? new ShaderType.Vector(v.Size, ShaderType.Bool) : ShaderType.Bool;
                     uint zero = Result(Op.IEqual, boolean, args[0], owner.Null(call.Type));
@@ -90,21 +87,66 @@ public static partial class SpirvWriter
                 bool signed = call.Arguments.Count != 0 && ScalarForBuiltin(call.Arguments[0].Type)?.Kind == ScalarKind.Sint;
                 bool integer = call.Arguments.Count != 0 && ScalarForBuiltin(call.Arguments[0].Type)?.Kind is ScalarKind.Sint or ScalarKind.Uint;
                 if (name == "abs" && integer && !signed) return args[0];
-                uint instruction = name switch
-                {
-                    "round" => 2, "trunc" => 3, "abs" => signed ? 5u : 4u, "sign" => signed ? 7u : 6u,
-                    "floor" => 8, "ceil" => 9, "fract" => 10, "radians" => 11, "degrees" => 12,
-                    "sin" => 13, "cos" => 14, "tan" => 15, "asin" => 16, "acos" => 17, "atan" => 18,
-                    "sinh" => 19, "cosh" => 20, "tanh" => 21, "asinh" => 22, "acosh" => 23, "atanh" => 24,
-                    "atan2" => 25, "pow" => 26, "exp" => 27, "log" => 28, "exp2" => 29, "log2" => 30,
-                    "sqrt" => 31, "inverseSqrt" => 32, "determinant" => 33, "modf" => 36,
-                    "min" => integer ? signed ? 39u : 38u : 37u, "max" => integer ? signed ? 42u : 41u : 40u,
+                uint instruction = name switch {
+                    "round" => 2,
+                    "trunc" => 3,
+                    "abs" => signed ? 5u : 4u,
+                    "sign" => signed ? 7u : 6u,
+                    "floor" => 8,
+                    "ceil" => 9,
+                    "fract" => 10,
+                    "radians" => 11,
+                    "degrees" => 12,
+                    "sin" => 13,
+                    "cos" => 14,
+                    "tan" => 15,
+                    "asin" => 16,
+                    "acos" => 17,
+                    "atan" => 18,
+                    "sinh" => 19,
+                    "cosh" => 20,
+                    "tanh" => 21,
+                    "asinh" => 22,
+                    "acosh" => 23,
+                    "atanh" => 24,
+                    "atan2" => 25,
+                    "pow" => 26,
+                    "exp" => 27,
+                    "log" => 28,
+                    "exp2" => 29,
+                    "log2" => 30,
+                    "sqrt" => 31,
+                    "inverseSqrt" => 32,
+                    "determinant" => 33,
+                    "modf" => 36,
+                    "min" => integer ? signed ? 39u : 38u : 37u,
+                    "max" => integer ? signed ? 42u : 41u : 40u,
                     "clamp" => integer ? signed ? 45u : 44u : 43u,
-                    "mix" => 46, "step" => 48, "smoothstep" => 49, "fma" => 50, "frexp" => 52, "ldexp" => 53,
-                    "pack4x8snorm" => 54, "pack4x8unorm" => 55, "pack2x16snorm" => 56, "pack2x16unorm" => 57, "pack2x16float" => 58,
-                    "unpack2x16snorm" => 60, "unpack2x16unorm" => 61, "unpack2x16float" => 62, "unpack4x8snorm" => 63, "unpack4x8unorm" => 64,
-                    "length" => 66, "distance" => 67, "cross" => 68, "normalize" => 69, "faceForward" => 70, "reflect" => 71, "refract" => 72,
-                    "firstTrailingBit" => 73, "firstLeadingBit" => signed ? 74u : 75u,
+                    "mix" => 46,
+                    "step" => 48,
+                    "smoothstep" => 49,
+                    "fma" => 50,
+                    "frexp" => 52,
+                    "ldexp" => 53,
+                    "pack4x8snorm" => 54,
+                    "pack4x8unorm" => 55,
+                    "pack2x16snorm" => 56,
+                    "pack2x16unorm" => 57,
+                    "pack2x16float" => 58,
+                    "unpack2x16snorm" => 60,
+                    "unpack2x16unorm" => 61,
+                    "unpack2x16float" => 62,
+                    "unpack4x8snorm" => 63,
+                    "unpack4x8unorm" => 64,
+                    "length" => 66,
+                    "distance" => 67,
+                    "cross" => 68,
+                    "normalize" => 69,
+                    "faceForward" => 70,
+                    "reflect" => 71,
+                    "refract" => 72,
+                    "firstTrailingBit" => 73,
+                    "firstLeadingBit" => signed ? 74u : 75u,
                     _ => throw owner.Error($"Unsupported builtin '{name}'.", call.Span)
                 };
                 if (name == "mix" && call.Type is ShaderType.Vector vector && call.Arguments[2].Type is ShaderType.Scalar) args[2] = Splat(args[2], vector);
@@ -125,15 +167,13 @@ public static partial class SpirvWriter
                 }
                 if (name.StartsWith("unpack", StringComparison.Ordinal))
                     return Result(Op.CompositeConstruct, resultType, Enumerable.Range(0, 4).Select(i => Unpack(args[0], i)).ToArray());
-                if (name.StartsWith("dot", StringComparison.Ordinal))
-                {
+                if (name.StartsWith("dot", StringComparison.Ordinal)) {
                     uint sum = owner.Null(component);
                     for (int i = 0; i < 4; i++) sum = Result(Op.IAdd, component, sum, Result(Op.IMul, component, Unpack(args[0], i), Unpack(args[1], i)));
                     return sum;
                 }
                 uint packed = Count(0);
-                for (int i = 0; i < 4; i++)
-                {
+                for (int i = 0; i < 4; i++) {
                     uint value = Result(Op.CompositeExtract, component, args[0], (uint)i);
                     if (name.EndsWith("Clamp", StringComparison.Ordinal))
                         value = Glsl(signed ? 45u : 44u, component, value, owner.Constant(signed ? Expression.I32(-128) : Expression.U32(0)), owner.Constant(signed ? Expression.I32(127) : Expression.U32(255)));
@@ -151,8 +191,7 @@ public static partial class SpirvWriter
                 owner.capabilities.Add(1);
                 if (call.Arguments is [Expression.Unary { Operator: "&", Operand: Expression.Member member }])
                     return Result(Op.ArrayLength, call.Type, Place(member.Base), MemberIndex(DataType(member.Base.Type), member.Name));
-                if (call.Arguments is [Expression.Unary { Operator: "&", Operand: Expression.Reference reference }])
-                {
+                if (call.Arguments is [Expression.Unary { Operator: "&", Operand: Expression.Reference reference }]) {
                     var symbol = Lookup(reference.Name);
                     if (symbol.BufferWrapper) return Result(Op.ArrayLength, call.Type, symbol.Id, 0);
                 }
@@ -166,25 +205,28 @@ public static partial class SpirvWriter
                 var (scope, semantics, unequal) = AtomicOperands(call);
                 uint[] args = call.Arguments.Skip(1).Select(Value).ToArray();
                 if (call.Function == "atomicStore") { Add(Op.AtomicStore, address, scope, semantics, args[0]); return 0; }
-                if (call.Function == "atomicCompareExchangeWeak")
-                {
+                if (call.Function == "atomicCompareExchangeWeak") {
                     uint old = Result(Op.AtomicCompareExchange, atomic.Component, address, scope, semantics, unequal, args[1], args[0]);
                     uint exchanged = Result(Op.IEqual, ShaderType.Bool, old, args[0]);
                     return Result(Op.CompositeConstruct, call.Type, old, exchanged);
                 }
                 if (call.Function == "spirvAtomicCompareExchange")
                     return Result(Op.AtomicCompareExchange, atomic.Component, address, scope, semantics, unequal, args[1], args[0]);
-                if (atomic.Component.Kind == ScalarKind.Float && call.Function is "atomicAdd" or "atomicSub")
-                {
+                if (atomic.Component.Kind == ScalarKind.Float && call.Function is "atomicAdd" or "atomicSub") {
                     uint value = call.Function == "atomicSub" ? Result(Op.FNegate, atomic.Component, args[0]) : args[0];
                     return Result(Op.AtomicFAddEXT, call.Type, address, scope, semantics, value);
                 }
-                Op op = call.Function switch
-                {
-                    "atomicLoad" => Op.AtomicLoad, "atomicExchange" => Op.AtomicExchange, "atomicAdd" => Op.AtomicIAdd, "atomicSub" => Op.AtomicISub,
+                Op op = call.Function switch {
+                    "atomicLoad" => Op.AtomicLoad,
+                    "atomicExchange" => Op.AtomicExchange,
+                    "atomicAdd" => Op.AtomicIAdd,
+                    "atomicSub" => Op.AtomicISub,
                     "atomicMin" => atomic.Component.Kind == ScalarKind.Sint ? Op.AtomicSMin : Op.AtomicUMin,
                     "atomicMax" => atomic.Component.Kind == ScalarKind.Sint ? Op.AtomicSMax : Op.AtomicUMax,
-                    "atomicAnd" => Op.AtomicAnd, "atomicOr" => Op.AtomicOr, "atomicXor" => Op.AtomicXor, _ => throw owner.Error("Unsupported atomic operation.")
+                    "atomicAnd" => Op.AtomicAnd,
+                    "atomicOr" => Op.AtomicOr,
+                    "atomicXor" => Op.AtomicXor,
+                    _ => throw owner.Error("Unsupported atomic operation.")
                 };
                 return Result(op, call.Type, new uint[] { address, scope, semantics }.Concat(args).ToArray());
             }

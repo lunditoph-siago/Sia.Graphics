@@ -3,7 +3,6 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Keep resolved builtins visible in WGSL's lexical namespace; entry names remain part of the consumer contract.</summary>
 internal static class WgslBuiltinNameLowering
 {
     public static Module Run(Module input)
@@ -11,25 +10,35 @@ internal static class WgslBuiltinNameLowering
         var builtins = new HashSet<string>(StringComparer.Ordinal);
         var names = input.Functions.Select(f => f.Name).Concat(input.Globals.Select(g => g.Name))
             .Concat(input.Constants.Select(c => c.Name)).Concat(input.Structures.Select(s => s.Name)).ToHashSet(StringComparer.Ordinal);
-        void Scan(Expression e) {
+        void Scan(Expression e)
+        {
             if (e is Expression.Call { Binding: CallBinding.Builtin } call) builtins.Add(call.Function);
             foreach (var child in e switch {
-                Expression.Call c => c.Arguments, Expression.Construct c => c.Components, Expression.Load l => [l.Pointer],
-                Expression.Unary u => [u.Operand], Expression.Binary b => [b.Left, b.Right], Expression.Convert c => [c.Operand],
-                Expression.Access a => [a.Base, a.Index], Expression.Member m => [m.Base], Expression.Swizzle s => [s.Vector],
-                Expression.Select s => [s.Condition, s.Accept, s.Reject], _ => (IEnumerable<Expression>)[] }) Scan(child);
+                Expression.Call c => c.Arguments,
+                Expression.Construct c => c.Components,
+                Expression.Load l => [l.Pointer],
+                Expression.Unary u => [u.Operand],
+                Expression.Binary b => [b.Left, b.Right],
+                Expression.Convert c => [c.Operand],
+                Expression.Access a => [a.Base, a.Index],
+                Expression.Member m => [m.Base],
+                Expression.Swizzle s => [s.Vector],
+                Expression.Select s => [s.Condition, s.Accept, s.Reject],
+                _ => (IEnumerable<Expression>)[]
+            }) Scan(child);
         }
-        void ScanBody(Block body) {
+        void ScanBody(Block body)
+        {
             foreach (var statement in body.Statements) switch (statement) {
-                case Statement.Declare d: names.Add(d.Name); if (d.Initializer is { } value) Scan(value); break;
-                case Statement.Store s: Scan(s.Target); Scan(s.Value); break;
-                case Statement.Evaluate e: Scan(e.Value); break;
-                case Statement.Return { Value: { } returned }: Scan(returned); break;
-                case Statement.Nested n: ScanBody(n.Body); break;
-                case Statement.If i: Scan(i.Condition); ScanBody(i.Accept); ScanBody(i.Reject); break;
-                case Statement.Loop l: ScanBody(l.Body); ScanBody(l.Continuing); if (l.BreakIf is { } condition) Scan(condition); break;
-                case Statement.Switch s: Scan(s.Selector); foreach (var arm in s.Cases) ScanBody(arm.Body); break;
-            }
+                    case Statement.Declare d: names.Add(d.Name); if (d.Initializer is { } value) Scan(value); break;
+                    case Statement.Store s: Scan(s.Target); Scan(s.Value); break;
+                    case Statement.Evaluate e: Scan(e.Value); break;
+                    case Statement.Return { Value: { } returned }: Scan(returned); break;
+                    case Statement.Nested n: ScanBody(n.Body); break;
+                    case Statement.If i: Scan(i.Condition); ScanBody(i.Accept); ScanBody(i.Reject); break;
+                    case Statement.Loop l: ScanBody(l.Body); ScanBody(l.Continuing); if (l.BreakIf is { } condition) Scan(condition); break;
+                    case Statement.Switch s: Scan(s.Selector); foreach (var arm in s.Cases) ScanBody(arm.Body); break;
+                }
         }
         foreach (var function in input.Functions) { names.UnionWith(function.Arguments.Select(a => a.Name)); ScanBody(function.Body); }
         foreach (var constant in input.Constants) if (constant.Value is { } value) Scan(value);
@@ -46,25 +55,27 @@ internal static class WgslBuiltinNameLowering
             .Where(builtins.Contains).ToDictionary(n => n, Fresh, StringComparer.Ordinal);
         string ModuleName(string name) => moduleNames.GetValueOrDefault(name, name);
         var types = new Dictionary<ShaderType, ShaderType>();
-        ShaderType Type(ShaderType type) {
+        ShaderType Type(ShaderType type)
+        {
             if (types.TryGetValue(type, out var known)) return known;
             ShaderType result = type switch {
                 ShaderType.Pointer p => p with { Base = Type(p.Base) },
                 ShaderType.Array a => a with { Element = Type(a.Element), OverrideLength = a.OverrideLength is { } length ? ModuleName(length) : null },
                 ShaderType.BindingArray a => a with { Element = Type(a.Element), OverrideLength = a.OverrideLength is { } length ? ModuleName(length) : null },
-                ShaderType.Structure s => s with { Name = ModuleName(s.Name), Members = s.Members.Select(m => m with { Type = Type(m.Type) }).ToArray() }, _ => type
+                ShaderType.Structure s => s with { Name = ModuleName(s.Name), Members = s.Members.Select(m => m with { Type = Type(m.Type) }).ToArray() },
+                _ => type
             };
             types.Add(type, result); return result;
         }
         var scopes = new Stack<Dictionary<string, string>>();
         string Reference(string name) { foreach (var scope in scopes) if (scope.TryGetValue(name, out var local)) return local; return ModuleName(name); }
         string Declare(string name) { string renamed = builtins.Contains(name) ? Fresh(name) : name; scopes.Peek()[name] = renamed; return renamed; }
-        Expression Expr(Expression e) {
+        Expression Expr(Expression e)
+        {
             Expression result = e switch {
                 Expression.Reference r => new Expression.Reference(Reference(r.Name), Type(r.Type)),
                 Expression.Literal l => new Expression.Literal(l.Value, Type(l.Type)),
-                Expression.Call c => new Expression.Call(c.Binding == CallBinding.Builtin ? c.Function : ModuleName(c.Function), c.Arguments.Select(Expr).ToArray(), Type(c.Type), c.Binding)
-                                        { AtomicMemory = c.AtomicMemory,MemoryAccess = c.MemoryAccess, ImageAccess = c.ImageAccess },
+                Expression.Call c => new Expression.Call(c.Binding == CallBinding.Builtin ? c.Function : ModuleName(c.Function), c.Arguments.Select(Expr).ToArray(), Type(c.Type), c.Binding) { AtomicMemory = c.AtomicMemory, MemoryAccess = c.MemoryAccess, ImageAccess = c.ImageAccess },
                 Expression.Load l => new Expression.Load(Expr(l.Pointer)) { MemoryAccess = l.MemoryAccess },
                 Expression.Construct c => new Expression.Construct(Type(c.Type), c.Components.Select(Expr).ToArray()),
                 Expression.Convert c => new Expression.Convert(Type(c.Type), Expr(c.Operand), c.Bitcast),
@@ -73,10 +84,12 @@ internal static class WgslBuiltinNameLowering
                 Expression.Access a => new Expression.Access(Expr(a.Base), Expr(a.Index), Type(a.Type)),
                 Expression.Member m => new Expression.Member(Expr(m.Base), m.Name, Type(m.Type)),
                 Expression.Swizzle s => new Expression.Swizzle(Expr(s.Vector), s.Components, Type(s.Type)),
-                Expression.Select s => new Expression.Select(Expr(s.Condition), Expr(s.Accept), Expr(s.Reject)), _ => e
+                Expression.Select s => new Expression.Select(Expr(s.Condition), Expr(s.Accept), Expr(s.Reject)),
+                _ => e
             }; return result with { Span = e.Span };
         }
-        Block Body(Block input, bool scoped = true) {
+        Block Body(Block input, bool scoped = true)
+        {
             if (scoped) scopes.Push(new(StringComparer.Ordinal));
             var output = new Block(); output.DiagnosticFilters.AddRange(input.DiagnosticFilters);
             foreach (var s in input.Statements) {
@@ -93,9 +106,12 @@ internal static class WgslBuiltinNameLowering
                 }
                 else mapped = s switch {
                     Statement.Store store => store with { Target = Expr(store.Target), Value = Expr(store.Value) },
-                    Statement.Evaluate e => e with { Value = Expr(e.Value) }, Statement.Return r => r with { Value = r.Value is null ? null : Expr(r.Value) },
-                    Statement.Nested n => n with { Body = Body(n.Body) }, Statement.If i => i with { Condition = Expr(i.Condition), Accept = Body(i.Accept), Reject = Body(i.Reject) },
-                    Statement.Switch sw => sw with { Selector = Expr(sw.Selector), Cases = sw.Cases.Select(c => c with { Body = Body(c.Body) }).ToArray() }, _ => s
+                    Statement.Evaluate e => e with { Value = Expr(e.Value) },
+                    Statement.Return r => r with { Value = r.Value is null ? null : Expr(r.Value) },
+                    Statement.Nested n => n with { Body = Body(n.Body) },
+                    Statement.If i => i with { Condition = Expr(i.Condition), Accept = Body(i.Accept), Reject = Body(i.Reject) },
+                    Statement.Switch sw => sw with { Selector = Expr(sw.Selector), Cases = sw.Cases.Select(c => c with { Body = Body(c.Body) }).ToArray() },
+                    _ => s
                 };
                 output.Statements.Add(mapped);
             }
@@ -108,9 +124,11 @@ internal static class WgslBuiltinNameLowering
         result.Constants.AddRange(input.Constants.Select(c => c with { Name = ModuleName(c.Name), Type = Type(c.Type), Value = c.Value is null ? null : Expr(c.Value) }));
         foreach (var f in input.Functions) {
             scopes.Push(new(StringComparer.Ordinal));
-            var copy = new ShaderFunction(ModuleName(f.Name)) { ReturnType = Type(f.ReturnType), ReturnBinding = f.ReturnBinding, Stage = f.Stage,
+            var copy = new ShaderFunction(ModuleName(f.Name)) {
+                ReturnType = Type(f.ReturnType), ReturnBinding = f.ReturnBinding, Stage = f.Stage,
                 TaskPayload = f.TaskPayload is { } payload ? ModuleName(payload) : null, MeshOutput = f.MeshOutput is { } mesh ? ModuleName(mesh) : null,
-                WorkgroupSize = f.WorkgroupSize.Select(Expr).ToArray(), EarlyDepthTest = f.EarlyDepthTest, ConservativeDepth = f.ConservativeDepth };
+                WorkgroupSize = f.WorkgroupSize.Select(Expr).ToArray(), EarlyDepthTest = f.EarlyDepthTest, ConservativeDepth = f.ConservativeDepth
+            };
             copy.Arguments.AddRange(f.Arguments.Select(a => a with { Name = Declare(a.Name), Type = Type(a.Type) }));
             copy.Body = Body(f.Body); copy.DiagnosticFilters.AddRange(f.DiagnosticFilters); scopes.Pop(); result.Functions.Add(copy);
         }

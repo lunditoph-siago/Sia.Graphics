@@ -20,8 +20,7 @@ public static partial class WgslWriter
             void Body(Block block)
             {
                 foreach (var statement in block.Statements)
-                    switch (statement)
-                    {
+                    switch (statement) {
                         case Statement.Declare d: reserved.Add(d.Name); break;
                         case Statement.Nested n: Body(n.Body); break;
                         case Statement.If i: Body(i.Accept); Body(i.Reject); break;
@@ -40,8 +39,7 @@ public static partial class WgslWriter
             if (!NarrowInteger(a) && !NarrowInteger(b)) return $"bitcast<{TypeName(to)}>({value})";
             if (NarrowInteger(a) && NarrowInteger(b) && Count(from) == Count(to)) return $"{TypeName(to)}({value})";
             if (globalExpression) return Repack(from, to, value, false).Result;
-            if (!bitcastHelpers.TryGetValue((from, to), out string? name))
-            {
+            if (!bitcastHelpers.TryGetValue((from, to), out string? name)) {
                 int index = bitcastHelpers.Count;
                 do name = "sia_bitcast_" + index++; while (!reserved.Add(name));
                 bitcastHelpers.Add((from, to), name);
@@ -49,16 +47,13 @@ public static partial class WgslWriter
             return $"{name}({value})";
         }
 
-        // Pack little-endian 32-bit words, then rebuild destination components.
-        // Helpers take the source once, preserving function-call side effects.
         private static (string[] Words, string Result) Repack(ShaderType from, ShaderType to, string value, bool namedWords)
         {
             var a = Component(from); var b = Component(to);
             string Part(int i) => Count(from) == 1 ? $"({value})" : $"({value}).{"xyzw"[i]}";
             string SourceWord(int index)
             {
-                if (a.Width == 2)
-                {
+                if (a.Width == 2) {
                     string Half(int i) => i >= Count(from) ? "0u" : a.Kind == ScalarKind.Float
                         ? $"bitcast<u32>(vec2<f16>({Part(i)}, 0h))" : $"u32(u16({Part(i)}))";
                     return $"({Half(index * 2)} | ({Half(index * 2 + 1)} << 16u))";
@@ -73,8 +68,7 @@ public static partial class WgslWriter
             string Target(int index)
             {
                 string bits;
-                if (b.Width == 2)
-                {
+                if (b.Width == 2) {
                     bits = index % 2 == 0 ? Word(index / 2) : $"({Word(index / 2)} >> 16u)";
                     return b.Kind == ScalarKind.Float ? $"bitcast<vec2<f16>>({bits}).x" : $"{TypeName(b)}({bits})";
                 }
@@ -87,8 +81,7 @@ public static partial class WgslWriter
 
         private void WriteBitcastHelpers()
         {
-            foreach (var ((from, to), name) in bitcastHelpers)
-            {
+            foreach (var ((from, to), name) in bitcastHelpers) {
                 Line(); Open($"fn {name}(value: {TypeName(from)}) -> {TypeName(to)}");
                 var (words, result) = Repack(from, to, "value", true);
                 for (int i = 0; i < words.Length; i++) Line($"let word{i}: u32 = {words[i]};");

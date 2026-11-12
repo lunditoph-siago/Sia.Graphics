@@ -11,7 +11,6 @@ internal static partial class PointerAliasAnalysis
 
     internal static Dictionary<int, HashSet<Root>> Origins(Module module, ControlFlowFunction graph)
         => CanonicalAnalysis.ComputeOrigins(module, graph);
-    /// <summary>SSA address roots, including loop/merge edge arguments. No target reconstruction is needed.</summary>
     private sealed class CanonicalAnalysis(Module module, ControlFlowFunction graph, Func<string, Summary> callee,
         DiagnosticStage stage)
     {
@@ -33,7 +32,8 @@ internal static partial class PointerAliasAnalysis
             bool changed;
             do {
                 changed = false;
-                bool Add(SsaValue value, IEnumerable<Root> roots) {
+                bool Add(SsaValue value, IEnumerable<Root> roots)
+                {
                     if (!origins.TryGetValue(value.Id, out var current)) return false;
                     int before = current.Count; current.UnionWith(roots); return current.Count != before;
                 }
@@ -51,9 +51,6 @@ internal static partial class PointerAliasAnalysis
                         ValueOperation.Binary { Operator: "+" } b => Roots(b.Left),
                         ValueOperation.Swizzle s => Roots(s.Vector),
                         ValueOperation.Select s => Roots(s.Accept).Concat(Roots(s.Reject)),
-                        // A loaded address names the stored pointee, not the slot
-                        // allocation. Keep flow-insensitive may-alias roots while
-                        // ordered loads retain their own SSA snapshots.
                         ValueOperation.Load l when l.Pointer.Type is ShaderType.Pointer { Base: ShaderType.Pointer }
                             => instructions.Select(i => i.Operation).OfType<ValueOperation.Store>()
                                 .Where(s => Roots(s.Pointer).Overlaps(Roots(l.Pointer))).SelectMany(s => Roots(s.Value)).ToArray(),

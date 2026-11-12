@@ -1,0 +1,45 @@
+using Sia.Spirv.Compiler.Compilation;
+using Sia.Spirv.Compiler.Translation.IR;
+using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
+
+namespace Sia.Spirv.Compiler.Translation.Back;
+
+internal interface IShaderBackend<TPrepared, TArtifact>
+{
+    void ValidateInput(Module module, SpirvCompilationTarget target);
+
+    TPrepared Prepare(CanonicalModule module, SpirvCompilationTarget target);
+
+    void ValidatePrepared(TPrepared module, SpirvCompilationTarget target);
+
+    TArtifact Emit(TPrepared module);
+
+    void ValidateArtifact(TArtifact artifact, SpirvCompilationTarget target);
+}
+
+internal static class ShaderOutputPipeline
+{
+    public static TArtifact Write<TPrepared, TArtifact>(
+        Module input,
+        SpirvCompilationTarget target,
+        IShaderBackend<TPrepared, TArtifact> backend)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        backend.ValidateInput(input, target);
+
+        return WriteCanonical(CanonicalShaderPipeline.Prepare(input), target, backend);
+    }
+
+    internal static TArtifact WriteCanonical<TPrepared, TArtifact>(
+        CanonicalModule input,
+        SpirvCompilationTarget target,
+        IShaderBackend<TPrepared, TArtifact> backend)
+    {
+        var prepared = backend.Prepare(input, target);
+        backend.ValidatePrepared(prepared, target);
+
+        var artifact = backend.Emit(prepared);
+        backend.ValidateArtifact(artifact, target);
+        return artifact;
+    }
+}

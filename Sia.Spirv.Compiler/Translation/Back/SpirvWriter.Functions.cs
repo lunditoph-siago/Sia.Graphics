@@ -44,17 +44,15 @@ public static partial class SpirvWriter
                 uint signature = owner.FunctionType(function.ReturnType, function.Arguments.Select(a => a.Type));
                 var header = new List<SpirvInstruction> { I(Op.Function, owner.Type(function.ReturnType), functionId, 0, signature) };
                 owner.Name(functionId, function.Name); scopes.Push(new(StringComparer.Ordinal));
-                foreach (var argument in function.Arguments)
-                {
+                foreach (var argument in function.Arguments) {
                     uint id = owner.Id(); header.Add(I(Op.FunctionParameter, owner.Type(argument.Type), id));
                     scopes.Peek().Add(argument.Name, new(id, argument.Type, false)); owner.Name(id, argument.Name);
                 }
                 uint entry = owner.Id();
                 Body(function.Body, false);
-                if (!terminated)
-                {
+                if (!terminated) {
                     if (function.ReturnType is ShaderType.Void) Add(Op.Return);
-                    else Add(Op.Unreachable); // A validator rejects a reachable missing return.
+                    else Add(Op.Unreachable);
                 }
                 owner.bodies.AddRange(header); owner.bodies.Add(I(Op.Label, entry));
                 owner.bodies.AddRange(variables); owner.bodies.AddRange(code); owner.bodies.Add(I(Op.FunctionEnd));
@@ -64,20 +62,15 @@ public static partial class SpirvWriter
             private void Body(Block block, bool scope = true)
             {
                 if (scope) scopes.Push(new(StringComparer.Ordinal));
-                foreach (var statement in block.Statements)
-                {
-                    // The module validator checks unreachable source too; it has no emitted instructions.
+                foreach (var statement in block.Statements) {
                     if (terminated) break;
-                    switch (statement)
-                    {
+                    switch (statement) {
                         case Statement.Nested n: Body(n.Body); break;
                         case Statement.Declare d:
                             uint id;
-                            if (d.Mutable)
-                            {
+                            if (d.Mutable) {
                                 id = Variable(d.Type, d.Name);
-                                if (d.Initialize && d.Type is not ShaderType.RayQuery)
-                                {
+                                if (d.Initialize && d.Type is not ShaderType.RayQuery) {
                                     uint initializer = d.Initializer is null ? owner.Null(d.Type) : Value(d.Initializer);
                                     Add(Op.Store, id, initializer);
                                 }
@@ -142,8 +135,7 @@ public static partial class SpirvWriter
                 breakTargets.Push(merge); continueTargets.Push(continuing); scopes.Push(new(StringComparer.Ordinal));
                 Label(body); Body(statement.Body, false); Branch(continuing);
                 Label(continuing); scopes.Push(new(StringComparer.Ordinal)); Body(statement.Continuing, false);
-                if (!terminated)
-                {
+                if (!terminated) {
                     if (statement.BreakIf is null) Branch(header);
                     else { Add(Op.BranchConditional, Value(statement.BreakIf), merge, header); terminated = true; }
                 }
@@ -156,8 +148,7 @@ public static partial class SpirvWriter
                 int defaultIndex = statement.Cases.ToList().FindIndex(c => c.IsDefault);
                 uint defaultLabel = defaultIndex >= 0 ? labels[defaultIndex] : merge;
                 var operands = new List<uint> { selector, defaultLabel };
-                for (int i = 0; i < labels.Length; i++) foreach (var value in statement.Cases[i].Values)
-                {
+                for (int i = 0; i < labels.Length; i++) foreach (var value in statement.Cases[i].Values) {
                     uint literal = value.Value switch { uint u => u, int n => unchecked((uint)n), _ => throw owner.Error("Switch needs 32-bit integer cases.") };
                     operands.Add(literal); operands.Add(labels[i]);
                 }
@@ -166,25 +157,22 @@ public static partial class SpirvWriter
                 breakTargets.Pop(); Label(merge);
             }
 
-            private bool IsPlace(Expression expression) => expression switch
-            {
+            private bool IsPlace(Expression expression) => expression switch {
                 Expression.Reference r => Lookup(r.Name).Place,
                 Expression.Unary { Operator: "*" } => true,
-                Expression.Access a => IsPlace(a.Base), Expression.Member m => IsPlace(m.Base), _ => false
+                Expression.Access a => IsPlace(a.Base),
+                Expression.Member m => IsPlace(m.Base),
+                _ => false
             };
             private static ShaderType DataType(ShaderType type) => type is ShaderType.Pointer p ? p.Base : type;
             private uint AddressIndex(Expression expression)
             {
                 uint value = Value(expression);
-                // A runtime WGSL index may be negative. SPIR-V disallows a
-                // negative OpConstant operand of OpAccessChain, even though a
-                // non-constant signed index has the required runtime behavior.
                 return owner.negativeIndexConstants.Contains(value) ? Result(Op.CopyObject, expression.Type, value) : value;
             }
             private uint Place(Expression expression)
             {
-                switch (expression)
-                {
+                switch (expression) {
                     case Expression.Reference reference:
                         var symbol = Lookup(reference.Name);
                         if (!symbol.Place) throw owner.Error("Value is not an addressable place.", expression.Span);
@@ -192,10 +180,8 @@ public static partial class SpirvWriter
                     case Expression.Unary { Operator: "*" } dereference: return Value(dereference.Operand);
                     case Expression.Access access:
                         uint container = Place(access.Base), index = AddressIndex(access.Index);
-                        if (DataType(access.Base.Type) is ShaderType.BindingArray bindingArray)
-                        {
+                        if (DataType(access.Base.Type) is ShaderType.BindingArray bindingArray) {
                             uint bindingPointer = Result(Op.AccessChain, PointerType(access.Type, access.Base), container, index);
-                            // Conservative until uniformity analysis proves the index dynamically uniform.
                             ShaderType resource = bindingArray.Element is ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure ? bindingArray.Element : PointerType(bindingArray.Element, access.Base);
                             if (!ConstantEvaluator.TryEvaluate(access.Index, out _)) { owner.NonUniform(index, resource); owner.NonUniform(bindingPointer, resource); }
                             return bindingPointer;
@@ -220,10 +206,14 @@ public static partial class SpirvWriter
                 if (parent is Expression.Member m) return PointerType(type, m.Base);
                 return new(type, AddressSpace.Function);
             }
-            private AddressSpace Address(uint storage) => storage switch
-            {
-                0 => AddressSpace.Handle, 2 => AddressSpace.Uniform, 4 => AddressSpace.Workgroup,
-                6 => AddressSpace.Private, 7 => AddressSpace.Function, 9 => AddressSpace.Immediate, 12 => AddressSpace.Storage,
+            private AddressSpace Address(uint storage) => storage switch {
+                0 => AddressSpace.Handle,
+                2 => AddressSpace.Uniform,
+                4 => AddressSpace.Workgroup,
+                6 => AddressSpace.Private,
+                7 => AddressSpace.Function,
+                9 => AddressSpace.Immediate,
+                12 => AddressSpace.Storage,
                 _ => throw owner.Error("Unsupported pointer storage.")
             };
             private uint MemberIndex(ShaderType type, string name)
@@ -235,14 +225,10 @@ public static partial class SpirvWriter
 
             private uint Value(Expression expression)
             {
-                // Preserve aggregate zero as OpConstantNull. Expanding it to a fixed
-                // list of components would bind a subsequently specialized array
-                // to its default length instead of retaining its zero-value meaning.
                 if (expression is Expression.Construct { Components.Count: 0 } zero && zero.Type is ShaderType.Array or ShaderType.Structure)
                     return owner.Null(zero.Type);
                 if (ConstantEvaluator.TryEvaluateRuntime(expression, out var constant)) return owner.Constant(constant);
-                switch (expression)
-                {
+                switch (expression) {
                     case Expression.HelperInvocation:
                         owner.capabilities.Add(5379);
                         if (owner.OutputVersion < 0x10600) owner.extensions.Add("SPV_EXT_demote_to_helper_invocation");
@@ -257,15 +243,15 @@ public static partial class SpirvWriter
                     case Expression.Unary { Operator: "*" } dereference:
                         return MemoryLoad(Value(dereference.Operand), DataType(dereference.Type), null);
                     case Expression.Unary unary:
-                        if (unary.Type is ShaderType.Matrix unaryMatrix)
-                        {
+                        if (unary.Type is ShaderType.Matrix unaryMatrix) {
                             uint matrixValue = Value(unary.Operand);
                             var column = new ShaderType.Vector(unaryMatrix.Rows, unaryMatrix.Component);
                             return Result(Op.CompositeConstruct, unary.Type, Enumerable.Range(0, unaryMatrix.Columns).Select(i => Result(Op.FNegate, column, Result(Op.CompositeExtract, column, matrixValue, (uint)i))).ToArray());
                         }
-                        return Result(unary.Operator switch
-                        {
-                            "!" => Op.LogicalNot, "~" => Op.Not, "-" => Scalar(unary.Type).Kind == ScalarKind.Float ? Op.FNegate : Op.SNegate,
+                        return Result(unary.Operator switch {
+                            "!" => Op.LogicalNot,
+                            "~" => Op.Not,
+                            "-" => Scalar(unary.Type).Kind == ScalarKind.Float ? Op.FNegate : Op.SNegate,
                             _ => throw owner.Error("Unknown unary operation.")
                         }, unary.Type, Value(unary.Operand));
                     case Expression.Binary binary: return Binary(binary);
@@ -273,11 +259,9 @@ public static partial class SpirvWriter
                     case Expression.Construct construct:
                         if (construct.Components.Count == 0) return owner.Null(construct.Type);
                         var elements = construct.Components.Select(Value).ToArray();
-                        if (construct.Type is ShaderType.Vector vector)
-                        {
+                        if (construct.Type is ShaderType.Vector vector) {
                             var components = new List<uint>();
-                            for (int i = 0; i < elements.Length; i++)
-                            {
+                            for (int i = 0; i < elements.Length; i++) {
                                 if (construct.Components[i].Type is ShaderType.Vector part)
                                     for (int j = 0; j < part.Size; j++) components.Add(Result(Op.CompositeExtract, part.Component, elements[i], (uint)j));
                                 else components.Add(elements[i]);
@@ -287,8 +271,7 @@ public static partial class SpirvWriter
                         }
                         return Result(Op.CompositeConstruct, construct.Type, elements);
                     case Expression.Access access:
-                        if (DataType(access.Base.Type) is ShaderType.BindingArray { Element: ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure } bindingArray)
-                        {
+                        if (DataType(access.Base.Type) is ShaderType.BindingArray { Element: ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure } bindingArray) {
                             uint bindingPointer = Place(access), bindingValue = Result(Op.Load, bindingArray.Element, bindingPointer);
                             if (owner.nonUniformValues.Contains(bindingPointer)) owner.NonUniform(bindingValue, bindingArray.Element);
                             return bindingValue;
@@ -325,9 +308,11 @@ public static partial class SpirvWriter
                 }
             }
 
-            private ShaderType.Scalar Scalar(ShaderType type) => type switch
-            {
-                ShaderType.Scalar s => s, ShaderType.Vector v => v.Component, ShaderType.Matrix m => m.Component, ShaderType.CooperativeMatrix m => m.Component,
+            private ShaderType.Scalar Scalar(ShaderType type) => type switch {
+                ShaderType.Scalar s => s,
+                ShaderType.Vector v => v.Component,
+                ShaderType.Matrix m => m.Component,
+                ShaderType.CooperativeMatrix m => m.Component,
                 _ => throw owner.Error("Expected numeric type.")
             };
             private uint Splat(uint scalar, ShaderType.Vector vector) => Result(Op.CompositeConstruct, vector, Enumerable.Repeat(scalar, vector.Size).ToArray());
@@ -337,8 +322,7 @@ public static partial class SpirvWriter
                 ShaderType a = binary.Left.Type, b = binary.Right.Type;
                 bool floating = Scalar(a).Kind == ScalarKind.Float, signed = Scalar(a).Kind == ScalarKind.Sint, boolean = Scalar(a).Kind == ScalarKind.Bool;
                 Op op;
-                if (a is ShaderType.Matrix leftMatrix && b is ShaderType.Matrix && binary.Operator is "+" or "-")
-                {
+                if (a is ShaderType.Matrix leftMatrix && b is ShaderType.Matrix && binary.Operator is "+" or "-") {
                     var column = new ShaderType.Vector(leftMatrix.Rows, leftMatrix.Component);
                     return Result(Op.CompositeConstruct, binary.Type, Enumerable.Range(0, leftMatrix.Columns).Select(i => Result(binary.Operator == "+" ? Op.FAdd : Op.FSub, column, Result(Op.CompositeExtract, column, left, (uint)i), Result(Op.CompositeExtract, column, right, (uint)i))).ToArray());
                 }
@@ -349,23 +333,28 @@ public static partial class SpirvWriter
                 else if (binary.Operator == "*" && b is ShaderType.Matrix or ShaderType.CooperativeMatrix && a is ShaderType.Scalar) { (left, right) = (right, left); op = Op.MatrixTimesScalar; }
                 else if (binary.Operator == "*" && floating && a is ShaderType.Vector && b is ShaderType.Scalar) op = Op.VectorTimesScalar;
                 else if (binary.Operator == "*" && floating && b is ShaderType.Vector && a is ShaderType.Scalar) { (left, right) = (right, left); op = Op.VectorTimesScalar; }
-                else
-                {
+                else {
                     if (a is ShaderType.Vector av && b is ShaderType.Scalar) right = Splat(right, av);
                     if (b is ShaderType.Vector bv && a is ShaderType.Scalar) { left = Splat(left, bv); a = b; }
-                    op = binary.Operator switch
-                    {
-                        "+" => floating ? Op.FAdd : Op.IAdd, "-" => floating ? Op.FSub : Op.ISub, "*" => floating ? Op.FMul : Op.IMul,
-                        "/" => floating ? Op.FDiv : signed ? Op.SDiv : Op.UDiv, "%" => floating ? Op.FRem : signed ? Op.SRem : Op.UMod,
+                    op = binary.Operator switch {
+                        "+" => floating ? Op.FAdd : Op.IAdd,
+                        "-" => floating ? Op.FSub : Op.ISub,
+                        "*" => floating ? Op.FMul : Op.IMul,
+                        "/" => floating ? Op.FDiv : signed ? Op.SDiv : Op.UDiv,
+                        "%" => floating ? Op.FRem : signed ? Op.SRem : Op.UMod,
                         "==" => boolean ? Op.LogicalEqual : floating ? Op.FOrdEqual : Op.IEqual,
                         "!=" => boolean ? Op.LogicalNotEqual : floating ? Op.FUnordNotEqual : Op.INotEqual,
                         "<" => floating ? Op.FOrdLessThan : signed ? Op.SLessThan : Op.ULessThan,
                         "<=" => floating ? Op.FOrdLessThanEqual : signed ? Op.SLessThanEqual : Op.ULessThanEqual,
                         ">" => floating ? Op.FOrdGreaterThan : signed ? Op.SGreaterThan : Op.UGreaterThan,
                         ">=" => floating ? Op.FOrdGreaterThanEqual : signed ? Op.SGreaterThanEqual : Op.UGreaterThanEqual,
-                        "&" => boolean ? Op.LogicalAnd : Op.BitwiseAnd, "|" => boolean ? Op.LogicalOr : Op.BitwiseOr,
-                        "^" => boolean ? Op.LogicalNotEqual : Op.BitwiseXor, "&&" => Op.LogicalAnd, "||" => Op.LogicalOr,
-                        "<<" => Op.ShiftLeftLogical, ">>" => signed ? Op.ShiftRightArithmetic : Op.ShiftRightLogical,
+                        "&" => boolean ? Op.LogicalAnd : Op.BitwiseAnd,
+                        "|" => boolean ? Op.LogicalOr : Op.BitwiseOr,
+                        "^" => boolean ? Op.LogicalNotEqual : Op.BitwiseXor,
+                        "&&" => Op.LogicalAnd,
+                        "||" => Op.LogicalOr,
+                        "<<" => Op.ShiftLeftLogical,
+                        ">>" => signed ? Op.ShiftRightArithmetic : Op.ShiftRightLogical,
                         _ => throw owner.Error("Unsupported binary operator.", binary.Span)
                     };
                 }
@@ -386,8 +375,7 @@ public static partial class SpirvWriter
                 uint value = Value(conversion.Operand); ShaderType from = conversion.Operand.Type, to = conversion.Type;
                 if (from == to) return value;
                 if (conversion.Bitcast) return Result(Op.Bitcast, to, value);
-                if (from is ShaderType.Matrix fromMatrix && to is ShaderType.Matrix toMatrix)
-                {
+                if (from is ShaderType.Matrix fromMatrix && to is ShaderType.Matrix toMatrix) {
                     var sourceColumn = new ShaderType.Vector(fromMatrix.Rows, fromMatrix.Component);
                     var resultColumn = new ShaderType.Vector(toMatrix.Rows, toMatrix.Component);
                     return Result(Op.CompositeConstruct, to, Enumerable.Range(0, toMatrix.Columns).Select(i => Result(Op.FConvert, resultColumn, Result(Op.CompositeExtract, sourceColumn, value, (uint)i))).ToArray());
@@ -397,24 +385,24 @@ public static partial class SpirvWriter
                 if (a.Kind == ScalarKind.Bool) return Result(Op.Select, to, value, One(to), owner.Null(to));
                 if (a.Kind == b.Kind && a.Width == b.Width) return value;
                 if (a.Kind is ScalarKind.Sint or ScalarKind.Uint && b.Kind is ScalarKind.Sint or ScalarKind.Uint
-                    && a.Kind != b.Kind && a.Width != b.Width)
-                {
+                    && a.Kind != b.Kind && a.Width != b.Width) {
                     var component = new ShaderType.Scalar(a.Kind, b.Width);
                     ShaderType intermediate = to is ShaderType.Vector vector ? new ShaderType.Vector(vector.Size, component) : component;
                     return Result(Op.Bitcast, to, Result(a.Kind == ScalarKind.Sint ? Op.SConvert : Op.UConvert, intermediate, value));
                 }
-                if (a.Kind == ScalarKind.Float && b.Kind is ScalarKind.Sint or ScalarKind.Uint)
-                {
+                if (a.Kind == ScalarKind.Float && b.Kind is ScalarKind.Sint or ScalarKind.Uint) {
                     var bounds = NumericConversions.IntegerFloatBounds(a, b);
                     value = Glsl(43, from, value, LiteralSplat(NumericConversions.FloatValue(bounds.Minimum, a), from), LiteralSplat(NumericConversions.FloatValue(bounds.Maximum, a), from));
                 }
-                Op op = (a.Kind, b.Kind) switch
-                {
+                Op op = (a.Kind, b.Kind) switch {
                     (ScalarKind.Float, ScalarKind.Float) => Op.FConvert,
-                    (ScalarKind.Float, ScalarKind.Uint) => Op.ConvertFToU, (ScalarKind.Float, ScalarKind.Sint) => Op.ConvertFToS,
-                    (ScalarKind.Uint, ScalarKind.Float) => Op.ConvertUToF, (ScalarKind.Sint, ScalarKind.Float) => Op.ConvertSToF,
+                    (ScalarKind.Float, ScalarKind.Uint) => Op.ConvertFToU,
+                    (ScalarKind.Float, ScalarKind.Sint) => Op.ConvertFToS,
+                    (ScalarKind.Uint, ScalarKind.Float) => Op.ConvertUToF,
+                    (ScalarKind.Sint, ScalarKind.Float) => Op.ConvertSToF,
                     _ when a.Width == b.Width => Op.Bitcast,
-                    (_, ScalarKind.Uint) => Op.UConvert, (_, ScalarKind.Sint) => Op.SConvert,
+                    (_, ScalarKind.Uint) => Op.UConvert,
+                    (_, ScalarKind.Sint) => Op.SConvert,
                     _ => throw owner.Error("Unsupported conversion.")
                 };
                 return Result(op, to, value);

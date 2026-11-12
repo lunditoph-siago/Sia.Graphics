@@ -7,15 +7,15 @@ namespace Sia.Spirv.Compiler.Translation.Back;
 public static partial class WgslWriter
 {
     internal static string Emit(Module module) => new Writer().Write(module);
-    private static bool IsAbstract(ShaderType type) => type switch
-    {
+    private static bool IsAbstract(ShaderType type) => type switch {
         ShaderType.Scalar { Kind: ScalarKind.AbstractInt or ScalarKind.AbstractFloat } => true,
-        ShaderType.Vector v => IsAbstract(v.Component), ShaderType.Matrix m => IsAbstract(m.Component),
-        ShaderType.Array a => IsAbstract(a.Element), _ => false
+        ShaderType.Vector v => IsAbstract(v.Component),
+        ShaderType.Matrix m => IsAbstract(m.Component),
+        ShaderType.Array a => IsAbstract(a.Element),
+        _ => false
     };
 
-    public static string TypeName(ShaderType type) => type switch
-    {
+    public static string TypeName(ShaderType type) => type switch {
         ShaderType.Void => "void",
         ShaderType.Scalar { Kind: ScalarKind.Bool } => "bool",
         ShaderType.Scalar { Kind: ScalarKind.Sint, Width: 2 } => "i16",
@@ -61,15 +61,20 @@ public static partial class WgslWriter
         return $"texture_{(image.Multisampled ? "multisampled_" : "")}{dimension}<{TypeName(image.Component)}>";
     }
 
-    internal static string Space(AddressSpace space) => space switch
-    {
-        AddressSpace.Function => "function", AddressSpace.Private => "private", AddressSpace.Workgroup => "workgroup",
-        AddressSpace.Uniform => "uniform", AddressSpace.Storage => "storage", AddressSpace.Immediate => "immediate", AddressSpace.TaskPayload => "task_payload",
+    internal static string Space(AddressSpace space) => space switch {
+        AddressSpace.Function => "function",
+        AddressSpace.Private => "private",
+        AddressSpace.Workgroup => "workgroup",
+        AddressSpace.Uniform => "uniform",
+        AddressSpace.Storage => "storage",
+        AddressSpace.Immediate => "immediate",
+        AddressSpace.TaskPayload => "task_payload",
         _ => throw new ShaderException(DiagnosticStage.WgslWrite, "Handle space is implicit in WGSL.")
     };
-    internal static string Access(StorageAccess access) => access switch
-    {
-        StorageAccess.Read => "read", StorageAccess.Write => "write", StorageAccess.ReadWrite => "read_write",
+    internal static string Access(StorageAccess access) => access switch {
+        StorageAccess.Read => "read",
+        StorageAccess.Write => "write",
+        StorageAccess.ReadWrite => "read_write",
         StorageAccess.ReadWrite | StorageAccess.Atomic => "atomic",
         _ => throw new ShaderException(DiagnosticStage.WgslWrite, "Empty storage access.")
     };
@@ -78,8 +83,7 @@ public static partial class WgslWriter
     private static string Expr(Expression expression, Func<Expression.Convert, string>? bitcast)
     {
         string E(Expression value) => Expr(value, bitcast);
-        return expression switch
-        {
+        return expression switch {
             Expression.Literal literal => Literal(literal),
             Expression.Reference r => r.Name,
             Expression.Load l => E(l.Pointer),
@@ -140,10 +144,11 @@ public static partial class WgslWriter
         var args = call.Arguments;
         if (call.Function == "spirvRayQueryInitializeKHR")
             return $"rayQueryInitialize({expr(args[0])}, {expr(args[1])}, RayDesc({string.Join(", ", new[] { 2, 3, 5, 7, 4, 6 }.Select(i => expr(args[i])))}))";
-        string name = call.Function switch
-        {
-            "spirvRayQueryProceedKHR" => "rayQueryProceed", "spirvRayQueryGenerateIntersectionKHR" => "rayQueryGenerateIntersection",
-            "spirvRayQueryConfirmIntersectionKHR" => "rayQueryConfirmIntersection", "spirvRayQueryTerminateKHR" => "rayQueryTerminate",
+        string name = call.Function switch {
+            "spirvRayQueryProceedKHR" => "rayQueryProceed",
+            "spirvRayQueryGenerateIntersectionKHR" => "rayQueryGenerateIntersection",
+            "spirvRayQueryConfirmIntersectionKHR" => "rayQueryConfirmIntersection",
+            "spirvRayQueryTerminateKHR" => "rayQueryTerminate",
             _ => throw new ShaderException(DiagnosticStage.WgslWrite, "Unsupported raw ray-query operation.")
         };
         return $"{name}({string.Join(", ", args.Select(expr))})";
@@ -156,19 +161,21 @@ public static partial class WgslWriter
                 "Raw SPIR-V ray-query state getters require equivalent WGSL lowering; committed-intersection reads may occur before traversal completion.");
         string query = expr(call.Arguments[0]);
         if (call.Function == "spirvRayQueryGetIntersectionTriangleVertexPositionsKHR") return $"getCandidateHitVertexPositions({query})";
-        string member = call.Function switch
-        {
-            "spirvRayQueryGetIntersectionTypeKHR" => "kind", "spirvRayQueryGetIntersectionTKHR" => "t",
+        string member = call.Function switch {
+            "spirvRayQueryGetIntersectionTypeKHR" => "kind",
+            "spirvRayQueryGetIntersectionTKHR" => "t",
             "spirvRayQueryGetIntersectionInstanceCustomIndexKHR" => "instance_custom_data",
             "spirvRayQueryGetIntersectionInstanceIdKHR" => "instance_index",
             "spirvRayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetKHR" => "sbt_record_offset",
-            "spirvRayQueryGetIntersectionGeometryIndexKHR" => "geometry_index", "spirvRayQueryGetIntersectionPrimitiveIndexKHR" => "primitive_index",
-            "spirvRayQueryGetIntersectionBarycentricsKHR" => "barycentrics", "spirvRayQueryGetIntersectionFrontFaceKHR" => "front_face",
-            "spirvRayQueryGetIntersectionObjectToWorldKHR" => "object_to_world", "spirvRayQueryGetIntersectionWorldToObjectKHR" => "world_to_object",
+            "spirvRayQueryGetIntersectionGeometryIndexKHR" => "geometry_index",
+            "spirvRayQueryGetIntersectionPrimitiveIndexKHR" => "primitive_index",
+            "spirvRayQueryGetIntersectionBarycentricsKHR" => "barycentrics",
+            "spirvRayQueryGetIntersectionFrontFaceKHR" => "front_face",
+            "spirvRayQueryGetIntersectionObjectToWorldKHR" => "object_to_world",
+            "spirvRayQueryGetIntersectionWorldToObjectKHR" => "world_to_object",
             _ => throw new ShaderException(DiagnosticStage.WgslWrite, "Unsupported ray query getter.")
         };
         string value = $"rayQueryGetCandidateIntersection({query}).{member}";
-        // Candidate kinds are triangle=0/AABB=1 in SPIR-V and 1/3 in WGSL.
         return member == "kind" ? $"select(1u, 0u, {value} == 1u)" : value;
     }
 
@@ -198,19 +205,16 @@ public static partial class WgslWriter
             return $"{TypeName(narrow)}({System.Convert.ToString(literal.Value, CultureInfo.InvariantCulture)})";
         if (literal.Value is int i && i == int.MinValue) return "(-2147483647i - 1i)";
         if (literal.Value is long l && l == long.MinValue) return literal.Type is ShaderType.Scalar { Kind: ScalarKind.Sint } ? "i64(9223372036854775808lu)" : "(-9223372036854775807 - 1)";
-        if (literal.Value is float f)
-        {
+        if (literal.Value is float f) {
             if (!float.IsFinite(f)) return $"bitcast<f32>({BitConverter.SingleToUInt32Bits(f)}u)";
             string number = f.ToString("R", CultureInfo.InvariantCulture);
             return number + "f";
         }
-        if (literal.Value is Half h)
-        {
+        if (literal.Value is Half h) {
             if (!Half.IsFinite(h)) return $"bitcast<vec2<f16>>({BitConverter.HalfToUInt16Bits(h)}u).x";
             return ((float)h).ToString("R", CultureInfo.InvariantCulture) + "h";
         }
-        if (literal.Value is double d)
-        {
+        if (literal.Value is double d) {
             bool concrete = literal.Type is ShaderType.Scalar { Kind: ScalarKind.Float, Width: 8 };
             if (!double.IsFinite(d)) return $"bitcast<f64>({BitConverter.DoubleToUInt64Bits(d)}lu)";
             string number = d.ToString("R", CultureInfo.InvariantCulture);
@@ -247,8 +251,7 @@ public static partial class WgslWriter
             ReserveNames(module);
             var interfaceStructures = new HashSet<ShaderType>(module.Functions.Where(f => f.Stage is not null)
                 .SelectMany(f => f.Arguments.Select(a => a.Type).Append(f.ReturnType)));
-            foreach (var function in module.Functions.Where(f => f.Stage == ShaderStage.Mesh))
-            {
+            foreach (var function in module.Functions.Where(f => f.Stage == ShaderStage.Mesh)) {
                 var mesh = MeshShaderInfo.Inspect(module, function);
                 interfaceStructures.Add(mesh.Structure); interfaceStructures.Add(mesh.Vertices.Element); interfaceStructures.Add(mesh.Primitives.Element);
             }
@@ -265,22 +268,19 @@ public static partial class WgslWriter
             foreach (var f in module.Functions) { IoEnable(f.ReturnBinding); foreach (var a in f.Arguments) IoEnable(a.Binding); }
             foreach (string enable in enables.Order(StringComparer.Ordinal)) Line($"enable {enable};");
             foreach (var filter in module.DiagnosticFilters) Line($"diagnostic({Filter(filter)});");
-            foreach (var structure in module.Structures)
-            {
+            foreach (var structure in module.Structures) {
                 if (structure.BuiltinResult is not null) continue;
                 Open($"struct {structure.Name}");
                 _ = TypeLayout.Of(structure);
                 uint position = 0;
-                for (int index = 0; index < structure.Members.Count; index++)
-                {
+                for (int index = 0; index < structure.Members.Count; index++) {
                     var member = structure.Members[index];
                     var natural = TypeLayout.Of(member.Type);
                     uint offset = member.Offset ?? TypeLayout.RoundUp(member.Alignment ?? natural.Alignment, position);
                     if (index == 0 && offset != 0)
                         throw new ShaderException(DiagnosticStage.WgslWrite, "Nonzero first member offset requires padding-field lowering.");
                     uint size = member.Size ?? natural.Size;
-                    if (index + 1 < structure.Members.Count && structure.Members[index + 1].Offset is uint next)
-                    {
+                    if (index + 1 < structure.Members.Count && structure.Members[index + 1].Offset is uint next) {
                         var nextMember = structure.Members[index + 1];
                         uint nextAlignment = nextMember.Alignment ?? TypeLayout.Of(nextMember.Type).Alignment;
                         if (TypeLayout.RoundUp(nextAlignment, checked(offset + size)) < next) size = checked(next - offset);
@@ -294,8 +294,7 @@ public static partial class WgslWriter
             globalExpression = true;
             foreach (var constant in module.Constants)
                 Line($"{(constant.OverrideId is uint id ? $"@id({id}) " : "")}{(constant.IsOverride || constant.IsSpecialization ? "override" : "const")} {constant.Name}{(IsAbstract(constant.Type) ? "" : ": " + TypeName(constant.Type))}{(constant.Value is null ? "" : " = " + Expr(constant.Value))};");
-            foreach (var global in module.Globals)
-            {
+            foreach (var global in module.Globals) {
                 string binding = global.Binding is { } b ? $"@group({b.Group}) @binding({b.Binding}) " : "";
                 string memory = ((global.MemoryDecorations & MemoryDecorations.Coherent) != 0 ? "@coherent " : "")
                     + ((global.MemoryDecorations & MemoryDecorations.Volatile) != 0 ? "@volatile " : "");
@@ -303,12 +302,10 @@ public static partial class WgslWriter
                 Line($"{binding}{memory}var{address} {global.Name}: {TypeName(global.Type)}{(global.Initializer is null ? "" : " = " + Expr(global.Initializer))};");
             }
             globalExpression = false;
-            foreach (var function in module.Functions)
-            {
+            foreach (var function in module.Functions) {
                 Line();
                 foreach (var filter in function.DiagnosticFilters) Line($"@diagnostic({Filter(filter)})");
-                if (function.Stage is ShaderStage stage)
-                {
+                if (function.Stage is ShaderStage stage) {
                     Line("@" + stage.ToString().ToLowerInvariant() + (stage == ShaderStage.Mesh ? $"({function.MeshOutput})" : ""));
                     if (stage is ShaderStage.Compute or ShaderStage.Task or ShaderStage.Mesh) Line($"@workgroup_size({string.Join(", ", function.WorkgroupSize.Select(Expr))})");
                     if (function.TaskPayload is string payload) Line($"@payload({payload})");
@@ -331,10 +328,8 @@ public static partial class WgslWriter
 
         private void Body(Block block)
         {
-            foreach (var statement in InlinePendingArrayArguments(block.Statements))
-            {
-                switch (statement)
-                {
+            foreach (var statement in InlinePendingArrayArguments(block.Statements)) {
+                switch (statement) {
                     case Statement.Nested nested: OpenBlock("", nested.Body); Body(nested.Body); Close(); break;
                     case Statement.Declare d:
                         if (d.Type is ShaderType.Array { OverrideLength: not null })
@@ -348,8 +343,7 @@ public static partial class WgslWriter
                         break;
                     case Statement.Loop l:
                         OpenBlock("loop", l.Body); Body(l.Body);
-                        if (l.Continuing.Statements.Count != 0 || l.Continuing.DiagnosticFilters.Count != 0 || l.BreakIf is not null)
-                        {
+                        if (l.Continuing.Statements.Count != 0 || l.Continuing.DiagnosticFilters.Count != 0 || l.BreakIf is not null) {
                             OpenBlock("continuing", l.Continuing); Body(l.Continuing);
                             if (l.BreakIf is not null) Line($"break if {Expr(l.BreakIf)};");
                             Close();
@@ -357,8 +351,7 @@ public static partial class WgslWriter
                         Close(); break;
                     case Statement.Switch s:
                         Open($"switch ({Expr(s.Selector)})");
-                        foreach (var c in s.Cases)
-                        {
+                        foreach (var c in s.Cases) {
                             string labels = string.Join(", ", c.Values.Select(Expr).Concat(c.IsDefault ? ["default"] : Array.Empty<string>()));
                             OpenBlock((c.Values.Count == 0 ? "default" : "case " + labels) + ":", c.Body); Body(c.Body); Close();
                         }

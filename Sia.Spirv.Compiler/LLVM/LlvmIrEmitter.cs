@@ -16,6 +16,47 @@ namespace Sia.Spirv.Compiler.LLVM;
 
 public sealed class LlvmIrEmitter
 {
+    public LlvmIrModule Emit(
+        string assemblyPath,
+        SpirvKernel kernel,
+        SpirvKernelAbi kernelAbi = SpirvKernelAbi.Vulkan)
+        => EmitCore(assemblyPath, kernel, kernelAbi, null);
+
+    internal LlvmIrModule Emit(string assemblyPath, SpirvKernel kernel, SpirvKernelAbiLayout layout)
+        => EmitCore(assemblyPath, kernel, layout.Abi, layout);
+
+    private static LlvmIrModule EmitCore(
+        string assemblyPath,
+        SpirvKernel kernel,
+        SpirvKernelAbi kernelAbi,
+        SpirvKernelAbiLayout? layout)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
+        ArgumentNullException.ThrowIfNull(kernel);
+
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream, PEStreamOptions.PrefetchEntireImage);
+        var reader = peReader.GetMetadataReader();
+        var methodHandle = (MethodDefinitionHandle)MetadataTokens.EntityHandle(kernel.MetadataToken);
+        var method = reader.GetMethodDefinition(methodHandle);
+        var methodBody = peReader.GetMethodBody(method.RelativeVirtualAddress);
+        using var intrinsics = IntrinsicCatalog.Open(assemblyPath);
+        var resolver = new CilCallResolver(reader, intrinsics);
+        var view = new ShaderCilView(kernel.ControlFlowGraph, resolver);
+        layout ??= SpirvKernelAbiLayout.Create(kernel.Parameters, kernelAbi);
+        return new LlvmShaderEmission(peReader, reader, layout).Emit(kernel, methodBody, view);
+    }
+
+    internal static string GetTargetStage(SpirvShaderStage stage) => stage switch {
+        SpirvShaderStage.Compute => "compute",
+        SpirvShaderStage.Vertex => "vertex",
+        SpirvShaderStage.Fragment => "pixel",
+        _ => throw new ArgumentOutOfRangeException(nameof(stage))
+    };
+}
+
+internal sealed class LlvmShaderEmission(PEReader peReader, MetadataReader reader, SpirvKernelAbiLayout layout)
+{
     private readonly StringBuilder _body = new();
     private readonly HashSet<LlvmBufferBinding> _bufferBindings = [];
     private readonly Dictionary<StageLocation, StageLocationInfo> _stageLocations = [];
@@ -23,7 +64,7 @@ public sealed class LlvmIrEmitter
     private readonly StringBuilder _inlineLocalAllocations = new();
     private string _localPrefix = "local";
     private int _nextInlineId;
-    private SpirvKernelAbi _kernelAbi;
+    private readonly SpirvKernelAbiLayout _layout = layout;
     private SpirvShaderStage _shaderStage;
     private SpirvWorkgroupSize _currentWorkgroupSize;
     private PhysicalStructLayout[] _physicalStructLayouts = [];
@@ -51,38 +92,12 @@ public sealed class LlvmIrEmitter
     private bool _usesPow;
     private bool _usesAbs;
     private ResolvedCall? _currentCall;
-    private MetadataReader _reader = null!;
-    private PEReader _peReader = null!;
+    private readonly MetadataReader _reader = reader;
+    private readonly PEReader _peReader = peReader;
     private int _nextValueId;
 
-    public LlvmIrModule Emit(
-        string assemblyPath,
-        SpirvKernel kernel,
-        SpirvKernelAbi kernelAbi = SpirvKernelAbi.Vulkan)
+    public LlvmIrModule Emit(SpirvKernel kernel, MethodBodyBlock methodBody, ShaderCilView view)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
-        ArgumentNullException.ThrowIfNull(kernel);
-
-        using var stream = File.OpenRead(assemblyPath);
-        using var peReader = new PEReader(stream, PEStreamOptions.PrefetchEntireImage);
-        _peReader = peReader;
-        var reader = peReader.GetMetadataReader();
-        _reader = reader;
-        var methodHandle = (MethodDefinitionHandle)MetadataTokens.EntityHandle(kernel.MetadataToken);
-        var method = reader.GetMethodDefinition(methodHandle);
-        var methodBody = peReader.GetMethodBody(method.RelativeVirtualAddress);
-        using var intrinsics = IntrinsicCatalog.Open(assemblyPath);
-        var resolver = new CilCallResolver(reader, intrinsics);
-        var view = new ShaderCilView(kernel.ControlFlowGraph, resolver);
-
-        _body.Clear();
-        _bufferBindings.Clear();
-        _stageLocations.Clear();
-        _inlineCallStack.Clear();
-        _inlineLocalAllocations.Clear();
-        _localPrefix = "local";
-        _nextInlineId = 0;
-        _kernelAbi = kernelAbi;
         _shaderStage = kernel.Stage;
         _currentWorkgroupSize = kernel.WorkgroupSize;
         _physicalStructLayouts = kernel.Parameters
@@ -105,31 +120,9 @@ public sealed class LlvmIrEmitter
                 parameter.Kind == SpirvKernelParameterKind.StageInput)
             ?.StageIoLayout;
         _stageOutputLayout = kernel.ReturnLayout;
-        _readsVertexIndex = false;
-        _readsInstanceIndex = false;
-        _readsFragmentPosition = false;
-        _readsFrontFacing = false;
-        _writesPosition = false;
-        _writesFragmentDepth = false;
-        _usesTexture2DLoad = false;
-        _usesTexture2DSampleLevel = false;
-        _usesTexture2DArrayLoad = false;
-        _usesTexture2DArraySampleLevel = false;
-        _usesBarrier = false;
-        _usesMin = false;
-        _usesMax = false;
-        _usesInverseSqrt = false;
-        _usesDiscard = false;
-        _usesSqrt = false;
-        _usesSin = false;
-        _usesCos = false;
-        _usesPow = false;
-        _usesAbs = false;
-        _currentCall = null;
-        _nextValueId = 0;
         RegisterStageIo();
 
-        var localTypes = DecodeLocalTypes(reader, methodBody.LocalSignature);
+        var localTypes = DecodeLocalTypes(_reader, methodBody.LocalSignature);
         var parameterValues = new LlvmValue[kernel.Parameters.Count];
         var entryPoint = SanitizeIdentifier(kernel.Name);
         var prologue = new StringBuilder();
@@ -146,7 +139,7 @@ public sealed class LlvmIrEmitter
         }
 
         var module = new StringBuilder();
-        var targetStage = GetTargetStage(kernel.Stage);
+        var targetStage = LlvmIrEmitter.GetTargetStage(kernel.Stage);
         module.Append("target triple = \"spirv1.5-vulkan1.2-")
             .Append(targetStage).AppendLine("\"");
         module.AppendLine();
@@ -549,30 +542,27 @@ public sealed class LlvmIrEmitter
         StringBuilder prologue,
         IList<LlvmValue> values)
     {
-        var binding = 0;
-        var pushConstantIndex = 0;
-        var hasPushConstants = kernel.Parameters.Any(
-            static parameter => parameter.Kind == SpirvKernelParameterKind.PushConstant);
         string? pushConstantValue = null;
         string? parameterHandle = null;
-        var parameterVectorCount = GetParameterVectorCount(kernel);
-        if (hasPushConstants && _kernelAbi == SpirvKernelAbi.Vulkan) {
+        var packed = _layout.PackedParameters;
+        var parameterVectorCount = packed?.VectorCount ?? 0;
+        if (_layout.ScalarCount != 0 && _layout.Abi == SpirvKernelAbi.Vulkan) {
             pushConstantValue = NextValue("push.constants");
             prologue.Append("  ").Append(pushConstantValue)
-                .Append(" = load %sia.push.constants, ptr addrspace(13) @sia.push.constants, align 4")
-                .AppendLine();
+                .Append(" = load %sia.push.constants, ptr addrspace(13) @sia.push.constants, align ")
+                .Append(SpirvScalarSlot.Size).AppendLine();
         }
-        else if (hasPushConstants) {
+        else if (packed is { } block) {
             parameterHandle = NextValue("parameters");
             prologue.Append("  ").Append(parameterHandle).Append(" = call ")
                 .Append(GetParameterTargetType(parameterVectorCount))
                 .Append(" @llvm.spv.resource.handlefrombinding.")
-                .Append(GetParameterMangling(parameterVectorCount)).Append("(i32 0, i32 ")
-                .Append(kernel.Parameters.Count(static parameter => parameter.IsResource))
+                .Append(GetParameterMangling(parameterVectorCount))
+                .Append("(i32 ").Append(SpirvKernelAbiLayout.DescriptorSet).Append(", i32 ").Append(block.Binding)
                 .AppendLine(", i32 1, i32 0, ptr nonnull @.str.parameters)");
         }
 
-        foreach (var parameter in kernel.Parameters) {
+        foreach (var (parameter, slot) in _layout.GetParameters(kernel)) {
             if (parameter.Kind == SpirvKernelParameterKind.StageInput) {
                 values[parameter.Position] = EmitStageInput(
                     parameter.StageIoLayout ?? throw new InvalidDataException(
@@ -583,34 +573,34 @@ public sealed class LlvmIrEmitter
                 var value = NextValue(SanitizeIdentifier(parameter.Name));
                 prologue.Append("  ").Append(value).Append(" = call ")
                     .Append(GetTexture2DTargetType()).Append(" @llvm.spv.resource.handlefrombinding.")
-                    .Append(GetTexture2DMangling()).Append("(i32 0, i32 ").Append(binding)
+                    .Append(GetTexture2DMangling()).Append("(i32 ").Append(SpirvKernelAbiLayout.DescriptorSet)
+                    .Append(", i32 ").Append(slot.Binding!.Value)
                     .Append(", i32 1, i32 0, ptr nonnull @.str.")
                     .Append(parameter.Position).AppendLine(")");
                 values[parameter.Position] = new LlvmValue(value, LlvmValueType.Texture2DFloat);
-                binding++;
             }
             else if (parameter.Kind == SpirvKernelParameterKind.SampledTexture2DArray) {
                 var value = NextValue(SanitizeIdentifier(parameter.Name));
                 prologue.Append("  ").Append(value).Append(" = call ")
                     .Append(GetTexture2DArrayTargetType())
                     .Append(" @llvm.spv.resource.handlefrombinding.")
-                    .Append(GetTexture2DArrayMangling()).Append("(i32 0, i32 ").Append(binding)
+                    .Append(GetTexture2DArrayMangling()).Append("(i32 ").Append(SpirvKernelAbiLayout.DescriptorSet)
+                    .Append(", i32 ").Append(slot.Binding!.Value)
                     .Append(", i32 1, i32 0, ptr nonnull @.str.")
                     .Append(parameter.Position).AppendLine(")");
                 values[parameter.Position] = new LlvmValue(
                     value, LlvmValueType.Texture2DArrayFloat);
-                binding++;
             }
             else if (parameter.Kind == SpirvKernelParameterKind.Sampler) {
                 var value = NextValue(SanitizeIdentifier(parameter.Name));
                 prologue.Append("  ").Append(value).Append(" = call ")
                     .Append(GetSamplerTargetType())
                     .Append(" @llvm.spv.resource.handlefrombinding.")
-                    .Append(GetSamplerMangling()).Append("(i32 0, i32 ").Append(binding)
+                    .Append(GetSamplerMangling()).Append("(i32 ").Append(SpirvKernelAbiLayout.DescriptorSet)
+                    .Append(", i32 ").Append(slot.Binding!.Value)
                     .Append(", i32 1, i32 0, ptr nonnull @.str.")
                     .Append(parameter.Position).AppendLine(")");
                 values[parameter.Position] = new LlvmValue(value, LlvmValueType.Sampler);
-                binding++;
             }
             else if (parameter.Kind is SpirvKernelParameterKind.UniformBuffer or
                       SpirvKernelParameterKind.ReadOnlyStorageBuffer or
@@ -629,14 +619,14 @@ public sealed class LlvmIrEmitter
                 var mangling = GetBufferMangling(bufferBinding);
                 prologue.Append("  ").Append(value).Append(" = call ")
                     .Append(targetType).Append(" @llvm.spv.resource.handlefrombinding.")
-                    .Append(mangling).Append("(i32 0, i32 ").Append(binding)
+                    .Append(mangling).Append("(i32 ").Append(SpirvKernelAbiLayout.DescriptorSet)
+                    .Append(", i32 ").Append(slot.Binding!.Value)
                     .Append(", i32 1, i32 0, ptr nonnull @.str.")
                     .Append(parameter.Position).AppendLine(")");
                 values[parameter.Position] = new LlvmValue(
                     value,
                     type,
                     BufferBinding: bufferBinding);
-                binding++;
             }
             else if (parameter.Kind == SpirvKernelParameterKind.WorkgroupMemory) {
                 var type = GetWorkgroupType(parameter.ScalarType);
@@ -646,11 +636,12 @@ public sealed class LlvmIrEmitter
             }
             else {
                 var type = GetScalarType(parameter.ScalarType);
+                var scalar = slot.Scalar!.Value;
                 string value;
-                if (_kernelAbi == SpirvKernelAbi.Vulkan) {
+                if (_layout.Abi == SpirvKernelAbi.Vulkan) {
                     value = NextValue(SanitizeIdentifier(parameter.Name));
                     prologue.Append("  ").Append(value).Append(" = extractvalue %sia.push.constants ")
-                        .Append(pushConstantValue).Append(", ").Append(pushConstantIndex).AppendLine();
+                        .Append(pushConstantValue).Append(", ").Append(scalar.Index).AppendLine();
                 }
                 else {
                     var identifier = SanitizeIdentifier(parameter.Name);
@@ -662,12 +653,12 @@ public sealed class LlvmIrEmitter
                         .Append(GetParameterMangling(parameterVectorCount))
                         .Append('(').Append(GetParameterTargetType(parameterVectorCount))
                         .Append(' ').Append(parameterHandle)
-                        .Append(", i32 ").Append(pushConstantIndex / 4).AppendLine(")");
+                        .Append(", i32 ").Append(scalar.VectorIndex).AppendLine(")");
                     prologue.Append("  ").Append(vector)
-                        .Append(" = load <4 x i32>, ptr addrspace(12) ")
-                        .Append(pointer).AppendLine(", align 16");
-                    prologue.Append("  ").Append(word).Append(" = extractelement <4 x i32> ")
-                        .Append(vector).Append(", i32 ").Append(pushConstantIndex % 4).AppendLine();
+                        .Append(" = load ").Append(s_ParameterVectorType).Append(", ptr addrspace(12) ")
+                        .Append(pointer).Append(", align ").Append(SpirvScalarSlot.VectorSize).AppendLine();
+                    prologue.Append("  ").Append(word).Append(" = extractelement ").Append(s_ParameterVectorType).Append(' ')
+                        .Append(vector).Append(", i32 ").Append(scalar.Lane).AppendLine();
                     if (type == LlvmValueType.Float32) {
                         value = NextValue(identifier);
                         prologue.Append("  ").Append(value).Append(" = bitcast i32 ")
@@ -678,7 +669,6 @@ public sealed class LlvmIrEmitter
                     }
                 }
                 values[parameter.Position] = new LlvmValue(value, type);
-                pushConstantIndex++;
             }
         }
     }
@@ -798,13 +788,11 @@ public sealed class LlvmIrEmitter
 
     private void EmitGlobalDeclarations(SpirvKernel kernel, StringBuilder module)
     {
-        var pushConstants = kernel.Parameters
-            .Where(static parameter => parameter.Kind == SpirvKernelParameterKind.PushConstant)
-            .ToArray();
-        if (pushConstants.Length != 0 && _kernelAbi == SpirvKernelAbi.Vulkan) {
+        if (_layout.ScalarCount != 0 && _layout.Abi == SpirvKernelAbi.Vulkan) {
             module.Append("%sia.push.constants = type { ");
-            module.Append(string.Join(", ", pushConstants.Select(parameter =>
-                GetLlvmType(GetScalarType(parameter.ScalarType)))));
+            module.Append(string.Join(", ", _layout.GetParameters(kernel)
+                .Where(static entry => entry.Slot.Scalar is not null)
+                .Select(static entry => GetLlvmType(GetScalarType(entry.Parameter.ScalarType)))));
             module.AppendLine(" }");
             module.AppendLine("@sia.push.constants = external addrspace(13) global %sia.push.constants");
             module.AppendLine();
@@ -828,12 +816,11 @@ public sealed class LlvmIrEmitter
             module.AppendLine();
         }
 
-        foreach (var parameter in kernel.Parameters.Where(
-            static parameter => parameter.IsResource)) {
+        foreach (var (parameter, _) in _layout.GetParameters(kernel).Where(static entry => entry.Slot.Binding is not null)) {
             EmitResourceName(module, $".str.{parameter.Position}", parameter.Name);
         }
-        if (pushConstants.Length != 0 && _kernelAbi == SpirvKernelAbi.WebGpu) {
-            EmitResourceName(module, ".str.parameters", "sia.parameters");
+        if (_layout.PackedParameters is not null) {
+            EmitResourceName(module, ".str.parameters", SpirvPackedParameters.Name);
         }
         if (kernel.Parameters.Count != 0) {
             module.AppendLine();
@@ -982,14 +969,11 @@ public sealed class LlvmIrEmitter
         if (_usesAbs) {
             module.AppendLine("declare float @llvm.fabs.f32(float)");
         }
-        if (_kernelAbi == SpirvKernelAbi.WebGpu &&
-            kernel.Parameters.Any(static parameter =>
-                parameter.Kind == SpirvKernelParameterKind.PushConstant) &&
+        if (_layout.PackedParameters is { } packed &&
             !_bufferBindings.Any(static binding =>
                 binding.IsUniform && binding.Type == LlvmValueType.ReadOnlyBufferUInt32x4)) {
-            var parameterVectorCount = GetParameterVectorCount(kernel);
-            var targetType = GetParameterTargetType(parameterVectorCount);
-            var mangling = GetParameterMangling(parameterVectorCount);
+            var targetType = GetParameterTargetType(packed.VectorCount);
+            var mangling = GetParameterMangling(packed.VectorCount);
             module.Append("declare ").Append(targetType)
                 .Append(" @llvm.spv.resource.handlefrombinding.").Append(mangling)
                 .AppendLine("(i32, i32, i32, i32, ptr)");
@@ -1014,13 +998,6 @@ public sealed class LlvmIrEmitter
         module.Append("attributes #0 = { \"hlsl.shader\"=\"")
             .Append(stage).AppendLine("\" }");
     }
-
-    internal static string GetTargetStage(SpirvShaderStage stage) => stage switch {
-        SpirvShaderStage.Compute => "compute",
-        SpirvShaderStage.Vertex => "vertex",
-        SpirvShaderStage.Fragment => "pixel",
-        _ => throw new ArgumentOutOfRangeException(nameof(stage))
-    };
 
     private void EmitLocationMetadata(StringBuilder module)
     {
@@ -1098,7 +1075,7 @@ public sealed class LlvmIrEmitter
     }
 
     private delegate void IntrinsicHandler(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1242,8 +1219,6 @@ public sealed class LlvmIrEmitter
             var helperView = new ShaderCilView(graph, callerView.Resolver);
             new CilStackAnalyzer(_reader, methodHandle).Validate(helperView);
             _localPrefix = $"inline.{_nextInlineId++}.local";
-            // Keep allocations in the kernel entry block for LLVM promotion;
-            // initialization belongs at each call, including calls in loops.
             EmitLocalAllocations(localTypes, false, _inlineLocalAllocations, _localPrefix);
             if (body.LocalVariablesInitialized) {
                 for (int index = 0; index < localTypes.Count; index++) {
@@ -1255,7 +1230,6 @@ public sealed class LlvmIrEmitter
             foreach (var block in helperBlocks) {
                 for (var index = 0; index < block.Instructions.Count; index++) {
                     var instruction = block.Instructions[index];
-                    // Debug CIL commonly branches to a shared return block.
                     if (instruction.OpCode == OpCodes.Br || instruction.OpCode == OpCodes.Br_S) continue;
                     if (instruction.OpCode == OpCodes.Ret) {
                         if (call.ReturnsVoid) {
@@ -1465,7 +1439,7 @@ public sealed class LlvmIrEmitter
             EmitLine($"{extracted} = extractvalue %sia.stage.output {value.Expression}, {index}");
             var expression = extracted;
             if (field.Kind == SpirvStageIoKind.Position &&
-                _kernelAbi == SpirvKernelAbi.WebGpu) {
+                _layout.Abi == SpirvKernelAbi.WebGpu) {
                 expression = EmitWebGpuPosition(expression);
             }
             EmitLine($"store {GetLlvmType(type)} {expression}, ptr addrspace(8) " +
@@ -1510,7 +1484,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitInvocationBuiltin(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1522,7 +1496,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitBarrier(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1536,7 +1510,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitVertexIndexBuiltin(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1549,7 +1523,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitInstanceIndexBuiltin(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1562,7 +1536,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitRasterInput(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1582,7 +1556,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitFragmentPositionBuiltin(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1596,7 +1570,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitAsFloat(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1620,7 +1594,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitUnpackHalf(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1651,7 +1625,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitInverseSqrt(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1666,7 +1640,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitSelect(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1703,7 +1677,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitDiscard(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1716,7 +1690,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitSetPosition(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1725,7 +1699,7 @@ public sealed class LlvmIrEmitter
     {
         emitter.EnsureShaderStage(SpirvShaderStage.Vertex, kind.ToString(), offset);
         emitter._writesPosition = true;
-        if (emitter._kernelAbi == SpirvKernelAbi.WebGpu) {
+        if (emitter._layout.Abi == SpirvKernelAbi.WebGpu) {
             EnsureCompatible(LlvmValueType.Float32, arguments[1].Type, offset);
             var invertedY = emitter.NextValue();
             emitter.EmitLine($"{invertedY} = fneg float {arguments[1].Expression}");
@@ -1738,7 +1712,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitRasterOutput(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1757,7 +1731,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitBufferIndex(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1773,7 +1747,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitAtomic(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1821,7 +1795,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitTexture2DLoad(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1849,7 +1823,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitTexture2DSampleLevel(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1877,7 +1851,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitTexture2DArrayLoad(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1908,7 +1882,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitTexture2DArraySampleLevel(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1942,7 +1916,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitSqrt(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1957,7 +1931,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitSin(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1972,7 +1946,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitCos(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -1987,7 +1961,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitPow(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2003,7 +1977,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitAbs(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2018,7 +1992,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathConstruct(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2080,7 +2054,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathGetComponent(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2107,7 +2081,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathArithmetic(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2137,7 +2111,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathNegate(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2175,7 +2149,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathUnary(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2202,7 +2176,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathPow(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2230,7 +2204,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathMinMax(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2263,7 +2237,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathClamp(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2301,7 +2275,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathSaturate(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2331,7 +2305,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathDot(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2349,7 +2323,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathCross(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2372,7 +2346,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathNormalize(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2392,7 +2366,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathReflect(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2414,7 +2388,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathBooleanReduction(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2437,7 +2411,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathMul(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -2491,7 +2465,7 @@ public sealed class LlvmIrEmitter
     }
 
     private static void EmitMathTranspose(
-        LlvmIrEmitter emitter,
+        LlvmShaderEmission emitter,
         IntrinsicKind kind,
         LlvmValue instance,
         IReadOnlyList<LlvmValue> arguments,
@@ -3368,15 +3342,13 @@ public sealed class LlvmIrEmitter
         return type == LlvmValueType.Float32 ? "f32" : "i32";
     }
 
-    private static int GetParameterVectorCount(SpirvKernel kernel) =>
-        (kernel.Parameters.Count(static parameter =>
-            parameter.Kind == SpirvKernelParameterKind.PushConstant) + 3) / 4;
+    private static readonly string s_ParameterVectorType = $"<{SpirvScalarSlot.VectorWidth} x i32>";
 
     private static string GetParameterTargetType(int vectorCount) =>
-        $"target(\"spirv.VulkanBuffer\", [{vectorCount} x <4 x i32>], 2, 0)";
+        $"target(\"spirv.VulkanBuffer\", [{vectorCount} x {s_ParameterVectorType}], 2, 0)";
 
     private static string GetParameterMangling(int vectorCount) =>
-        $"tspirv.VulkanBuffer_a{vectorCount}v4i32_2_0t";
+        $"tspirv.VulkanBuffer_a{vectorCount}v{SpirvScalarSlot.VectorWidth}i32_2_0t";
 
     private static string GetTexture2DTargetType() =>
         "target(\"spirv.Image\", float, 1, 2, 0, 0, 1, 0)";

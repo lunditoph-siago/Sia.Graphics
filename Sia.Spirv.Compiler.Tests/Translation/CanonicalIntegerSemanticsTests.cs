@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Translation.Back;
 using Sia.Spirv.Compiler.Translation;
 using Sia.Spirv.Compiler.Translation.Front;
 using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
@@ -66,7 +67,7 @@ public sealed class CanonicalIntegerSemanticsTests
             enable wgpu_int16;
             fn calculate(y: u32) -> u32 { return u32(i16(y & 65535u)) & 65535u; }
             """);
-        var canonical = ShaderTargetLowering.PrepareSpirv(CanonicalShaderPipeline.Prepare(module), null);
+        var canonical = SpirvBackend.PrepareCanonical(CanonicalShaderPipeline.Prepare(module), null);
         Assert.Equal(2, canonical.Functions["calculate"].Blocks.SelectMany(b => b.Instructions)
             .Count(i => i.Operation is ValueOperation.Binary { Operator: "&" }));
     }
@@ -74,7 +75,7 @@ public sealed class CanonicalIntegerSemanticsTests
     private static CanonicalModule Lower(string expression, string type, string countType)
     {
         var module = WgslReader.Parse($"fn calculate(x: {type}, y: {countType}) -> {type} {{ return {expression}; }}");
-        return ShaderTargetLowering.PrepareSpirv(CanonicalShaderPipeline.Prepare(module), null);
+        return SpirvBackend.PrepareCanonical(CanonicalShaderPipeline.Prepare(module), null);
     }
 
 }

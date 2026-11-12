@@ -7,8 +7,6 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-// The canonical graph owns all executable edges. Unreachable structural targets
-// are target-only labels: they carry no SSA values and serialize as OpUnreachable.
 internal sealed record SpirvFunctionControlFlow(ControlFlowFunction Graph, IReadOnlyList<int> BlockOrder,
     IReadOnlyDictionary<int, int> SelectionMerges, IReadOnlyDictionary<int, (int Continuing, int Merge)> Loops,
     IReadOnlySet<int> StructuralTargets, IReadOnlyDictionary<int, int> StructuralBackedges,
@@ -18,8 +16,6 @@ internal sealed record SpirvRuntimeArrayLength(SsaValue? Structure, string? Glob
 
 internal static class SpirvControlFlowLowering
 {
-    // Explicit adapter for callers that still supply structured declarations.
-    // Consumers accepting CanonicalModule retain its executable graphs instead.
     internal static CanonicalModule Capture(Module module)
     {
         var graphs = new Dictionary<string, ControlFlowFunction>(StringComparer.Ordinal);
@@ -84,8 +80,6 @@ internal static class SpirvControlFlowLowering
             }
             graphs.Add(function.Name, graph!);
         }
-        // Legacy qualification is confined to explicit deferrals. Graph-owned
-        // executable bodies are never rebuilt just to publish target metadata.
         var deferredNames = deferred.Keys.ToHashSet(StringComparer.Ordinal);
         var module = SpirvSynchronizationLowering.Run(SpirvMemoryAccessLowering.Run(layout.Module, deferredNames), deferredNames);
         var canonical = new CanonicalModule(module, graphs, deferred, new HashSet<string>(StringComparer.Ordinal));
@@ -99,8 +93,11 @@ internal static class SpirvControlFlowLowering
                 ? prior with { Graph = graph } : Prepare(graph, module, effects));
         }
         ControlFlowVerifier.Validate(canonical);
-        return layout with { Module = module, ControlFlow = functions.ToFrozenDictionary(StringComparer.Ordinal),
-            DeferredControlFlow = deferred.ToFrozenDictionary(StringComparer.Ordinal) };
+        return layout with {
+            Module = module,
+            ControlFlow = functions.ToFrozenDictionary(StringComparer.Ordinal),
+            DeferredControlFlow = deferred.ToFrozenDictionary(StringComparer.Ordinal)
+        };
     }
 
     internal static SpirvFunctionControlFlow Prepare(ControlFlowFunction input, Module module,
@@ -108,8 +105,6 @@ internal static class SpirvControlFlowLowering
     {
         ControlFlowVerifier.Validate(input, module, calleeEffects: calleeEffects);
         var graph = input.Copy();
-        // Keep OpLoopMerge on a dedicated header. A source loop body can itself
-        // begin a selection; that selection cannot share the loop merge instruction.
         foreach (int headerId in graph.Loops.Keys.ToArray()) {
             var header = graph.Blocks.Single(b => b.Id == headerId);
             var body = graph.Block(); body.Instructions.AddRange(header.Instructions);
@@ -134,7 +129,8 @@ internal static class SpirvControlFlowLowering
             arrayLengths.Add(instruction.Result!.Value.Id, length);
         }
         var structural = new HashSet<int>();
-        int Target(int? id) {
+        int Target(int? id)
+        {
             if (id is { } target) return target;
             var block = graph.Block(); graph.Blocks.Remove(block); structural.Add(block.Id); return block.Id;
         }
@@ -143,7 +139,8 @@ internal static class SpirvControlFlowLowering
         var backedges = loops.Where(p => structural.Contains(p.Value.Continuing)).ToDictionary(p => p.Value.Continuing, p => p.Key);
         var blocks = graph.Blocks.ToDictionary(b => b.Id);
         var order = new List<int>(); var visited = new HashSet<int>();
-        void Visit(int id, HashSet<int> stops) {
+        void Visit(int id, HashSet<int> stops)
+        {
             if (stops.Contains(id) || !visited.Add(id)) return;
             order.Add(id);
             if (structural.Contains(id)) return;

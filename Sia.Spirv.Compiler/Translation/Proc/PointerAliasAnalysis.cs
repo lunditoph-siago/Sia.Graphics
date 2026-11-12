@@ -5,8 +5,6 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Proc;
 
-/// <summary>Per-compilation root identities and bottom-up memory-access summaries.
-/// WGSL legality consumes these facts; native SPIR-V aliases remain representable.</summary>
 internal static partial class PointerAliasAnalysis
 {
     internal sealed record Root(int Parameter = -1, string? Global = null, int Local = 0, bool IsUndefined = false)
@@ -20,15 +18,13 @@ internal static partial class PointerAliasAnalysis
         ICollection<CanonicalDeferral>? deferrals = null)
         => Validate(module, ReadGraphs(module, deferrals), stage);
 
-    // Static source legality includes statements that canonical reachability
-    // deliberately removes. Keep this gate until source origins cover them.
     public static void ValidateSource(Module module, DiagnosticStage stage = DiagnosticStage.Validation)
         => Validate(module, new Dictionary<string, ControlFlowFunction>(StringComparer.Ordinal), stage);
 
     public static void Validate(Module module, IReadOnlyDictionary<string, ControlFlowFunction> graphs,
         DiagnosticStage stage = DiagnosticStage.Validation)
     {
-        graphs = graphs.ToDictionary(p => p.Key, p => CanonicalHelperInliner.Run(p.Value, module), StringComparer.Ordinal);
+        graphs = graphs.ToDictionary(p => p.Key, p => CanonicalHelperInliner.Run(p.Value, module, StructuredControlFlowReader.ReadHelperGraph), StringComparer.Ordinal);
         foreach (var (name, graph) in graphs) {
             if (name != graph.Signature.Name || !module.Functions.Any(f => f.Name == name))
                 throw new ShaderException(stage, "Canonical pointer analysis requires a matching function signature.");
@@ -36,7 +32,8 @@ internal static partial class PointerAliasAnalysis
         }
         var functions = module.Functions.ToDictionary(f => f.Name, StringComparer.Ordinal);
         var summaries = new Dictionary<string, Summary>(StringComparer.Ordinal); var active = new HashSet<string>(StringComparer.Ordinal);
-        Summary Function(string name) {
+        Summary Function(string name)
+        {
             if (summaries.TryGetValue(name, out var found)) return found;
             if (!active.Add(name)) throw new ShaderException(stage, "Recursive shader calls cannot be analyzed for pointer aliases.");
             var summary = graphs.TryGetValue(name, out var graph)
@@ -61,7 +58,8 @@ internal static partial class PointerAliasAnalysis
 
     private static ShaderEffects PointerEffects(string builtin) => builtin switch {
         "workgroupUniformLoad" or "coopLoad" or "coopLoadT" => ShaderEffects.ReadMemory,
-        "coopStore" or "coopStoreT" => ShaderEffects.WriteMemory, _ => ShaderBuiltinEffects.For(builtin)
+        "coopStore" or "coopStoreT" => ShaderEffects.WriteMemory,
+        _ => ShaderBuiltinEffects.For(builtin)
     };
 
     private static void ApplyCall(string caller, string called, IReadOnlyList<bool> pointers, HashSet<Root>[] arguments,
@@ -103,15 +101,19 @@ internal static partial class PointerAliasAnalysis
             Expression.Reference r => names.TryGetValue(r.Name, out var binding) ? binding.Roots : globals.Contains(r.Name) ? [new(Global: r.Name)] : [],
             Expression.Unary { Operator: "&" or "*" } u => Origins(u.Operand),
             Expression.Load l when l.Type is ShaderType.Pointer => Origins(l.Pointer),
-            Expression.Access a => Origins(a.Base), Expression.Member m => Origins(m.Base), Expression.Swizzle s => Origins(s.Vector),
-            Expression.Select s when s.Type is ShaderType.Pointer => Origins(s.Accept).Union(Origins(s.Reject)).ToHashSet(), _ => []
+            Expression.Access a => Origins(a.Base),
+            Expression.Member m => Origins(m.Base),
+            Expression.Swizzle s => Origins(s.Vector),
+            Expression.Select s when s.Type is ShaderType.Pointer => Origins(s.Accept).Union(Origins(s.Reject)).ToHashSet(),
+            _ => []
         };
         private bool Place(Expression expression) => expression switch {
             Expression.Reference r => names.TryGetValue(r.Name, out var binding) ? binding.Place : globals.Contains(r.Name),
             Expression.Unary { Operator: "*" } => true,
             Expression.Access a => a.Base.Type is ShaderType.Pointer || Place(a.Base),
             Expression.Member m => m.Base.Type is ShaderType.Pointer || Place(m.Base),
-            Expression.Swizzle s => s.Vector.Type is ShaderType.Pointer || Place(s.Vector), _ => false
+            Expression.Swizzle s => s.Vector.Type is ShaderType.Pointer || Place(s.Vector),
+            _ => false
         };
         private void Address(Expression expression)
         {
@@ -153,8 +155,6 @@ internal static partial class PointerAliasAnalysis
                 else { Value(argument); arguments[i] = []; }
             }
             if (call.Binding == CallBinding.Builtin) {
-                // Synchronization effects describe ordering of surrounding memory;
-                // a collective load still only reads its pointer operand.
                 var effects = PointerEffects(call.Function);
                 foreach (var roots in arguments) {
                     if ((effects & ShaderEffects.ReadMemory) != 0) reads.UnionWith(roots);

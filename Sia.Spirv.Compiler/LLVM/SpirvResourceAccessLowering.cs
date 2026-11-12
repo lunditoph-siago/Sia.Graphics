@@ -1,3 +1,4 @@
+using Sia.Spirv.Compiler.Legalization;
 using Sia.Spirv.Compiler.Model;
 using Sia.Spirv.Compiler.Translation.Spirv;
 
@@ -5,7 +6,7 @@ namespace Sia.Spirv.Compiler.LLVM;
 
 internal static class SpirvResourceAccessLowering
 {
-    internal static void Rewrite(string path, SpirvKernel kernel)
+    internal static void Rewrite(string path, SpirvKernel kernel, SpirvKernelAbiLayout layout)
     {
         var binary = SpirvBinary.Parse(File.ReadAllBytes(path));
         var bindings = binary.Instructions.Where(i => (Op)i.Opcode == Op.Decorate && i.Operands is [_, 33, _])
@@ -14,10 +15,11 @@ internal static class SpirvResourceAccessLowering
             .ToDictionary(i => i.Operands[0], i => i.Operands[2]);
         var existing = binary.Instructions.Where(i => (Op)i.Opcode == Op.Decorate && i.Operands is [_, 24])
             .Select(i => i.Operands[0]).ToHashSet();
-        var readOnly = kernel.Parameters.Where(p => p.IsResource).Select((p,index) => (p,index))
-            .Where(pair => pair.p.Kind == SpirvKernelParameterKind.ReadOnlyStorageBuffer)
-            .Select(pair => (uint)pair.index).ToHashSet();
-        var added = bindings.Where(pair => sets.GetValueOrDefault(pair.Key, uint.MaxValue) == 0
+        var readOnly = layout.GetParameters(kernel)
+            .Where(static entry => entry.Parameter.Kind == SpirvKernelParameterKind.ReadOnlyStorageBuffer)
+            .Select(static entry => (uint)entry.Slot.Binding!.Value)
+            .ToHashSet();
+        var added = bindings.Where(pair => sets.GetValueOrDefault(pair.Key, uint.MaxValue) == SpirvKernelAbiLayout.DescriptorSet
                 && readOnly.Contains(pair.Value) && !existing.Contains(pair.Key))
             .Select(pair => new SpirvInstruction((ushort)Op.Decorate, [pair.Key, 24])).ToArray();
         if (added.Length == 0) return;
@@ -25,7 +27,9 @@ internal static class SpirvResourceAccessLowering
         int insertion = instructions.FindIndex(i => (Op)i.Opcode == Op.TypeVoid);
         if (insertion < 0) throw new InvalidDataException("SPIR-V has no type declaration section.");
         instructions.InsertRange(insertion, added);
-        File.WriteAllBytes(path, new SpirvBinary { Version = binary.Version, Generator = binary.Generator,
-            Bound = binary.Bound, Instructions = instructions }.ToBytes());
+        File.WriteAllBytes(path, new SpirvBinary {
+            Version = binary.Version, Generator = binary.Generator,
+            Bound = binary.Bound, Instructions = instructions
+        }.ToBytes());
     }
 }

@@ -104,11 +104,6 @@ public sealed class LlvmToolchain
         ValidateOptimizationLevel(optimizationLevel);
         var targetStage = LlvmIrEmitter.GetTargetStage(shaderStage);
         var triple = $"spirv1.{(target.Version >> 8) & 255}-{target.Environment}-{targetStage}";
-        // The SPIR-V backend inserts structured merge instructions before its
-        // late code-motion passes. Enabling llc optimization can then move a
-        // speculatable instruction between OpSelectionMerge and its branch,
-        // producing an invalid module. LLVM IR is optimized before this step,
-        // and WebGPU modules receive spirv-opt after validation.
         Run(
             ToolName("llc"),
             "--filetype=obj",

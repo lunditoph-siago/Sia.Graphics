@@ -40,8 +40,7 @@ public static partial class ModuleValidator
                 Require(memory.Scope != 4 || order == 0, "Invocation scope requires relaxed memory order.", call.Span);
                 Require(call.Function is not ("atomicLoad" or "textureAtomicLoad") || order is not (4 or 8), "Atomic load cannot use release semantics.", call.Span);
                 Require(call.Function is not ("atomicStore" or "textureAtomicStore") || order is not (2 or 8), "Atomic store cannot use acquire semantics.", call.Span);
-                if (unequal)
-                {
+                if (unequal) {
                     uint equalOrder = memory.Semantics & orders;
                     Require(order is not (4 or 8), "Unequal compare/exchange semantics cannot release memory.", call.Span);
                     Require(order == 0 || order == equalOrder || order == 2 && equalOrder is 8 or 16,

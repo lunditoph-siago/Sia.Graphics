@@ -6,8 +6,6 @@ namespace Sia.Spirv.Compiler.Translation.Proc;
 [Flags]
 internal enum ControlFlowAnalyses { None = 0, Predecessors = 1, Dominance = 2, All = Predecessors | Dominance }
 
-/// <summary>One owned graph's lazy analyses. Passes explicitly invalidate results;
-/// predecessor entries retain edge identity, whereas dominance retains block IDs.</summary>
 internal sealed class ControlFlowAnalysisContext(ControlFlowFunction function)
 {
     private IReadOnlyDictionary<int, IReadOnlyList<(ControlFlowBlock Block, ControlFlowEdge Edge)>>? predecessors;

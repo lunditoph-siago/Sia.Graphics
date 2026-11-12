@@ -1,6 +1,5 @@
 namespace Sia.Spirv.Compiler.Translation.IR;
 
-/// <summary>Validated shape of the workgroup aggregate used by WGSL mesh entries.</summary>
 internal sealed record MeshShaderInfo(GlobalVariable Variable, ShaderType.Structure Structure,
     int VerticesMember, int PrimitivesMember, int VertexCountMember, int PrimitiveCountMember,
     ShaderType.Array Vertices, ShaderType.Array Primitives, uint Topology)

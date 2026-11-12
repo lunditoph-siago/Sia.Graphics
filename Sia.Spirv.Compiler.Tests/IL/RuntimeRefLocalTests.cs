@@ -1,6 +1,7 @@
 using Sia.Spirv;
 using Sia.Spirv.Compiler.Compilation;
 using Sia.Spirv.Compiler.IL;
+using Sia.Spirv.Compiler.Legalization;
 using Sia.Spirv.Compiler.Translation;
 using Sia.Spirv.Compiler.Translation.Back;
 
@@ -42,7 +43,8 @@ public sealed class RuntimeRefLocalTests
         var kernel = template with { DeclaringType = typeof(RefLocalShaders).FullName!, Name = methodName,
             MetadataToken = method.MetadataToken, ControlFlowGraph = graph };
         var module = RuntimeShaderLowering.Run(File.ReadAllBytes(SpirvTestAssembly.Path),
-            File.ReadAllBytes(typeof(Gpu).Assembly.Location), kernel, SpirvKernelAbi.WebGpu);
+            File.ReadAllBytes(typeof(Gpu).Assembly.Location), kernel,
+            SpirvKernelAbiLayout.Create(kernel.Parameters, SpirvKernelAbi.WebGpu));
         return SpirvWriter.Write(module, target ?? SpirvCompilationTarget.Default);
     }
 }

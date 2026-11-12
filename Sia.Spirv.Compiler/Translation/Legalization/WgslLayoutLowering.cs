@@ -2,7 +2,6 @@ using Sia.Spirv.Compiler.Translation.IR;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Lower explicit array strides and discover enables required by WGSL types.</summary>
 internal sealed class WgslLayoutLowering
 {
     private readonly Module output = new();
@@ -24,10 +23,8 @@ internal sealed class WgslLayoutLowering
         pass.output.DiagnosticFilters.AddRange(input.DiagnosticFilters);
         foreach (var g in input.Globals) pass.output.Globals.Add(g with { Type = pass.Type(g.Type), Initializer = g.Initializer is null ? null : pass.Expr(g.Initializer) });
         foreach (var c in input.Constants) pass.output.Constants.Add(c with { Type = pass.Type(c.Type), Value = c.Value is null ? null : pass.Expr(c.Value) });
-        foreach (var f in input.Functions)
-        {
-            var function = new ShaderFunction(f.Name)
-            {
+        foreach (var f in input.Functions) {
+            var function = new ShaderFunction(f.Name) {
                 ReturnType = pass.Type(f.ReturnType), ReturnBinding = f.ReturnBinding, Stage = f.Stage,
                 TaskPayload = f.TaskPayload, MeshOutput = f.MeshOutput,
                 WorkgroupSize = f.WorkgroupSize.Select(pass.Expr).ToArray(), EarlyDepthTest = f.EarlyDepthTest, ConservativeDepth = f.ConservativeDepth, Body = pass.Body(f.Body)
@@ -46,13 +43,11 @@ internal sealed class WgslLayoutLowering
             or ShaderType.Structure { BuiltinResult: BuiltinResultKind.RayDesc or BuiltinResultKind.RayIntersection }) output.Enables.Add("wgpu_ray_query");
         if (input is ShaderType.RayQuery { VertexReturn: true } or ShaderType.AccelerationStructure { VertexReturn: true }) output.Enables.Add("wgpu_ray_query_vertex_return");
         if (input is ShaderType.CooperativeMatrix) output.Enables.Add("wgpu_cooperative_matrix");
-        if (input is ShaderType.Scalar { Width: 2 } scalar)
-        {
+        if (input is ShaderType.Scalar { Width: 2 } scalar) {
             if (scalar.Kind == ScalarKind.Float) output.Enables.Add("f16");
             if (scalar.Kind is ScalarKind.Sint or ScalarKind.Uint) output.Enables.Add("wgpu_int16");
         }
-        mapped = input switch
-        {
+        mapped = input switch {
             ShaderType.Vector v => v with { Component = (ShaderType.Scalar)Type(v.Component) },
             ShaderType.Matrix m => m with { Component = (ShaderType.Scalar)Type(m.Component) },
             ShaderType.CooperativeMatrix m => m with { Component = (ShaderType.Scalar)Type(m.Component) },
@@ -90,16 +85,14 @@ internal sealed class WgslLayoutLowering
 
     private Expression Expr(Expression input)
     {
-        // Ensure wrapper discovery before rewriting its accesses and constructors.
         ShaderType type = Type(input.Type);
-        return input switch
-        {
+        return input switch {
             Expression.Literal l => new Expression.Literal(l.Value, type) { Span = l.Span },
             Expression.Reference r => new Expression.Reference(r.Name, type) { Span = r.Span },
             Expression.Load l => new Expression.Load(Expr(l.Pointer)) { Span = l.Span, MemoryAccess = l.MemoryAccess },
             Expression.Unary u => new Expression.Unary(u.Operator, Expr(u.Operand), type) { Span = u.Span },
             Expression.Binary b => new Expression.Binary(b.Operator, Expr(b.Left), Expr(b.Right), type) { Span = b.Span },
-            Expression.Call c => new Expression.Call(c.Function, c.Arguments.Select(Expr).ToArray(), type, c.Binding) { Span = c.Span,AtomicMemory = c.AtomicMemory,MemoryAccess = c.MemoryAccess, ImageAccess = c.ImageAccess },
+            Expression.Call c => new Expression.Call(c.Function, c.Arguments.Select(Expr).ToArray(), type, c.Binding) { Span = c.Span, AtomicMemory = c.AtomicMemory, MemoryAccess = c.MemoryAccess, ImageAccess = c.ImageAccess },
             Expression.Construct c => Construct(c, type),
             Expression.Convert c => new Expression.Convert(type, Expr(c.Operand), c.Bitcast) { Span = c.Span },
             Expression.Access a => Access(a),
@@ -123,8 +116,7 @@ internal sealed class WgslLayoutLowering
         Expression container = Expr(access.Base), index = Expr(access.Index);
         ShaderType sourceType = access.Base.Type is ShaderType.Pointer p ? p.Base : access.Base.Type;
         ShaderType resultType = Type(access.Type);
-        if (sourceType is ShaderType.Array array && wrappers.TryGetValue(array, out var wrapper))
-        {
+        if (sourceType is ShaderType.Array array && wrappers.TryGetValue(array, out var wrapper)) {
             ShaderType wrapperType = access.Type is ShaderType.Pointer pointer ? new ShaderType.Pointer(wrapper, pointer.Space, pointer.Access) : wrapper;
             var wrapped = new Expression.Access(container, index, wrapperType);
             return new Expression.Member(wrapped, "value", resultType) { Span = access.Span };
@@ -136,8 +128,7 @@ internal sealed class WgslLayoutLowering
     {
         var result = new Block();
         result.DiagnosticFilters.AddRange(input.DiagnosticFilters);
-        foreach (var statement in input.Statements) result.Statements.Add(statement switch
-        {
+        foreach (var statement in input.Statements) result.Statements.Add(statement switch {
             Statement.Nested n => new Statement.Nested(Body(n.Body)),
             Statement.Declare d => d with { Type = Type(d.Type), Initializer = d.Initializer is null ? null : Expr(d.Initializer) },
             Statement.Store s => s with { Target = Expr(s.Target), Value = Expr(s.Value) },

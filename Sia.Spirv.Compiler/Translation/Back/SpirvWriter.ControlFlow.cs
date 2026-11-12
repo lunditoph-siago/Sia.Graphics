@@ -23,7 +23,8 @@ public static partial class SpirvWriter
                 Expression Ref(SsaValue value) => literals.TryGetValue(value.Id, out var literal) ? literal
                     : new Expression.Reference(Name(value), value.Type);
                 Expression Dereference(SsaValue value) => new Expression.Unary("*", Ref(value), value.Type);
-                void Bind(SsaValue value, uint id) {
+                void Bind(SsaValue value, uint id)
+                {
                     values.Add(value.Id, id);
                     scopes.Peek().Add(Name(value), new(id, value.Type, value.Type is ShaderType.BindingArray, value.Type is ShaderType.BindingArray ? 0u : 7u));
                 }
@@ -67,8 +68,6 @@ public static partial class SpirvWriter
                                     ? Place(new Expression.Reference(symbol.Name, binding.Type)) : MemoryLoad(binding.Id, type, null) : binding.Id; break;
                             case ValueOperation.Local local:
                                 emitted = Variable(((ShaderType.Pointer)type).Base, local.Name);
-                                // The reader represents a requested zero initializer as an
-                                // explicit ordered store. Allocation is hoisted, that store is not.
                                 break;
                             case ValueOperation.Let let:
                                 emitted = Id(let.Value);
@@ -110,11 +109,9 @@ public static partial class SpirvWriter
                                     if (!scopes.Peek().ContainsKey(name)) scopes.Peek().Add(name, new(resourcePointers[image.Id], image.Type, true, 0));
                                     arguments[0] = new Expression.Reference(name, image.Type);
                                 }
-                                emitted = Call(new Expression.Call(builtin.Function, arguments, builtin.ReturnType, CallBinding.Builtin)
-                                    { AtomicMemory = builtin.AtomicMemory, MemoryAccess = builtin.MemoryAccess, ImageAccess = builtin.ImageAccess }); break;
+                                emitted = Call(new Expression.Call(builtin.Function, arguments, builtin.ReturnType, CallBinding.Builtin) { AtomicMemory = builtin.AtomicMemory, MemoryAccess = builtin.MemoryAccess, ImageAccess = builtin.ImageAccess }); break;
                             case ValueOperation.Call call:
-                                emitted = Call(new Expression.Call(call.Function, call.Arguments.Select(Ref).ToArray(), call.ReturnType, CallBinding.Function)
-                                    { AtomicMemory = call.AtomicMemory, MemoryAccess = call.MemoryAccess }); break;
+                                emitted = Call(new Expression.Call(call.Function, call.Arguments.Select(Ref).ToArray(), call.ReturnType, CallBinding.Function) { AtomicMemory = call.AtomicMemory, MemoryAccess = call.MemoryAccess }); break;
                             case ValueOperation.Barrier barrier:
                                 NativeBarrier(barrier.NativeMemory ?? throw owner.Error("Canonical barrier operands were not prepared.", instruction.Span)); continue;
                             case ValueOperation.HelperInvocation: emitted = Value(new Expression.HelperInvocation()); break;
@@ -155,8 +152,6 @@ public static partial class SpirvWriter
                         default: throw owner.Error("Prepared CFG has no terminator.");
                     }
                 }
-                // Backedge definitions can occur after their phi. Resolve incoming
-                // IDs after serialization; repeated switch edges share one predecessor.
                 foreach (var (index, blockId, parameterIndex) in phis) {
                     var parameter = blocks[blockId].Parameters[parameterIndex];
                     var operands = new List<uint> { owner.Type(parameter.Type), Id(parameter) };

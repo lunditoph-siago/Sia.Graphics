@@ -18,7 +18,8 @@ public sealed partial class SpirvCompiler
         var kernel = frontend.Kernels.SingleOrDefault(k => k.MetadataToken == request.MetadataToken)
             ?? throw new ArgumentException("Token does not identify a shader entry point in the supplied assembly.", nameof(request.MetadataToken));
         Translation.Legalization.ShaderTargetValidator.ValidateStage(request.Target, kernel.Stage.ToString());
-        var legalized = new SpirvLegalizationPlanner().Resolve(kernel, request.Target.ResourceLimits, request.Target.KernelAbi);
-        return RuntimeShaderLowering.Run(request.AssemblyImage, request.IntrinsicImage, legalized.Kernel, request.Target.KernelAbi);
+        var (plan, layout) = new SpirvLegalizationPlanner().ResolveWithLayout(
+            kernel, request.Target.ResourceLimits, request.Target.KernelAbi);
+        return RuntimeShaderLowering.Run(request.AssemblyImage, request.IntrinsicImage, plan.Kernel, layout);
     }
 }

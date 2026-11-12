@@ -12,11 +12,9 @@ public static partial class SpirvReader
             bool Rewrite(Block block)
             {
                 bool found = false;
-                for (int i = 0; i < block.Statements.Count; i++)
-                {
+                for (int i = 0; i < block.Statements.Count; i++) {
                     var statement = block.Statements[i];
-                    bool exits = statement switch
-                    {
+                    bool exits = statement switch {
                         Statement.Break => true,
                         Statement.If branch => Rewrite(branch.Accept) | Rewrite(branch.Reject),
                         Statement.Nested nested => Rewrite(nested.Body),

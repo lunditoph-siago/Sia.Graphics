@@ -11,20 +11,15 @@ public static partial class ModuleValidator
             DiagnosticFilters(block.DiagnosticFilters);
             if (scope) scopes.Push(new(StringComparer.Ordinal));
             bool fallsThrough = true;
-            foreach (var statement in block.Statements)
-            {
+            foreach (var statement in block.Statements) {
                 bool next = true;
-                switch (statement)
-                {
+                switch (statement) {
                     case Statement.Nested nested: next = Body(nested.Body, continuing: continuing); break;
                     case Statement.Declare declaration:
                         Require(declaration.Initialize || declaration.Mutable && declaration.Initializer is null,
                             "Allocation-only declaration must be mutable and have no initializer.", statement.Span);
                         Type(declaration.Type);
                         Require(declaration.Type is not ShaderType.Void && !RuntimeSized(declaration.Type) && !ContainsAtomic(declaration.Type), "Invalid local variable type.", statement.Span);
-                        // SPIR-V function temporaries may contain specialization-sized
-                        // arrays. WGSL source admission rejects these in its frontend;
-                        // WGSL writing requires pipeline resolution for mutable values.
                         if (declaration.Mutable) Require(Data(declaration.Type) || declaration.Type is ShaderType.RayQuery, "Mutable local must have a constructible data type or be a ray query.", statement.Span);
                         if (declaration.Type is ShaderType.RayQuery) Require(declaration.Mutable && declaration.Initializer is null, "Ray queries require uninitialized mutable locals.", statement.Span);
                         if (declaration.Initializer is not null) Same(Expr(declaration.Initializer), declaration.Type, "Local initializer type mismatch.", statement.Span);
@@ -61,7 +56,6 @@ public static partial class ModuleValidator
                     case Statement.Loop loop:
                         Require(!continuing, "Continuing block cannot contain a loop.", statement.Span);
                         var loopTarget = new BreakTarget(true); breaks.Push(loopTarget); loopDepth++;
-                        // Body declarations remain visible in continuing, but not after the loop.
                         scopes.Push(new(StringComparer.Ordinal)); Body(loop.Body, false);
                         scopes.Push(new(StringComparer.Ordinal)); Body(loop.Continuing, false, true);
                         if (loop.BreakIf is not null) Same(Expr(loop.BreakIf), ShaderType.Bool, "break if condition must be boolean.", statement.Span);
@@ -70,8 +64,7 @@ public static partial class ModuleValidator
                         ShaderType selector = Expr(selection.Selector);
                         Require(selector is ShaderType.Scalar && Integer(selector), "Switch selector must be an integer scalar.", statement.Span);
                         var target = new BreakTarget(false); breaks.Push(target); var values = new HashSet<object>(); int defaults = 0; bool caseFalls = false;
-                        foreach (var arm in selection.Cases)
-                        {
+                        foreach (var arm in selection.Cases) {
                             if (arm.IsDefault) defaults++;
                             Require(arm.IsDefault || arm.Values.Count != 0, "Switch arm has no selectors.", statement.Span);
                             foreach (var item in arm.Values) { Same(Expr(item), selector, "Switch case type mismatch.", item.Span); Require(values.Add(item.Value), "Duplicate switch case.", item.Span); }
@@ -92,8 +85,7 @@ public static partial class ModuleValidator
                     case Statement.Kill: Restrict(Fragment); break;
                     case Statement.Barrier barrier:
                         if (barrier.NativeMemory is { } control) BarrierMemory(control, true, statement.Span);
-                        else
-                        {
+                        else {
                             Require(barrier.Storage || barrier.Workgroup || barrier.Texture || barrier.Subgroup, "Empty barrier.", statement.Span);
                             Require(!barrier.Subgroup || !(barrier.Storage || barrier.Workgroup || barrier.Texture), "Mixed subgroup/workgroup execution barriers require explicit native operands.", statement.Span);
                             Restrict(WorkgroupStages);
@@ -101,8 +93,7 @@ public static partial class ModuleValidator
                         break;
                     case Statement.MemoryBarrier barrier:
                         if (barrier.NativeMemory is { } memory) BarrierMemory(memory, false, statement.Span);
-                        else
-                        {
+                        else {
                             Require(barrier.Storage || barrier.Workgroup || barrier.Texture || barrier.Subgroup, "Empty memory barrier.", statement.Span);
                             Require(!barrier.Subgroup || !(barrier.Storage || barrier.Workgroup || barrier.Texture), "Mixed subgroup/workgroup memory scopes require explicit native operands.", statement.Span);
                             if (!barrier.Subgroup) Restrict(WorkgroupStages);

@@ -7,7 +7,6 @@ namespace Sia.Spirv.Compiler.Translation.Front;
 internal enum TokenKind { Word, Number, Symbol, TemplateStart, TemplateEnd, End }
 internal readonly record struct Token(TokenKind Kind, string Text, SourceSpan Span);
 
-/// <summary>WGSL tokenization and template-list discovery.</summary>
 internal static partial class WgslLexer
 {
     [GeneratedRegex(@"\G(?:0[xX](?:(?:[0-9a-fA-F]+\.[0-9a-fA-F]*|[0-9a-fA-F]*\.[0-9a-fA-F]+)(?:[pP][+-]?[0-9]+(?:lf|[fh])?)?|[0-9a-fA-F]+[pP][+-]?[0-9]+(?:lf|[fh])?|[0-9a-fA-F]+(?:l[iu]|[iu])?)|(?:[0-9]+\.[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?(?:lf|[fh])?|[0-9]+[eE][+-]?[0-9]+(?:lf|[fh])?|[0-9]+(?:l[iuf]|[iufh])?)", RegexOptions.CultureInvariant)]
@@ -20,21 +19,17 @@ internal static partial class WgslLexer
         int position = 0, depth = 0;
         bool possibleTemplate = false;
         void Pop(int level) { while (pending.TryPeek(out var candidate) && candidate.Depth >= level) pending.Pop(); }
-        while (position < source.Length)
-        {
+        while (position < source.Length) {
             char c = source[position];
             if (char.IsWhiteSpace(c)) { position++; continue; }
-            if (source.AsSpan(position).StartsWith("//"))
-            {
+            if (source.AsSpan(position).StartsWith("//")) {
                 position += 2;
                 while (position < source.Length && source[position] is not ('\r' or '\n' or '\u0085' or '\u2028' or '\u2029')) position++;
                 continue;
             }
-            if (source.AsSpan(position).StartsWith("/*"))
-            {
+            if (source.AsSpan(position).StartsWith("/*")) {
                 int start = position; position += 2; int nesting = 1;
-                while (position < source.Length && nesting > 0)
-                {
+                while (position < source.Length && nesting > 0) {
                     if (source.AsSpan(position).StartsWith("/*")) { nesting++; position += 2; }
                     else if (source.AsSpan(position).StartsWith("*/")) { nesting--; position += 2; }
                     else position++;
@@ -44,24 +39,20 @@ internal static partial class WgslLexer
             }
             int begin = position;
             TokenKind kind;
-            if (IdentifierStart(source, position, out int width))
-            {
+            if (IdentifierStart(source, position, out int width)) {
                 position += width;
                 while (position < source.Length && IdentifierContinue(source, position, out width)) position += width;
                 kind = TokenKind.Word;
             }
-            else if (char.IsAsciiDigit(c) || c == '.' && position + 1 < source.Length && char.IsAsciiDigit(source[position + 1]))
-            {
+            else if (char.IsAsciiDigit(c) || c == '.' && position + 1 < source.Length && char.IsAsciiDigit(source[position + 1])) {
                 var match = NumberPattern().Match(source, position);
                 if (!match.Success) throw new ShaderException(DiagnosticStage.WgslParse, "Malformed numeric literal.", new(position, 1));
                 position += match.Length; kind = TokenKind.Number;
             }
-            else if (c == '>' && pending.TryPeek(out var top) && top.Depth == depth)
-            {
+            else if (c == '>' && pending.TryPeek(out var top) && top.Depth == depth) {
                 position++; kind = TokenKind.TemplateEnd;
             }
-            else
-            {
+            else {
                 if (!"()[]{}:;,.@+-*/%<>=!&|^~".Contains(c))
                     throw new ShaderException(DiagnosticStage.WgslParse, $"Unexpected character U+{(int)c:X4}.", new(position, 1));
                 kind = TokenKind.Symbol; position++;
@@ -72,8 +63,7 @@ internal static partial class WgslLexer
             tokens.Add(new(kind, text, new(begin, position - begin)));
             if (kind == TokenKind.Word) { possibleTemplate = true; continue; }
             if (text == "<" && possibleTemplate) pending.Push((tokens.Count - 1, depth));
-            else if (kind == TokenKind.TemplateEnd)
-            {
+            else if (kind == TokenKind.TemplateEnd) {
                 var candidate = pending.Pop();
                 tokens[candidate.Index] = tokens[candidate.Index] with { Kind = TokenKind.TemplateStart };
             }

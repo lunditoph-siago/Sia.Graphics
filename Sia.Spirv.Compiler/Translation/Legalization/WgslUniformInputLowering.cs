@@ -5,12 +5,10 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Expose immutable entry builtin copies to WGSL's uniformity analysis.</summary>
 internal static class WgslUniformInputLowering
 {
     internal static CanonicalModule Run(CanonicalModule input)
     {
-        // Avoid duplicating shared entry implementations or guessing deferred effects.
         var entries = input.Functions.Values.Where(g => g.Signature.Stage is not null).ToArray();
         if (entries.Length != 1 || input.Functions.Count != input.Declarations.Functions.Count) return input;
         if (!input.Functions.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions)
@@ -24,8 +22,6 @@ internal static class WgslUniformInputLowering
         foreach (var instruction in entry.Blocks.SelectMany(b => b.Instructions))
             if (instruction.Operation is ValueOperation.Store store && definitions.GetValueOrDefault(store.Pointer.Id) is ValueOperation.Symbol symbol)
                 writes[symbol.Name] = writes.GetValueOrDefault(symbol.Name) + 1;
-        // Every copy must precede all reads and calls. No helper can observe the
-        // default initializer or a value from another invocation/entry point.
         foreach (var instruction in entry.Blocks.Single(b => b.Id == entry.Entry).Instructions) {
             if ((instruction.Effects & (ShaderEffects.ReadMemory | ShaderEffects.UnknownCall)) != 0) break;
             if (instruction.Operation is not ValueOperation.Store { MemoryAccess: null } store
@@ -45,7 +41,7 @@ internal static class WgslUniformInputLowering
                 if (graph.Blocks.SelectMany(b => b.Instructions).Any(i => i.Operation is ValueOperation.Call call && helpers.Contains(call.Function)))
                     changed |= helpers.Add(graph.Signature.Name);
         } while (changed);
-        var output = CanonicalHelperInliner.RunTargetHelpers(input, additionalHelpers: helpers);
+        var output = TargetHelperLowering.Run(input, additionalHelpers: helpers);
         var promoted = output.Functions[entry.Signature.Name].Copy();
         var allDefinitions = promoted.Blocks.SelectMany(b => b.Instructions).Where(i => i.Result is not null)
             .ToDictionary(i => i.Result!.Value.Id, i => i.Operation);

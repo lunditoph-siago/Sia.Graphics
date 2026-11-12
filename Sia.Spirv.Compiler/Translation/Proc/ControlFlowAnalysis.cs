@@ -5,7 +5,6 @@ namespace Sia.Spirv.Compiler.Translation.Proc;
 
 internal static class ControlFlowAnalysis
 {
-    /// <summary>Shader entry closure, including calls inside expressions and continuing blocks.</summary>
     public static HashSet<string> EntryFunctions(Module module, IReadOnlyDictionary<string, ControlFlowFunction>? frontendGraphs = null)
         => CalledFunctions(module, module.Functions.Where(f => f.Stage is not null).Select(f => f.Name), frontendGraphs);
 
@@ -18,26 +17,41 @@ internal static class ControlFlowAnalysis
         while (pending.TryDequeue(out string? name)) {
             if (!reachable.Add(name)) continue;
             var calls = frontendGraphs?.TryGetValue(name, out var graph) == true
-                ? graph.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).OfType<ValueOperation.Call>().Select(c => c.Function)
+                ? Calls(graph)
                 : Calls(functions[name].Body);
             foreach (string callee in calls) if (functions.ContainsKey(callee)) pending.Enqueue(callee);
         }
         return reachable;
     }
 
+    internal static IEnumerable<string> Calls(ShaderFunction function, IReadOnlyDictionary<string, ControlFlowFunction> graphs)
+        => graphs.TryGetValue(function.Name, out var graph)
+            ? Calls(graph)
+            : Calls(function.Body);
+
+    private static IEnumerable<string> Calls(ControlFlowFunction graph)
+        => graph.Blocks.SelectMany(b => b.Instructions).Select(i => i.Operation).OfType<ValueOperation.Call>().Select(c => c.Function);
+
     internal static IEnumerable<string> Calls(Block body)
     {
         foreach (var statement in body.Statements) {
             IEnumerable<Expression> values = statement switch {
-                Statement.Declare { Initializer: { } value } => [value], Statement.Store s => [s.Target, s.Value],
-                Statement.Evaluate e => [e.Value], Statement.If i => [i.Condition],
-                Statement.Loop { BreakIf: { } value } => [value], Statement.Switch s => [s.Selector],
-                Statement.Return { Value: { } value } => [value], _ => []
+                Statement.Declare { Initializer: { } value } => [value],
+                Statement.Store s => [s.Target, s.Value],
+                Statement.Evaluate e => [e.Value],
+                Statement.If i => [i.Condition],
+                Statement.Loop { BreakIf: { } value } => [value],
+                Statement.Switch s => [s.Selector],
+                Statement.Return { Value: { } value } => [value],
+                _ => []
             };
             foreach (string name in values.SelectMany(Calls)) yield return name;
             IEnumerable<Block> children = statement switch {
-                Statement.Nested n => [n.Body], Statement.If i => [i.Accept, i.Reject],
-                Statement.Loop l => [l.Body, l.Continuing], Statement.Switch s => s.Cases.Select(c => c.Body), _ => []
+                Statement.Nested n => [n.Body],
+                Statement.If i => [i.Accept, i.Reject],
+                Statement.Loop l => [l.Body, l.Continuing],
+                Statement.Switch s => s.Cases.Select(c => c.Body),
+                _ => []
             };
             foreach (string name in children.SelectMany(Calls)) yield return name;
         }
@@ -47,10 +61,17 @@ internal static class ControlFlowAnalysis
     {
         if (expression is Expression.Call { Binding: CallBinding.Function } call) yield return call.Function;
         IEnumerable<Expression> children = expression switch {
-            Expression.Load l => [l.Pointer], Expression.Unary u => [u.Operand], Expression.Binary b => [b.Left, b.Right],
-            Expression.Call c => c.Arguments, Expression.Construct c => c.Components, Expression.Convert c => [c.Operand],
-            Expression.Access a => [a.Base, a.Index], Expression.Member m => [m.Base], Expression.Swizzle s => [s.Vector],
-            Expression.Select s => [s.Condition, s.Accept, s.Reject], _ => []
+            Expression.Load l => [l.Pointer],
+            Expression.Unary u => [u.Operand],
+            Expression.Binary b => [b.Left, b.Right],
+            Expression.Call c => c.Arguments,
+            Expression.Construct c => c.Components,
+            Expression.Convert c => [c.Operand],
+            Expression.Access a => [a.Base, a.Index],
+            Expression.Member m => [m.Base],
+            Expression.Swizzle s => [s.Vector],
+            Expression.Select s => [s.Condition, s.Accept, s.Reject],
+            _ => []
         };
         foreach (string name in children.SelectMany(Calls)) yield return name;
     }
@@ -81,8 +102,6 @@ internal static class ControlFlowAnalysis
         => IntersectDominators(function.Blocks.Select(b => b.Id).ToArray(),
             predecessors.ToDictionary(p => p.Key, p => p.Value.Select(v => v.Block.Id).ToArray()), function.Entry);
 
-    // Both dominance directions intersect path sets to a fixed point. Keep the
-    // working sets packed; materialize existing HashSet results only at the boundary.
     internal static Dictionary<int, HashSet<int>> IntersectDominators(IReadOnlyList<int> ids,
         IReadOnlyDictionary<int, int[]> incoming, int root)
     {
@@ -143,9 +162,6 @@ internal static class ControlFlowAnalysis
         }
     }
 
-    /// <summary>Branch predicates controlling each block, with a virtual function exit.
-    /// Non-returning natural backedges end one iteration for postdominance only;
-    /// the actual edges remain in the dependency traversal.</summary>
     public static Dictionary<int, HashSet<int>> ControlDependencies(ControlFlowFunction function)
     {
         const int exit = -1;
@@ -160,8 +176,6 @@ internal static class ControlFlowAnalysis
         var dominators = Dominators(function);
         var successors = function.Blocks.ToDictionary(b => b.Id, b => !b.Terminator!.Edges.Any() ? new[] { exit }
             : b.Terminator!.Edges.Select(e => !canReturn.Contains(b.Id) && dominators[b.Id].Contains(e.Target) ? exit : e.Target).Distinct().ToArray());
-        // An irreducible non-returning component may have no natural backedge.
-        // Keep it conservative rather than inferring reconvergence from an unanchored fixed point.
         var reachesExit = new HashSet<int> { exit };
         bool changed;
         do {
@@ -174,9 +188,6 @@ internal static class ControlFlowAnalysis
         var result = blocks.Keys.ToDictionary(id => id, _ => new HashSet<int>());
         foreach (var branch in function.Blocks.Where(b => b.Terminator is ControlFlowTerminator.Conditional or ControlFlowTerminator.Switch)) {
             int merge = postdominators[branch.Id].Where(id => id != branch.Id).MaxBy(id => postdominators[id].Count);
-            // Postdominance alone can mistake "continue on one arm" for a join:
-            // that arm reaches the join only in a later iteration. Such divergence
-            // persists through continuing/backedges until the whole loop reconverges.
             var seen = new HashSet<int>(); var probe = new Stack<int>(branch.Terminator!.Edges.Select(e => e.Target));
             bool crossesIteration = function.SelectionMerges.TryGetValue(branch.Id, out var selectionMerge) && selectionMerge != merge
                 && function.Loops.Any(p => dominators[branch.Id].Contains(p.Key) && (p.Value.Continuing == merge || p.Key == merge));

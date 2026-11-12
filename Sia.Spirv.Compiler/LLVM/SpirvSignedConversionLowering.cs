@@ -21,7 +21,8 @@ internal static class SpirvSignedConversionLowering
         uint nextId = binary.Bound;
         var addedTypes = new List<SpirvInstruction>();
         var output = new List<SpirvInstruction>();
-        uint IntegerType(uint type, bool signed) {
+        uint IntegerType(uint type, bool signed)
+        {
             if (vectors.TryGetValue(type, out var vector)) {
                 uint component = IntegerType(vector.Component, signed);
                 if (component == vector.Component) return type;
@@ -39,7 +40,8 @@ internal static class SpirvSignedConversionLowering
             addedTypes.Add(new((ushort)Op.TypeInt, [result, integer.Width, signed ? 1u : 0u]));
             return result;
         }
-        uint Cast(uint value, bool signed) {
+        uint Cast(uint value, bool signed)
+        {
             uint type = values[value], target = IntegerType(type, signed);
             if (type == target) return value;
             uint id = nextId++;

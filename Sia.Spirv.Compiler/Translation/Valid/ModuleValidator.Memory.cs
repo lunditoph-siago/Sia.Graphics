@@ -23,8 +23,7 @@ public static partial class ModuleValidator
             Require((flags & (load ? 8u : 16u)) == 0, load ? "A load cannot make memory available." : "A store cannot make memory visible.", span);
             Require((flags & 32) == 0 || space is AddressSpace.Uniform or AddressSpace.Workgroup or AddressSpace.Storage,
                 "NonPrivatePointer requires shared memory storage.", span);
-            foreach (uint scope in new[] { memory.AvailableScope, memory.VisibleScope }.OfType<uint>())
-            {
+            foreach (uint scope in new[] { memory.AvailableScope, memory.VisibleScope }.OfType<uint>()) {
                 Require(scope is >= 1 and <= 5, "Unsupported per-access memory scope.", span);
                 if (scope == 2) Restrict(WorkgroupStages);
             }

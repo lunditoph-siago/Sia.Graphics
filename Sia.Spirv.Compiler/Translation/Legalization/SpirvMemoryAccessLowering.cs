@@ -3,7 +3,6 @@ using Sia.Spirv.Compiler.Translation.Proc;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Capture qualified address requirements on ordered accesses before serialization.</summary>
 internal sealed partial class SpirvMemoryAccessLowering(Module input)
 {
     private sealed record Symbol(bool Place, AddressSpace Space, MemoryDecorations? Captured = null);
@@ -16,12 +15,16 @@ internal sealed partial class SpirvMemoryAccessLowering(Module input)
     private bool IsPlace(Expression e) => e switch {
         Expression.Reference r => Local(r.Name)?.Place ?? globals.ContainsKey(r.Name),
         Expression.Unary { Operator: "*" } => true,
-        Expression.Access a => IsPlace(a.Base), Expression.Member m => IsPlace(m.Base), _ => false
+        Expression.Access a => IsPlace(a.Base),
+        Expression.Member m => IsPlace(m.Base),
+        _ => false
     };
     private AddressSpace Space(Expression e) => e.Type is ShaderType.Pointer p ? p.Space : e switch {
         Expression.Reference r => Local(r.Name)?.Space ?? globals.GetValueOrDefault(r.Name)?.Space ?? AddressSpace.Function,
-        Expression.Access a => Space(a.Base), Expression.Member m => Space(m.Base),
-        Expression.Unary { Operator: "&" or "*" } u => Space(u.Operand), _ => AddressSpace.Function
+        Expression.Access a => Space(a.Base),
+        Expression.Member m => Space(m.Base),
+        Expression.Unary { Operator: "&" or "*" } u => Space(u.Operand),
+        _ => AddressSpace.Function
     };
     private static ShaderType Data(ShaderType type) => type is ShaderType.Pointer p ? p.Base : type;
     private MemoryDecorations Requirements(Expression pointer)
@@ -29,8 +32,6 @@ internal sealed partial class SpirvMemoryAccessLowering(Module input)
         Expression root = pointer;
         while (root is Expression.Unary { Operator: "&" or "*" } or Expression.Access or Expression.Member)
             root = root switch { Expression.Unary u => u.Operand, Expression.Access a => a.Base, Expression.Member m => m.Base, _ => root };
-        // Native accesses already carry their original function-memory operands.
-        // Logical snapshots must not inherit member qualifications on new locals.
         if (pointer.Type is ShaderType.Pointer { Space: AddressSpace.Function }
             || root is Expression.Reference local && Local(local.Name) is { Place: true, Space: AddressSpace.Function })
             return MemoryDecorations.None;
@@ -57,7 +58,8 @@ internal sealed partial class SpirvMemoryAccessLowering(Module input)
             Expression.Unary { Operator: "&" } u => u with { Operand = Place(u.Operand) },
             Expression.Unary { Operator: "*" } u => u with { Operand = Value(u.Operand) },
             Expression.Access a => a with { Base = Place(a.Base), Index = Value(a.Index) },
-            Expression.Member m => m with { Base = Place(m.Base) }, _ => e
+            Expression.Member m => m with { Base = Place(m.Base) },
+            _ => e
         };
         return result == e ? e : result;
     }
@@ -65,8 +67,6 @@ internal sealed partial class SpirvMemoryAccessLowering(Module input)
     {
         if (IsPlace(e) && e is Expression.Reference or Expression.Access or Expression.Member or Expression.Unary { Operator: "*" }) {
             var memory = Access(e, null);
-            // Only qualified implicit reads need an explicit target node. Plain
-            // source-adapter reads retain their existing serialization and IDs.
             if (memory is not null) return new Expression.Load(Place(e)) { MemoryAccess = memory, Span = e.Span };
         }
         Expression result = e switch {
@@ -80,7 +80,8 @@ internal sealed partial class SpirvMemoryAccessLowering(Module input)
             Expression.Access a => a with { Base = IsPlace(a) ? Place(a.Base) : Value(a.Base), Index = Value(a.Index) },
             Expression.Member m => m with { Base = IsPlace(m) ? Place(m.Base) : Value(m.Base) },
             Expression.Swizzle s => s with { Vector = Value(s.Vector) },
-            Expression.Select s => s with { Condition = Value(s.Condition), Accept = Value(s.Accept), Reject = Value(s.Reject) }, _ => e
+            Expression.Select s => s with { Condition = Value(s.Condition), Accept = Value(s.Accept), Reject = Value(s.Reject) },
+            _ => e
         };
         return result == e ? e : result;
     }
@@ -101,8 +102,12 @@ internal sealed partial class SpirvMemoryAccessLowering(Module input)
             if (vulkan && (Requirements(c.Arguments[0]) & MemoryDecorations.Volatile) != 0) {
                 var memory = c.AtomicMemory ?? new(Space(c.Arguments[0]) is AddressSpace.Workgroup or AddressSpace.TaskPayload ? 2u : input.VulkanMemoryModel ? 5u : 1u, 0);
                 bool compare = c.Function is "atomicCompareExchangeWeak" or "spirvAtomicCompareExchange";
-                result = result with { AtomicMemory = memory with { Semantics = memory.Semantics | 32768,
-                    UnequalSemantics = compare || memory.UnequalSemantics is not null ? (memory.UnequalSemantics ?? memory.Semantics) | 32768 : null } };
+                result = result with {
+                    AtomicMemory = memory with {
+                        Semantics = memory.Semantics | 32768,
+                        UnequalSemantics = compare || memory.UnequalSemantics is not null ? (memory.UnequalSemantics ?? memory.Semantics) | 32768 : null
+                    }
+                };
             }
         }
         return result == c ? c : result;
@@ -155,9 +160,11 @@ internal sealed partial class SpirvMemoryAccessLowering(Module input)
             scopes.Push(f.Arguments.ToDictionary(a => a.Name, _ => new Symbol(false, AddressSpace.Function), StringComparer.Ordinal));
             var body = Body(f.Body); scopes.Pop();
             if (ReferenceEquals(body, f.Body)) { output.Functions.Add(f); continue; }
-            var copy = new ShaderFunction(f.Name) { Body = body, Stage = f.Stage, ReturnType = f.ReturnType, ReturnBinding = f.ReturnBinding,
+            var copy = new ShaderFunction(f.Name) {
+                Body = body, Stage = f.Stage, ReturnType = f.ReturnType, ReturnBinding = f.ReturnBinding,
                 WorkgroupSize = f.WorkgroupSize.ToArray(), TaskPayload = f.TaskPayload, MeshOutput = f.MeshOutput,
-                EarlyDepthTest = f.EarlyDepthTest, ConservativeDepth = f.ConservativeDepth };
+                EarlyDepthTest = f.EarlyDepthTest, ConservativeDepth = f.ConservativeDepth
+            };
             copy.Arguments.AddRange(f.Arguments); copy.DiagnosticFilters.AddRange(f.DiagnosticFilters); output.Functions.Add(copy);
         }
         return output.Functions.Where((f, i) => !ReferenceEquals(f, input.Functions[i])).Any() ? output : input;

@@ -9,6 +9,12 @@ public sealed class SpirvLegalizationPlanner
         SpirvKernel kernel,
         SpirvTargetProfile target,
         SpirvKernelAbi kernelAbi = SpirvKernelAbi.Vulkan)
+        => ResolveWithLayout(kernel, target, kernelAbi).Plan;
+
+    internal (SpirvLegalizationPlan Plan, SpirvKernelAbiLayout Layout) ResolveWithLayout(
+        SpirvKernel kernel,
+        SpirvTargetProfile target,
+        SpirvKernelAbi kernelAbi)
     {
         ArgumentNullException.ThrowIfNull(kernel);
         ArgumentNullException.ThrowIfNull(target);
@@ -27,13 +33,11 @@ public sealed class SpirvLegalizationPlanner
             }
             uniformCount++;
         }
-        var pushConstantCount = parameters.Count(static parameter =>
-            parameter.Kind == SpirvKernelParameterKind.PushConstant);
-        if (kernelAbi == SpirvKernelAbi.WebGpu && pushConstantCount != 0) {
-            var parameterSize = ((ulong)pushConstantCount + 3) / 4 * 16;
-            if (parameterSize > target.MaxUniformBufferBindingSize) {
+        var layout = SpirvKernelAbiLayout.Create(parameters, kernelAbi);
+        if (layout.PackedParameters is { } packed) {
+            if (packed.ByteSize > target.MaxUniformBufferBindingSize) {
                 throw new InvalidDataException(
-                    "Resource 'sia.parameters' exceeds the target uniform-buffer binding size.");
+                    $"Resource '{SpirvPackedParameters.Name}' exceeds the target uniform-buffer binding size.");
             }
             uniformCount++;
         }
@@ -125,9 +129,7 @@ public sealed class SpirvLegalizationPlanner
                 "buffer.native_storage"));
         }
 
-        return new SpirvLegalizationPlan(
-            kernel with { Parameters = parameters },
-            resources);
+        return (new(kernel with { Parameters = parameters }, resources), layout);
     }
 
     private static bool TryCreateUniformParameter(

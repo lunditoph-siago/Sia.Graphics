@@ -14,16 +14,11 @@ public static partial class SpirvReader
 
         private void ResolveNativeControlFlow(ICollection<CanonicalPassTrace>? traces)
         {
-            // Native private pointer initializers belong to the invocation,
-            // not to each helper using that slot. Make their stores explicit
-            // before shared definite-assignment and address analysis.
             bool Undefined(Expression expression) => expression is Expression.Undefined
                 || expression is Expression.Construct c && c.Components.Any(Undefined);
             var initialSlots = module.Globals.Where(g => g.Space == AddressSpace.Private && g.Initializer is not null
                 && (g.Type is ShaderType.Pointer || Undefined(g.Initializer))).ToArray();
             foreach (var slot in initialSlots) module.Globals[module.Globals.IndexOf(slot)] = slot with { Initializer = null };
-            // These structured statements supply existing type/effect translation.
-            // Native topology and phi identities never pass through Region/Edge copies.
             var allocations = rawFunctions.ToDictionary(f => f.Id, f => new Block());
             foreach (var raw in rawFunctions) {
                 allocations[raw.Id].Statements.AddRange(raw.Function.Body.Statements);
@@ -32,8 +27,6 @@ public static partial class SpirvReader
                     foreach (var instruction in block.Instructions) {
                         current = instruction; LowerInstruction(block.Body);
                     }
-                // Conservative effect summaries include every native block. This is
-                // metadata for the temporary expression adapter, never executable IR.
                 raw.Function.Body.Statements.AddRange(raw.Blocks.SelectMany(b => b.Body.Statements));
                 raw.Function.Body.Statements.AddRange(raw.Blocks.Where(b => b.Terminator is { } t && (Op)t.Opcode is Op.Kill or Op.TerminateInvocation)
                     .Select(b => new Statement.InvocationKill {
@@ -78,7 +71,8 @@ public static partial class SpirvReader
                     reader.NativeBegin(map[block.Id]); reader.NativeBody(block.Body);
                     current = block.Terminator ?? throw Error("Missing native terminator.");
                     var a = current.Operands;
-                    ControlFlowEdge Edge(uint target) {
+                    ControlFlowEdge Edge(uint target)
+                    {
                         if (!map.TryGetValue(target, out var destination)) throw Error($"Branch to undefined block %{target}.");
                         var arguments = new List<SsaValue>();
                         foreach (var phi in raw.Blocks.Single(b => b.Id == target).Phis) {
@@ -124,7 +118,8 @@ public static partial class SpirvReader
                                 ? reader.NativeAddress(returned) : reader.NativeValue(returned)) { Span = new(current.WordOffset * 4, current.WordCount * 4) }; break;
                         case Op.Unreachable:
                             Count(0, 0); terminator = new ControlFlowTerminator.Unreachable(new(current.WordOffset * 4, current.WordCount * 4)); break;
-                        case Op.Kill: case Op.TerminateInvocation:
+                        case Op.Kill:
+                        case Op.TerminateInvocation:
                             Count(0, 0); ValidateInvocationFeature(op);
                             terminator = new ControlFlowTerminator.InvocationKill(new(current.WordOffset * 4, current.WordCount * 4),
                                 ExplicitTermination: op == Op.TerminateInvocation); break;
@@ -141,8 +136,6 @@ public static partial class SpirvReader
                     }
                     else if (block.Merge is uint merge) {
                         if (!map.ContainsKey(merge)) throw Error("Undefined native selection merge block.");
-                        // Pointer selections may have split the native block.
-                        // The native merge belongs to its final terminator.
                         graph.SelectionMerges.Add(reader.NativeCurrent.Id, map[merge].Id);
                     }
                 }
@@ -174,14 +167,11 @@ public static partial class SpirvReader
             } while (referencesChanged);
             if (referenceHelpers.Count != 0 || nativeGraphs.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions).Any(i =>
                 i.Operation is ValueOperation.Call call && call.Arguments.Any(a => a.Type is ShaderType.Pointer { Base: ShaderType.Pointer }))) {
-                // Bind actual addresses before slot promotion and native comparison
-                // validation. Nested helpers use the shared CFG copier, preserving
-                // address identity and the original order of effects.
                 var originalGraphs = nativeGraphs;
                 nativeGraphs = new(StringComparer.Ordinal);
                 foreach (var (name, graph) in originalGraphs) {
                     string? before = traces is null ? null : ControlFlowPrinter.Write(graph);
-                    var expanded = CanonicalHelperInliner.Run(graph, module, originalGraphs, expandPointerSlots: true, expandFunctions: referenceHelpers);
+                    var expanded = CanonicalHelperInliner.Run(graph, module, StructuredControlFlowReader.ReadHelperGraph, originalGraphs, expandPointerSlots: true, expandFunctions: referenceHelpers);
                     LocalValuePromotion.Run(expanded); ControlFlowVerifier.Validate(expanded, module);
                     nativeGraphs.Add(name, expanded);
                     if (traces is not null && !ReferenceEquals(graph, expanded)) slotTraces.Add(new(name,
@@ -202,8 +192,6 @@ public static partial class SpirvReader
                         && (instruction.Operation is ValueOperation.Local || module.Globals.Any(g => g.Name == ((ValueOperation.Symbol)instruction.Operation).Name))
                         && !LocalValuePromotion.IsDefinitelyAssigned(graph, slot))
                         throw new ShaderException(DiagnosticStage.SpirvParse, "Native " + graph.Signature.Name + ": pointer slot has no initialized finite provenance on every incoming path.");
-            // Shared validation and passes consume native graphs directly. The
-            // public Module is materialized once at the explicit output adapter.
             if (traces is not null) foreach (var trace in slotTraces) traces.Add(trace);
         }
     }

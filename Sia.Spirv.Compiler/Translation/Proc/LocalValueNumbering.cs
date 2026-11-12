@@ -10,11 +10,13 @@ internal static class LocalValueNumbering
         analyses?.RequireFunction(graph);
         var replacements = new Dictionary<int, SsaValue>();
         var aliases = new Dictionary<int, SsaValue>();
-        SsaValue Resolve(SsaValue value) {
+        SsaValue Resolve(SsaValue value)
+        {
             while (replacements.TryGetValue(value.Id, out var replacement)) value = replacement;
             return value;
         }
-        SsaValue Number(SsaValue value) {
+        SsaValue Number(SsaValue value)
+        {
             value = Resolve(value);
             while (aliases.TryGetValue(value.Id, out var alias)) value = Resolve(alias);
             return value;

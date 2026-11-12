@@ -14,8 +14,6 @@ internal static partial class PointerAliasAnalysis
             _ => false
         };
 
-    // Immediate containing object of each address, distinct from allocation
-    // identity. No index values or target tags are reconstructed by this analysis.
     internal static Dictionary<int, HashSet<ShaderType?>> Containers(Module module, ControlFlowFunction graph)
     {
         var roots = Origins(module, graph);
@@ -27,7 +25,8 @@ internal static partial class PointerAliasAnalysis
         bool changed;
         do {
             changed = false;
-            void Add(SsaValue value, IEnumerable<ShaderType?> incoming) {
+            void Add(SsaValue value, IEnumerable<ShaderType?> incoming)
+            {
                 if (!containers.TryGetValue(value.Id, out var current)) return;
                 int before = current.Count; current.UnionWith(incoming); changed |= before != current.Count;
             }

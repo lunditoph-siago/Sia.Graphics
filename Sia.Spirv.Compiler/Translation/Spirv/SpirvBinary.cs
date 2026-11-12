@@ -8,7 +8,6 @@ public sealed record SpirvInstruction(ushort Opcode, uint[] Operands, int WordOf
     public int WordCount => Operands.Length + 1;
 }
 
-/// <summary>Lossless SPIR-V framing. Semantic validation belongs to the frontend.</summary>
 public sealed class SpirvBinary
 {
     public const uint Magic = 0x07230203;
@@ -21,8 +20,7 @@ public sealed class SpirvBinary
     {
         if (bytes.Length < 20 || bytes.Length % 4 != 0)
             throw Error("SPIR-V must contain a five-word header and whole 32-bit words.", 0);
-        bool littleEndian = BinaryPrimitives.ReadUInt32LittleEndian(bytes) switch
-        {
+        bool littleEndian = BinaryPrimitives.ReadUInt32LittleEndian(bytes) switch {
             Magic => true,
             0x03022307 => false,
             _ => throw Error("Invalid SPIR-V magic number.", 0)
@@ -43,8 +41,7 @@ public sealed class SpirvBinary
         if (words[3] == 0 || words[3] > 0x3fffff) throw Error("ID bound is outside the SPIR-V range.", 3);
         if (words[4] != 0) throw Error("Reserved schema word must be zero.", 4);
         var instructions = new List<SpirvInstruction>();
-        for (int offset = 5; offset < words.Length;)
-        {
+        for (int offset = 5; offset < words.Length;) {
             int count = (int)(words[offset] >> 16);
             if (count == 0) throw Error("Instruction word count cannot be zero.", offset);
             if (count > words.Length - offset) throw Error("Truncated SPIR-V instruction.", offset);
@@ -57,16 +54,14 @@ public sealed class SpirvBinary
     public uint[] ToWords()
     {
         int count = 5;
-        foreach (var instruction in Instructions)
-        {
+        foreach (var instruction in Instructions) {
             if (instruction.WordCount > ushort.MaxValue) throw Error("Instruction exceeds 65535 words.", count);
             count = checked(count + instruction.WordCount);
         }
         var words = new uint[count];
         words[0] = Magic; words[1] = Version; words[2] = Generator; words[3] = Bound;
         int offset = 5;
-        foreach (var instruction in Instructions)
-        {
+        foreach (var instruction in Instructions) {
             words[offset++] = ((uint)instruction.WordCount << 16) | instruction.Opcode;
             instruction.Operands.CopyTo(words, offset);
             offset += instruction.Operands.Length;
@@ -85,14 +80,11 @@ public sealed class SpirvBinary
     internal static string ReadString(ReadOnlySpan<uint> words, out int consumed)
     {
         var bytes = new List<byte>();
-        for (int i = 0; i < words.Length; i++)
-        {
+        for (int i = 0; i < words.Length; i++) {
             uint word = words[i];
-            for (int j = 0; j < 4; j++)
-            {
+            for (int j = 0; j < 4; j++) {
                 byte value = (byte)(word >> (j * 8));
-                if (value == 0)
-                {
+                if (value == 0) {
                     if (j < 3 && (word >> ((j + 1) * 8)) != 0) throw Error("Nonzero string padding.", 0);
                     consumed = i + 1;
                     try { return new UTF8Encoding(false, true).GetString(bytes.ToArray()); }

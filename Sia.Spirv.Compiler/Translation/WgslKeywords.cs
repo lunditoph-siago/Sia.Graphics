@@ -2,7 +2,6 @@ namespace Sia.Spirv.Compiler.Translation;
 
 internal static class WgslKeywords
 {
-    // WGSL keywords and reserved words: https://www.w3.org/TR/WGSL/#keyword-summary
     private static readonly HashSet<string> Reserved = new((
         "alias break case const const_assert continue continuing default diagnostic discard else enable false fn for " +
         "if let loop override requires return struct switch true var while NULL Self abstract active alignas alignof " +

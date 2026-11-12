@@ -24,14 +24,19 @@ internal static class OverrideExpressions
                 valid = constant.Value is null ? constant.IsOverride : Visit(constant.Value, 0);
                 active.Remove(reference.Name); knownConstants.Add(reference.Name, valid); return valid;
             }
-            bool result = value switch
-            {
-                Expression.Literal or Expression.Undefined => true, Expression.Reference r => Reference(r),
-                Expression.Unary u => Child(u.Operand), Expression.Binary b => Child(b.Left) && Child(b.Right),
-                Expression.Construct c => c.Components.All(Child), Expression.Convert c => Child(c.Operand),
-                Expression.Access a => Child(a.Base) && Child(a.Index), Expression.Member m => Child(m.Base),
-                Expression.Swizzle s => Child(s.Vector), Expression.Select s => Child(s.Condition) && Child(s.Accept) && Child(s.Reject),
-                Expression.Call c => PureBuiltins.Contains(c.Function) && c.Arguments.All(Child), _ => false
+            bool result = value switch {
+                Expression.Literal or Expression.Undefined => true,
+                Expression.Reference r => Reference(r),
+                Expression.Unary u => Child(u.Operand),
+                Expression.Binary b => Child(b.Left) && Child(b.Right),
+                Expression.Construct c => c.Components.All(Child),
+                Expression.Convert c => Child(c.Operand),
+                Expression.Access a => Child(a.Base) && Child(a.Index),
+                Expression.Member m => Child(m.Base),
+                Expression.Swizzle s => Child(s.Vector),
+                Expression.Select s => Child(s.Condition) && Child(s.Accept) && Child(s.Reject),
+                Expression.Call c => PureBuiltins.Contains(c.Function) && c.Arguments.All(Child),
+                _ => false
             };
             expressions[value] = result; return result;
         }

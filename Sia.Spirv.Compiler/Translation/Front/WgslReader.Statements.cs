@@ -20,8 +20,7 @@ public static partial class WgslReader
 
         private void LowerStatement(SStatement source, Block block)
         {
-            switch (source)
-            {
+            switch (source) {
                 case SStatement.Nested n: block.Statements.Add(new Statement.Nested(Body(n.Body))); break;
                 case SStatement.Declaration d:
                     var declaration = d.Value;
@@ -34,17 +33,12 @@ public static partial class WgslReader
                     if (declaration.Kind != "const") type = DefaultType(type);
                     if (initializer is not null) initializer = Materialize(initializer, type);
                     Symbol symbol;
-                    if (declaration.Kind == "const")
-                    {
+                    if (declaration.Kind == "const") {
                         if (initializer is null || prelude.Statements.Count != 0 || !ConstantEvaluator.TryEvaluate(initializer, out var constant)) throw Error("Local const needs a constant expression.", declaration.Span);
                         symbol = new(constant, false, false);
                     }
-                    else
-                    {
+                    else {
                         bool mutable = declaration.Kind == "var";
-                        // WGSL initializes constructible locals at each dynamic declaration.
-                        // Keep that operation explicit before CFG expansion/hoisting; native
-                        // reader declarations already retain their original memory operations.
                         if (mutable && initializer is null && CanonicalTypes.Data(type)) initializer = new Expression.Construct(type, []) { Span = declaration.Span };
                         block.Statements.AddRange(prelude.Statements);
                         block.Statements.Add(new Statement.Declare(declaration.Name, type, initializer, mutable));
@@ -53,8 +47,7 @@ public static partial class WgslReader
                     if (!scopes.Peek().TryAdd(declaration.Name, symbol)) throw Error($"Duplicate local identifier '{declaration.Name}'.", declaration.Span);
                     break;
                 case SStatement.Assignment a:
-                    if (a.Target is SExpression.Name { Text: "_" })
-                    {
+                    if (a.Target is SExpression.Name { Text: "_" }) {
                         if (a.Operator != "=" || a.Value is null) throw Error("Phony assignment requires '='.");
                         Expression ignored = Eval(a.Value, block);
                         if (ignored.Type is ShaderType.Void) throw Error("Cannot assign void.");
@@ -66,14 +59,12 @@ public static partial class WgslReader
                     if (!place.Writable) throw Error("Cannot write through an immutable or read-only reference.", a.Target.Span);
                     ShaderType target = ValueType(place.Value.Type);
                     Expression value;
-                    if (a.Operator is "++" or "--")
-                    {
+                    if (a.Operator is "++" or "--") {
                         if (target is not ShaderType.Scalar { Kind: ScalarKind.Uint or ScalarKind.Sint }) throw Error("Increment/decrement needs an integer scalar.");
                         value = Binary(a.Operator == "++" ? "+" : "-", Snapshot(new Expression.Load(place.Value), block), target == ShaderType.U32 ? Expression.U32(1) : Expression.I32(1));
                     }
                     else if (a.Operator == "=") value = Eval(a.Value!, block);
-                    else
-                    {
+                    else {
                         Expression previous = Snapshot(new Expression.Load(place.Value), block);
                         value = Binary(a.Operator[..^1], previous, Eval(a.Value!, block));
                     }
@@ -83,7 +74,6 @@ public static partial class WgslReader
                     if (e.Value is SExpression.Call { Target: SExpression.Name called } &&
                         (mustUseFunctions.Contains(called.Text) || !functions.ContainsKey(called.Text) && evaluation.Type is not ShaderType.Void && !called.Text.StartsWith("atomic", StringComparison.Ordinal)))
                         throw Error($"Return value from '{called.Text}' must be used or explicitly discarded with '_ ='.", e.Value.Span);
-                    // Non-void user calls and effectful builtins were already emitted as temporaries.
                     if (evaluation is Expression.Call call) block.Statements.Add(new Statement.Evaluate(call));
                     break;
                 case SStatement.If i:
@@ -102,8 +92,7 @@ public static partial class WgslReader
                     var forScope = new Block();
                     if (f.Initializer is not null) LowerStatement(f.Initializer, forScope);
                     var forBody = new Block(); var continuing = new Block();
-                    if (f.Condition is not null)
-                    {
+                    if (f.Condition is not null) {
                         Expression check = Materialize(Eval(f.Condition, forBody), ShaderType.Bool);
                         var forExit = new Block(); forExit.Statements.Add(new Statement.Break());
                         forBody.Statements.Add(new Statement.If(new Expression.Unary("!", check, ShaderType.Bool), forExit, new()));
@@ -115,11 +104,8 @@ public static partial class WgslReader
                 case SStatement.Loop l:
                     loopDepth++; scopes.Push(new(StringComparer.Ordinal));
                     Block loopBody = Body(l.Body, false), tail = new(); Expression? breakIf = null;
-                    // Continuing is a nested compound scope; loop-body declarations
-                    // remain visible until a declaration in continuing shadows them.
                     scopes.Push(new(StringComparer.Ordinal));
-                    for (int index = 0; index < l.Continuing.Statements.Count; index++)
-                    {
+                    for (int index = 0; index < l.Continuing.Statements.Count; index++) {
                         var statement = l.Continuing.Statements[index];
                         if (statement is SStatement.Break { Condition: not null } b && index == l.Continuing.Statements.Count - 1)
                             breakIf = Materialize(Eval(b.Condition, tail), ShaderType.Bool);
@@ -138,12 +124,10 @@ public static partial class WgslReader
                     selector = Materialize(selector, DefaultType(selectorType));
                     if (selector.Type is not ShaderType.Scalar { Kind: ScalarKind.Sint or ScalarKind.Uint }) throw Error("Switch selector must be a concrete integer scalar.");
                     switchDepth++; var cases = new List<SwitchCase>();
-                    for (int caseIndex = 0; caseIndex < s.Cases.Count; caseIndex++)
-                    {
+                    for (int caseIndex = 0; caseIndex < s.Cases.Count; caseIndex++) {
                         var c = s.Cases[caseIndex];
                         var literals = new List<Expression.Literal>();
-                        foreach (var v in selectors[caseIndex])
-                        {
+                        foreach (var v in selectors[caseIndex]) {
                             var caseValue = Materialize(v, selector.Type);
                             if (!ConstantEvaluator.TryEvaluate(caseValue, out var constant) || constant is not Expression.Literal literal) throw Error("Switch cases must be constant integers.");
                             literals.Add(literal);

@@ -14,8 +14,7 @@ public static partial class SpirvWriter
             if (memory is null) return [];
             var args = new List<uint> { memory.Flags };
             if (memory.Alignment is uint alignment) args.Add(alignment);
-            foreach (uint scope in new[] { memory.AvailableScope, memory.VisibleScope }.OfType<uint>())
-            {
+            foreach (uint scope in new[] { memory.AvailableScope, memory.VisibleScope }.OfType<uint>()) {
                 if (scope == 1) usesDeviceScope = true;
                 args.Add(Constant(Expression.U32(scope)));
             }

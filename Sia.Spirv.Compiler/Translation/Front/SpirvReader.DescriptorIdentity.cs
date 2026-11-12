@@ -34,8 +34,7 @@ public static partial class SpirvReader
             var a = i.Operands; var op = (Op)i.Opcode;
             DescriptorValue value;
             if (op == Op.CopyObject) value = ScalarDescriptor(a[2]);
-            else if (op is Op.Constant or Op.ConstantNull)
-            {
+            else if (op is Op.Constant or Op.ConstantNull) {
                 ulong bits = op == Op.ConstantNull ? 0 : a[2] | (a.Length > 3 ? (ulong)a[3] << 32 : 0);
                 uint width = types[a[0]].Operands[1]; if (width < 64) bits &= (1UL << (int)width) - 1;
                 value = new("n:" + bits, 0, true);
@@ -52,13 +51,11 @@ public static partial class SpirvReader
             var blocks = new Dictionary<uint, List<SpirvInstruction>>();
             var loops = new List<(uint Header, uint Merge)>(); var positions = new Dictionary<uint, uint>(); var entries = new List<uint>();
             uint block = 0, function = 0; int order = 0;
-            foreach (var i in binary.Instructions)
-            {
+            foreach (var i in binary.Instructions) {
                 var a = i.Operands; Op op = (Op)i.Opcode;
                 descriptorInstructionOrder[i] = order++;
                 if (op == Op.Function) { block = 0; function = a[1]; }
-                if (op == Op.Label)
-                {
+                if (op == Op.Label) {
                     if (block == 0) entries.Add(a[0]);
                     block = a[0]; blocks[block] = []; descriptorBlockOwners[block] = function;
                 }
@@ -74,8 +71,7 @@ public static partial class SpirvReader
                 var i = blocks[label].LastOrDefault(i => (Op)i.Opcode is Op.Branch or Op.BranchConditional or Op.Switch);
                 if (i is null) yield break;
                 var a = i.Operands;
-                switch ((Op)i.Opcode)
-                {
+                switch ((Op)i.Opcode) {
                     case Op.Branch: yield return a[0]; break;
                     case Op.BranchConditional: yield return a[1]; yield return a[2]; break;
                     case Op.Switch:
@@ -86,11 +82,9 @@ public static partial class SpirvReader
                 }
             }
             var repeatedBlocks = new HashSet<uint>();
-            foreach (uint entry in entries)
-            {
+            foreach (uint entry in entries) {
                 var reachable = new HashSet<uint>(); var pending = new Stack<uint>(); pending.Push(entry);
-                while (pending.TryPop(out uint label))
-                {
+                while (pending.TryPop(out uint label)) {
                     if (!reachable.Add(label)) continue;
                     foreach (uint target in Successors(label)) if (blocks.ContainsKey(target)) pending.Push(target);
                 }
@@ -99,11 +93,9 @@ public static partial class SpirvReader
                     if (predecessors.TryGetValue(target, out var incoming)) incoming.Add(label);
                 foreach (uint label in reachable) descriptorDominators[label] = label == entry ? [entry] : new(reachable);
                 bool changed;
-                do
-                {
+                do {
                     changed = false;
-                    foreach (uint label in reachable.Where(label => label != entry))
-                    {
+                    foreach (uint label in reachable.Where(label => label != entry)) {
                         var incoming = predecessors[label]; var dominance = new HashSet<uint>(descriptorDominators[incoming[0]]);
                         foreach (uint parent in incoming.Skip(1)) dominance.IntersectWith(descriptorDominators[parent]);
                         dominance.Add(label);
@@ -111,11 +103,9 @@ public static partial class SpirvReader
                     }
                 } while (changed);
             }
-            foreach (var loop in loops)
-            {
+            foreach (var loop in loops) {
                 var visited = new HashSet<uint>(); var pending = new Stack<uint>(); pending.Push(loop.Header);
-                while (pending.TryPop(out uint label))
-                {
+                while (pending.TryPop(out uint label)) {
                     if (label == loop.Merge || !visited.Add(label) || !blocks.ContainsKey(label)) continue;
                     repeatedBlocks.Add(label); foreach (uint target in Successors(label)) pending.Push(target);
                 }
@@ -142,20 +132,16 @@ public static partial class SpirvReader
             foreach (var node in nodes.Values) foreach (var shape in node.Shapes.Values)
                 if (shape.Parts.Length != 0) descriptorDomains.Add((node.Instruction.Operands[1], shape.Key), []);
             bool changed;
-            do
-            {
+            do {
                 changed = false;
-                foreach (var node in nodes.Values) foreach (var shape in node.Shapes.Values)
-                {
+                foreach (var node in nodes.Values) foreach (var shape in node.Shapes.Values) {
                     if (shape.Parts.Length == 0) continue;
                     var i = node.Instruction; var a = i.Operands; var op = (Op)i.Opcode;
                     var incoming = new HashSet<DescriptorValue>();
                     if (shape.Parts[0].Constant != 0) incoming.Add(ScalarDescriptor(shape.Parts[0].Constant));
-                    else if (op is Op.AccessChain or Op.InBoundsAccessChain or Op.PtrAccessChain)
-                    {
+                    else if (op is Op.AccessChain or Op.InBoundsAccessChain or Op.PtrAccessChain) {
                         var parent = nodes[a[2]];
-                        foreach (var source in parent.Shapes.Values)
-                        {
+                        foreach (var source in parent.Shapes.Values) {
                             var target = op == Op.PtrAccessChain ? ArithmeticShape(source, i) : ShapeFor(source.Root, [.. source.Parts, .. a[3..].Select(IndexPart)]);
                             if (target.Key != shape.Key) continue;
                             if (source.Parts.Length == 0) incoming.Add(ScalarDescriptor(a[op == Op.PtrAccessChain ? 4 : 3]));
@@ -165,10 +151,8 @@ public static partial class SpirvReader
                     }
                     else foreach (uint source in NodeSources(i))
                         if (nodes[source].Shapes.TryGetValue(shape.Key, out var parent)) incoming.UnionWith(DescriptorDomain(nodes[source], parent));
-                    foreach (var value in incoming)
-                    {
-                        bool stable = op switch
-                        {
+                    foreach (var value in incoming) {
+                        bool stable = op switch {
                             Op.Phi or Op.Function or Op.FunctionParameter => value.Invariant,
                             Op.Load => value.Owner == 0 || value.Invariant && WithinDescriptorScope(definitionOwners[a[1]], value.Owner) && PrivateDescriptorWasWritten(i),
                             Op.FunctionCall => value.Owner == 0 || value.Invariant && WithinDescriptorScope(definitionOwners[a[1]], value.Owner),

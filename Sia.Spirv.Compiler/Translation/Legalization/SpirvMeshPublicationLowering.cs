@@ -8,7 +8,6 @@ namespace Sia.Spirv.Compiler.Translation.Legalization;
 
 internal sealed record SpirvMeshPublication(ShaderFunction Function, uint Topology, uint MaxVertices, uint MaxPrimitives);
 
-/// <summary>Prepare collective publication and distributed output copies as typed IR.</summary>
 internal static class SpirvMeshPublicationLowering
 {
     internal static (SpirvPhysicalLayout Layout, IReadOnlyDictionary<string, SpirvMeshPublication> Publications) Run(
@@ -47,10 +46,11 @@ internal static class SpirvMeshPublicationLowering
                 MemoryAccess = ShaderMemoryRequirements.Decorate(null, memory | ShaderMemoryRequirements.TypeMemory(type),
                     AddressSpace.Workgroup, input.VulkanMemoryModel || ShaderMemoryRequirements.UsesCooperativeMemoryModel(input))
             };
-            Expression Count(int member, uint maximum, string name) {
+            Expression Count(int member, uint maximum, string name)
+            {
                 var field = info.Structure.Members[member];
                 var read = Read(Field(root, field), ShaderType.U32, info.Variable.MemoryDecorations | field.MemoryDecorations);
-                var bounded = new Expression.Call("min", [read, Expression.U32(maximum)], ShaderType.U32, CallBinding.Builtin) ;
+                var bounded = new Expression.Call("min", [read, Expression.U32(maximum)], ShaderType.U32, CallBinding.Builtin);
                 helper.Body.Statements.Add(new Statement.Declare(name, ShaderType.U32, bounded, false)); return Ref(name, ShaderType.U32);
             }
             uint maxVertices = info.Vertices.Length!.Value, maxPrimitives = info.Primitives.Length!.Value;
@@ -61,7 +61,8 @@ internal static class SpirvMeshPublicationLowering
             foreach (var size in entry.WorkgroupSize.Skip(1)) step = new Expression.Binary("*", step, new Expression.Convert(ShaderType.U32, size), ShaderType.U32);
             string stepName = Fresh("step");
             helper.Body.Statements.Add(new Statement.Declare(stepName, ShaderType.U32, step, false));
-            void Copy(ShaderType.Array array, int memberIndex, Expression count, bool primitive) {
+            void Copy(ShaderType.Array array, int memberIndex, Expression count, bool primitive)
+            {
                 string name = Fresh(primitive ? "primitive_index" : "vertex_index");
                 var index = Ref(name, ShaderType.U32);
                 helper.Body.Statements.Add(new Statement.Declare(name, ShaderType.U32, Ref(localIndex, ShaderType.U32)));
@@ -75,10 +76,10 @@ internal static class SpirvMeshPublicationLowering
                     Expression value = Read(Field(element, member), member.Type,
                         info.Variable.MemoryDecorations | arrayMember.MemoryDecorations | member.MemoryDecorations);
                     if (!primitive && conversions.TryGetValue((entry.Name, member.Name), out var conversion))
-                        value = new Expression.Call(conversion.Name, [value], conversion.ReturnType, CallBinding.Function) ;
+                        value = new Expression.Call(conversion.Name, [value], conversion.ReturnType, CallBinding.Function);
                     if (physical != member.Type) {
                         var physicalConversion = layout.ValueConversions[(member.Type, physical)];
-                        value = new Expression.Call(physicalConversion.Name, [value], physicalConversion.ReturnType, CallBinding.Function) ;
+                        value = new Expression.Call(physicalConversion.Name, [value], physicalConversion.ReturnType, CallBinding.Function);
                     }
                     var binding = member.Binding!;
                     var outputField = new MeshOutputField(Fresh(entry.Name + "_" + member.Name), physical, array.Length!.Value,

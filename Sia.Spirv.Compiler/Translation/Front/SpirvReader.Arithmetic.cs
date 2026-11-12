@@ -53,10 +53,9 @@ public static partial class SpirvReader
                 while (definitions[address.Id].Operation is ValueOperation.Access or ValueOperation.Member)
                     address = definitions[address.Id].Operation.Operands.First();
                 if (definitions[address.Id].Operation is not ValueOperation.Binary { Operator: "+" } arithmetic) continue;
-                // Original parameter roots are checked after the helper binds
-                // caller addresses. Source type decorations stay frontend-owned.
                 if (roots[arithmetic.Left.Id].Any(r => r.Parameter >= 0)) continue;
-                void Require(bool condition, string reason) {
+                void Require(bool condition, string reason)
+                {
                     if (!condition) throw new ShaderException(DiagnosticStage.SpirvParse, reason, instruction.Span);
                 }
                 var parents = containers[arithmetic.Left.Id];

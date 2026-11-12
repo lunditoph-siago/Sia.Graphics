@@ -11,7 +11,7 @@ internal sealed partial class RuntimeShaderLowering
         int at = instruction.Offset;
         var call = calls.Resolve(instruction.Operand.GetInt32(at));
         var args = new Value[call.ParameterCount];
-        for (int a = args.Length-1; a >= 0; a--) args[a] = stack.Pop();
+        for (int a = args.Length - 1; a >= 0; a--) args[a] = stack.Pop();
         Value? receiver = call.IsInstance && instruction.OpCode.Name != "newobj" ? stack.Pop() : null;
         void Push(Expression value) => stack.Push(Snapshot(value, body));
         if (call.DeclaringType == "Sia.Spirv.UInt3" && call.Name.StartsWith("get_", StringComparison.Ordinal)) {
@@ -28,16 +28,19 @@ internal sealed partial class RuntimeShaderLowering
             if (component > 3) throw Error(at, "Fragment position component must be between 0 and 3.");
             if (!builtins.TryGetValue(call.Intrinsic.Value, out var expression)) {
                 string name = call.Intrinsic.Value switch {
-                    IntrinsicKind.GlobalInvocationId => "global_invocation_id", IntrinsicKind.LocalInvocationId => "local_invocation_id",
-                    IntrinsicKind.WorkGroupId => "workgroup_id", IntrinsicKind.VertexIndex => "vertex_index",
-                    IntrinsicKind.InstanceIndex => "instance_index", _ => "position"
+                    IntrinsicKind.GlobalInvocationId => "global_invocation_id",
+                    IntrinsicKind.LocalInvocationId => "local_invocation_id",
+                    IntrinsicKind.WorkGroupId => "workgroup_id",
+                    IntrinsicKind.VertexIndex => "vertex_index",
+                    IntrinsicKind.InstanceIndex => "instance_index",
+                    _ => "position"
                 };
                 ShaderType type = call.Intrinsic.Value switch {
                     IntrinsicKind.VertexIndex or IntrinsicKind.InstanceIndex => ShaderType.U32,
                     IntrinsicKind.GetFragmentPosition => new ShaderType.Vector(4, ShaderType.F32),
                     _ => new ShaderType.Vector(3, ShaderType.U32)
                 };
-                string parameter = "sia_"+name;
+                string parameter = "sia_" + name;
                 entry.Arguments.Add(new(parameter, type, new(Builtin: name)));
                 expression = new Expression.Reference(parameter, type); builtins.Add(call.Intrinsic.Value, expression);
             }
@@ -107,9 +110,9 @@ internal sealed partial class RuntimeShaderLowering
             var operands = new List<Expression> { texture };
             if (sampled) operands.Add(values[0]);
             operands.Add(coordinates);
-            if (arrayed) operands.Add(Convert(values[coordinate+2], ShaderType.I32));
+            if (arrayed) operands.Add(Convert(values[coordinate + 2], ShaderType.I32));
             int levelIndex = coordinate + (arrayed ? 3 : 2);
-            operands.Add(levelIndex < values.Length-1 ? Convert(values[levelIndex], sampled ? ShaderType.F32 : ShaderType.I32) : Zero(sampled ? ShaderType.F32 : ShaderType.I32));
+            operands.Add(levelIndex < values.Length - 1 ? Convert(values[levelIndex], sampled ? ShaderType.F32 : ShaderType.I32) : Zero(sampled ? ShaderType.F32 : ShaderType.I32));
             var texel = new Expression.Call(sampled ? "textureSampleLevel" : "textureLoad", operands, new ShaderType.Vector(4, ShaderType.F32), CallBinding.Builtin);
             Push(new Expression.Access(texel, Expression.U32(ConstantIndex(values[^1], at)), ShaderType.F32)); return;
         }
@@ -124,7 +127,7 @@ internal sealed partial class RuntimeShaderLowering
             var components = values;
             if (type is ShaderType.Matrix matrix && values.Length == matrix.Rows * matrix.Columns)
                 components = Enumerable.Range(0, matrix.Columns).Select(column => (Expression)new Expression.Construct(new ShaderType.Vector(matrix.Rows, matrix.Component),
-                    Enumerable.Range(0, matrix.Rows).Select(row => values[row*matrix.Columns+column]).ToArray())).ToArray();
+                    Enumerable.Range(0, matrix.Rows).Select(row => values[row * matrix.Columns + column]).ToArray())).ToArray();
             if (type is ShaderType.Vector vector) components = components.Select(v => v.Type is ShaderType.Scalar ? Convert(v, vector.Component) : v).ToArray();
             var value = new Expression.Construct(type, components);
             if (receiver is not null) Store(receiver.Expression, value, body); else Push(value);
@@ -147,17 +150,29 @@ internal sealed partial class RuntimeShaderLowering
         if (call.Intrinsic == IntrinsicKind.MathNegate) { Push(new Expression.Unary("-", values[0], values[0].Type)); return; }
         if (call.Intrinsic == IntrinsicKind.AsFloat) { Push(Convert(values[0], values[0].Type is ShaderType.Vector vector ? new ShaderType.Vector(vector.Size, ShaderType.F32) : ShaderType.F32, true)); return; }
         if (call.Intrinsic == IntrinsicKind.Select) {
-            // Gpu.Select uses condition,true,false; math.select uses false,true,condition.
             var value = call.DeclaringType == "Sia.Math.math" ? new Expression.Select(values[2], values[1], values[0])
                 : new Expression.Select(Truth(values[0]), values[1], values[2]);
             Push(value); return;
         }
         string? builtin = call.Intrinsic switch {
-            IntrinsicKind.InverseSqrt => "inverseSqrt", IntrinsicKind.Sqrt => "sqrt", IntrinsicKind.Sin => "sin", IntrinsicKind.Cos => "cos",
-            IntrinsicKind.Pow => "pow", IntrinsicKind.Abs => "abs", IntrinsicKind.MathDot => "dot", IntrinsicKind.MathCross => "cross",
-            IntrinsicKind.MathNormalize => "normalize", IntrinsicKind.MathMin => "min", IntrinsicKind.MathMax => "max",
-            IntrinsicKind.MathClamp => "clamp", IntrinsicKind.MathSaturate => "saturate", IntrinsicKind.MathReflect => "reflect",
-            IntrinsicKind.MathAny => "any", IntrinsicKind.MathAll => "all", IntrinsicKind.MathTranspose => "transpose", _ => null
+            IntrinsicKind.InverseSqrt => "inverseSqrt",
+            IntrinsicKind.Sqrt => "sqrt",
+            IntrinsicKind.Sin => "sin",
+            IntrinsicKind.Cos => "cos",
+            IntrinsicKind.Pow => "pow",
+            IntrinsicKind.Abs => "abs",
+            IntrinsicKind.MathDot => "dot",
+            IntrinsicKind.MathCross => "cross",
+            IntrinsicKind.MathNormalize => "normalize",
+            IntrinsicKind.MathMin => "min",
+            IntrinsicKind.MathMax => "max",
+            IntrinsicKind.MathClamp => "clamp",
+            IntrinsicKind.MathSaturate => "saturate",
+            IntrinsicKind.MathReflect => "reflect",
+            IntrinsicKind.MathAny => "any",
+            IntrinsicKind.MathAll => "all",
+            IntrinsicKind.MathTranspose => "transpose",
+            _ => null
         };
         if (builtin is not null) { Push(new Expression.Call(builtin, values, Type(call.Signature.ReturnType), CallBinding.Builtin)); return; }
         if (call.Intrinsic is not null) throw Error(at, $"Runtime intrinsic {call.Intrinsic} requires further lowering.");
@@ -165,7 +180,7 @@ internal sealed partial class RuntimeShaderLowering
             throw Error(at, $"Runtime helper {call.DeclaringType}.{call.Name} needs explicit supported shader metadata.");
         if (call.Name == ".ctor" && structures.TryGetValue(call.DeclaringType, out var constructed)) {
             var constructor = new ShaderFunction(Name("constructor")) { ReturnType = constructed };
-            var parameters = call.Signature.ParameterTypes.Select((type, i) => new FunctionArgument("p"+i, Type(type))).ToArray();
+            var parameters = call.Signature.ParameterTypes.Select((type, i) => new FunctionArgument("p" + i, Type(type))).ToArray();
             constructor.Arguments.AddRange(parameters);
             var place = Place(Name("constructed"), constructed);
             constructor.Body.Statements.Add(new Statement.Declare(place.Name, constructed, null));
@@ -183,7 +198,7 @@ internal sealed partial class RuntimeShaderLowering
         if (helper is null) {
             if (!activeHelpers.Add(call.MetadataToken)) throw Error(at, "Recursive shader helpers are unsupported.");
             helper = new ShaderFunction(Name("helper")) { ReturnType = Type(call.Signature.ReturnType) };
-            var parameters = parameterTypes.Select((type, i) => new FunctionArgument("p"+i, type)).ToArray();
+            var parameters = parameterTypes.Select((type, i) => new FunctionArgument("p" + i, type)).ToArray();
             helper.Arguments.AddRange(parameters);
             var inputs = parameters.Select(p => new Value(new Expression.Reference(p.Name, p.Type), p.Type is ShaderType.Pointer)).ToArray();
             Function(helper, call.MetadataToken, inputs);
@@ -194,7 +209,8 @@ internal sealed partial class RuntimeShaderLowering
         var invocation = new Expression.Call(helper.Name, values.Select((value, i) => Convert(value, helper.Arguments[i].Type, true)).ToArray(), helper.ReturnType, CallBinding.Function);
         if (helper.ReturnType is ShaderType.Void) body.Statements.Add(new Statement.Evaluate(invocation)); else Push(invocation);
     }
-    private static uint ConstantIndex(Expression value, int offset) {
+    private static uint ConstantIndex(Expression value, int offset)
+    {
         if (!ConstantEvaluator.TryEvaluate(value, out var constant) || constant is not Expression.Literal literal)
             throw Error(offset, "Shader IO location and texture component must be constant.");
         return System.Convert.ToUInt32(literal.Value);

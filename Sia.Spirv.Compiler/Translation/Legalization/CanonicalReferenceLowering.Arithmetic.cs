@@ -11,8 +11,10 @@ internal static partial class CanonicalReferenceLowering
         ShaderType type = ((ShaderType.Pointer)shape.Root.Type).Base;
         foreach (var part in shape.Parts[..^1])
             type = part.Member is { } member ? ((ShaderType.Structure)type).Members.Single(m => m.Name == member).Type : type switch {
-                ShaderType.Array array => array.Element, ShaderType.BindingArray array => array.Element,
-                ShaderType.Vector vector => vector.Component, ShaderType.Matrix matrix => new ShaderType.Vector(matrix.Rows, matrix.Component),
+                ShaderType.Array array => array.Element,
+                ShaderType.BindingArray array => array.Element,
+                ShaderType.Vector vector => vector.Component,
+                ShaderType.Matrix matrix => new ShaderType.Vector(matrix.Rows, matrix.Component),
                 _ => throw new ShaderException(DiagnosticStage.Validation, "Invalid pointer offset projection.")
             };
         return type;
@@ -32,8 +34,6 @@ internal static partial class CanonicalReferenceLowering
     {
         var source = (ShaderType.Scalar)value.Type;
         if (source.Width == type.Width) return ConvertIndex(value, type, emit);
-        // Element is signed irrespective of its declared signedness. Interpret
-        // the source bit pattern before widening, then add in the index domain.
         if (source.Kind != ScalarKind.Sint) value = emit(source with { Kind = ScalarKind.Sint }, new ValueOperation.Convert(value, true));
         value = emit(type with { Kind = ScalarKind.Sint }, new ValueOperation.Convert(value, false));
         return emit(type, new ValueOperation.Convert(value, true));

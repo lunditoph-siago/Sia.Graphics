@@ -5,7 +5,6 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Prepares canonical graphs for consumers that need a structured shader module.</summary>
 internal static class StructuredModuleLowering
 {
     internal static Module Run(CanonicalModule canonical, bool nativeValidation = false)

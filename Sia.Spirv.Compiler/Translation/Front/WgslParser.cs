@@ -23,32 +23,26 @@ internal sealed class WgslParser(string source)
         var module = new SModule();
         bool directives = true;
         module.Identifiers.UnionWith(tokens.Where(t => t.Kind == TokenKind.Word).Select(t => t.Text));
-        while (Current.Kind != TokenKind.End)
-        {
+        while (Current.Kind != TokenKind.End) {
             if (Eat(";")) { directives = false; continue; }
-            if (Eat("enable"))
-            {
+            if (Eat("enable")) {
                 if (!directives) throw Error("Directives must precede global declarations.");
-                do
-                {
+                do {
                     string name = Identifier();
                     if (!WgslExtensions.Enable(name)) throw Error($"Unknown or unimplemented enable extension '{name}'.");
                     module.Enables.Add(name);
                 } while (Eat(",") && Current.Text != ";");
                 Expect(";"); continue;
             }
-            if (Eat("requires"))
-            {
+            if (Eat("requires")) {
                 if (!directives) throw Error("Directives must precede global declarations.");
-                do
-                {
+                do {
                     string name = Identifier();
                     if (!WgslExtensions.Requirement(name)) throw Error($"Unknown or unimplemented language requirement '{name}'.");
                 } while (Eat(",") && Current.Text != ";");
                 Expect(";"); continue;
             }
-            if (Eat("diagnostic"))
-            {
+            if (Eat("diagnostic")) {
                 if (!directives) throw Error("Directives must precede global declarations.");
                 var filter = DiagnosticFilter(); Expect(";");
                 var previous = module.DiagnosticFilters.FirstOrDefault(f => f.Rule == filter.Rule && f.Namespace == filter.Namespace);
@@ -59,30 +53,25 @@ internal sealed class WgslParser(string source)
             directives = false;
             if (Eat("const_assert")) { module.Assertions.Add(Expression()); Expect(";"); continue; }
             var attributes = Attributes();
-            if (Eat("struct"))
-            {
+            if (Eat("struct")) {
                 if (attributes.Count != 0) throw Error("Attributes cannot be applied to structures.");
                 string name = Identifier(); Expect("{"); var members = new List<SMember>();
-                while (!Eat("}"))
-                {
+                while (!Eat("}")) {
                     var memberAttributes = Attributes(); string memberName = Identifier(); Expect(":");
                     members.Add(new(memberName, Name(), memberAttributes));
                     if (!Eat(",")) { Expect("}"); break; }
                 }
                 module.Structures.Add(new(name, members)); continue;
             }
-            if (Eat("alias"))
-            {
+            if (Eat("alias")) {
                 if (attributes.Count != 0) throw Error("Attributes cannot be applied to aliases.");
                 string name = Identifier(); Expect("=");
                 if (!module.Aliases.TryAdd(name, Name())) throw Error("Duplicate alias name.");
                 Expect(";"); continue;
             }
-            if (Eat("fn"))
-            {
+            if (Eat("fn")) {
                 string name = Identifier(); Expect("("); var arguments = new List<SArgument>();
-                while (!Eat(")"))
-                {
+                while (!Eat(")")) {
                     var argumentAttributes = Attributes(); string argument = Identifier(); Expect(":");
                     arguments.Add(new(argument, Name(), argumentAttributes));
                     if (!Eat(",")) { Expect(")"); break; }
@@ -100,11 +89,9 @@ internal sealed class WgslParser(string source)
     private List<SAttribute> Attributes()
     {
         var attributes = new List<SAttribute>();
-        while (Eat("@"))
-        {
+        while (Eat("@")) {
             SourceSpan span = tokens[cursor - 1].Span; string name = Identifier(attribute: true);
-            if (name == "diagnostic")
-            {
+            if (name == "diagnostic") {
                 var filter = DiagnosticFilter();
                 if (attributes.Any(a => a.DiagnosticFilter is { } f && f.Rule == filter.Rule && f.Namespace == filter.Namespace))
                     throw Error("Duplicate diagnostic attribute for the same rule.");
@@ -112,10 +99,8 @@ internal sealed class WgslParser(string source)
                 continue;
             }
             var arguments = new List<SExpression>();
-            if (Eat("("))
-            {
-                while (!Eat(")"))
-                {
+            if (Eat("(")) {
+                while (!Eat(")")) {
                     arguments.Add(Expression());
                     if (!Eat(",")) { Expect(")"); break; }
                 }
@@ -129,10 +114,11 @@ internal sealed class WgslParser(string source)
     {
         Expect("(");
         string severity = Identifier();
-        IR.DiagnosticSeverity level = severity switch
-        {
-            "off" => IR.DiagnosticSeverity.Off, "info" => IR.DiagnosticSeverity.Info,
-            "warning" => IR.DiagnosticSeverity.Warning, "error" => IR.DiagnosticSeverity.Error,
+        IR.DiagnosticSeverity level = severity switch {
+            "off" => IR.DiagnosticSeverity.Off,
+            "info" => IR.DiagnosticSeverity.Info,
+            "warning" => IR.DiagnosticSeverity.Warning,
+            "error" => IR.DiagnosticSeverity.Error,
             _ => throw Error("Expected diagnostic severity off, info, warning or error.")
         };
         Expect(","); string rule = Identifier(); string? ns = null;
@@ -144,11 +130,9 @@ internal sealed class WgslParser(string source)
     private SDeclaration Declaration(IReadOnlyList<SAttribute> attributes)
     {
         var start = Take(); var qualifiers = new List<SExpression>();
-        if (Current.Kind == TokenKind.TemplateStart)
-        {
+        if (Current.Kind == TokenKind.TemplateStart) {
             Take();
-            while (Current.Kind != TokenKind.TemplateEnd)
-            {
+            while (Current.Kind != TokenKind.TemplateEnd) {
                 qualifiers.Add(Expression()); if (!Eat(",")) break;
             }
             if (Current.Kind != TokenKind.TemplateEnd) throw Error("Expected end of declaration qualifier list.");
@@ -165,11 +149,9 @@ internal sealed class WgslParser(string source)
     {
         SourceSpan span = Current.Span; string name = Identifier();
         var arguments = new List<SExpression>();
-        if (Current.Kind == TokenKind.TemplateStart)
-        {
+        if (Current.Kind == TokenKind.TemplateStart) {
             Take();
-            while (Current.Kind != TokenKind.TemplateEnd)
-            {
+            while (Current.Kind != TokenKind.TemplateEnd) {
                 arguments.Add(Expression()); if (!Eat(",")) break;
             }
             if (Current.Kind != TokenKind.TemplateEnd) throw Error("Expected end of template argument list.");
@@ -183,8 +165,7 @@ internal sealed class WgslParser(string source)
         Enter(); var attributes = Attributes();
         if (attributes.Any(a => a.DiagnosticFilter is null)) throw Error("Only diagnostic attributes are allowed on compound statements.");
         Expect("{"); var block = new SBlock(); block.DiagnosticFilters.AddRange(attributes.Select(a => a.DiagnosticFilter!));
-        while (!Eat("}"))
-        {
+        while (!Eat("}")) {
             if (Current.Kind == TokenKind.End) throw Error("Unterminated statement block.");
             if (Eat(";")) continue;
             block.Statements.Add(Statement());
@@ -209,51 +190,42 @@ internal sealed class WgslParser(string source)
         else if (Eat("continue")) { result = new SStatement.Continue(); Expect(";"); }
         else if (Eat("discard")) { result = new SStatement.Discard(); Expect(";"); }
         else if (Eat("const_assert")) { result = new SStatement.Assert(Expression()); Expect(";"); }
-        else if (Eat("if"))
-        {
+        else if (Eat("if")) {
             SExpression condition = Expression(); var accept = Block(); var reject = new SBlock();
-            if (Eat("else"))
-            {
+            if (Eat("else")) {
                 if (Current.Text == "if") reject.Statements.Add(Statement());
                 else reject = Block();
             }
             result = new SStatement.If(condition, accept, reject);
         }
         else if (Eat("while")) { SExpression condition = Expression(); result = new SStatement.While(condition, Block()); }
-        else if (Eat("for"))
-        {
+        else if (Eat("for")) {
             Expect("("); SStatement? init = null, update = null;
             if (Current.Text != ";") init = Current.Text is "var" or "let" or "const" ? new SStatement.Declaration(Declaration([])) : SimpleStatement();
             Expect(";"); SExpression? condition = Current.Text == ";" ? null : Expression(); Expect(";");
             if (Current.Text != ")") update = SimpleStatement();
             Expect(")"); result = new SStatement.For(init, condition, update, Block());
         }
-        else if (Eat("loop"))
-        {
+        else if (Eat("loop")) {
             var attributes = Attributes();
             if (attributes.Any(a => a.DiagnosticFilter is null)) throw Error("Only diagnostic attributes are allowed on loop bodies.");
             Expect("{"); var body = new SBlock(); body.DiagnosticFilters.AddRange(attributes.Select(a => a.DiagnosticFilter!)); var continuing = new SBlock();
-            while (!Eat("}"))
-            {
+            while (!Eat("}")) {
                 if (Eat("continuing")) { continuing = Block(); Expect("}"); break; }
                 if (Eat(";")) continue;
                 body.Statements.Add(Statement());
             }
             result = new SStatement.Loop(body, continuing);
         }
-        else if (Eat("switch"))
-        {
+        else if (Eat("switch")) {
             SExpression selector = Expression(); var attributes = Attributes();
             if (attributes.Any(a => a.DiagnosticFilter is null)) throw Error("Only diagnostic attributes are allowed on switch bodies.");
             Expect("{"); var cases = new List<SCase>();
-            while (!Eat("}"))
-            {
+            while (!Eat("}")) {
                 bool isDefault = Eat("default"); var values = new List<SExpression>();
-                if (!isDefault)
-                {
+                if (!isDefault) {
                     Expect("case");
-                    do
-                    {
+                    do {
                         if (Eat("default")) isDefault = true;
                         else values.Add(Expression());
                     } while (Eat(",") && Current.Text is not (":" or "{" or "@"));
@@ -275,8 +247,7 @@ internal sealed class WgslParser(string source)
     {
         SExpression target = Expression();
         string op = Current.Text;
-        if (op is "=" or "+=" or "-=" or "*=" or "/=" or "%=" or "&=" or "|=" or "^=" or "<<=" or ">>=")
-        {
+        if (op is "=" or "+=" or "-=" or "*=" or "/=" or "%=" or "&=" or "|=" or "^=" or "<<=" or ">>=") {
             Take(); return new SStatement.Assignment(op, target, Expression());
         }
         if (op is "++" or "--") { Take(); return new SStatement.Assignment(op, target, null); }
@@ -294,10 +265,8 @@ internal sealed class WgslParser(string source)
         else if (Current.Text == "_") { Take(); left = new SExpression.Name("_", [], start.Span); }
         else if (Current.Kind == TokenKind.Word) left = Name();
         else throw Error("Expected expression.");
-        while (true)
-        {
-            if (Eat("("))
-            {
+        while (true) {
+            if (Eat("(")) {
                 var args = new List<SExpression>();
                 while (!Eat(")")) { args.Add(Expression()); if (!Eat(",")) { Expect(")"); break; } }
                 left = new SExpression.Call(left, args, start.Span); continue;
@@ -311,9 +280,17 @@ internal sealed class WgslParser(string source)
         Leave(); return left;
     }
 
-    private static int Precedence(string op) => op switch
-    {
-        "||" => 0, "&&" => 1, "|" => 2, "^" => 3, "&" => 4, "==" or "!=" => 5,
-        "<" or ">" or "<=" or ">=" => 6, "<<" or ">>" => 7, "+" or "-" => 8, "*" or "/" or "%" => 9, _ => -1
+    private static int Precedence(string op) => op switch {
+        "||" => 0,
+        "&&" => 1,
+        "|" => 2,
+        "^" => 3,
+        "&" => 4,
+        "==" or "!=" => 5,
+        "<" or ">" or "<=" or ">=" => 6,
+        "<<" or ">>" => 7,
+        "+" or "-" => 8,
+        "*" or "/" or "%" => 9,
+        _ => -1
     };
 }

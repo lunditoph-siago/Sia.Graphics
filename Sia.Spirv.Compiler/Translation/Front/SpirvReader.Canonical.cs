@@ -4,8 +4,6 @@ namespace Sia.Spirv.Compiler.Translation.Front;
 
 public static partial class SpirvReader
 {
-    // Family-by-family migration. Other native forms retain the existing normalizer
-    // with an explicit deferral; eligibility never turns a parse error into fallback.
     private static bool CanReadCanonicalFlow(SpirvBinary binary, out string? deferred)
     {
         deferred = null;

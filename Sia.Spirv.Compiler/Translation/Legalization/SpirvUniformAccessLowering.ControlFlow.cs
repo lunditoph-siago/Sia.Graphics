@@ -9,21 +9,21 @@ internal sealed partial class SpirvUniformAccessLowering
     private sealed record GraphStep(string? Member, SsaValue? Index, uint? Constant);
     private sealed record GraphLocation(GlobalVariable Root, IReadOnlyList<GraphStep> Steps);
 
-    // Locations describe logical address paths. Caller indices are already SSA
-    // values, including aliases captured before a later mutation of their source.
     private void RunGraph(ControlFlowFunction graph, IDictionary<string, ControlFlowFunction> ownedGraphs)
     {
         var definitions = graph.Blocks.SelectMany(b => b.Instructions).Where(i => i.Result is not null)
             .ToDictionary(i => i.Result!.Value.Id, i => i.Operation);
         var locations = new Dictionary<int, GraphLocation?>();
         var parameters = graph.Signature.Arguments.Select(a => a.Name).ToHashSet(StringComparer.Ordinal);
-        uint? Constant(SsaValue value) {
+        uint? Constant(SsaValue value)
+        {
             var operation = definitions.GetValueOrDefault(value.Id);
             if (operation is ValueOperation.Let let) return Constant(let.Value);
             return operation is ValueOperation.Literal { Value: uint number } ? number
                 : operation is ValueOperation.Literal { Value: int signed } && signed >= 0 ? (uint)signed : null;
         }
-        GraphLocation? Place(SsaValue value) {
+        GraphLocation? Place(SsaValue value)
+        {
             if (value.Type is not ShaderType.Pointer) return null;
             if (locations.TryGetValue(value.Id, out var known)) return known;
             var operation = definitions.GetValueOrDefault(value.Id);
@@ -53,8 +53,6 @@ internal sealed partial class SpirvUniformAccessLowering
             if (block.Terminator!.Operands.Concat(block.Terminator.Edges.SelectMany(e => e.Arguments)).Any(v => Place(v) is not null))
                 throw Error("Converted uniform pointer requires a direct dereference or alias.");
         }
-        // Only consumed logical address definitions disappear. Loads, calls and
-        // captured data indices remain at their original ordered positions.
         foreach (var block in graph.Blocks)
             block.Instructions.RemoveAll(i => i.Result is { } value && Place(value) is not null);
     }
@@ -65,7 +63,8 @@ internal sealed partial class SpirvUniformAccessLowering
         var signature = new ShaderFunction(Name("sia_spv_uniform_read_")) { ReturnType = result };
         var helper = new ControlFlowFunction(signature); var entry = helper.Block(); helper.Entry = entry.Id;
         var arguments = new List<SsaValue>(); var steps = new List<GraphStep>();
-        SsaValue Emit(ControlFlowBlock block, ShaderType type, ValueOperation operation) {
+        SsaValue Emit(ControlFlowBlock block, ShaderType type, ValueOperation operation)
+        {
             var value = helper.Value(type); block.Instructions.Add(origin with { Result = value, Operation = operation }); return value;
         }
         foreach (var step in location.Steps) {
@@ -88,7 +87,8 @@ internal sealed partial class SpirvUniformAccessLowering
         SsaValue FixedChild(ControlFlowBlock block, SsaValue pointer, ShaderType type, int index)
             => Child(block, pointer, type, Emit(block, ShaderType.U32, new ValueOperation.Literal((uint)index)));
         SsaValue Load(ControlFlowBlock block, SsaValue pointer, ShaderType logical, ShaderType mapped,
-            SpirvMemoryAccess? access, MemoryDecorations inherited) {
+            SpirvMemoryAccess? access, MemoryDecorations inherited)
+        {
             if (logical == mapped) return Emit(block, logical, new ValueOperation.Load(pointer,
                 ShaderMemoryRequirements.Decorate(access, inherited | ShaderMemoryRequirements.TypeMemory(logical), AddressSpace.Uniform, VulkanMemory)));
             access = access?.Leaf();
@@ -118,7 +118,8 @@ internal sealed partial class SpirvUniformAccessLowering
             throw Error("Uniform layout conversion has incompatible types.", origin.Span);
         }
         (SsaValue Value, ControlFlowBlock Exit) Select(ControlFlowBlock block, GraphStep step, int count,
-            Func<ControlFlowBlock, int, (SsaValue Value, ControlFlowBlock Exit)> read) {
+            Func<ControlFlowBlock, int, (SsaValue Value, ControlFlowBlock Exit)> read)
+        {
             if (step.Constant is { } fixedIndex && fixedIndex < count) return read(block, (int)fixedIndex);
             var selector = step.Index!.Value; var merge = helper.Block(); var joined = helper.Value(result); merge.Parameters.Add(joined);
             var cases = new List<ControlFlowCase>();
@@ -133,7 +134,8 @@ internal sealed partial class SpirvUniformAccessLowering
             return (joined, merge);
         }
         (SsaValue Value, ControlFlowBlock Exit) Path(ControlFlowBlock block, SsaValue pointer, ShaderType logical, ShaderType mapped,
-            int depth, SpirvMemoryAccess? access, MemoryDecorations inherited) {
+            int depth, SpirvMemoryAccess? access, MemoryDecorations inherited)
+        {
             if (depth == steps.Count) return (Load(block, pointer, logical, mapped, access, inherited), block);
             var step = steps[depth];
             if (step.Member is { } name && logical is ShaderType.Structure structure && mapped is ShaderType.Structure mappedStructure) {

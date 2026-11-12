@@ -36,9 +36,11 @@ internal sealed partial class MatrixStorageLowering
         foreach (var c in input.Constants) output.Constants.Add(c with { Type = Logical(c.Type), Value = c.Value is null ? null : Expr(c.Value) });
         var graphs = new Dictionary<string, ControlFlowFunction>(StringComparer.Ordinal);
         foreach (var f in input.Functions) {
-            var signature = new ShaderFunction(f.Name) { ReturnType = Logical(f.ReturnType), ReturnBinding = f.ReturnBinding, Stage = f.Stage,
+            var signature = new ShaderFunction(f.Name) {
+                ReturnType = Logical(f.ReturnType), ReturnBinding = f.ReturnBinding, Stage = f.Stage,
                 WorkgroupSize = f.WorkgroupSize.Select(Expr).ToArray(), EarlyDepthTest = f.EarlyDepthTest,
-                ConservativeDepth = f.ConservativeDepth, TaskPayload = f.TaskPayload, MeshOutput = f.MeshOutput };
+                ConservativeDepth = f.ConservativeDepth, TaskPayload = f.TaskPayload, MeshOutput = f.MeshOutput
+            };
             signature.Arguments.AddRange(f.Arguments.Select(a => a with { Type = Logical(a.Type) }));
             signature.DiagnosticFilters.AddRange(f.DiagnosticFilters);
             output.Functions.Add(signature);
@@ -46,7 +48,6 @@ internal sealed partial class MatrixStorageLowering
                 var graph = original.Copy(signature); Graph(graph); graphs.Add(f.Name, graph);
             }
             else {
-                // Only explicitly deferred bodies use the structured adapter.
                 var saved = locations; locations = new(saved, StringComparer.Ordinal);
                 foreach (var a in f.Arguments.Where(a => a.Type is ShaderType.Pointer)) {
                     var pointer = (ShaderType.Pointer)a.Type; var node = Memory(Logical(pointer.Base));
@@ -65,20 +66,23 @@ internal sealed partial class MatrixStorageLowering
         var globals = input.Globals.ToDictionary(g => g.Name, StringComparer.Ordinal);
         ControlFlowBlock current = graph.Blocks[0]; ControlFlowInstruction origin = new(null, new ValueOperation.Construct([]));
         SsaValue Data(SsaValue value) => value with { Type = Logical(value.Type) };
-        SsaValue Emit(ShaderType type, ValueOperation operation) {
+        SsaValue Emit(ShaderType type, ValueOperation operation)
+        {
             var value = graph.Value(type); current.Instructions.Add(new(value, operation, origin.Span) { DiagnosticFilters = origin.DiagnosticFilters }); return value;
         }
         void Effect(ValueOperation operation) => current.Instructions.Add(new(null, operation, origin.Span) { DiagnosticFilters = origin.DiagnosticFilters });
         SsaValue Literal(uint value) => Emit(ShaderType.U32, new ValueOperation.Literal(value));
         SsaValue Child(SsaValue pointer, ShaderType type, SsaValue index) => Emit(((ShaderType.Pointer)pointer.Type) with { Base = type }, new ValueOperation.Access(pointer, index));
-        Address Field(Address parent, string name) {
+        Address Field(Address parent, string name)
+        {
             if (parent.Node.Original is not ShaderType.Structure s || parent.Node.Members is null) throw Error("Invalid matrix member address.");
             int index = s.Members.ToList().FindIndex(m => m.Name == name);
             if (index < 0) throw Error("Unknown matrix member.");
             var node = parent.Node.Members[index];
             return new(Emit(((ShaderType.Pointer)parent.Pointer.Type) with { Base = node.Physical }, new ValueOperation.Member(parent.Pointer, name)), node);
         }
-        Address Index(Address parent, SsaValue index) {
+        Address Index(Address parent, SsaValue index)
+        {
             if (parent.Column is { } projection) {
                 var row = new ShaderType.Vector(projection.Matrix.Columns, projection.Matrix.Component);
                 return new(Child(Child(projection.Rows, row, index), row.Component, projection.Column), Memory(row.Component));
@@ -89,11 +93,15 @@ internal sealed partial class MatrixStorageLowering
                     : new(Child(parent.Pointer, column, index), Memory(column));
             }
             if (parent.Node.Element is { } element) return new(Child(parent.Pointer, element.Physical, index), element);
-            ShaderType child = parent.Node.Original switch { ShaderType.Matrix m => new ShaderType.Vector(m.Rows, m.Component),
-                ShaderType.Vector v => v.Component, _ => throw Error("Invalid matrix-layout index.") };
+            ShaderType child = parent.Node.Original switch {
+                ShaderType.Matrix m => new ShaderType.Vector(m.Rows, m.Component),
+                ShaderType.Vector v => v.Component,
+                _ => throw Error("Invalid matrix-layout index.")
+            };
             return new(Child(parent.Pointer, child, index), Memory(child));
         }
-        Address Place(SsaValue value) {
+        Address Place(SsaValue value)
+        {
             if (!definitions.TryGetValue(value.Id, out var definition)) throw Error("Unresolved matrix address parameter.");
             var pointer = (ShaderType.Pointer)value.Type;
             switch (definition.Operation) {
@@ -108,13 +116,15 @@ internal sealed partial class MatrixStorageLowering
                 default: throw Error("Matrix storage requires resolved address provenance.");
             }
         }
-        SsaValue Value(SsaValue value) {
+        SsaValue Value(SsaValue value)
+        {
             if (value.Type is not ShaderType.Pointer) return Data(value);
             var place = Place(value);
             if (place.Column is not null) throw Error("Strided matrix column escapes require helper expansion.");
             return place.Pointer;
         }
-        void Loop(uint length, Action<SsaValue> body) {
+        void Loop(uint length, Action<SsaValue> body)
+        {
             var zero = Literal(0); var count = Literal(length);
             var header = graph.Block(); var iteration = graph.Block(); var continuing = graph.Block(); var end = graph.Block();
             var index = graph.Value(ShaderType.U32); header.Parameters.Add(index);
@@ -126,7 +136,8 @@ internal sealed partial class MatrixStorageLowering
             var next = Emit(ShaderType.U32, new ValueOperation.Binary("+", index, Literal(1)));
             continuing.Terminator = new ControlFlowTerminator.Branch(new(header.Id, [next])); current = end;
         }
-        SsaValue Read(Address place, SpirvMemoryAccess? memory) {
+        SsaValue Read(Address place, SpirvMemoryAccess? memory)
+        {
             if (place.Column is { } projection)
                 return Emit(place.Node.Logical, new ValueOperation.Construct(Enumerable.Range(0, projection.Matrix.Rows)
                     .Select(r => Read(Index(place, Literal((uint)r)), memory?.Leaf())).ToArray()));
@@ -143,7 +154,8 @@ internal sealed partial class MatrixStorageLowering
             }
             throw Error("Whole matrix-layout array access requires a resolved finite length.");
         }
-        void Write(Address place, SsaValue value, SpirvMemoryAccess? memory) {
+        void Write(Address place, SsaValue value, SpirvMemoryAccess? memory)
+        {
             if (place.Column is { } projection) {
                 for (uint r = 0; r < projection.Matrix.Rows; r++) Write(Index(place, Literal(r)),
                     Emit(projection.Matrix.Component, new ValueOperation.Access(value, Literal(r))), memory?.Leaf());

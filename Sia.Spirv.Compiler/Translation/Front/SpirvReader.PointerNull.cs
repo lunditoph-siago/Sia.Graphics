@@ -6,12 +6,13 @@ public static partial class SpirvReader
 {
     private sealed partial class Reader
     {
-        private static bool IsNullPointer(IR.Expression expression) => expression switch
-        {
+        private static bool IsNullPointer(IR.Expression expression) => expression switch {
             IR.Expression.Construct { Type: IR.ShaderType.Pointer, Components.Count: 0 } => true,
             IR.Expression.Unary { Operator: "&" or "*" } u => IsNullPointer(u.Operand),
-            IR.Expression.Access a => IsNullPointer(a.Base), IR.Expression.Member m => IsNullPointer(m.Base),
-            IR.Expression.Select s => IsNullPointer(s.Accept) && IsNullPointer(s.Reject), _ => false
+            IR.Expression.Access a => IsNullPointer(a.Base),
+            IR.Expression.Member m => IsNullPointer(m.Base),
+            IR.Expression.Select s => IsNullPointer(s.Accept) && IsNullPointer(s.Reject),
+            _ => false
         };
     }
     private sealed partial class PointerPhiLowering

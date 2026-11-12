@@ -2,23 +2,26 @@ using Sia.Spirv.Compiler.Translation.IR;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Make implicit workgroup zeroing and its collective synchronization explicit before serialization.</summary>
 internal static class SpirvWorkgroupInitializationLowering
 {
     internal static ShaderFunction Create(Module module, HashSet<string> names)
     {
-        string Fresh(string stem) {
+        string Fresh(string stem)
+        {
             string name = stem; int suffix = 0;
             while (!names.Add(name)) name = stem + "_" + ++suffix;
             return name;
         }
         bool Atomic(ShaderType type) => type switch {
-            ShaderType.Atomic => true, ShaderType.Array a => Atomic(a.Element),
-            ShaderType.Structure s => s.Members.Any(m => Atomic(m.Type)), _ => false
+            ShaderType.Atomic => true,
+            ShaderType.Array a => Atomic(a.Element),
+            ShaderType.Structure s => s.Members.Any(m => Atomic(m.Type)),
+            _ => false
         };
         bool Qualified(ShaderType type) => type switch {
             ShaderType.Array a => Qualified(a.Element),
-            ShaderType.Structure s => s.Members.Any(m => m.MemoryDecorations != MemoryDecorations.None || Qualified(m.Type)), _ => false
+            ShaderType.Structure s => s.Members.Any(m => m.MemoryDecorations != MemoryDecorations.None || Qualified(m.Type)),
+            _ => false
         };
         void Initialize(Block body, Expression place, ShaderType type, MemoryDecorations inherited)
         {

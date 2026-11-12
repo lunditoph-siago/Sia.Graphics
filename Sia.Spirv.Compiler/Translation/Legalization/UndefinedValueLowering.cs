@@ -3,13 +3,8 @@ using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Choose zero for native undefined values at the target boundary.</summary>
 internal static class UndefinedValueLowering
 {
-    // OpUndef allows any value on each consumption. Choosing zero consistently is
-    // a refinement, not an assertion that the source value has null identity.
-    // Source validation and analyses run first. Unknown/uninitialized memory never
-    // enters this pass, and reference lowering still preserves defined branches.
     internal static ControlFlowFunction Run(ControlFlowFunction input)
     {
         if (!input.Blocks.SelectMany(b => b.Instructions).Any(i => i.Operation is ValueOperation.Undefined)) return input;
@@ -23,9 +18,6 @@ internal static class UndefinedValueLowering
 
     internal static CanonicalModule Run(CanonicalModule input)
     {
-        // Native specialization operations may contain undefined constituents.
-        // Preserve their override dependencies until this same target boundary.
-        // Do not evaluate their defaults or mutate borrowed declaration values.
         var known = new Dictionary<string, Expression>(StringComparer.Ordinal);
         bool changed = false;
         Expression Changed(Expression value) { changed = true; return value; }
@@ -51,9 +43,6 @@ internal static class UndefinedValueLowering
             changed = false;
             var value = constant.Value is null ? null : Value(constant.Value);
             var replacement = constant with { Value = value };
-            // Refinement can remove the last specialization dependency. Propagate
-            // only these newly known constants; external override defaults remain
-            // unresolved, and ordinary declarations retain their existing policy.
             if (changed && !constant.IsOverride && value is not null && ConstantEvaluator.TryEvaluateRuntime(value, out var folded)) {
                 value = folded with { Span = value.Span }; known.Add(constant.Name, value);
                 replacement = replacement with { Value = value, IsSpecialization = false };

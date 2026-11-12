@@ -7,7 +7,6 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Prepare initialization and output conversions at the entry boundary, without rewriting calls to entry bodies.</summary>
 internal static class SpirvEntryPointLowering
 {
     internal sealed record Result(Module Module, IReadOnlyDictionary<(string Entry, string? Member), ShaderFunction> OutputFunctions,
@@ -41,7 +40,8 @@ internal static class SpirvEntryPointLowering
             var function = new ShaderFunction(name) { ReturnType = type };
             function.Arguments.Add(new("value", type));
             var graph = new ControlFlowFunction(function); var block = graph.Block(); graph.Entry = block.Id;
-            SsaValue Emit(ShaderType resultType, ValueOperation operation) {
+            SsaValue Emit(ShaderType resultType, ValueOperation operation)
+            {
                 var created = graph.Value(resultType); block.Instructions.Add(new(created, operation)); return created;
             }
             var value = Emit(type, new ValueOperation.Symbol("value"));

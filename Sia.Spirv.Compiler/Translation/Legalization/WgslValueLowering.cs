@@ -5,7 +5,6 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Remove redundant SSA state while retaining WGSL runtime evaluation boundaries.</summary>
 internal static class WgslValueLowering
 {
     internal static CanonicalModule Run(CanonicalModule input)
@@ -24,7 +23,8 @@ internal static class WgslValueLowering
     private static void Simplify(ControlFlowFunction graph)
     {
         var replacements = new Dictionary<int, SsaValue>();
-        SsaValue Resolve(SsaValue value) {
+        SsaValue Resolve(SsaValue value)
+        {
             while (replacements.TryGetValue(value.Id, out var next)) value = next;
             return value;
         }
@@ -64,7 +64,8 @@ internal static class WgslValueLowering
         }
         var definitions = graph.Blocks.SelectMany(b => b.Instructions).Where(i => i.Result is not null).ToDictionary(i => i.Result!.Value.Id);
         var known = new Dictionary<int, Expression?>();
-        Expression? Constant(SsaValue value) {
+        Expression? Constant(SsaValue value)
+        {
             value = Resolve(value);
             if (known.TryGetValue(value.Id, out var found)) return found;
             known.Add(value.Id, null);
@@ -121,14 +122,15 @@ internal static class WgslValueLowering
         var constants = module.Constants.Where(c => !c.IsOverride && !c.IsSpecialization && !graph.Signature.Arguments.Any(a => a.Name == c.Name))
             .ToDictionary(c => c.Name, StringComparer.Ordinal);
         var known = new Dictionary<int, Expression?>();
-        Expression? Constant(SsaValue value) {
+        Expression? Constant(SsaValue value)
+        {
             if (known.TryGetValue(value.Id, out var cached)) return cached;
             known.Add(value.Id, null);
             if (!definitions.TryGetValue(value.Id, out var definition)) return null;
             Expression? expression = definition.Operation switch {
                 ValueOperation.Literal literal => new Expression.Literal(literal.Value, value.Type),
                 ValueOperation.Symbol symbol when constants.TryGetValue(symbol.Name, out var constant) => constant.Value,
-                ValueOperation.Let => null, // An explicit target binding forces runtime evaluation.
+                ValueOperation.Let => null,
                 _ => ConstantExpression(definition, Constant)
             };
             try { return known[value.Id] = expression is not null && ConstantEvaluator.TryEvaluate(expression, out var folded) ? folded : null; }
@@ -155,8 +157,12 @@ internal static class WgslValueLowering
                 }
                 if (instruction.Operation is ValueOperation.Access access && Constant(access.Index) is { } index) {
                     ShaderType type = access.Base.Type is ShaderType.Pointer pointer ? pointer.Base : access.Base.Type;
-                    uint? length = type switch { ShaderType.Array array => array.Length, ShaderType.Vector vector => (uint)vector.Size,
-                        ShaderType.Matrix matrix => (uint)matrix.Columns, _ => null };
+                    uint? length = type switch {
+                        ShaderType.Array array => array.Length,
+                        ShaderType.Vector vector => (uint)vector.Size,
+                        ShaderType.Matrix matrix => (uint)matrix.Columns,
+                        _ => null
+                    };
                     if (Any(index, n => n < 0 || length is uint limit && n >= limit)) capture = access.Index;
                 }
                 var constantExpression = ConstantExpression(instruction, Constant);
@@ -181,7 +187,8 @@ internal static class WgslValueLowering
     private static int Width(ShaderType type) => type is ShaderType.Vector v ? v.Component.Width : ((ShaderType.Scalar)type).Width;
     private static bool Any(Expression value, Func<double, bool> predicate) => value switch {
         Expression.Literal literal => predicate(System.Convert.ToDouble(literal.Value)),
-        Expression.Construct construct => construct.Components.Any(c => Any(c, predicate)), _ => false
+        Expression.Construct construct => construct.Components.Any(c => Any(c, predicate)),
+        _ => false
     };
 
     private static Expression? ConstantExpression(ControlFlowInstruction instruction, Func<SsaValue, Expression?> constant)

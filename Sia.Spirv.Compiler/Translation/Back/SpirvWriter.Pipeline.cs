@@ -6,10 +6,8 @@ namespace Sia.Spirv.Compiler.Translation.Back;
 
 public static partial class SpirvWriter
 {
-    /// <summary>Legalize and emit SPIR-V bytes without modifying the caller's module.</summary>
     public static byte[] Write(Module module, SpirvCompilationTarget target, SpirvWriteOptions? options = null) => WriteModule(module, target, options).ToBytes();
 
-    /// <summary>Legalize and emit SPIR-V words through the same pipeline as byte output.</summary>
     public static uint[] WriteWords(Module module, SpirvCompilationTarget target, SpirvWriteOptions? options = null) => WriteModule(module, target, options).ToWords();
 
     private static SpirvBinary WriteModule(Module module, SpirvCompilationTarget target, SpirvWriteOptions? options)

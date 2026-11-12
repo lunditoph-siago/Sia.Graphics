@@ -6,7 +6,6 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Select and expand helpers whose calls cannot survive target lowering.</summary>
 internal static class TargetHelperLowering
 {
     internal static CanonicalModule Run(CanonicalModule canonical, bool taskDispatch = false,
@@ -35,8 +34,6 @@ internal static class TargetHelperLowering
             .Select(p => p.Key).ToHashSet(StringComparer.Ordinal);
         IncludeCallers(privateHelpers);
 
-        // Native image atomics must bind the actual resource before the target
-        // chooses its access qualifier.
         bool nativeImageAtomics = graphs.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions)
             .Any(i => i.Operation is ValueOperation.Builtin { AtomicMemory: not null } call
                 && call.Function.StartsWith("textureAtomic", StringComparison.Ordinal));

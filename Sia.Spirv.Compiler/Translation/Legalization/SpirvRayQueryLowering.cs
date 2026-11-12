@@ -6,7 +6,6 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Expose high-level query state and robustness guards before SPIR-V serialization.</summary>
 internal static class SpirvRayQueryLowering
 {
     private static bool HighLevel(string name) => name.StartsWith("rayQuery", StringComparison.Ordinal)
@@ -19,8 +18,6 @@ internal static class SpirvRayQueryLowering
         var deferred = input.DeferredFunctions.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
         var effects = ShaderEffectAnalysis.Compute(input);
         foreach (var signature in input.Declarations.Functions) {
-            // Only an explicit deferral may read declaration statements. Import
-            // it only when this target pass can actually take ownership.
             if (!graphs.TryGetValue(signature.Name, out var graph)
                 && !StructuredControlFlowReader.TryRead(signature, input.Declarations, out graph, out _, effects, native: true)) continue;
             if (!graph!.Blocks.SelectMany(b => b.Instructions).Any(i => i.Operation is ValueOperation.Builtin b && HighLevel(b.Function))) continue;
@@ -103,8 +100,6 @@ internal static class SpirvRayQueryLowering
                 current.Terminator = terminator;
                 if (selection) graph.SelectionMerges.Add(current.Id, merge);
             }
-            // Ordinary companion slots participate in the existing SSA promotion;
-            // the opaque query allocation can never be loaded, stored or promoted.
             ControlFlowVerifier.Validate(graph, module, calleeEffects: calleeEffects);
             LocalValuePromotion.Run(graph);
             return graph;
@@ -120,17 +115,20 @@ internal static class SpirvRayQueryLowering
         private SsaValue Flag(SsaValue state, uint mask) => Binary("!=", Binary("&", state, U(mask), ShaderType.U32), U(0));
         private SsaValue Load(SsaValue slot) => Emit(((ShaderType.Pointer)slot.Type).Base, new ValueOperation.Load(slot));
         private void Store(SsaValue slot, SsaValue value) => Add(null, new ValueOperation.Store(slot, value));
-        private void Declare(SsaValue slot) {
+        private void Declare(SsaValue slot)
+        {
             string name; do name = "sia_spv_query_" + nextName++; while (!names.Add(name));
             Add(slot, new ValueOperation.Local(name, false));
         }
-        private SsaValue Slot(ShaderType type, SsaValue initial) {
+        private SsaValue Slot(ShaderType type, SsaValue initial)
+        {
             var slot = graph.Value(new ShaderType.Pointer(type, AddressSpace.Function)); Declare(slot); Store(slot, initial); return slot;
         }
         private SsaValue Raw(string name, ShaderType type, params SsaValue[] args) => Emit(type, new ValueOperation.Builtin("spirvRayQuery" + name + "KHR", args, type));
         private void Raw(string name, params SsaValue[] args) => Add(null, new ValueOperation.Builtin("spirvRayQuery" + name + "KHR", args, new ShaderType.Void()));
         private SsaValue Read(string name, ShaderType type, SsaValue query, bool committed) => Raw(name, type, query, U(committed ? 1u : 0u));
-        private void Guard(SsaValue condition, Action body) {
+        private void Guard(SsaValue condition, Action body)
+        {
             var accept = graph.Block(); var done = graph.Block();
             graph.SelectionMerges.Add(current.Id, done.Id);
             current.Terminator = new ControlFlowTerminator.Conditional(condition, new(accept.Id), new(done.Id));
@@ -148,31 +146,31 @@ internal static class SpirvRayQueryLowering
             SsaValue Ready(bool committed) => And(Flag(state, 2), committed ? Flag(state, 4) : Not(Flag(state, 4)));
             switch (call.Function) {
                 case "rayQueryInitialize": {
-                    var fields = RayQueryTypes.Descriptor.Members.Select(m => Emit(m.Type, new ValueOperation.Member(args[2], m.Name))).ToArray();
-                    var valid = And(Binary("<=", fields[2], fields[3]), Binary(">=", fields[2], Zero(ShaderType.F32)));
-                    foreach (int vector in new[] { 4, 5 }) {
-                        var bools = new ShaderType.Vector(3, ShaderType.Bool);
-                        SsaValue Test(string name) => Emit(ShaderType.Bool, new ValueOperation.Builtin("any",
-                            [Emit(bools, new ValueOperation.Builtin(name, [fields[vector]], bools))], ShaderType.Bool));
-                        valid = And(valid, Not(Binary("||", Test("isNan"), Test("isInf"))));
+                        var fields = RayQueryTypes.Descriptor.Members.Select(m => Emit(m.Type, new ValueOperation.Member(args[2], m.Name))).ToArray();
+                        var valid = And(Binary("<=", fields[2], fields[3]), Binary(">=", fields[2], Zero(ShaderType.F32)));
+                        foreach (int vector in new[] { 4, 5 }) {
+                            var bools = new ShaderType.Vector(3, ShaderType.Bool);
+                            SsaValue Test(string name) => Emit(ShaderType.Bool, new ValueOperation.Builtin("any",
+                                [Emit(bools, new ValueOperation.Builtin(name, [fields[vector]], bools))], ShaderType.Bool));
+                            valid = And(valid, Not(Binary("||", Test("isNan"), Test("isInf"))));
+                        }
+                        foreach (uint[] group in new uint[][] { [256, 512], [256, 16, 32], [1, 2, 64, 128] })
+                            for (int i = 0; i < group.Length; i++) for (int j = i + 1; j < group.Length; j++)
+                                valid = And(valid, Not(And(Flag(fields[0], group[i]), Flag(fields[0], group[j]))));
+                        Store(tracker.Max, fields[3]);
+                        Guard(valid, () => {
+                            Raw("Initialize", query, args[1], fields[0], fields[1], fields[4], fields[2], fields[5], fields[3]);
+                            Store(tracker.Min, fields[2]); Store(tracker.State, U(1));
+                        }); break;
                     }
-                    foreach (uint[] group in new uint[][] { [256, 512], [256, 16, 32], [1, 2, 64, 128] })
-                        for (int i = 0; i < group.Length; i++) for (int j = i + 1; j < group.Length; j++)
-                            valid = And(valid, Not(And(Flag(fields[0], group[i]), Flag(fields[0], group[j]))));
-                    Store(tracker.Max, fields[3]);
-                    Guard(valid, () => {
-                        Raw("Initialize", query, args[1], fields[0], fields[1], fields[4], fields[2], fields[5], fields[3]);
-                        Store(tracker.Min, fields[2]); Store(tracker.State, U(1));
-                    }); break;
-                }
                 case "rayQueryProceed": {
-                    var slot = Slot(ShaderType.Bool, Zero(ShaderType.Bool));
-                    Guard(And(Flag(state, 1), Not(Flag(state, 4))), () => {
-                        var proceed = Raw("Proceed", ShaderType.Bool, query); Store(slot, proceed);
-                        var flags = Emit(ShaderType.U32, new ValueOperation.Select(proceed, U(2), U(6)));
-                        Store(tracker.State, Binary("|", state, flags, ShaderType.U32));
-                    }); Result(result, Load(slot)); break;
-                }
+                        var slot = Slot(ShaderType.Bool, Zero(ShaderType.Bool));
+                        Guard(And(Flag(state, 1), Not(Flag(state, 4))), () => {
+                            var proceed = Raw("Proceed", ShaderType.Bool, query); Store(slot, proceed);
+                            var flags = Emit(ShaderType.U32, new ValueOperation.Select(proceed, U(2), U(6)));
+                            Store(tracker.State, Binary("|", state, flags, ShaderType.U32));
+                        }); Result(result, Load(slot)); break;
+                    }
                 case "rayQueryTerminate": Guard(Active(), () => Raw("Terminate", query)); break;
                 case "rayQueryConfirmIntersection":
                     Guard(Active(), () => Guard(Binary("==", Read("GetIntersectionType", ShaderType.U32, query, false), U(0)), () => Raw("ConfirmIntersection", query))); break;
@@ -185,36 +183,38 @@ internal static class SpirvRayQueryLowering
                         var inRange = And(Binary(">=", args[1], Load(tracker.Min)), Binary("<=", args[1], Load(latest)));
                         Guard(And(inRange, Binary("==", candidate, U(1))), () => Raw("GenerateIntersection", query, args[1]));
                     }); break;
-                case "rayQueryGetCommittedIntersection": case "rayQueryGetCandidateIntersection": {
-                    bool committed = call.Function == "rayQueryGetCommittedIntersection";
-                    var type = (ShaderType.Structure)call.ReturnType; var slot = Slot(type, Zero(type));
-                    void Member(int index, SsaValue value) => Store(Emit(new ShaderType.Pointer(type.Members[index].Type, AddressSpace.Function),
-                        new ValueOperation.Member(slot, type.Members[index].Name)), value);
-                    Guard(Ready(committed), () => {
-                        var raw = Read("GetIntersectionType", ShaderType.U32, query, committed);
-                        var kind = committed ? raw : Emit(ShaderType.U32, new ValueOperation.Select(Binary("==", raw, U(0)), U(1), U(3)));
-                        Member(0, kind);
-                        Guard(Binary("!=", kind, U(0)), () => {
-                            string[] common = ["GetIntersectionInstanceCustomIndex", "GetIntersectionInstanceId", "GetIntersectionInstanceShaderBindingTableRecordOffset", "GetIntersectionGeometryIndex", "GetIntersectionPrimitiveIndex"];
-                            for (int i = 0; i < common.Length; i++) Member(i + 2, Read(common[i], type.Members[i + 2].Type, query, committed));
-                            Member(9, Read("GetIntersectionObjectToWorld", type.Members[9].Type, query, committed));
-                            Member(10, Read("GetIntersectionWorldToObject", type.Members[10].Type, query, committed));
-                            if (committed) Member(1, Read("GetIntersectionT", ShaderType.F32, query, true));
-                            Guard(Binary("==", kind, U(1)), () => {
-                                if (!committed) Member(1, Read("GetIntersectionT", ShaderType.F32, query, false));
-                                Member(7, Read("GetIntersectionBarycentrics", type.Members[7].Type, query, committed));
-                                Member(8, Read("GetIntersectionFrontFace", ShaderType.Bool, query, committed));
+                case "rayQueryGetCommittedIntersection":
+                case "rayQueryGetCandidateIntersection": {
+                        bool committed = call.Function == "rayQueryGetCommittedIntersection";
+                        var type = (ShaderType.Structure)call.ReturnType; var slot = Slot(type, Zero(type));
+                        void Member(int index, SsaValue value) => Store(Emit(new ShaderType.Pointer(type.Members[index].Type, AddressSpace.Function),
+                            new ValueOperation.Member(slot, type.Members[index].Name)), value);
+                        Guard(Ready(committed), () => {
+                            var raw = Read("GetIntersectionType", ShaderType.U32, query, committed);
+                            var kind = committed ? raw : Emit(ShaderType.U32, new ValueOperation.Select(Binary("==", raw, U(0)), U(1), U(3)));
+                            Member(0, kind);
+                            Guard(Binary("!=", kind, U(0)), () => {
+                                string[] common = ["GetIntersectionInstanceCustomIndex", "GetIntersectionInstanceId", "GetIntersectionInstanceShaderBindingTableRecordOffset", "GetIntersectionGeometryIndex", "GetIntersectionPrimitiveIndex"];
+                                for (int i = 0; i < common.Length; i++) Member(i + 2, Read(common[i], type.Members[i + 2].Type, query, committed));
+                                Member(9, Read("GetIntersectionObjectToWorld", type.Members[9].Type, query, committed));
+                                Member(10, Read("GetIntersectionWorldToObject", type.Members[10].Type, query, committed));
+                                if (committed) Member(1, Read("GetIntersectionT", ShaderType.F32, query, true));
+                                Guard(Binary("==", kind, U(1)), () => {
+                                    if (!committed) Member(1, Read("GetIntersectionT", ShaderType.F32, query, false));
+                                    Member(7, Read("GetIntersectionBarycentrics", type.Members[7].Type, query, committed));
+                                    Member(8, Read("GetIntersectionFrontFace", ShaderType.Bool, query, committed));
+                                });
                             });
-                        });
-                    }); Result(result, Load(slot)); break;
-                }
-                case "getCommittedHitVertexPositions": case "getCandidateHitVertexPositions": {
-                    bool committed = call.Function == "getCommittedHitVertexPositions";
-                    var slot = Slot(call.ReturnType, Zero(call.ReturnType));
-                    Guard(Ready(committed), () => Guard(Binary("==", Read("GetIntersectionType", ShaderType.U32, query, committed), U(committed ? 1u : 0u)),
-                        () => Store(slot, Read("GetIntersectionTriangleVertexPositions", call.ReturnType, query, committed))));
-                    Result(result, Load(slot)); break;
-                }
+                        }); Result(result, Load(slot)); break;
+                    }
+                case "getCommittedHitVertexPositions":
+                case "getCandidateHitVertexPositions": {
+                        bool committed = call.Function == "getCommittedHitVertexPositions";
+                        var slot = Slot(call.ReturnType, Zero(call.ReturnType));
+                        Guard(Ready(committed), () => Guard(Binary("==", Read("GetIntersectionType", ShaderType.U32, query, committed), U(committed ? 1u : 0u)),
+                            () => Store(slot, Read("GetIntersectionTriangleVertexPositions", call.ReturnType, query, committed))));
+                        Result(result, Load(slot)); break;
+                    }
                 default: throw new ShaderException(DiagnosticStage.SpirvWrite, "Unknown ray query operation.", origin.Span);
             }
         }

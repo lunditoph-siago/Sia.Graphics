@@ -5,10 +5,8 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Materialize a legalized SSA CFG in the structured target representation.</summary>
 internal static class StructuredControlFlowLowering
 {
-    /// <summary>Explicit representation boundary for consumers requiring structured target data.</summary>
     public static Module Run(CanonicalModule canonical, bool nativeValidation = false, bool compactValues = false)
     {
         var input = canonical.Declarations;
@@ -21,7 +19,6 @@ internal static class StructuredControlFlowLowering
         return output;
     }
 
-    // Project one owned graph for a structured adapter without running module-wide lowering.
     internal static ShaderFunction Project(ControlFlowFunction graph, Module module)
         => Run(CanonicalReferenceLowering.Run(UndefinedValueLowering.Run(graph)), module);
 
@@ -50,11 +47,11 @@ internal static class StructuredControlFlowLowering
         var originalNames = definitions.Values.Select(i => i.Operation).OfType<ValueOperation.Let>().GroupBy(l => l.Name).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
         names.UnionWith(originalNames.Keys);
         var symbols = definitions.Values.Select(i => i.Operation).OfType<ValueOperation.Symbol>().Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
-        string ValueName(ControlFlowInstruction? definition) {
+        string ValueName(ControlFlowInstruction? definition)
+        {
             if (definition?.Operation is ValueOperation.Let let && originalNames[let.Name] == 1 && !symbols.Contains(let.Name)
                 && !signature.Arguments.Any(a => a.Name == let.Name) && !module.Functions.Any(f => f.Name == let.Name)
                 && !ShaderBuiltinEffects.IsKnown(let.Name)) {
-                // Flattened scopes may reuse an unused module constant's name, but never shadow a live symbol.
                 names.Add(let.Name); return let.Name;
             }
             return Fresh();
@@ -77,8 +74,6 @@ internal static class StructuredControlFlowLowering
                     || instruction.Operation is ValueOperation.Literal or ValueOperation.Symbol or ValueOperation.Let) continue;
                 if (uses[value.Id] != 1 && (instruction.Operation is not (ValueOperation.Access or ValueOperation.Member or ValueOperation.Swizzle)
                     || instruction.Operation.Operands.Any(v => inline.Contains(v.Id)))) continue;
-                // Memory reads and convergent operations are never delayed. Bound
-                // expression growth so a long SSA chain still has useful names.
                 int cost = 1 + instruction.Operation.Operands.Sum(v => costs.GetValueOrDefault(v.Id, 1));
                 if (cost > 24) continue;
                 inline.Add(value.Id); costs.Add(value.Id, cost);
@@ -110,7 +105,8 @@ internal static class StructuredControlFlowLowering
             else if (function.Blocks.Any(b => b.Parameters.Contains(value)))
                 throw new ShaderException(DiagnosticStage.Validation, "Reference block parameters require prior target legalization.");
         }
-        Expression Use(SsaValue value) {
+        Expression Use(SsaValue value)
+        {
             if (expressions.TryGetValue(value.Id, out var expression)) return expression;
             var instruction = definitions[value.Id];
             if (inline.Contains(value.Id)) {
@@ -146,26 +142,29 @@ internal static class StructuredControlFlowLowering
             ValueOperation.Access access => new Expression.Access(Use(access.Base), Use(access.Index), result.Type),
             ValueOperation.Member member => new Expression.Member(Use(member.Base), member.Name, result.Type),
             ValueOperation.Swizzle swizzle => new Expression.Swizzle(Use(swizzle.Vector), swizzle.Components, result.Type),
-            ValueOperation.Call call => new Expression.Call(call.Function, call.Arguments.Select(CallArgument).ToArray(), call.ReturnType, CallBinding.Function)
-                { AtomicMemory = call.AtomicMemory, MemoryAccess = call.MemoryAccess },
-            ValueOperation.Builtin builtin => new Expression.Call(builtin.Function, builtin.Arguments.Select(CallArgument).ToArray(), result.Type, CallBinding.Builtin)
-                { AtomicMemory = builtin.AtomicMemory, MemoryAccess = builtin.MemoryAccess, ImageAccess = builtin.ImageAccess },
+            ValueOperation.Call call => new Expression.Call(call.Function, call.Arguments.Select(CallArgument).ToArray(), call.ReturnType, CallBinding.Function) { AtomicMemory = call.AtomicMemory, MemoryAccess = call.MemoryAccess },
+            ValueOperation.Builtin builtin => new Expression.Call(builtin.Function, builtin.Arguments.Select(CallArgument).ToArray(), result.Type, CallBinding.Builtin) { AtomicMemory = builtin.AtomicMemory, MemoryAccess = builtin.MemoryAccess, ImageAccess = builtin.ImageAccess },
             _ => throw new ShaderException(DiagnosticStage.Validation, "Unsupported value in CFG target adapter.")
         }) with { Span = instruction.Span };
         var blocks = function.Blocks.ToDictionary(b => b.Id);
-        Block EdgeCopies(ControlFlowEdge edge) {
+        Block EdgeCopies(ControlFlowEdge edge)
+        {
             var body = new Block(); var snapshots = new List<(Expression Target, Expression Value)>();
             var targets = blocks[edge.Target].Parameters.Select(p => ((Expression.Reference)((Expression.Load)Use(p)).Pointer).Name).ToHashSet(StringComparer.Ordinal);
             bool ReadsTarget(Expression expression) => expression switch {
-                Expression.Reference reference => targets.Contains(reference.Name), Expression.Load load => ReadsTarget(load.Pointer),
-                Expression.Unary unary => ReadsTarget(unary.Operand), Expression.Binary binary => ReadsTarget(binary.Left) || ReadsTarget(binary.Right),
-                Expression.Convert convert => ReadsTarget(convert.Operand), Expression.Construct construct => construct.Components.Any(ReadsTarget),
-                Expression.Access access => ReadsTarget(access.Base) || ReadsTarget(access.Index), Expression.Member member => ReadsTarget(member.Base),
-                Expression.Swizzle swizzle => ReadsTarget(swizzle.Vector), Expression.Select select => ReadsTarget(select.Condition) || ReadsTarget(select.Accept) || ReadsTarget(select.Reject),
-                Expression.Call call => call.Arguments.Any(ReadsTarget), _ => false
+                Expression.Reference reference => targets.Contains(reference.Name),
+                Expression.Load load => ReadsTarget(load.Pointer),
+                Expression.Unary unary => ReadsTarget(unary.Operand),
+                Expression.Binary binary => ReadsTarget(binary.Left) || ReadsTarget(binary.Right),
+                Expression.Convert convert => ReadsTarget(convert.Operand),
+                Expression.Construct construct => construct.Components.Any(ReadsTarget),
+                Expression.Access access => ReadsTarget(access.Base) || ReadsTarget(access.Index),
+                Expression.Member member => ReadsTarget(member.Base),
+                Expression.Swizzle swizzle => ReadsTarget(swizzle.Vector),
+                Expression.Select select => ReadsTarget(select.Condition) || ReadsTarget(select.Accept) || ReadsTarget(select.Reject),
+                Expression.Call call => call.Arguments.Any(ReadsTarget),
+                _ => false
             };
-            // Independent SSA sources cannot observe any destination update.
-            // Cycles (including loop-carried swaps) retain parallel snapshots.
             bool direct = compactValues && edge.Arguments.All(v => !ReadsTarget(Use(v)));
             for (int i = 0; i < edge.Arguments.Count; i++) {
                 var argument = edge.Arguments[i]; var parameter = blocks[edge.Target].Parameters[i];
@@ -186,8 +185,6 @@ internal static class StructuredControlFlowLowering
                 if (instruction.Result is { } inlineValue && inline.Contains(inlineValue.Id)) continue;
                 if (instruction.Operation is ValueOperation.Local) {
                     if (instruction.Result is { Type: ShaderType.Pointer { Base: ShaderType.RayQuery query } } handle)
-                        // Query state starts fresh at the original allocation,
-                        // including each loop iteration. Never hoist that reset.
                         body.Statements.Add(new Statement.Declare(((Expression.Reference)Use(handle)).Name, query, null) { Span = instruction.Span });
                     continue;
                 }
@@ -216,12 +213,10 @@ internal static class StructuredControlFlowLowering
                     emission.Statements.Add(new Statement.MeshSetOutputs(Use(meshCounts.Vertices), Use(meshCounts.Primitives)) { Span = instruction.Span }); continue;
                 }
                 if (instruction.Operation is ValueOperation.Call { ReturnType: ShaderType.Void } voidCall) {
-                    emission.Statements.Add(new Statement.Evaluate(new Expression.Call(voidCall.Function, voidCall.Arguments.Select(CallArgument).ToArray(), voidCall.ReturnType, CallBinding.Function)
-                                                { AtomicMemory = voidCall.AtomicMemory,MemoryAccess = voidCall.MemoryAccess,Span = instruction.Span }) { Span = instruction.Span }); continue;
+                    emission.Statements.Add(new Statement.Evaluate(new Expression.Call(voidCall.Function, voidCall.Arguments.Select(CallArgument).ToArray(), voidCall.ReturnType, CallBinding.Function) { AtomicMemory = voidCall.AtomicMemory, MemoryAccess = voidCall.MemoryAccess, Span = instruction.Span }) { Span = instruction.Span }); continue;
                 }
                 if (instruction.Operation is ValueOperation.Builtin { ReturnType: ShaderType.Void } voidBuiltin) {
-                    emission.Statements.Add(new Statement.Evaluate(new Expression.Call(voidBuiltin.Function, voidBuiltin.Arguments.Select(CallArgument).ToArray(), voidBuiltin.ReturnType, CallBinding.Builtin)
-                                                { AtomicMemory = voidBuiltin.AtomicMemory,MemoryAccess = voidBuiltin.MemoryAccess, ImageAccess = voidBuiltin.ImageAccess,Span = instruction.Span }) { Span = instruction.Span }); continue;
+                    emission.Statements.Add(new Statement.Evaluate(new Expression.Call(voidBuiltin.Function, voidBuiltin.Arguments.Select(CallArgument).ToArray(), voidBuiltin.ReturnType, CallBinding.Builtin) { AtomicMemory = voidBuiltin.AtomicMemory, MemoryAccess = voidBuiltin.MemoryAccess, ImageAccess = voidBuiltin.ImageAccess, Span = instruction.Span }) { Span = instruction.Span }); continue;
                 }
                 var result = instruction.Result!.Value;
                 if (!CanonicalTypes.Data(result.Type)) {
@@ -230,8 +225,6 @@ internal static class StructuredControlFlowLowering
                         && !(block.Instructions.ElementAtOrDefault(instructionIndex + 1)?.Operation is ValueOperation.Store { MemoryAccess: null } initial && initial.Pointer == result))
                         emission.Statements.Add(new Statement.Store(address, new Expression.Construct(((ShaderType.Pointer)result.Type).Base, [])) { Span = instruction.Span });
                     if (result.Type is ShaderType.Pointer && instruction.Operation is ValueOperation.Let) {
-                        // Retain explicit address formation for target legality, even when the alias is unused.
-                        // Access indices have already been captured as SSA values before this declaration.
                         var alias = (ValueOperation.Let)instruction.Operation;
                         string name = ((Expression.Reference)((Expression.Unary)address).Operand).Name;
                         emission.Statements.Add(new Statement.Declare(name, result.Type,
@@ -253,28 +246,30 @@ internal static class StructuredControlFlowLowering
         var visited = new HashSet<int>(); var breakTargets = new Stack<int?>();
         var nonLocalExits = new Dictionary<int, Expression.Reference>();
         ShaderException Invalid(string message) => new(DiagnosticStage.Validation, "Canonical structured control in " + signature.Name + ": " + message);
-        Expression.Reference ExitFlag(int target) {
+        Expression.Reference ExitFlag(int target)
+        {
             if (!nonLocalExits.TryGetValue(target, out var flag)) {
                 string name = Fresh(); flag = Place(name, ShaderType.Bool); nonLocalExits.Add(target, flag);
                 output.Body.Statements.Add(new Statement.Declare(name, ShaderType.Bool, Expression.Bool(false)));
             }
             return flag;
         }
-        void ResetExit(int? target, Block body) {
+        void ResetExit(int? target, Block body)
+        {
             if (target is int id && nonLocalExits.TryGetValue(id, out var flag)) body.Statements.Add(new Statement.Store(flag, Expression.Bool(false)));
         }
-        void PropagateExit(Block body) {
+        void PropagateExit(Block body)
+        {
             foreach (var (target, flag) in nonLocalExits.Where(p => breakTargets.Contains(p.Key))) {
                 var exit = new Block(); exit.Statements.Add(new Statement.Break());
                 body.Statements.Add(new Statement.If(new Expression.Load(flag), exit, new()));
             }
         }
-        int? Transfer(ControlFlowEdge edge, Block body, int? stop, LoopContext? loop, bool continuing) {
+        int? Transfer(ControlFlowEdge edge, Block body, int? stop, LoopContext? loop, bool continuing)
+        {
             body.Statements.AddRange(EdgeCopies(edge).Statements);
             if (breakTargets.Contains(edge.Target) && breakTargets.Peek() != edge.Target) {
                 if (continuing) throw Invalid("nonlocal exit from continuing region");
-                // Leave nested breakable regions in order, with the return-edge
-                // values already captured. No remaining helper effects may run.
                 body.Statements.Add(new Statement.Store(ExitFlag(edge.Target), Expression.Bool(true)));
                 body.Statements.Add(new Statement.Break()); return null;
             }
@@ -296,13 +291,15 @@ internal static class StructuredControlFlowLowering
             }
             return edge.Target;
         }
-        Block Arm(ControlFlowEdge edge, int? stop, LoopContext? loop, bool continuing) {
+        Block Arm(ControlFlowEdge edge, int? stop, LoopContext? loop, bool continuing)
+        {
             var body = new Block();
             if (Transfer(edge, body, stop, loop, continuing) is int nextBlock)
                 body.Statements.AddRange(Sequence(nextBlock, stop, loop, continuing).Statements);
             return body;
         }
-        Block Sequence(int start, int? stop, LoopContext? loop = null, bool continuing = false, bool loopEntry = false) {
+        Block Sequence(int start, int? stop, LoopContext? loop = null, bool continuing = false, bool loopEntry = false)
+        {
             var body = new Block(); int? nextBlock = start;
             while (nextBlock is int id && id != stop) {
                 if (function.Loops.TryGetValue(id, out var region) && !(loopEntry && loop?.Header == id)) {
@@ -325,8 +322,6 @@ internal static class StructuredControlFlowLowering
                         if (continuing && loop is not null && loop.Merge is int merge
                             && (conditional.Accept.Target == merge && conditional.Reject.Target == loop.Header
                                 || conditional.Reject.Target == merge && conditional.Accept.Target == loop.Header)) {
-                            // Edge copies may update the very phi used by the condition. Capture
-                            // it before either copy set, then use that immutable value in break-if.
                             string name = Fresh(); var captured = new Expression.Reference(name, ShaderType.Bool);
                             body.Statements.Add(new Statement.Declare(name, ShaderType.Bool, Use(conditional.Condition), false));
                             body.Statements.Add(new Statement.If(captured, EdgeCopies(conditional.Accept), EdgeCopies(conditional.Reject)));
@@ -336,8 +331,6 @@ internal static class StructuredControlFlowLowering
                         if (!continuing && loop is not null && loop.Merge is int loopMerge
                             && (id == loop.Header || !function.SelectionMerges.ContainsKey(id))
                             && (conditional.Accept.Target == loopMerge || conditional.Reject.Target == loopMerge)) {
-                            // Native conditional exits anywhere in the loop body may use
-                            // the loop merge without opening a separate selection.
                             body.Statements.Add(new Statement.If(Use(conditional.Condition),
                                 Arm(conditional.Accept, stop, loop, false), Arm(conditional.Reject, stop, loop, false)));
                             nextBlock = null; break;
@@ -345,9 +338,6 @@ internal static class StructuredControlFlowLowering
                         if (!function.SelectionMerges.TryGetValue(id, out var join)) {
                             if (!continuing && stop is int enclosingMerge && function.SelectionMerges.Values.Contains(enclosingMerge)
                                 && (conditional.Accept.Target == enclosingMerge || conditional.Reject.Target == enclosingMerge)) {
-                                // A native conditional exit can use its enclosing selection's
-                                // merge without opening another selection. Keep both edge-copy
-                                // sets inside their arms; the caller emits the merge exactly once.
                                 body.Statements.Add(new Statement.If(Use(conditional.Condition),
                                     Arm(conditional.Accept, stop, loop, false), Arm(conditional.Reject, stop, loop, false)));
                                 nextBlock = null; break;
@@ -365,8 +355,6 @@ internal static class StructuredControlFlowLowering
                             if (group.Any(c => !c.Edge.Arguments.SequenceEqual(edge.Arguments))
                                 || edge.Target == selection.Default.Target && !edge.Arguments.SequenceEqual(selection.Default.Arguments))
                                 throw Invalid("switch edges from one predecessor disagree on incoming values");
-                            // Multiple literals share one executable region. A matching
-                            // default already covers all literals mapped to that region.
                             if (edge.Target != selection.Default.Target)
                                 choices.Add(new(group.SelectMany(c => c.Values).Distinct().ToArray(), false, Arm(edge, done, loop, continuing)));
                         }

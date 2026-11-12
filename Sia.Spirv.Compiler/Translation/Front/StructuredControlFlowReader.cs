@@ -4,7 +4,6 @@ using Sia.Spirv.Compiler.Translation.Proc;
 
 namespace Sia.Spirv.Compiler.Translation.Front;
 
-/// <summary>Temporary frontend adapter for concrete data and ordered memory operations.</summary>
 internal sealed class StructuredControlFlowReader
 {
     private readonly ControlFlowFunction function;
@@ -47,8 +46,6 @@ internal sealed class StructuredControlFlowReader
         try {
             var reader = new StructuredControlFlowReader(input, module, calleeEffects, native);
             reader.Body(input.Body);
-            // Valid non-void bodies may leave an unreachable merge after returning in both arms.
-            // Reachability removes it before verification; live fallthrough is rejected by ModuleValidator.
             reader.current.Terminator ??= input.ReturnType is ShaderType.Void ? new ControlFlowTerminator.Return()
                 : new ControlFlowTerminator.Unreachable();
             output = reader.function; return true;
@@ -56,8 +53,6 @@ internal sealed class StructuredControlFlowReader
         catch (Unsupported exception) { deferredFeature = exception.Message; return false; }
     }
 
-    // The native frontend owns block topology and phi parameters. Reuse only
-    // expression/statement translation; do not rediscover its graph from regions.
     internal static StructuredControlFlowReader Native(ShaderFunction signature, Module module)
     {
         var reader = new StructuredControlFlowReader(signature, module);
@@ -138,8 +133,6 @@ internal sealed class StructuredControlFlowReader
             case Expression.Select select when CanonicalTypes.Data(select.Type):
                 return Emit(select.Type, new ValueOperation.Select(Expr(select.Condition), Expr(select.Accept), Expr(select.Reject)), select.Span);
             case Expression.Select select when select.Type is ShaderType.Pointer:
-                // A native select consumes already evaluated addresses. Capture both
-                // before branching; the CFG merge carries their actual address identity.
                 var predicate = Expr(select.Condition); var selected = Place(select.Accept); var other = Place(select.Reject);
                 var yes = function.Block(); var no = function.Block(); var join = function.Block();
                 var selectedAddress = function.Value(selected.Type); join.Parameters.Add(selectedAddress);
@@ -179,8 +172,10 @@ internal sealed class StructuredControlFlowReader
     private bool IsPlace(Expression expression) => expression switch {
         Expression.Reference reference => scopes.SelectMany(s => s).FirstOrDefault(p => p.Key == reference.Name).Value.Type is ShaderType.Pointer
             || !scopes.Any(s => s.ContainsKey(reference.Name)) && symbols.GetValueOrDefault(reference.Name) is ShaderType.Pointer,
-        Expression.Access access => IsPlace(access.Base), Expression.Member member => IsPlace(member.Base),
-        Expression.Unary { Operator: "*", Operand.Type: ShaderType.Pointer } => true, _ => false
+        Expression.Access access => IsPlace(access.Base),
+        Expression.Member member => IsPlace(member.Base),
+        Expression.Unary { Operator: "*", Operand.Type: ShaderType.Pointer } => true,
+        _ => false
     };
 
     private SsaValue AddressOrRead(Expression expression)
@@ -194,8 +189,6 @@ internal sealed class StructuredControlFlowReader
         SsaValue? binding = null;
         foreach (var scope in scopes) if (scope.TryGetValue(reference.Name, out var local)) { binding = local; break; }
         var value = binding ?? Emit(symbols.GetValueOrDefault(reference.Name, reference.Type), new ValueOperation.Symbol(reference.Name), reference.Span);
-        // Native-reader scalar references may denote implicit reads or assignment places.
-        // Resolve ownership/type first, then make reads explicit without loading store targets.
         if (!place && value.Type is ShaderType.Pointer pointer && pointer.Base == reference.Type)
             return Emit(reference.Type, new ValueOperation.Load(value), reference.Span);
         return value;
@@ -227,8 +220,6 @@ internal sealed class StructuredControlFlowReader
             if (current.Terminator is not null) break;
             switch (statement) {
                 case Statement.Declare { Mutable: true, Type: ShaderType.RayQuery, Initializer: null } query:
-                    // Opaque query identity is an allocation, not a zero-valued
-                    // data object or a promotable load/store slot.
                     var handle = Emit(new ShaderType.Pointer(query.Type, AddressSpace.Function),
                         new ValueOperation.Local(query.Name, false), query.Span);
                     scopes.Peek().Add(query.Name, handle); break;

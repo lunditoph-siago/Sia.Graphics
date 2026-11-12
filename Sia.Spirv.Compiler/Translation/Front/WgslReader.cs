@@ -41,40 +41,33 @@ public static partial class WgslReader
             foreach (var structure in syntax.Structures) ResolveType(new(structure.Name, [], default));
             foreach (string alias in syntax.Aliases.Keys) ResolveType(new(alias, [], default));
             foreach (var declaration in syntax.Declarations) ResolveGlobal(declaration.Name);
-            foreach (var source in syntax.Functions)
-            {
+            foreach (var source in syntax.Functions) {
                 CheckAttributes(source.Attributes.Where(a => a.Name != "diagnostic").ToArray(), "vertex", "fragment", "compute", "task", "mesh", "payload", "workgroup_size", "early_depth_test", "must_use");
                 var function = new ShaderFunction(source.Name) { ReturnType = source.Result is null ? new ShaderType.Void() : ResolveType(source.Result), ReturnBinding = Io(source.ResultAttributes) };
                 function.DiagnosticFilters.AddRange(source.Attributes.Where(a => a.DiagnosticFilter is not null).Select(a => a.DiagnosticFilter!));
-                if (source.Attributes.FirstOrDefault(a => a.Name == "must_use") is { } mustUse)
-                {
+                if (source.Attributes.FirstOrDefault(a => a.Name == "must_use") is { } mustUse) {
                     if (mustUse.Arguments.Count != 0 || function.ReturnType is ShaderType.Void) throw Error("@must_use needs a function with a return value and no attribute arguments.", mustUse.Span);
                     mustUseFunctions.Add(function.Name);
                 }
                 int stages = 0;
-                foreach (var attribute in source.Attributes)
-                {
-                    if (attribute.Name is "vertex" or "fragment" or "compute" or "task" or "mesh")
-                    {
+                foreach (var attribute in source.Attributes) {
+                    if (attribute.Name is "vertex" or "fragment" or "compute" or "task" or "mesh") {
                         if (++stages > 1 || attribute.Arguments.Count != (attribute.Name == "mesh" ? 1 : 0)) throw Error("Function has invalid stage attributes.", attribute.Span);
                         function.Stage = attribute.Name switch { "vertex" => ShaderStage.Vertex, "fragment" => ShaderStage.Fragment, "task" => ShaderStage.Task, "mesh" => ShaderStage.Mesh, _ => ShaderStage.Compute };
                         if (attribute.Name is "mesh" or "task" && !syntax.Enables.Contains("wgpu_mesh_shader")) throw Error("Mesh/task stages require wgpu_mesh_shader.", attribute.Span);
                         if (attribute.Name == "mesh") function.MeshOutput = MeshGlobalName(attribute);
                     }
                     else if (attribute.Name == "payload") function.TaskPayload = MeshGlobalName(attribute);
-                    else if (attribute.Name == "workgroup_size")
-                    {
+                    else if (attribute.Name == "workgroup_size") {
                         if (attribute.Arguments.Count is < 1 or > 3) throw Error("workgroup_size needs one to three arguments.", attribute.Span);
                         var workgroup = new Expression[] { Expression.U32(1), Expression.U32(1), Expression.U32(1) };
-                        for (int i = 0; i < attribute.Arguments.Count; i++)
-                        {
+                        for (int i = 0; i < attribute.Arguments.Count; i++) {
                             var size = Eval(attribute.Arguments[i], new());
                             workgroup[i] = Materialize(size, DefaultType(size.Type));
                         }
                         function.WorkgroupSize = workgroup;
                     }
-                    else if (attribute.Name == "early_depth_test")
-                    {
+                    else if (attribute.Name == "early_depth_test") {
                         if (attribute.Arguments is not [SExpression.Name { Templates.Count: 0 } depth] || depth.Text is not ("force" or "less_equal" or "greater_equal" or "unchanged")) throw Error("Invalid early_depth_test argument.", attribute.Span);
                         function.EarlyDepthTest = true; function.ConservativeDepth = depth.Text == "force" ? null : depth.Text;
                     }
@@ -87,8 +80,7 @@ public static partial class WgslReader
                 functions.Add(function.Name, function); module.Functions.Add(function);
             }
             foreach (var assertion in syntax.Assertions) Assert(assertion);
-            foreach (var source in syntax.Functions)
-            {
+            foreach (var source in syntax.Functions) {
                 currentFunction = functions[source.Name];
                 scopes.Push(new(StringComparer.Ordinal));
                 foreach (var arg in currentFunction.Arguments) scopes.Peek().Add(arg.Name, new(new Expression.Reference(arg.Name, arg.Type), false, false));
@@ -114,25 +106,21 @@ public static partial class WgslReader
             if (namedTypes.TryGetValue(name, out var existing) && syntaxType.Templates.Count == 0) return existing;
             bool userType = syntax.Aliases.ContainsKey(name) || syntax.Structures.Any(s => s.Name == name);
             if (userType && !resolvingTypes.Add(name)) throw Error($"Recursive type '{name}'.", syntaxType.Span);
-            try
-            {
+            try {
                 ShaderType result;
                 var args = syntaxType.Templates;
                 ShaderType Argument(int index) => index < args.Count && args[index] is SExpression.Name type ? ResolveType(type) : throw Error("Expected a type template argument.", syntaxType.Span);
                 ShaderType.Scalar Scalar(int index) => Argument(index) as ShaderType.Scalar ?? throw Error("Expected a scalar type.", syntaxType.Span);
                 string Word(int index) => index < args.Count && args[index] is SExpression.Name word && word.Templates.Count == 0 ? word.Text : throw Error("Expected a name template argument.", syntaxType.Span);
-                if (syntax.Aliases.TryGetValue(name, out var alias))
-                {
+                if (syntax.Aliases.TryGetValue(name, out var alias)) {
                     if (args.Count != 0) throw Error("Aliases do not take template arguments.", syntaxType.Span);
                     result = ResolveType(alias); namedTypes[name] = result; return result;
                 }
                 var structure = syntax.Structures.FirstOrDefault(s => s.Name == name);
-                if (structure is not null)
-                {
+                if (structure is not null) {
                     if (args.Count != 0) throw Error("Structures do not take template arguments.", syntaxType.Span);
                     var members = new List<StructMember>(); var memberNames = new HashSet<string>(StringComparer.Ordinal);
-                    foreach (var member in structure.Members)
-                    {
+                    foreach (var member in structure.Members) {
                         if (!memberNames.Add(member.Name)) throw Error("Duplicate structure member.");
                         CheckAttributes(member.Attributes, "align", "size", "location", "builtin", "interpolate", "invariant", "blend_src", "per_primitive");
                         members.Add(new(member.Name, ResolveType(member.Type), Alignment: UintAttribute(member.Attributes, "align"), Size: UintAttribute(member.Attributes, "size"), Binding: Io(member.Attributes, true)));
@@ -141,50 +129,42 @@ public static partial class WgslReader
                     var value = new ShaderType.Structure(name, members);
                     namedTypes.Add(name, value); module.Structures.Add(value); return value;
                 }
-                if (name is "bool" or "i16" or "u16" or "i32" or "u32" or "f32" or "f16" or "i64" or "u64" or "f64")
-                {
+                if (name is "bool" or "i16" or "u16" or "i32" or "u32" or "f32" or "f16" or "i64" or "u64" or "f64") {
                     if (args.Count != 0) throw Error("Scalar types do not take template arguments.", syntaxType.Span);
                     if (name == "f16" && !syntax.Enables.Contains("f16")) throw Error("f16 requires 'enable f16;'.", syntaxType.Span);
                     if (name is "i16" or "u16" && !syntax.Enables.Contains("wgpu_int16")) throw Error("16-bit integers require 'enable wgpu_int16;'.", syntaxType.Span);
                     result = name switch { "bool" => ShaderType.Bool, "i16" => ShaderType.I16, "u16" => ShaderType.U16, "i32" => ShaderType.I32, "u32" => ShaderType.U32, "f32" => ShaderType.F32, "i64" => new ShaderType.Scalar(ScalarKind.Sint, 8), "u64" => new ShaderType.Scalar(ScalarKind.Uint, 8), "f64" => new ShaderType.Scalar(ScalarKind.Float, 8), _ => ShaderType.F16 };
                 }
-                else if (name.StartsWith("vec", StringComparison.Ordinal) && name.Length is 4 or 5 && name[3] is >= '2' and <= '4')
-                {
+                else if (name.StartsWith("vec", StringComparison.Ordinal) && name.Length is 4 or 5 && name[3] is >= '2' and <= '4') {
                     ShaderType.Scalar scalar = name.Length == 5 ? ShorthandScalar(name[4], syntaxType.Span) : args.Count == 1 ? Scalar(0) : throw Error("Vector type needs a scalar template argument.", syntaxType.Span);
                     if (name.Length == 5 && args.Count != 0) throw Error("Shorthand vector has no template arguments.");
                     result = new ShaderType.Vector(name[3] - '0', scalar);
                 }
-                else if (name.StartsWith("mat", StringComparison.Ordinal) && name.Length is 6 or 7 && name[3] is >= '2' and <= '4' && name[4] == 'x' && name[5] is >= '2' and <= '4')
-                {
+                else if (name.StartsWith("mat", StringComparison.Ordinal) && name.Length is 6 or 7 && name[3] is >= '2' and <= '4' && name[4] == 'x' && name[5] is >= '2' and <= '4') {
                     ShaderType.Scalar scalar = name.Length == 7 ? ShorthandScalar(name[6], syntaxType.Span) : args.Count == 1 ? Scalar(0) : throw Error("Matrix type needs a scalar template argument.");
                     if (scalar.Kind != ScalarKind.Float || name.Length == 7 && args.Count != 0) throw Error("Invalid matrix scalar type.");
                     result = new ShaderType.Matrix(name[3] - '0', name[5] - '0', scalar);
                 }
-                else if (name is "coop_mat8x8" or "coop_mat16x16")
-                {
+                else if (name is "coop_mat8x8" or "coop_mat16x16") {
                     if (!syntax.Enables.Contains("wgpu_cooperative_matrix")) throw Error("Cooperative matrices require wgpu_cooperative_matrix.", syntaxType.Span);
                     if (args.Count != 2 || Scalar(0) is not { Kind: ScalarKind.Float, Width: 2 or 4 } component
                         || Word(1) is not ("A" or "B" or "C")) throw Error("Cooperative matrix needs f16/f32 and an A/B/C role.", syntaxType.Span);
                     int size = name == "coop_mat8x8" ? 8 : 16;
                     result = new ShaderType.CooperativeMatrix(size, size, component, Enum.Parse<CooperativeRole>(Word(1)));
                 }
-                else if (name is "array" or "binding_array")
-                {
+                else if (name is "array" or "binding_array") {
                     if (args.Count is < 1 or > 2) throw Error("Array type needs one or two template arguments.");
                     ShaderType element = Argument(0); uint? count = null; string? pending = null;
-                    if (args.Count == 2)
-                    {
+                    if (args.Count == 2) {
                         var prelude = new Block(); Expression length = Eval(args[1], prelude);
                         if (prelude.Statements.Count != 0) throw Error("Array length must be a constant or override expression.", args[1].Span);
                         if (ConstantEvaluator.TryEvaluate(length, out _)) count = UintExpression(args[1]);
-                        else
-                        {
+                        else {
                             if (length.Type is not ShaderType.Scalar { Kind: ScalarKind.Sint or ScalarKind.Uint }
                                 || !OverrideExpressions.IsValid(length, module.Constants.ToDictionary(c => c.Name, StringComparer.Ordinal)))
                                 throw Error("Array length must be an integer constant or override expression.", args[1].Span);
                             if (length is Expression.Reference r && module.Constants.Any(c => c.Name == r.Name && (c.IsOverride || c.IsSpecialization))) pending = r.Name;
-                            else
-                            {
+                            else {
                                 pending = Fresh(); module.Constants.Add(new(pending, length.Type, length) { IsSpecialization = true });
                                 globals.Add(pending, new(new Expression.Reference(pending, length.Type), false, false));
                             }
@@ -194,39 +174,33 @@ public static partial class WgslReader
                     result = name == "array" ? new ShaderType.Array(element, count) { OverrideLength = pending }
                         : new ShaderType.BindingArray(element, count) { OverrideLength = pending };
                 }
-                else if (name == "atomic")
-                {
+                else if (name == "atomic") {
                     if (args.Count != 1 || Scalar(0) is not ({ Kind: ScalarKind.Sint or ScalarKind.Uint, Width: 4 or 8 } or { Kind: ScalarKind.Float, Width: 4 })) throw Error("atomic needs i32, u32, i64, u64 or f32.");
                     result = new ShaderType.Atomic(Scalar(0));
                 }
-                else if (name == "ptr")
-                {
+                else if (name == "ptr") {
                     if (args.Count is < 2 or > 3) throw Error("ptr needs address space, type and optional access.");
                     AddressSpace space = Space(Word(0));
                     result = new ShaderType.Pointer(Argument(1), space, args.Count == 3 ? Access(Word(2)) : space == AddressSpace.Storage ? StorageAccess.Read : StorageAccess.ReadWrite);
                 }
-                else if (name is "RayDesc" or "RayIntersection")
-                {
+                else if (name is "RayDesc" or "RayIntersection") {
                     if (!syntax.Enables.Contains("wgpu_ray_query") && !syntax.Enables.Contains("wgpu_ray_tracing_pipeline")) throw Error("Ray types require a ray extension.", syntaxType.Span);
                     if (args.Count != 0) throw Error("Ray structures do not take template arguments.", syntaxType.Span);
                     var ray = name == "RayDesc" ? RayQueryTypes.Descriptor : RayQueryTypes.Intersection;
                     result = ray; if (!module.Structures.Contains(ray)) module.Structures.Add(ray);
                 }
-                else if (name is "ray_query" or "acceleration_structure")
-                {
+                else if (name is "ray_query" or "acceleration_structure") {
                     if (!syntax.Enables.Contains("wgpu_ray_query") && !syntax.Enables.Contains("wgpu_ray_tracing_pipeline")) throw Error("Ray types require a ray extension.", syntaxType.Span);
                     bool vertex = args.Count == 1 && Word(0) == "vertex_return";
                     if (args.Count > 1 || args.Count == 1 && !vertex) throw Error("Invalid ray type template argument.", syntaxType.Span);
                     if (vertex && !syntax.Enables.Contains("wgpu_ray_query_vertex_return")) throw Error("vertex_return requires wgpu_ray_query_vertex_return.", syntaxType.Span);
                     result = name == "ray_query" ? new ShaderType.RayQuery(vertex) : new ShaderType.AccelerationStructure(vertex);
                 }
-                else if (name is "sampler" or "sampler_comparison")
-                {
+                else if (name is "sampler" or "sampler_comparison") {
                     if (args.Count != 0) throw Error("Sampler does not take template arguments.");
                     result = new ShaderType.Sampler(name == "sampler_comparison");
                 }
-                else if (name.StartsWith("texture_", StringComparison.Ordinal))
-                {
+                else if (name.StartsWith("texture_", StringComparison.Ordinal)) {
                     bool storage = name.StartsWith("texture_storage_", StringComparison.Ordinal), depth = name.StartsWith("texture_depth_", StringComparison.Ordinal), ms = name.Contains("multisampled", StringComparison.Ordinal);
                     string dimensionName = name[(name.LastIndexOf('_') + 1)..];
                     bool arrayed = dimensionName == "array";
@@ -243,20 +217,24 @@ public static partial class WgslReader
             finally { if (userType) resolvingTypes.Remove(name); }
         }
 
-        private ShaderType.Scalar ShorthandScalar(char suffix, SourceSpan span) => suffix switch
-        {
-            'f' => ShaderType.F32, 'i' => ShaderType.I32, 'u' => ShaderType.U32,
-            'h' when syntax.Enables.Contains("f16") => ShaderType.F16, _ => throw Error("Invalid scalar shorthand or missing f16 enable.", span)
+        private ShaderType.Scalar ShorthandScalar(char suffix, SourceSpan span) => suffix switch {
+            'f' => ShaderType.F32,
+            'i' => ShaderType.I32,
+            'u' => ShaderType.U32,
+            'h' when syntax.Enables.Contains("f16") => ShaderType.F16,
+            _ => throw Error("Invalid scalar shorthand or missing f16 enable.", span)
         };
-        private AddressSpace Space(string name) => name switch
-        {
-            "function" => AddressSpace.Function, "private" => AddressSpace.Private, "workgroup" => AddressSpace.Workgroup,
-            "uniform" => AddressSpace.Uniform, "storage" => AddressSpace.Storage, "immediate" => AddressSpace.Immediate,
+        private AddressSpace Space(string name) => name switch {
+            "function" => AddressSpace.Function,
+            "private" => AddressSpace.Private,
+            "workgroup" => AddressSpace.Workgroup,
+            "uniform" => AddressSpace.Uniform,
+            "storage" => AddressSpace.Storage,
+            "immediate" => AddressSpace.Immediate,
             "task_payload" when syntax.Enables.Contains("wgpu_mesh_shader") => AddressSpace.TaskPayload,
             _ => throw Error($"Unknown address space '{name}'.")
         };
-        private StorageAccess Access(string name) => name switch
-        { "read" => StorageAccess.Read, "write" => StorageAccess.Write, "read_write" => StorageAccess.ReadWrite, "atomic" => StorageAccess.ReadWrite | StorageAccess.Atomic, _ => throw Error($"Unknown storage access '{name}'.") };
+        private StorageAccess Access(string name) => name switch { "read" => StorageAccess.Read, "write" => StorageAccess.Write, "read_write" => StorageAccess.ReadWrite, "atomic" => StorageAccess.ReadWrite | StorageAccess.Atomic, _ => throw Error($"Unknown storage access '{name}'.") };
         private ShaderType.Scalar StorageScalar(string format) => StorageImageFormats.TryCode(format, out uint code) ? StorageImageFormats.Component(code) : throw Error($"Unknown storage texture format '{format}'.");
 
         private Symbol ResolveGlobal(string name)
@@ -264,13 +242,11 @@ public static partial class WgslReader
             if (globals.TryGetValue(name, out var symbol)) return symbol;
             var source = syntax.Declarations.FirstOrDefault(d => d.Name == name) ?? throw Error($"Unknown identifier '{name}'.");
             if (!resolving.Add(name)) throw Error($"Cyclic declaration dependency '{name}'.", source.Span);
-            try
-            {
+            try {
                 CheckAttributes(source.Kind == "var" ? source.Attributes.Where(a => a.Name is not ("coherent" or "volatile")).ToArray() : source.Attributes,
                     source.Kind == "var" ? ["group", "binding"] : ["id"]);
                 MemoryDecorations memory = MemoryDecorations.None;
-                foreach (var attribute in source.Attributes.Where(a => a.Name is "coherent" or "volatile"))
-                {
+                foreach (var attribute in source.Attributes.Where(a => a.Name is "coherent" or "volatile")) {
                     if (attribute.Arguments.Count != 0) throw Error("Memory attributes do not take arguments.", attribute.Span);
                     memory |= attribute.Name == "coherent" ? MemoryDecorations.Coherent : MemoryDecorations.Volatile;
                 }
@@ -280,20 +256,17 @@ public static partial class WgslReader
                 if (source.Kind is "var" or "override") type = DefaultType(type);
                 if (initializer is not null) initializer = Materialize(initializer, type);
                 if (block.Statements.Count != 0) throw Error("Module initializer cannot have runtime side effects.", source.Span);
-                if (source.Kind == "const")
-                {
+                if (source.Kind == "const") {
                     if (initializer is null || !ConstantEvaluator.TryEvaluate(initializer, out var value)) throw Error("const needs a constant expression.", source.Span);
                     module.Constants.Add(new(name, type, value)); symbol = new(value, false, false);
                 }
-                else if (source.Kind == "override")
-                {
+                else if (source.Kind == "override") {
                     if (type is ShaderType.Scalar { Kind: ScalarKind.Sint or ScalarKind.Uint, Width: 8 })
                         throw Error("WGSL override cannot have a 64-bit integer type.", source.Span);
                     module.Constants.Add(new(name, type, initializer, true, UintAttribute(source.Attributes, "id")));
                     symbol = new(new Expression.Reference(name, type), false, false);
                 }
-                else
-                {
+                else {
                     string Word(int i) => source.Qualifiers[i] is SExpression.Name word ? word.Text : throw Error("Expected variable qualifier.");
                     bool handle = type is ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure or ShaderType.BindingArray { Element: ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure };
                     AddressSpace space = source.Qualifiers.Count == 0 ? handle ? AddressSpace.Handle : AddressSpace.Private : Space(Word(0));
@@ -310,13 +283,13 @@ public static partial class WgslReader
             finally { resolving.Remove(name); }
         }
 
-        private static ShaderType DefaultType(ShaderType type) => type switch
-        {
+        private static ShaderType DefaultType(ShaderType type) => type switch {
             ShaderType.Scalar { Kind: ScalarKind.AbstractInt } => ShaderType.I32,
             ShaderType.Scalar { Kind: ScalarKind.AbstractFloat } => ShaderType.F32,
             ShaderType.Vector v => v with { Component = (ShaderType.Scalar)DefaultType(v.Component) },
             ShaderType.Matrix m => m with { Component = (ShaderType.Scalar)DefaultType(m.Component) },
-            ShaderType.Array a => a with { Element = DefaultType(a.Element) }, _ => type
+            ShaderType.Array a => a with { Element = DefaultType(a.Element) },
+            _ => type
         };
 
         private static void CheckAttributes(IReadOnlyList<SAttribute> attributes, params string[] allowed)

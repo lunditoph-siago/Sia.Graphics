@@ -56,8 +56,7 @@ public static partial class SpirvReader
         private uint IndexAs(Node node, Shape shape, int position, uint type, List<SpirvInstruction> output, SpirvInstruction anchor)
         {
             uint value = IndexValue(node, shape, position), sourceType = IndexType(shape, position);
-            if (sourceType != type && types[type].Operands[2] == 1)
-            {
+            if (sourceType != type && types[type].Operands[2] == 1) {
                 uint unsigned = FindType(Op.TypeInt, [types[type].Operands[1], 0]);
                 return CompareValue(output, anchor, Op.Bitcast, type, IndexAs(node, shape, position, unsigned, output, anchor));
             }
@@ -79,17 +78,14 @@ public static partial class SpirvReader
         private uint PathCondition(Node left, Shape a, Node right, Shape b, int count, List<SpirvInstruction> output, SpirvInstruction anchor, out uint parent)
         {
             parent = types[definitions[a.Root].Operands[0]].Operands[2]; uint condition = Boolean(true);
-            for (int position = 0; position < count; position++)
-            {
+            for (int position = 0; position < count; position++) {
                 var type = types[parent];
-                if ((Op)type.Opcode == Op.TypeStruct)
-                {
+                if ((Op)type.Opcode == Op.TypeStruct) {
                     uint x = definitions[a.Parts[position].Constant].Operands[2], y = definitions[b.Parts[position].Constant].Operands[2];
                     if (x != y) return Boolean(false);
                     parent = type.Operands[1 + (int)x];
                 }
-                else
-                {
+                else {
                     condition = CompareValue(output, anchor, Op.LogicalAnd, boolType, condition, EqualIndex(left, a, right, b, position, output, anchor));
                     parent = type.Operands[1];
                 }
@@ -105,8 +101,7 @@ public static partial class SpirvReader
             if (a.Parts.Length == 0 || b.Parts.Length == 0) return;
             if (DescriptorIdentity(left, a) == DescriptorIdentity(right, b)) return;
             var x = a.Parts[0]; var y = b.Parts[0];
-            if (x.Constant != 0 && y.Constant != 0)
-            {
+            if (x.Constant != 0 && y.Constant != 0) {
                 if (x.Constant == y.Constant) return;
                 var first = definitions[x.Constant]; var second = definitions[y.Constant];
                 if ((Op)first.Opcode == Op.Constant && (Op)second.Opcode == Op.Constant
@@ -121,21 +116,17 @@ public static partial class SpirvReader
             Op op = (Op)instruction.Opcode;
             if (op is not (Op.PtrEqual or Op.PtrNotEqual or Op.PtrDiff)) return false;
             var a = instruction.Operands; bool difference = op == Op.PtrDiff;
-            if (CopySource(a[2]) == CopySource(a[3]))
-            {
+            if (CopySource(a[2]) == CopySource(a[3])) {
                 Add(output, instruction, Op.CopyObject, a[0], a[1], difference ? Literal(a[0], 0) : Boolean(op == Op.PtrEqual)); return true;
             }
             var left = nodes[a[2]]; var right = nodes[a[3]];
-            if (!difference && (left.Shapes.Values.All(s => s.Root == 0) || right.Shapes.Values.All(s => s.Root == 0)))
-            {
+            if (!difference && (left.Shapes.Values.All(s => s.Root == 0) || right.Shapes.Values.All(s => s.Root == 0))) {
                 var value = left.Shapes.Values.All(s => s.Root == 0) ? right : left;
                 Add(output, instruction, op == Op.PtrEqual ? Op.IEqual : Op.INotEqual, a[0], a[1], value.Selector, Literal(uintType, 0)); return true;
             }
             uint result = difference ? Literal(a[0], 0) : Boolean(false);
-            foreach (var x in left.Shapes.Values) foreach (var y in right.Shapes.Values)
-            {
-                if (x.Root != y.Root)
-                {
+            foreach (var x in left.Shapes.Values) foreach (var y in right.Shapes.Values) {
+                if (x.Root != y.Root) {
                     if (x.Root != 0 && y.Root != 0 && types[PointerType(a[2], instruction)].Operands[1] == 12)
                         throw Error("Cross-buffer pointer comparison requires address equivalence for potentially aliased bindings.", instruction);
                     continue;
@@ -143,8 +134,7 @@ public static partial class SpirvReader
                 if (x.Root != 0 && x.Parts.Length != y.Parts.Length) continue;
                 if (x.Root != 0) RequireSameDescriptor(left, x, right, y, instruction);
                 uint condition = PairCondition(left, x, right, y, output, instruction);
-                if (difference)
-                {
+                if (difference) {
                     if (x.Root == 0 || x.Parts.Length == 0) continue;
                     uint path = PathCondition(left, x, right, y, x.Parts.Length - 1, output, instruction, out uint parent);
                     if ((Op)types[parent].Opcode is not (Op.TypeArray or Op.TypeRuntimeArray)) continue;
@@ -153,8 +143,7 @@ public static partial class SpirvReader
                         IndexAs(right, y, y.Parts.Length - 1, a[0], output, instruction));
                     result = CompareValue(output, instruction, Op.Select, a[0], condition, value, result);
                 }
-                else
-                {
+                else {
                     if (x.Root != 0) condition = CompareValue(output, instruction, Op.LogicalAnd, boolType, condition,
                         PathCondition(left, x, right, y, x.Parts.Length, output, instruction, out _));
                     result = CompareValue(output, instruction, Op.LogicalOr, boolType, result, condition);

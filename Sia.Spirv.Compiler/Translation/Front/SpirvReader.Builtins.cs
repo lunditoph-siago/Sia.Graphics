@@ -10,8 +10,6 @@ public static partial class SpirvReader
         {
             string name = GlslFunction(opcode);
             void Arity(int count) { if (arguments.Length != count) throw Error("Invalid native builtin operand count."); }
-            // SPIR-V encodes signedness in these opcodes independently of its
-            // operand/result integer types. WGSL uses matching typed overloads.
             if (opcode is 5 or 7 or 38 or 39 or 41 or 42 or 44 or 45 or 73 or 74 or 75) {
                 Arity(opcode is 44 or 45 ? 3 : opcode is 38 or 39 or 41 or 42 ? 2 : 1);
                 bool? signed = opcode switch { 5 or 7 or 39 or 42 or 45 or 74 => true, 38 or 41 or 44 or 75 => false, _ => null };

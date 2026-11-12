@@ -53,7 +53,8 @@ public sealed record SpirvCompilationTarget
                 json.WriteNumber("storageBindings", limits.MaxStorageBuffersPerShaderStage); json.WriteNumber("vertexStorageBindings", limits.MaxStorageBuffersInVertexStage);
                 json.WriteNumber("fragmentStorageBindings", limits.MaxStorageBuffersInFragmentStage); json.WriteNumber("storageSize", limits.MaxStorageBufferBindingSize);
                 json.WriteNumber("uniformBindings", limits.MaxUniformBuffersPerShaderStage); json.WriteNumber("uniformSize", limits.MaxUniformBufferBindingSize);
-                void Set<T>(string name, IEnumerable<T>? values, Action<T> write) {
+                void Set<T>(string name, IEnumerable<T>? values, Action<T> write)
+                {
                     if (values is null) { json.WriteNull(name); return; }
                     json.WriteStartArray(name); foreach (var value in values) write(value); json.WriteEndArray();
                 }

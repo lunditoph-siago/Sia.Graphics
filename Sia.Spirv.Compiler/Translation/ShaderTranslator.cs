@@ -4,7 +4,6 @@ using Sia.Spirv.Compiler.Compilation;
 
 namespace Sia.Spirv.Compiler.Translation;
 
-/// <summary>Managed SPIR-V/WGSL translation. Unsupported features produce structured diagnostics.</summary>
 public static class ShaderTranslator
 {
     public static string SpirvToWgsl(ReadOnlySpan<byte> source, SpirvCompilationTarget target, SpirvReadOptions? options = null)

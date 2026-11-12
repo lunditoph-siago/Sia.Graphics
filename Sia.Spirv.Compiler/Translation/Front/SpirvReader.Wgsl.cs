@@ -8,8 +8,6 @@ public static partial class SpirvReader
 {
     private sealed partial class Reader
     {
-        // Straight-line compute graphs with ordinary data access do not need
-        // reference, matrix, invocation or structured helper legalization.
         private bool CanHandOffToWgsl(CanonicalModule canonical)
         {
             var declarations = canonical.Declarations;

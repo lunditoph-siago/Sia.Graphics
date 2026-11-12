@@ -6,7 +6,6 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Physical type identities and byte layout chosen before serialization.</summary>
 internal sealed record SpirvPhysicalLayout(Module Module,
     IReadOnlyDictionary<string, SpirvGlobalLayout> Globals,
     IReadOnlyDictionary<ShaderType, ShaderType> UniformTypes,
@@ -26,7 +25,6 @@ internal sealed record SpirvPhysicalLayout(Module Module,
         = FrozenDictionary<(ShaderType, ShaderType), ShaderFunction>.Empty;
     internal IReadOnlyDictionary<ShaderType, ShaderType> BufferTypes { get; init; }
         = FrozenDictionary<ShaderType, ShaderType>.Empty;
-    // A validation view over the existing graph owner, not another graph snapshot.
     internal CanonicalModule Canonical => new(Module, ControlFlow.ToDictionary(p => p.Key, p => p.Value.Graph, StringComparer.Ordinal),
         DeferredControlFlow, Module.Functions.Where(f => f.Stage is not null).Select(f => f.Name).ToHashSet(StringComparer.Ordinal));
 }
@@ -52,8 +50,6 @@ internal static class SpirvPhysicalLayoutLowering
             var graph = pair.Value.Copy();
             if (SpirvControlFlowLowering.TryPrepare(graph, module, out var reason, effects)) graphs.Add(pair.Key, graph);
             else {
-                // Only a target-deferred executable graph crosses this adapter.
-                // The borrowed declaration Body may be empty or obsolete.
                 adapters.Add(pair.Key, StructuredControlFlowLowering.Project(graph, module)); deferred.Add(pair.Key, reason!);
             }
         }
@@ -70,7 +66,8 @@ internal static class SpirvPhysicalLayoutLowering
         var fields = new Dictionary<ShaderType.Structure, IReadOnlyList<int>>();
         var flattened = new HashSet<ShaderType.Matrix>();
         var globals = new Dictionary<string, SpirvGlobalLayout>(StringComparer.Ordinal);
-        void MarkBuffer(ShaderType type) {
+        void MarkBuffer(ShaderType type)
+        {
             if (!bufferTypes.Add(type)) return;
             switch (type) {
                 case ShaderType.Array a: MarkBuffer(a.Element); break;
@@ -78,12 +75,14 @@ internal static class SpirvPhysicalLayoutLowering
                 case ShaderType.Structure s: foreach (var member in s.Members) MarkBuffer(member.Type); break;
             }
         }
-        bool Flatten(ShaderType.Matrix matrix) {
+        bool Flatten(ShaderType.Matrix matrix)
+        {
             bool result = TypeLayout.Of(new ShaderType.Vector(matrix.Rows, matrix.Component)).Stride < 16;
             if (result) flattened.Add(matrix);
             return result;
         }
-        ShaderType Uniform(ShaderType logical) {
+        ShaderType Uniform(ShaderType logical)
+        {
             if (uniform.TryGetValue(logical, out var known)) return known;
             ShaderType physical = logical;
             if (logical is ShaderType.Matrix matrix && Flatten(matrix)) {
@@ -121,7 +120,8 @@ internal static class SpirvPhysicalLayoutLowering
             }
             uniform.Add(logical, physical); return physical;
         }
-        ShaderType Workgroup(ShaderType logical) {
+        ShaderType Workgroup(ShaderType logical)
+        {
             if (workgroup.TryGetValue(logical, out var known)) return known;
             ShaderType physical = logical;
             if (logical is ShaderType.Array array) {
@@ -153,10 +153,9 @@ internal static class SpirvPhysicalLayoutLowering
             }
             globals.Add(global.Name, new(physical, declaration, wrap));
         }
-        // Function parameters and native address values may expose workgroup
-        // subtypes even when the function is outside the entry call graph.
         var visited = new HashSet<ShaderType>();
-        void Type(ShaderType type) {
+        void Type(ShaderType type)
+        {
             if (!visited.Add(type)) return;
             switch (type) {
                 case ShaderType.Pointer p:
@@ -167,27 +166,36 @@ internal static class SpirvPhysicalLayoutLowering
                 case ShaderType.Structure s: foreach (var m in s.Members) Type(m.Type); break;
             }
         }
-        void Expr(Expression e) {
+        void Expr(Expression e)
+        {
             Type(e.Type);
             IEnumerable<Expression> children = e switch {
-                Expression.Load l => [l.Pointer], Expression.Unary u => [u.Operand], Expression.Binary b => [b.Left, b.Right],
-                Expression.Call c => c.Arguments, Expression.Construct c => c.Components, Expression.Convert c => [c.Operand],
-                Expression.Access a => [a.Base, a.Index], Expression.Member m => [m.Base], Expression.Swizzle s => [s.Vector],
-                Expression.Select s => [s.Condition, s.Accept, s.Reject], _ => []
+                Expression.Load l => [l.Pointer],
+                Expression.Unary u => [u.Operand],
+                Expression.Binary b => [b.Left, b.Right],
+                Expression.Call c => c.Arguments,
+                Expression.Construct c => c.Components,
+                Expression.Convert c => [c.Operand],
+                Expression.Access a => [a.Base, a.Index],
+                Expression.Member m => [m.Base],
+                Expression.Swizzle s => [s.Vector],
+                Expression.Select s => [s.Condition, s.Accept, s.Reject],
+                _ => []
             };
             foreach (var child in children) Expr(child);
         }
-        void Body(Block body) {
+        void Body(Block body)
+        {
             foreach (var statement in body.Statements) switch (statement) {
-                case Statement.Declare d: Type(d.Type); if (d.Initializer is { } value) Expr(value); break;
-                case Statement.Store s: Expr(s.Target); Expr(s.Value); break;
-                case Statement.Evaluate e: Expr(e.Value); break;
-                case Statement.Return { Value: { } returned }: Expr(returned); break;
-                case Statement.Nested n: Body(n.Body); break;
-                case Statement.If i: Expr(i.Condition); Body(i.Accept); Body(i.Reject); break;
-                case Statement.Loop l: Body(l.Body); Body(l.Continuing); if (l.BreakIf is { } condition) Expr(condition); break;
-                case Statement.Switch s: Expr(s.Selector); foreach (var c in s.Cases) Body(c.Body); break;
-            }
+                    case Statement.Declare d: Type(d.Type); if (d.Initializer is { } value) Expr(value); break;
+                    case Statement.Store s: Expr(s.Target); Expr(s.Value); break;
+                    case Statement.Evaluate e: Expr(e.Value); break;
+                    case Statement.Return { Value: { } returned }: Expr(returned); break;
+                    case Statement.Nested n: Body(n.Body); break;
+                    case Statement.If i: Expr(i.Condition); Body(i.Accept); Body(i.Reject); break;
+                    case Statement.Loop l: Body(l.Body); Body(l.Continuing); if (l.BreakIf is { } condition) Expr(condition); break;
+                    case Statement.Switch s: Expr(s.Selector); foreach (var c in s.Cases) Body(c.Body); break;
+                }
         }
         foreach (var global in module.Globals) { Type(global.Type); if (global.Initializer is { } initializer) Expr(initializer); }
         foreach (var constant in module.Constants) { Type(constant.Type); if (constant.Value is { } value) Expr(value); }

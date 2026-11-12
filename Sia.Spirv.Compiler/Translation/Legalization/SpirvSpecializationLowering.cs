@@ -4,8 +4,6 @@ using Sia.Spirv.Compiler.Translation.Spirv;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-// Target constant values retain type and operation identity before numeric IDs
-// exist. Interning makes shared workgroup ABI checks independent of serialization.
 internal abstract record SpirvSpecializationValue(int Identity, ShaderType Type)
 {
     internal sealed record Constant(int Id, Expression Value) : SpirvSpecializationValue(Id, Value.Type);
@@ -49,7 +47,8 @@ internal sealed class SpirvSpecializationLowering(Module module)
         => Intern("instruction:" + TypeId(type) + ":" + op + ":" + string.Join(',', operands.Select(v => v.Identity)) + ":" + string.Join(',', literals),
             id => new SpirvSpecializationValue.Instruction(id, type, op, Array.AsReadOnly(operands), Array.AsReadOnly(literals)));
     private static ShaderType.Scalar Component(ShaderType type) => type switch {
-        ShaderType.Scalar scalar => scalar, ShaderType.Vector vector => vector.Component,
+        ShaderType.Scalar scalar => scalar,
+        ShaderType.Vector vector => vector.Component,
         _ => throw Error("Specialization operation requires scalar/vector data.")
     };
     private static bool Integer(ShaderType type) => Component(type).Kind is ScalarKind.Sint or ScalarKind.Uint;
@@ -93,7 +92,9 @@ internal sealed class SpirvSpecializationLowering(Module module)
                 finally { resolving.Remove(constant.Name); }
             case Expression.Unary unary:
                 return Instruction(unary.Operator switch {
-                    "!" => Op.LogicalNot, "~" => Op.Not, "-" when Integer(unary.Type) => Op.SNegate,
+                    "!" => Op.LogicalNot,
+                    "~" => Op.Not,
+                    "-" when Integer(unary.Type) => Op.SNegate,
                     _ => throw Error("This unary specialization operation requires PipelineConstants resolution.", unary.Span)
                 }, unary.Type, [Lower(unary.Operand)]);
             case Expression.Binary binary:
@@ -101,13 +102,24 @@ internal sealed class SpirvSpecializationLowering(Module module)
                 bool boolean = Component(binary.Left.Type).Kind == ScalarKind.Bool;
                 if (!boolean && !Integer(binary.Left.Type)) throw Error("Floating-point arithmetic specialization requires PipelineConstants resolution.", binary.Span);
                 Op op = binary.Operator switch {
-                    "+" => Op.IAdd, "-" => Op.ISub, "*" => Op.IMul, "/" => signed ? Op.SDiv : Op.UDiv, "%" => signed ? Op.SRem : Op.UMod,
-                    "&" => boolean ? Op.LogicalAnd : Op.BitwiseAnd, "|" => boolean ? Op.LogicalOr : Op.BitwiseOr,
-                    "^" => boolean ? Op.LogicalNotEqual : Op.BitwiseXor, "&&" => Op.LogicalAnd, "||" => Op.LogicalOr,
-                    "<<" => Op.ShiftLeftLogical, ">>" => signed ? Op.ShiftRightArithmetic : Op.ShiftRightLogical,
-                    "==" => boolean ? Op.LogicalEqual : Op.IEqual, "!=" => boolean ? Op.LogicalNotEqual : Op.INotEqual,
-                    "<" => signed ? Op.SLessThan : Op.ULessThan, "<=" => signed ? Op.SLessThanEqual : Op.ULessThanEqual,
-                    ">" => signed ? Op.SGreaterThan : Op.UGreaterThan, ">=" => signed ? Op.SGreaterThanEqual : Op.UGreaterThanEqual,
+                    "+" => Op.IAdd,
+                    "-" => Op.ISub,
+                    "*" => Op.IMul,
+                    "/" => signed ? Op.SDiv : Op.UDiv,
+                    "%" => signed ? Op.SRem : Op.UMod,
+                    "&" => boolean ? Op.LogicalAnd : Op.BitwiseAnd,
+                    "|" => boolean ? Op.LogicalOr : Op.BitwiseOr,
+                    "^" => boolean ? Op.LogicalNotEqual : Op.BitwiseXor,
+                    "&&" => Op.LogicalAnd,
+                    "||" => Op.LogicalOr,
+                    "<<" => Op.ShiftLeftLogical,
+                    ">>" => signed ? Op.ShiftRightArithmetic : Op.ShiftRightLogical,
+                    "==" => boolean ? Op.LogicalEqual : Op.IEqual,
+                    "!=" => boolean ? Op.LogicalNotEqual : Op.INotEqual,
+                    "<" => signed ? Op.SLessThan : Op.ULessThan,
+                    "<=" => signed ? Op.SLessThanEqual : Op.ULessThanEqual,
+                    ">" => signed ? Op.SGreaterThan : Op.UGreaterThan,
+                    ">=" => signed ? Op.SGreaterThanEqual : Op.UGreaterThanEqual,
                     _ => throw Error("Unsupported specialization binary operation.", binary.Span)
                 };
                 return Instruction(op, binary.Type, [Lower(binary.Left), Lower(binary.Right)]);
@@ -120,7 +132,8 @@ internal sealed class SpirvSpecializationLowering(Module module)
                     if (construct.Type is ShaderType.Vector && part.Type is ShaderType.Vector vector) {
                         var composite = Lower(part);
                         for (uint i = 0; i < vector.Size; i++) components.Add(Instruction(Op.CompositeExtract, vector.Component, [composite], i));
-                    } else components.Add(Lower(part));
+                    }
+                    else components.Add(Lower(part));
                 }
                 if (construct.Type is ShaderType.Vector destination && components.Count == 1)
                     components.AddRange(Enumerable.Repeat(components[0], destination.Size - 1));

@@ -38,7 +38,8 @@ internal sealed partial class RuntimeShaderLowering
         var locals = nativeBody.LocalSignature.IsNil ? [] : metadata.GetStandaloneSignature(nativeBody.LocalSignature).DecodeLocalSignature(new KernelTypeProvider(), null).Select(Type).ToArray();
         var localValues = locals.Select(type => new Value(Place(Name("local"), type), true)).ToArray();
         var referenceTypes = new Dictionary<int, ShaderType.Pointer>();
-        void StoreLocal(int index, Value value, Block output, int offset) {
+        void StoreLocal(int index, Value value, Block output, int offset)
+        {
             var slot = (Expression.Reference)localValues[index].Expression;
             if (locals[index] is ShaderType.Pointer declared) {
                 var address = value.Place ? Address(value.Expression) : value.Expression;
@@ -61,7 +62,8 @@ internal sealed partial class RuntimeShaderLowering
         while (queue.TryDequeue(out int id)) {
             var native = graph.Blocks[id]; var output = new Block(); var stack = new Stack<Value>(incoming[id]);
             Expression[]? edgeValues = null;
-            CilEdge Edge(int target) {
+            CilEdge Edge(int target)
+            {
                 if (edgeValues is null) {
                     var values = stack.Reverse().ToArray();
                     if (values.Any(v => v.Place || v.Expression.Type is ShaderType.Pointer))

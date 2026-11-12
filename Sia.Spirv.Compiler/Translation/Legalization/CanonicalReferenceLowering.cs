@@ -5,9 +5,6 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-// Reference joins carry scalar identity tags and captured projection indices.
-// Memory/resource operations execute in the chosen arm with their original
-// effects and already evaluated SSA arguments. Input graphs are borrowed.
 internal static partial class CanonicalReferenceLowering
 {
     private sealed record Part(string? Member, ShaderType? IndexType);
@@ -44,13 +41,15 @@ internal static partial class CanonicalReferenceLowering
         foreach (int slot in slots.Keys)
             if (!LocalValuePromotion.IsDefinitelyAssigned(graph, definitions[slot].Result!.Value))
                 throw Error("pointer slot has no initialized finite provenance on every incoming path");
-        int? Slot(SsaValue value) {
+        int? Slot(SsaValue value)
+        {
             if (slots.ContainsKey(value.Id)) return value.Id;
             return definitions.GetValueOrDefault(value.Id)?.Operation is ValueOperation.Let alias ? Slot(alias.Value) : null;
         }
         foreach (var instruction in definitions.Values)
             if (instruction is { Operation: ValueOperation.Load load, Result: { } result } && Slot(load.Pointer) is not null) dynamic.Add(result.Id);
-        Shape ShapeFor(SsaValue root, Part[] parts) {
+        Shape ShapeFor(SsaValue root, Part[] parts)
+        {
             if (parts.Length != 0) root = ShapeFor(root, []).Root;
             bool nil = definitions[root.Id].Operation is ValueOperation.Construct { Components.Count: 0 };
             if (nil) parts = [];
@@ -61,7 +60,8 @@ internal static partial class CanonicalReferenceLowering
             }
             return shape;
         }
-        Shape OffsetShape(Shape source, SsaValue offset) {
+        Shape OffsetShape(Shape source, SsaValue offset)
+        {
             if (source.Null) throw Error("pointer arithmetic based on null requires separate address semantics");
             if (Container(source) is not ShaderType.Array) {
                 if (!PointerAliasAnalysis.IsZero(offset, definitions)) throw Error("pointer arithmetic requires finite innermost-array element provenance");
@@ -105,8 +105,6 @@ internal static partial class CanonicalReferenceLowering
                 }
         } while (changed);
 
-        // Function storage may be named by a reference join outside its original
-        // branch. Hoist only allocation, retaining every reset at its source site.
         var roots = originalParameters.Values.SelectMany(p => p).Where(p => Reference(p.Type))
             .SelectMany(p => origins[p.Id].Values).Concat(slots.Values.SelectMany(s => s.Values)).Select(s => s.Root.Id).ToHashSet();
         var entry = graph.Blocks.Single(b => b.Id == graph.Entry);
@@ -141,11 +139,13 @@ internal static partial class CanonicalReferenceLowering
                 encoded.Add(parameter.Id, new(tag, indices));
             }
         }
-        SsaValue Emit(ControlFlowBlock block, ShaderType type, ValueOperation operation) {
+        SsaValue Emit(ControlFlowBlock block, ShaderType type, ValueOperation operation)
+        {
             var value = graph.Value(type); block.Instructions.Add(new(value, operation)); return value;
         }
         SsaValue Literal(ControlFlowBlock block, uint value) => Emit(block, ShaderType.U32, new ValueOperation.Literal(value));
-        Choice[] Choices(SsaValue value, ControlFlowBlock block) {
+        Choice[] Choices(SsaValue value, ControlFlowBlock block)
+        {
             if (encoded.TryGetValue(value.Id, out var parameter))
                 return origins[value.Id].Values.OrderBy(s => s.Tag).Select(s => new Choice(s,
                     Emit(block, ShaderType.Bool, new ValueOperation.Binary("==", parameter.Tag, Literal(block, s.Tag))),
@@ -154,10 +154,12 @@ internal static partial class CanonicalReferenceLowering
             Choice[] Project(SsaValue parent, Part part, SsaValue? index) => Choices(parent, block).Select(c => c.Shape.Null ? c : new Choice(
                 origins[value.Id].Values.Single(s => s.Root == c.Shape.Root && s.Parts.SequenceEqual(c.Shape.Parts.Append(part))),
                 c.Condition, [.. c.Indices, index])).ToArray();
-            Choice Offset(Choice choice, SsaValue offset) {
+            Choice Offset(Choice choice, SsaValue offset)
+            {
                 var shape = OffsetShape(choice.Shape, offset);
                 if (Container(choice.Shape) is not ShaderType.Array) return choice;
-                SsaValue AtSource(ShaderType type, ValueOperation operation) {
+                SsaValue AtSource(ShaderType type, ValueOperation operation)
+                {
                     var value = graph.Value(type);
                     block.Instructions.Add(instruction with { Result = value, Operation = operation }); return value;
                 }
@@ -177,16 +179,16 @@ internal static partial class CanonicalReferenceLowering
                 _ => throw Error("unsupported reference producer " + instruction.Operation.GetType().Name)
             };
         }
-        SsaValue Select(ControlFlowBlock block, Choice[] choices, Func<Choice, SsaValue> value) {
+        SsaValue Select(ControlFlowBlock block, Choice[] choices, Func<Choice, SsaValue> value)
+        {
             var selected = value(choices[^1]);
             foreach (var choice in choices.Reverse().Skip(1)) {
                 var accept = value(choice); selected = Emit(block, selected.Type, new ValueOperation.Select(choice.Condition, accept, selected));
             }
             return selected;
         }
-        // Retain qualified slot memory. Tags and every captured index are loaded
-        // at the original load, so later slot writes cannot change an old address.
-        Encoded Values(IEnumerable<Shape> candidates, Func<ShaderType, SsaValue> allocate) {
+        Encoded Values(IEnumerable<Shape> candidates, Func<ShaderType, SsaValue> allocate)
+        {
             var indices = new Dictionary<(string, int), SsaValue>();
             foreach (var shape in candidates.OrderBy(s => s.Tag))
                 for (int i = 0; i < shape.Parts.Length; i++)
@@ -245,7 +247,8 @@ internal static partial class CanonicalReferenceLowering
             }
         }
         RewriteComparisons(graph, definitions, Choices);
-        SsaValue ReferenceValue(ControlFlowBlock block, Choice choice) {
+        SsaValue ReferenceValue(ControlFlowBlock block, Choice choice)
+        {
             if (choice.Shape.Null) throw Error("null reference consumer requires equivalent target specialization");
             var root = choice.Shape.Root;
             var value = definitions[root.Id].Operation is ValueOperation.Symbol symbol ? Emit(block, root.Type, symbol) : root;
@@ -254,10 +257,13 @@ internal static partial class CanonicalReferenceLowering
                 if (choice.Shape.Parts[i].Member is { } member) {
                     var field = ((ShaderType.Structure)type).Members.Single(m => m.Name == member).Type;
                     value = Emit(block, pointer is null ? field : pointer with { Base = field }, new ValueOperation.Member(value, member));
-                } else {
+                }
+                else {
                     ShaderType element = type switch {
-                        ShaderType.Array array => array.Element, ShaderType.BindingArray array => array.Element,
-                        ShaderType.Vector vector => vector.Component, ShaderType.Matrix matrix => new ShaderType.Vector(matrix.Rows, matrix.Component),
+                        ShaderType.Array array => array.Element,
+                        ShaderType.BindingArray array => array.Element,
+                        ShaderType.Vector vector => vector.Component,
+                        ShaderType.Matrix matrix => new ShaderType.Vector(matrix.Rows, matrix.Component),
                         _ => throw Error("invalid reference index projection")
                     };
                     value = Emit(block, pointer is null ? element : pointer with { Base = element }, new ValueOperation.Access(value, choice.Indices[i]!.Value));
@@ -265,7 +271,8 @@ internal static partial class CanonicalReferenceLowering
             }
             return value;
         }
-        List<Dictionary<int, Choice>> Combinations(IEnumerable<SsaValue> references, ControlFlowBlock block) {
+        List<Dictionary<int, Choice>> Combinations(IEnumerable<SsaValue> references, ControlFlowBlock block)
+        {
             var combinations = new List<Dictionary<int, Choice>> { new() };
             foreach (var value in references.Distinct()) {
                 var choices = Choices(value, block);
@@ -273,7 +280,8 @@ internal static partial class CanonicalReferenceLowering
             }
             return combinations;
         }
-        void Dispatch(ControlFlowBlock selector, List<Dictionary<int, Choice>> combinations, int? merge, Action<ControlFlowBlock, Dictionary<int, Choice>> emit) {
+        void Dispatch(ControlFlowBlock selector, List<Dictionary<int, Choice>> combinations, int? merge, Action<ControlFlowBlock, Dictionary<int, Choice>> emit)
+        {
             for (int i = 0; i < combinations.Count; i++) {
                 var combination = combinations[i]; var arm = graph.Block(); emit(arm, combination);
                 if (i == combinations.Count - 1) selector.Terminator = new ControlFlowTerminator.Branch(new(arm.Id));
@@ -295,10 +303,9 @@ internal static partial class CanonicalReferenceLowering
             var tail = site.Block.Instructions.Skip(site.Index + 1).ToArray();
             site.Block.Instructions.RemoveRange(site.Index, site.Block.Instructions.Count - site.Index);
             var combinations = Combinations(site.Instruction.Operation.Operands.Where(v => dynamic.Contains(v.Id)), site.Block);
-            ControlFlowInstruction? Instruction(ControlFlowBlock block, Dictionary<int, Choice> combination, SsaValue? result) {
+            ControlFlowInstruction? Instruction(ControlFlowBlock block, Dictionary<int, Choice> combination, SsaValue? result)
+            {
                 if (combination.Values.Any(c => c.Shape.Null)) {
-                    // Executed null dereferences are source-undefined. Retain the
-                    // existing target policy without touching another candidate.
                     bool atomic = site.Instruction.Operation is ValueOperation.Builtin b
                         && (b.Function.StartsWith("atomic", StringComparison.Ordinal) || b.Function == "spirvAtomicCompareExchange");
                     if (site.Instruction.Operation is ValueOperation.Store || atomic && site.Instruction.Result is null) return null;
@@ -316,8 +323,6 @@ internal static partial class CanonicalReferenceLowering
             if (site.Instruction.Operation is ValueOperation.Call && (site.Instruction.Effects & ShaderEffects.Convergent) != 0)
                 throw Error("convergent reference helper must expand before address dispatch");
             var continuation = graph.Block(); continuation.Instructions.AddRange(tail); continuation.Terminator = site.Block.Terminator;
-            // The old terminator and its selection move together. A loop header
-            // stays the header: address dispatch is a selection inside its body.
             if (graph.SelectionMerges.Remove(site.Block.Id, out var oldMerge)) graph.SelectionMerges[continuation.Id] = oldMerge;
             else if (graph.Loops.ContainsKey(site.Block.Id) && continuation.Terminator is ControlFlowTerminator.Conditional or ControlFlowTerminator.Switch)
                 graph.SelectionMerges[continuation.Id] = null;
@@ -335,8 +340,6 @@ internal static partial class CanonicalReferenceLowering
             });
         }
         foreach (var block in graph.Blocks) {
-            // Joined aliases transport identity; their projections are rebuilt
-            // only at consumers, with the original SSA indices already captured.
             block.Instructions.RemoveAll(i => i.Result is { } result && dynamic.Contains(result.Id));
             if (block.Instructions.Any(i => i.Operation.Operands.Any(v => dynamic.Contains(v.Id))) || block.Terminator!.Operands.Any(v => dynamic.Contains(v.Id)))
                 throw Error("reference operand requires further target legalization");

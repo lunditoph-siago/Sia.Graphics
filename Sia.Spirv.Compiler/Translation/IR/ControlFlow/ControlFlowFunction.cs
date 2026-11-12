@@ -1,16 +1,11 @@
 namespace Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 
-/// <summary>Internal typed CFG. One compilation owns its blocks and edge arguments.</summary>
 internal sealed class ControlFlowFunction(ShaderFunction signature)
 {
     public ShaderFunction Signature { get; } = signature;
     public List<ControlFlowBlock> Blocks { get; } = [];
     public IReadOnlyList<DiagnosticFilter> BodyDiagnosticFilters { get; private set; } = signature.Body.DiagnosticFilters.ToArray();
-    // Declared block settings also survive when a range contains no instruction.
-    // Executable settings remain on instructions; empty ranges cannot affect them.
     public List<IReadOnlyList<DiagnosticFilter>> DiagnosticRanges { get; } = [];
-    // Frontends retain known structured boundaries as verified CFG facts, without
-    // retaining source statements. Null boundaries were removed as unreachable.
     public Dictionary<int, int?> SelectionMerges { get; } = [];
     public Dictionary<int, ControlFlowLoop> Loops { get; } = [];
     public int Entry { get; set; }
@@ -41,8 +36,8 @@ internal sealed class ControlFlowFunction(ShaderFunction signature)
             };
             output.Blocks.Add(copy);
         }
-        foreach (var pair in SelectionMerges) output.SelectionMerges.Add(pair.Key,pair.Value);
-        foreach (var pair in Loops) output.Loops.Add(pair.Key,pair.Value);
+        foreach (var pair in SelectionMerges) output.SelectionMerges.Add(pair.Key, pair.Value);
+        foreach (var pair in Loops) output.Loops.Add(pair.Key, pair.Value);
         return output;
     }
 }
@@ -60,7 +55,8 @@ internal sealed class ControlFlowBlock(int id)
 }
 
 [Flags]
-internal enum ShaderEffects {
+internal enum ShaderEffects
+{
     None = 0, ReadMemory = 1, WriteMemory = 2, UnknownCall = 4, Atomic = 8,
     Synchronization = 16, Convergent = 32, MemoryOrdering = 64, Volatile = 128, Resource = 256, InvocationTermination = 512, HelperDemotion = 1024,
     ReadInvocationState = 2048
@@ -82,8 +78,6 @@ internal sealed record ControlFlowInstruction(SsaValue? Result, ValueOperation O
         ValueOperation.Barrier barrier => ShaderBuiltinEffects.Barrier(barrier.Control),
         ValueOperation.Demote => ShaderEffects.Convergent | ShaderEffects.HelperDemotion,
         ValueOperation.HelperInvocation => ShaderEffects.Convergent | ShaderEffects.ReadInvocationState,
-        // Until interprocedural effect analysis proves more, calls are ordered opaque effects.
-        // UnknownCall includes synchronization and convergence requirements of the callee.
         ValueOperation.Call call => ShaderEffects.ReadMemory | ShaderEffects.WriteMemory | ShaderEffects.UnknownCall | call.CalleeEffects,
         _ => ShaderEffects.None
     };
@@ -120,26 +114,43 @@ internal abstract record ValueOperation
         SpirvBarrierMemory? NativeMemory = null) : ValueOperation;
 
     public IEnumerable<SsaValue> Operands => this switch {
-        Let l => [l.Value], Unary u => [u.Operand], Binary b => [b.Left, b.Right], Convert c => [c.Operand],
-        Construct c => c.Components, Select s => [s.Condition, s.Accept, s.Reject],
-        Access a => [a.Base, a.Index], Member m => [m.Base], Swizzle s => [s.Vector],
-        Load l => [l.Pointer], Store s => [s.Pointer, s.Value], MeshStore s => [s.Index, s.Value],
+        Let l => [l.Value],
+        Unary u => [u.Operand],
+        Binary b => [b.Left, b.Right],
+        Convert c => [c.Operand],
+        Construct c => c.Components,
+        Select s => [s.Condition, s.Accept, s.Reject],
+        Access a => [a.Base, a.Index],
+        Member m => [m.Base],
+        Swizzle s => [s.Vector],
+        Load l => [l.Pointer],
+        Store s => [s.Pointer, s.Value],
+        MeshStore s => [s.Index, s.Value],
         InterfaceStore s => [s.Value],
-        MeshSetOutputs s => [s.Vertices, s.Primitives], Builtin b => b.Arguments, Call c => c.Arguments, _ => []
+        MeshSetOutputs s => [s.Vertices, s.Primitives],
+        Builtin b => b.Arguments,
+        Call c => c.Arguments,
+        _ => []
     };
 
     public ValueOperation Map(Func<SsaValue, SsaValue> value) => this switch {
-        Let l => l with { Value = value(l.Value) }, Unary u => u with { Operand = value(u.Operand) }, Binary b => b with { Left = value(b.Left), Right = value(b.Right) },
-        Convert c => c with { Operand = value(c.Operand) }, Access a => a with { Base = value(a.Base), Index = value(a.Index) },
+        Let l => l with { Value = value(l.Value) },
+        Unary u => u with { Operand = value(u.Operand) },
+        Binary b => b with { Left = value(b.Left), Right = value(b.Right) },
+        Convert c => c with { Operand = value(c.Operand) },
+        Access a => a with { Base = value(a.Base), Index = value(a.Index) },
         Construct c => c with { Components = c.Components.Select(value).ToArray() },
         Select s => s with { Condition = value(s.Condition), Accept = value(s.Accept), Reject = value(s.Reject) },
-        Member m => m with { Base = value(m.Base) }, Swizzle s => s with { Vector = value(s.Vector) },
-        Load l => l with { Pointer = value(l.Pointer) }, Store s => s with { Pointer = value(s.Pointer), Value = value(s.Value) },
+        Member m => m with { Base = value(m.Base) },
+        Swizzle s => s with { Vector = value(s.Vector) },
+        Load l => l with { Pointer = value(l.Pointer) },
+        Store s => s with { Pointer = value(s.Pointer), Value = value(s.Value) },
         InterfaceStore s => s with { Value = value(s.Value) },
         MeshStore s => s with { Index = value(s.Index), Value = value(s.Value) },
         MeshSetOutputs s => s with { Vertices = value(s.Vertices), Primitives = value(s.Primitives) },
         Builtin b => b with { Arguments = b.Arguments.Select(value).ToArray() },
-        Call c => c with { Arguments = c.Arguments.Select(value).ToArray() }, _ => this
+        Call c => c with { Arguments = c.Arguments.Select(value).ToArray() },
+        _ => this
     };
 }
 
@@ -167,13 +178,23 @@ internal abstract record ControlFlowTerminator
         : this is InvocationKill ? ShaderEffects.Convergent | ShaderEffects.InvocationTermination : ShaderEffects.None;
 
     public IEnumerable<ControlFlowEdge> Edges => this switch {
-        Branch b => [b.Edge], Conditional c => [c.Accept, c.Reject], Switch s => s.Cases.Select(c => c.Edge).Append(s.Default), _ => []
+        Branch b => [b.Edge],
+        Conditional c => [c.Accept, c.Reject],
+        Switch s => s.Cases.Select(c => c.Edge).Append(s.Default),
+        _ => []
     };
     public IEnumerable<SsaValue> Operands => this switch {
-        Conditional c => [c.Condition], Switch s => [s.Selector], Return { Value: { } value } => [value], TaskDispatch d => [d.Dimensions], _ => []
+        Conditional c => [c.Condition],
+        Switch s => [s.Selector],
+        Return { Value: { } value } => [value],
+        TaskDispatch d => [d.Dimensions],
+        _ => []
     };
     public ControlFlowTerminator Map(Func<SsaValue, SsaValue> value) => this switch {
-        Conditional c => c with { Condition = value(c.Condition) }, Switch s => s with { Selector = value(s.Selector) },
-        Return { Value: { } v } r => r with { Value = value(v) }, TaskDispatch d => d with { Dimensions = value(d.Dimensions) }, _ => this
+        Conditional c => c with { Condition = value(c.Condition) },
+        Switch s => s with { Selector = value(s.Selector) },
+        Return { Value: { } v } r => r with { Value = value(v) },
+        TaskDispatch d => d with { Dimensions = value(d.Dimensions) },
+        _ => this
     };
 }

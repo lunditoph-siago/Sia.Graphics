@@ -3,8 +3,6 @@ using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 
 namespace Sia.Spirv.Compiler.Translation.Proc;
 
-// Preserve the established constant-width conversion behavior before target
-// reconstruction introduces temporaries. Other runtime arithmetic stays intact.
 internal static class ConstantConversionFolding
 {
     internal static void Run(ControlFlowFunction graph)

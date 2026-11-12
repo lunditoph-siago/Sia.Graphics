@@ -14,7 +14,6 @@ using Module = Sia.Spirv.Compiler.Translation.IR.Module;
 
 namespace Sia.Spirv.Compiler.IL;
 
-/// <summary>CIL is input data. This lowering never loads or executes a managed assembly.</summary>
 internal sealed partial class RuntimeShaderLowering(PEReader pe, MetadataReader metadata, CilCallResolver calls)
 {
     private readonly Module module = new();
@@ -64,18 +63,29 @@ internal sealed partial class RuntimeShaderLowering(PEReader pe, MetadataReader 
     }
 
     private static ShaderType Type(SpirvScalarType type) => type switch {
-        SpirvScalarType.Boolean => ShaderType.Bool, SpirvScalarType.Int32 => ShaderType.I32,
-        SpirvScalarType.UInt32 => ShaderType.U32, SpirvScalarType.Float32 => ShaderType.F32,
-        SpirvScalarType.Int32x2 => new ShaderType.Vector(2, ShaderType.I32), SpirvScalarType.Int32x3 => new ShaderType.Vector(3, ShaderType.I32),
-        SpirvScalarType.Int32x4 => new ShaderType.Vector(4, ShaderType.I32), SpirvScalarType.UInt32x2 => new ShaderType.Vector(2, ShaderType.U32),
-        SpirvScalarType.UInt32x3 => new ShaderType.Vector(3, ShaderType.U32), SpirvScalarType.UInt32x4 => new ShaderType.Vector(4, ShaderType.U32),
-        SpirvScalarType.Float32x2 => new ShaderType.Vector(2, ShaderType.F32), SpirvScalarType.Float32x3 => new ShaderType.Vector(3, ShaderType.F32),
-        SpirvScalarType.Float32x4 => new ShaderType.Vector(4, ShaderType.F32), _ => throw Error(0, $"Unsupported runtime value type {type}.")
+        SpirvScalarType.Boolean => ShaderType.Bool,
+        SpirvScalarType.Int32 => ShaderType.I32,
+        SpirvScalarType.UInt32 => ShaderType.U32,
+        SpirvScalarType.Float32 => ShaderType.F32,
+        SpirvScalarType.Int32x2 => new ShaderType.Vector(2, ShaderType.I32),
+        SpirvScalarType.Int32x3 => new ShaderType.Vector(3, ShaderType.I32),
+        SpirvScalarType.Int32x4 => new ShaderType.Vector(4, ShaderType.I32),
+        SpirvScalarType.UInt32x2 => new ShaderType.Vector(2, ShaderType.U32),
+        SpirvScalarType.UInt32x3 => new ShaderType.Vector(3, ShaderType.U32),
+        SpirvScalarType.UInt32x4 => new ShaderType.Vector(4, ShaderType.U32),
+        SpirvScalarType.Float32x2 => new ShaderType.Vector(2, ShaderType.F32),
+        SpirvScalarType.Float32x3 => new ShaderType.Vector(3, ShaderType.F32),
+        SpirvScalarType.Float32x4 => new ShaderType.Vector(4, ShaderType.F32),
+        _ => throw Error(0, $"Unsupported runtime value type {type}.")
     };
-    private ShaderType Type(KernelType type) {
+    private ShaderType Type(KernelType type)
+    {
         ShaderType result = type.Name switch {
-            "System.Void" => new ShaderType.Void(), "System.Boolean" => ShaderType.Bool,
-            "System.Int32" => ShaderType.I32, "System.UInt32" => ShaderType.U32, "System.Single" => ShaderType.F32,
+            "System.Void" => new ShaderType.Void(),
+            "System.Boolean" => ShaderType.Bool,
+            "System.Int32" => ShaderType.I32,
+            "System.UInt32" => ShaderType.U32,
+            "System.Single" => ShaderType.F32,
             "Sia.Spirv.Texture2D" => new ShaderType.Image(ImageDimension.D2, ShaderType.F32),
             "Sia.Spirv.Texture2DArray" => new ShaderType.Image(ImageDimension.D2, ShaderType.F32, Arrayed: true),
             "Sia.Spirv.Sampler" => new ShaderType.Sampler(),
@@ -86,19 +96,21 @@ internal sealed partial class RuntimeShaderLowering(PEReader pe, MetadataReader 
         };
         return type.IsByReference ? new ShaderType.Pointer(result, AddressSpace.Function) : result;
     }
-    private static ShaderType MathType(string name) {
+    private static ShaderType MathType(string name)
+    {
         ShaderType.Scalar component; string dimensions;
         if (name.StartsWith("float", StringComparison.Ordinal)) { component = ShaderType.F32; dimensions = name[5..]; }
         else if (name.StartsWith("uint", StringComparison.Ordinal)) { component = ShaderType.U32; dimensions = name[4..]; }
         else if (name.StartsWith("int", StringComparison.Ordinal)) { component = ShaderType.I32; dimensions = name[3..]; }
         else if (name.StartsWith("bool", StringComparison.Ordinal)) { component = ShaderType.Bool; dimensions = name[4..]; }
         else throw Error(0, $"Unsupported math type {name}.");
-        if (dimensions.Length == 1 && dimensions[0] is >= '2' and <= '4') return new ShaderType.Vector(dimensions[0]-'0', component);
+        if (dimensions.Length == 1 && dimensions[0] is >= '2' and <= '4') return new ShaderType.Vector(dimensions[0] - '0', component);
         if (dimensions is [>= '2' and <= '4' and var rows, 'x', >= '2' and <= '4' and var columns] && component == ShaderType.F32)
-            return new ShaderType.Matrix(columns-'0', rows-'0', component);
+            return new ShaderType.Matrix(columns - '0', rows - '0', component);
         throw Error(0, $"Unsupported math shape {name}.");
     }
-    private static Expression Convert(Expression value, ShaderType type, bool bitcast = false) {
+    private static Expression Convert(Expression value, ShaderType type, bool bitcast = false)
+    {
         if (value.Type == type) return value;
         if (type == ShaderType.Bool) return Truth(value);
         if (value.Type == ShaderType.Bool && type is ShaderType.Scalar scalar) {
@@ -107,12 +119,14 @@ internal sealed partial class RuntimeShaderLowering(PEReader pe, MetadataReader 
         }
         return new Expression.Convert(type, value, bitcast);
     }
-    private Value Snapshot(Expression expression, Block body) {
+    private Value Snapshot(Expression expression, Block body)
+    {
         string name = Name("value");
         body.Statements.Add(new Statement.Declare(name, expression.Type, expression, false));
         return new(new Expression.Reference(name, expression.Type));
     }
-    private Expression Read(Value value, Block body) {
+    private Expression Read(Value value, Block body)
+    {
         if (!value.Place) return value.Expression;
         var type = ValueType(value.Expression);
         if (type is ShaderType.Atomic atomic) return Snapshot(new Expression.Call("atomicLoad", [Address(value.Expression)], atomic.Component, CallBinding.Builtin), body).Expression;

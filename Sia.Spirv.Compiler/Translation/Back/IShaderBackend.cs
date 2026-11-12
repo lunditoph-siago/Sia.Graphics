@@ -4,7 +4,6 @@ using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 
 namespace Sia.Spirv.Compiler.Translation.Back;
 
-/// <summary>Defines the target-specific steps from canonical IR to a validated artifact.</summary>
 internal interface IShaderBackend<TPrepared, TArtifact>
 {
     void ValidateInput(Module module, SpirvCompilationTarget target);

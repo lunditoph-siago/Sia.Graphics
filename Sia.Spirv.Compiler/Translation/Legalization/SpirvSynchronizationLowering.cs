@@ -2,7 +2,6 @@ using Sia.Spirv.Compiler.Translation.IR;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Materialize synchronization and default atomic operands in ordered target IR.</summary>
 internal sealed partial class SpirvSynchronizationLowering(Module input)
 {
     private sealed record Local(bool Place);
@@ -21,7 +20,9 @@ internal sealed partial class SpirvSynchronizationLowering(Module input)
     private bool IsPlace(Expression e) => e switch {
         Expression.Reference r => Lookup(r.Name)?.Place ?? globals.ContainsKey(r.Name),
         Expression.Unary { Operator: "*" } => true,
-        Expression.Access a => IsPlace(a.Base), Expression.Member m => IsPlace(m.Base), _ => false
+        Expression.Access a => IsPlace(a.Base),
+        Expression.Member m => IsPlace(m.Base),
+        _ => false
     };
     private static ShaderType Data(ShaderType type) => type is ShaderType.Pointer p ? p.Base : type;
     private ShaderType.Pointer Pointer(Expression e)
@@ -43,8 +44,10 @@ internal sealed partial class SpirvSynchronizationLowering(Module input)
     private Expression.Call Atomic(Expression.Call call)
     {
         if (!Builtin(call)) return call;
-        return call with { AtomicMemory = DefaultAtomic(call.Function, call.Arguments.FirstOrDefault()?.Type,
-            call.AtomicMemory, call.MemoryAccess, input.VulkanMemoryModel) };
+        return call with {
+            AtomicMemory = DefaultAtomic(call.Function, call.Arguments.FirstOrDefault()?.Type,
+            call.AtomicMemory, call.MemoryAccess, input.VulkanMemoryModel)
+        };
     }
     private static SpirvAtomicMemory? DefaultAtomic(string name, ShaderType? pointer, SpirvAtomicMemory? memory,
         SpirvMemoryAccess? ordinaryMemory, bool vulkan)
@@ -94,13 +97,13 @@ internal sealed partial class SpirvSynchronizationLowering(Module input)
                 result = b with { Left = binary[0], Right = binary[1] }; break;
             case Expression.Call c:
                 var args = Children(c.Arguments.Select(a => (a, false)).ToArray(), prefix);
-                result = Atomic(c with { Arguments = args.Where((a,i) => !ReferenceEquals(a,c.Arguments[i])).Any() ? args : c.Arguments });
+                result = Atomic(c with { Arguments = args.Where((a, i) => !ReferenceEquals(a, c.Arguments[i])).Any() ? args : c.Arguments });
                 if (Builtin(c) && c.Function == "workgroupUniformLoad") {
                     var call = (Expression.Call)result;
                     var pointer = Capture(call.Arguments[0], prefix);
                     prefix.Add(Barrier("workgroupBarrier", c.Span));
                     Expression read = pointer.Type is ShaderType.Pointer { Base: ShaderType.Atomic }
-                        ? new Expression.Call("atomicLoad", [pointer], c.Type, CallBinding.Builtin) { AtomicMemory = call.AtomicMemory,Span = c.Span }
+                        ? new Expression.Call("atomicLoad", [pointer], c.Type, CallBinding.Builtin) { AtomicMemory = call.AtomicMemory, Span = c.Span }
 
                         : new Expression.Load(new Expression.Unary("*", pointer, pointer.Type) { Span = c.Span }) { MemoryAccess = call.MemoryAccess, Span = c.Span };
                     result = Capture(read, prefix);
@@ -109,7 +112,7 @@ internal sealed partial class SpirvSynchronizationLowering(Module input)
                 break;
             case Expression.Construct c:
                 var components = Children(c.Components.Select(a => (a, false)).ToArray(), prefix);
-                result = c with { Components = components.Where((a,i) => !ReferenceEquals(a,c.Components[i])).Any() ? components : c.Components }; break;
+                result = c with { Components = components.Where((a, i) => !ReferenceEquals(a, c.Components[i])).Any() ? components : c.Components }; break;
             case Expression.Convert c: result = c with { Operand = Rewrite(c.Operand, prefix) }; break;
             case Expression.Access a:
                 var access = Children([(a.Base, place || IsPlace(a)), (a.Index, false)], prefix);
@@ -119,7 +122,7 @@ internal sealed partial class SpirvSynchronizationLowering(Module input)
                 result = new Expression.Member(parent, m.Name, ProjectedType(m.Type, parent)); break;
             case Expression.Swizzle s: result = s with { Vector = Rewrite(s.Vector, prefix) }; break;
             case Expression.Select s:
-                var select = Children([(s.Condition,false),(s.Accept,false),(s.Reject,false)], prefix);
+                var select = Children([(s.Condition, false), (s.Accept, false), (s.Reject, false)], prefix);
                 result = new Expression.Select(select[0], select[1], select[2]); break;
             default: return e;
         }
@@ -149,24 +152,24 @@ internal sealed partial class SpirvSynchronizationLowering(Module input)
             case Statement.Nested n: result = n with { Body = Body(n.Body) }; break;
             case Statement.If i: result = i with { Condition = Rewrite(i.Condition, prefix), Accept = Body(i.Accept), Reject = Body(i.Reject) }; break;
             case Statement.Loop l:
-                var body = Body(l.Body,true); var continuing = Body(l.Continuing,true);
-                var tail = new List<Statement>(); var condition = l.BreakIf is null ? null : Rewrite(l.BreakIf,tail);
+                var body = Body(l.Body, true); var continuing = Body(l.Continuing, true);
+                var tail = new List<Statement>(); var condition = l.BreakIf is null ? null : Rewrite(l.BreakIf, tail);
                 if (tail.Count != 0) { var copy = new Block(); copy.DiagnosticFilters.AddRange(continuing.DiagnosticFilters); copy.Statements.AddRange(continuing.Statements); copy.Statements.AddRange(tail); continuing = copy; }
                 result = l with { Body = body, Continuing = continuing, BreakIf = condition };
                 scopes.Pop(); scopes.Pop(); break;
             case Statement.Switch sw:
                 var cases = sw.Cases.Select(c => c with { Body = Body(c.Body) }).ToArray();
-                result = sw with { Selector = Rewrite(sw.Selector,prefix), Cases = cases.Where((c,i) => c != sw.Cases[i]).Any() ? cases : sw.Cases }; break;
-            case Statement.Return r: result = r with { Value = r.Value is null ? null : Rewrite(r.Value,prefix) }; break;
-            case Statement.Barrier b: result = b with { NativeMemory = b.NativeMemory ?? BarrierMemory(b.Storage,b.Workgroup,b.Texture,b.Subgroup,true) }; break;
-            case Statement.MemoryBarrier b: result = b with { NativeMemory = b.NativeMemory ?? BarrierMemory(b.Storage,b.Workgroup,b.Texture,b.Subgroup,false) }; break;
+                result = sw with { Selector = Rewrite(sw.Selector, prefix), Cases = cases.Where((c, i) => c != sw.Cases[i]).Any() ? cases : sw.Cases }; break;
+            case Statement.Return r: result = r with { Value = r.Value is null ? null : Rewrite(r.Value, prefix) }; break;
+            case Statement.Barrier b: result = b with { NativeMemory = b.NativeMemory ?? BarrierMemory(b.Storage, b.Workgroup, b.Texture, b.Subgroup, true) }; break;
+            case Statement.MemoryBarrier b: result = b with { NativeMemory = b.NativeMemory ?? BarrierMemory(b.Storage, b.Workgroup, b.Texture, b.Subgroup, false) }; break;
             case Statement.MeshStore store:
-                var mesh = Children([(store.Index,false),(store.Value,false)],prefix);
+                var mesh = Children([(store.Index, false), (store.Value, false)], prefix);
                 result = store with { Index = mesh[0], Value = mesh[1] }; break;
             case Statement.MeshSetOutputs counts:
-                var size = Children([(counts.Vertices,false),(counts.Primitives,false)],prefix);
+                var size = Children([(counts.Vertices, false), (counts.Primitives, false)], prefix);
                 result = counts with { Vertices = size[0], Primitives = size[1] }; break;
-            case Statement.TaskDispatch dispatch: result = dispatch with { Dimensions = Rewrite(dispatch.Dimensions,prefix) }; break;
+            case Statement.TaskDispatch dispatch: result = dispatch with { Dimensions = Rewrite(dispatch.Dimensions, prefix) }; break;
             default: return [s];
         }
         prefix.Add(result == s ? s : result);
@@ -178,15 +181,19 @@ internal sealed partial class SpirvSynchronizationLowering(Module input)
         var output = new Block(); output.DiagnosticFilters.AddRange(input.DiagnosticFilters);
         output.Statements.AddRange(input.Statements.SelectMany(Statement));
         if (!keepScope) scopes.Pop();
-        return output.Statements.Count == input.Statements.Count && output.Statements.Select((s,i) => ReferenceEquals(s,input.Statements[i])).All(s => s) ? input : output;
+        return output.Statements.Count == input.Statements.Count && output.Statements.Select((s, i) => ReferenceEquals(s, input.Statements[i])).All(s => s) ? input : output;
     }
     private void Names(Block b)
     {
         foreach (var s in b.Statements) {
             if (s is Statement.Declare d) names.Add(d.Name);
             foreach (var child in s switch {
-                Statement.Nested n => new[] {n.Body}, Statement.If i => [i.Accept,i.Reject], Statement.Loop l => [l.Body,l.Continuing],
-                Statement.Switch sw => sw.Cases.Select(c => c.Body).ToArray(), _ => [] }) Names(child);
+                Statement.Nested n => new[] { n.Body },
+                Statement.If i => [i.Accept, i.Reject],
+                Statement.Loop l => [l.Body, l.Continuing],
+                Statement.Switch sw => sw.Cases.Select(c => c.Body).ToArray(),
+                _ => []
+            }) Names(child);
         }
     }
     internal static Module Run(Module module) => new SpirvSynchronizationLowering(module).Run();
@@ -199,14 +206,16 @@ internal sealed partial class SpirvSynchronizationLowering(Module input)
         output.Enables.UnionWith(input.Enables); output.DiagnosticFilters.AddRange(input.DiagnosticFilters);
         foreach (var f in input.Functions) {
             if (selected is not null && !selected.Contains(f.Name)) { output.Functions.Add(f); continue; }
-            scopes.Push(f.Arguments.ToDictionary(a => a.Name,_ => new Local(false),StringComparer.Ordinal));
+            scopes.Push(f.Arguments.ToDictionary(a => a.Name, _ => new Local(false), StringComparer.Ordinal));
             var body = Body(f.Body); scopes.Pop();
-            if (ReferenceEquals(body,f.Body)) { output.Functions.Add(f); continue; }
-            var copy = new ShaderFunction(f.Name) { Body = body, Stage = f.Stage, ReturnType = f.ReturnType, ReturnBinding = f.ReturnBinding,
+            if (ReferenceEquals(body, f.Body)) { output.Functions.Add(f); continue; }
+            var copy = new ShaderFunction(f.Name) {
+                Body = body, Stage = f.Stage, ReturnType = f.ReturnType, ReturnBinding = f.ReturnBinding,
                 WorkgroupSize = f.WorkgroupSize.ToArray(), TaskPayload = f.TaskPayload, MeshOutput = f.MeshOutput,
-                EarlyDepthTest = f.EarlyDepthTest, ConservativeDepth = f.ConservativeDepth };
+                EarlyDepthTest = f.EarlyDepthTest, ConservativeDepth = f.ConservativeDepth
+            };
             copy.Arguments.AddRange(f.Arguments); copy.DiagnosticFilters.AddRange(f.DiagnosticFilters); output.Functions.Add(copy);
         }
-        return output.Functions.Where((f,i) => !ReferenceEquals(f,input.Functions[i])).Any() ? output : input;
+        return output.Functions.Where((f, i) => !ReferenceEquals(f, input.Functions[i])).Any() ? output : input;
     }
 }

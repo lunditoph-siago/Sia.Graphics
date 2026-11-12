@@ -4,7 +4,6 @@ using Sia.Spirv.Compiler.Model;
 
 namespace Sia.Spirv.Compiler.Legalization;
 
-/// <summary>Resource bindings and scalar slots in managed parameter order.</summary>
 internal sealed class SpirvKernelAbiLayout
 {
     public const int DescriptorSet = 0;
@@ -44,7 +43,6 @@ internal sealed class SpirvKernelAbiLayout
         return new(abi, slots.MoveToImmutable(), scalar, packed);
     }
 
-    // Resource legalization can replace a buffer's kind and layout while preserving its slot.
     public IEnumerable<(SpirvKernelParameter Parameter, SpirvParameterSlot Slot)> GetParameters(SpirvKernel kernel)
         => kernel.Parameters.Zip(_slots);
 }

@@ -6,8 +6,6 @@ namespace Sia.Spirv.Compiler.Translation.Proc;
 
 internal static partial class UniformityAnalysis
 {
-    /// <summary>Dependency graph over SSA values, block predicates and function-memory contents.
-    /// Cyclic edges carry loop dependencies without replaying source statements.</summary>
     private sealed class CanonicalAnalysis(Module module, ControlFlowFunction graph, Func<string, Summary> callee,
         ISet<(string Function, int Value)>? divergentCollectives, IReadOnlySet<string> uniformGlobals)
     {
@@ -57,9 +55,6 @@ internal static partial class UniformityAnalysis
                 if (!canLeave[id]) continue;
                 foreach (var edge in blocks[id].Terminator!.Edges) pending.Push(edge.Target);
             }
-            // A non-returning call never contributes a phi value or memory state
-            // to the syntactic successor. Keep control dependence from conditional
-            // termination in callExits, without inventing returned pointer contents.
             foreach (var incoming in predecessors.Values)
                 incoming.RemoveAll(p => !live.Contains(p.Block.Id) || !canLeave[p.Block.Id]);
             foreach (var block in graph.Blocks) foreach (var predecessor in predecessors[block.Id]) {
@@ -180,9 +175,11 @@ internal static partial class UniformityAnalysis
             var arguments = call.Arguments.Select(Value).ToArray();
             var contents = call.Arguments.Select(a => a.Type is ShaderType.Pointer ? Read(a, inputControl, memory) : inputControl).ToArray();
             Node Bind(IEnumerable<Dependency> dependencies) => Join(dependencies.Select(d => d.Source switch {
-                Source.Control => inputControl, Source.NonUniform => nonUniform,
+                Source.Control => inputControl,
+                Source.NonUniform => nonUniform,
                 Source.Argument => d.Index < arguments.Length ? arguments[d.Index] : nonUniform,
-                Source.Contents => d.Index < contents.Length ? contents[d.Index] : nonUniform, _ => nonUniform
+                Source.Contents => d.Index < contents.Length ? contents[d.Index] : nonUniform,
+                _ => nonUniform
             }).ToArray());
             var summary = callee(call.Function);
             foreach (var requirement in summary.Requirements)

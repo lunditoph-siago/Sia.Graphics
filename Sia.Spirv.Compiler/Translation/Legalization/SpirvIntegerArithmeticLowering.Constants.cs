@@ -10,9 +10,12 @@ internal static partial class SpirvIntegerArithmeticLowering
         => type is ShaderType.Vector vector ? new Expression.Construct(type, Enumerable.Repeat(value, vector.Size).ToArray()) : value;
 
     private static BigInteger[]? IntegerLanes(Expression? value) => value switch {
-        Expression.Literal { Value: short n } => [n], Expression.Literal { Value: ushort n } => [n],
-        Expression.Literal { Value: int n } => [n], Expression.Literal { Value: uint n } => [n],
-        Expression.Literal { Value: long n } => [n], Expression.Literal { Value: ulong n } => [n],
+        Expression.Literal { Value: short n } => [n],
+        Expression.Literal { Value: ushort n } => [n],
+        Expression.Literal { Value: int n } => [n],
+        Expression.Literal { Value: uint n } => [n],
+        Expression.Literal { Value: long n } => [n],
+        Expression.Literal { Value: ulong n } => [n],
         Expression.Construct { Type: ShaderType.Vector } vector when vector.Components.All(c => IntegerLanes(c) is { Length: 1 })
             => vector.Components.Select(c => IntegerLanes(c)![0]).ToArray(),
         _ => null
@@ -29,7 +32,8 @@ internal static partial class SpirvIntegerArithmeticLowering
         ShaderType operandType = op == "/" && type is ShaderType.Vector vector ? new ShaderType.Vector(vector.Size, ShaderType.U32)
             : op == "/" ? ShaderType.U32 : type;
         var operandComponent = operandType is ShaderType.Vector ov ? ov.Component : (ShaderType.Scalar)operandType;
-        Expression Lane(BigInteger n) {
+        Expression Lane(BigInteger n)
+        {
             if (op == "/") { uint shift = 0; for (; n > 1; n >>= 1) shift++; return Expression.U32(shift); }
             object mask = operandComponent.Width switch { 2 => (object)(ushort)(n - 1), 8 => (ulong)(n - 1), _ => (uint)(n - 1) };
             return new Expression.Literal(mask, operandComponent);
@@ -48,8 +52,6 @@ internal static partial class SpirvIntegerArithmeticLowering
         return value is Expression.Binary { Operator: "&" } mask && (BoundedShift(mask.Left, bits) || BoundedShift(mask.Right, bits));
     }
 
-    // Prove only concrete values. Override defaults and block parameters remain
-    // unknown; no memory reads or calls are evaluated or moved by these facts.
     private sealed partial class IntegerFacts(ControlFlowFunction graph, Module module)
     {
         private readonly Dictionary<int, ValueOperation> definitions = graph.Blocks.SelectMany(b => b.Instructions)
@@ -71,7 +73,8 @@ internal static partial class SpirvIntegerArithmeticLowering
                 Expression.Construct c when c.Components.All(c => Named(c) is not null) => c with { Components = c.Components.Select(c => Named(c)!).ToArray() },
                 Expression.Unary u when Named(u.Operand) is { } operand => u with { Operand = operand },
                 Expression.Binary b when Named(b.Left) is { } left && Named(b.Right) is { } right => b with { Left = left, Right = right },
-                Expression.Convert c when Named(c.Operand) is { } operand => c with { Operand = operand }, _ => null
+                Expression.Convert c when Named(c.Operand) is { } operand => c with { Operand = operand },
+                _ => null
             };
             return mapped is not null && ConstantEvaluator.TryEvaluateRuntime(mapped, out var value) ? value : null;
         }
@@ -103,7 +106,8 @@ internal static partial class SpirvIntegerArithmeticLowering
                     && convert.Operand.Type is ShaderType.Scalar { Kind: ScalarKind.Sint or ScalarKind.Uint }
                     && new BigInteger(bits - 1) < (BigInteger.One << (target.Width * 8 - (target.Kind == ScalarKind.Sint ? 1 : 0)))
                     => BoundedShift(convert.Operand, bits),
-                ValueOperation.Binary { Operator: "&" } mask => BoundedShift(mask.Left, bits) || BoundedShift(mask.Right, bits), _ => false
+                ValueOperation.Binary { Operator: "&" } mask => BoundedShift(mask.Left, bits) || BoundedShift(mask.Right, bits),
+                _ => false
             };
         }
 

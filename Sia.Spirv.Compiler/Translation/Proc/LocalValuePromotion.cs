@@ -3,11 +3,11 @@ using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 
 namespace Sia.Spirv.Compiler.Translation.Proc;
 
-/// <summary>Promote definitely initialized non-escaping data/address slots into SSA block parameters. Recompute analyses after rewriting.</summary>
 internal static class LocalValuePromotion
 {
     internal static bool IsDefinitelyAssigned(ControlFlowFunction function, SsaValue slot,
-        IReadOnlyDictionary<int, IReadOnlyList<(ControlFlowBlock Block, ControlFlowEdge Edge)>>? predecessors = null) {
+        IReadOnlyDictionary<int, IReadOnlyList<(ControlFlowBlock Block, ControlFlowEdge Edge)>>? predecessors = null)
+    {
         predecessors ??= new ControlFlowAnalysisContext(function).Predecessors;
         var aliases = new HashSet<int> { slot.Id };
         if (slot.Type is ShaderType.Pointer { Base: ShaderType.Pointer }) {
@@ -22,13 +22,11 @@ internal static class LocalValuePromotion
                     if (operation is ValueOperation.Let alias && aliases.Contains(alias.Value.Id)) added |= aliases.Add(id);
             } while (added);
         }
-        // Greatest fixed point for definite assignment. The entry starts empty;
-        // every other block intersects its predecessors, including loop backedges.
-        // A dynamic allocation resets the slot at its actual instruction position.
         var assigned = function.Blocks.ToDictionary(b => b.Id, _ => true);
         bool Incoming(ControlFlowBlock block) => block.Id != function.Entry && predecessors[block.Id].Count != 0
             && predecessors[block.Id].All(p => assigned[p.Block.Id]);
-        bool Transfer(ControlFlowBlock block, bool state, bool checkLoads) {
+        bool Transfer(ControlFlowBlock block, bool state, bool checkLoads)
+        {
             foreach (var instruction in block.Instructions) {
                 if (instruction.Result == slot && instruction.Operation is ValueOperation.Local local) state = local.ZeroInitialize;
                 else if (instruction.Operation is ValueOperation.Store store && aliases.Contains(store.Pointer.Id)) state = true;
@@ -59,8 +57,6 @@ internal static class LocalValuePromotion
                 if (!(instruction.Operation is ValueOperation.Load { MemoryAccess: null } load && load.Pointer == operand
                     || instruction.Operation is ValueOperation.Store { MemoryAccess: null } store && store.Pointer == operand && store.Value != operand))
                     escaping.Add(operand.Id);
-        // Entry-initialized slots are assigned on every reachable path. Other
-        // allocations still need the full reset-aware definite-assignment proof.
         var initialized = ControlFlowAnalysis.Reachable(function).Count == function.Blocks.Count
             ? function.Blocks.Single(b => b.Id == function.Entry).Instructions
                 .Where(i => i.Operation is ValueOperation.Local { ZeroInitialize: true } && i.Result is not null).Select(i => i.Result!.Value.Id).ToHashSet()
@@ -71,8 +67,6 @@ internal static class LocalValuePromotion
                 && (initialized.Contains(slot.Id) || IsDefinitelyAssigned(function, slot, predecessors)))
             .ToDictionary(v => v.Id);
         if (slots.Count == 0) return;
-        // Materialize implicit zero only for value promotion. Escaping/qualified
-        // locals retain their original declaration and explicit memory operations.
         foreach (var block in function.Blocks) {
             for (int i = 0; i < block.Instructions.Count; i++) {
                 var instruction = block.Instructions[i];
@@ -88,11 +82,11 @@ internal static class LocalValuePromotion
                 if (instruction.Operation is ValueOperation.Store store && slots.ContainsKey(store.Pointer.Id)) last[(store.Pointer.Id, block.Id)] = store.Value;
         var incoming = new Dictionary<(int Slot, int Block), SsaValue>();
         var replacements = new Dictionary<int, SsaValue>();
-        SsaValue ReadIncoming(int slot, ControlFlowBlock block) {
+        SsaValue ReadIncoming(int slot, ControlFlowBlock block)
+        {
             if (incoming.TryGetValue((slot, block.Id), out var found)) return found;
             var edges = predecessors[block.Id];
             if (edges.Count == 0) throw new ShaderException(DiagnosticStage.Validation, "Uninitialized promoted local in b" + block.Id);
-            // Install the parameter before following backedges, including mutually recursive merges.
             var parameter = function.Value(((ShaderType.Pointer)slots[slot].Type).Base);
             incoming.Add((slot, block.Id), parameter); block.Parameters.Add(parameter);
             foreach (var (predecessor, edge) in edges)
@@ -112,7 +106,8 @@ internal static class LocalValuePromotion
             }
             block.Instructions.Clear(); block.Instructions.AddRange(rewritten);
         }
-        SsaValue Resolve(SsaValue value) {
+        SsaValue Resolve(SsaValue value)
+        {
             var seen = new HashSet<int>();
             while (replacements.TryGetValue(value.Id, out var mapped)) {
                 if (!seen.Add(value.Id)) throw new ShaderException(DiagnosticStage.Validation, "Cyclic SSA replacement");
@@ -120,8 +115,6 @@ internal static class LocalValuePromotion
             }
             return value;
         }
-        // Remove only phis introduced for promoted slots. A single incoming value
-        // (ignoring self edges) needs no loop-carried state; native phis stay intact.
         var promoted = incoming.Values.Select(v => v.Id).ToHashSet();
         bool changed;
         do {
@@ -144,7 +137,6 @@ internal static class LocalValuePromotion
             foreach (var edge in block.Terminator.Edges)
                 for (int i = 0; i < edge.Arguments.Count; i++) edge.Arguments[i] = Resolve(edge.Arguments[i]);
         }
-        // Existing edges and block topology survive; their SSA argument lists change.
         analyses?.Preserve(ControlFlowAnalyses.All);
     }
 }

@@ -8,9 +8,7 @@ namespace Sia.Spirv.Compiler.Translation.Back;
 public sealed record SpirvWriteOptions(bool AdjustCoordinateSpace = true, bool ClampFragmentDepth = true,
     bool ZeroInitializeWorkgroupMemory = true, bool EmitIntegerDivisionChecks = true)
 {
-    /// <summary>Resolve WGSL overrides before writing. Keys are explicit decimal IDs or names for overrides without IDs.</summary>
     public IReadOnlyDictionary<string, double>? PipelineConstants { get; init; }
-    /// <summary>Emit unresolved workgroup sizes with LocalSizeId. Vulkan targets require maintenance4 (Vulkan 1.3), or equivalent target support.</summary>
     public bool UseLocalSizeId { get; init; }
 }
 
@@ -79,29 +77,25 @@ public static partial class SpirvWriter
                 var signature = wrapper.Function.Graph.Signature;
                 functions.Add(signature.Name, (Id(), signature));
             }
-            foreach (var constant in module.Constants)
-            {
+            foreach (var constant in module.Constants) {
                 if (IsAbstract(constant.Type)) continue;
                 uint value = constant.IsOverride ? Override(constant) : constant.IsSpecialization ? Specialization(constant.Value!) : Constant(constant.Value ?? throw Error("Constant has no initializer."));
                 globals.Add(constant.Name, new(value, constant.Type, false)); Name(value, constant.Name);
             }
-            foreach (var variable in module.Globals)
-            {
+            foreach (var variable in module.Globals) {
                 if (variable.Space == AddressSpace.Function) throw Error("Function-space module variable.");
                 uint storage = Storage(variable.Space);
                 bool buffer = variable.Space is AddressSpace.Uniform or AddressSpace.Storage or AddressSpace.Immediate;
                 var layout = physicalLayout.Globals[variable.Name];
                 bool wrap = layout.BufferWrapper;
-                if (buffer && variable.Type is ShaderType.BindingArray bufferArray)
-                {
+                if (buffer && variable.Type is ShaderType.BindingArray bufferArray) {
                     if (bufferArray.Element is not ShaderType.Structure) throw Error("Buffer binding array elements currently require a structure.");
                 }
                 ShaderType physical = layout.PhysicalType, type = layout.DeclarationType;
                 if (wrap) Decorate(Type(type), 2);
                 uint typeId = Type(type), pointer = Pointer(typeId, storage), id = Id();
                 if (buffer && !wrap) Decorate(type is ShaderType.BindingArray array ? Type(array.Element) : typeId, 2);
-                if (variable.Initializer is not null)
-                {
+                if (variable.Initializer is not null) {
                     if (storage != 6) throw Error("Only private globals can have initializers.");
                     declarations.Add(I(Op.Variable, pointer, id, storage, Specialization(variable.Initializer)));
                 }
@@ -111,14 +105,12 @@ public static partial class SpirvWriter
                 if (variable.Binding is { } binding) { Decorate(id, 34, binding.Group); Decorate(id, 33, binding.Binding); }
                 if ((variable.MemoryDecorations & MemoryDecorations.Coherent) != 0 && !UsesVulkanMemoryModel) Decorate(id, 23);
                 if ((variable.MemoryDecorations & MemoryDecorations.Volatile) != 0 && !UsesVulkanMemoryModel) Decorate(id, 21);
-                if (variable.Space == AddressSpace.Storage)
-                {
+                if (variable.Space == AddressSpace.Storage) {
                     if ((variable.Access & StorageAccess.Write) == 0) Decorate(id, 24);
                     if ((variable.Access & StorageAccess.Read) == 0) Decorate(id, 25);
                 }
                 ShaderType resource = variable.Type is ShaderType.BindingArray bindingArray ? bindingArray.Element : variable.Type;
-                if (resource is ShaderType.Image { StorageFormat: not null } storageImage)
-                {
+                if (resource is ShaderType.Image { StorageFormat: not null } storageImage) {
                     if ((storageImage.Access & StorageAccess.Read) == 0) Decorate(id, 25);
                     if ((storageImage.Access & StorageAccess.Write) == 0) Decorate(id, 24);
                 }
@@ -140,16 +132,24 @@ public static partial class SpirvWriter
             return new() { Version = OutputVersion, Bound = nextId, Instructions = all };
         }
 
-        private static bool IsAbstract(ShaderType type) => type switch
-        {
+        private static bool IsAbstract(ShaderType type) => type switch {
             ShaderType.Scalar { Kind: ScalarKind.AbstractInt or ScalarKind.AbstractFloat } => true,
-            ShaderType.Vector v => IsAbstract(v.Component), ShaderType.Matrix m => IsAbstract(m.Component),
-            ShaderType.Array a => IsAbstract(a.Element), ShaderType.Structure s => s.Members.Any(m => IsAbstract(m.Type)), _ => false
+            ShaderType.Vector v => IsAbstract(v.Component),
+            ShaderType.Matrix m => IsAbstract(m.Component),
+            ShaderType.Array a => IsAbstract(a.Element),
+            ShaderType.Structure s => s.Members.Any(m => IsAbstract(m.Type)),
+            _ => false
         };
-        private uint Storage(AddressSpace space) => space switch
-        {
-            AddressSpace.Handle => 0, AddressSpace.Uniform => 2, AddressSpace.Workgroup => 4, AddressSpace.Private => 6,
-            AddressSpace.Function => 7, AddressSpace.Immediate => 9, AddressSpace.Storage => 12, AddressSpace.TaskPayload => 5402, _ => throw Error("Unknown address space.")
+        private uint Storage(AddressSpace space) => space switch {
+            AddressSpace.Handle => 0,
+            AddressSpace.Uniform => 2,
+            AddressSpace.Workgroup => 4,
+            AddressSpace.Private => 6,
+            AddressSpace.Function => 7,
+            AddressSpace.Immediate => 9,
+            AddressSpace.Storage => 12,
+            AddressSpace.TaskPayload => 5402,
+            _ => throw Error("Unknown address space.")
         };
         private uint Pointer(uint baseType, uint storage)
         {
@@ -162,11 +162,9 @@ public static partial class SpirvWriter
             if (type is ShaderType.RayQuery { VertexReturn: true }) return Type(new ShaderType.RayQuery());
             if (type is ShaderType.AccelerationStructure { VertexReturn: true }) return Type(new ShaderType.AccelerationStructure());
             if (type is ShaderType.Pointer pointer) return Pointer(Type(pointer.Base), Storage(pointer.Space));
-            if (type is ShaderType.Atomic atomic)
-            {
-                if (atomic.Component.Kind == ScalarKind.Float)
-                {
-                    capabilities.Add(6033); // AtomicFloat32AddEXT
+            if (type is ShaderType.Atomic atomic) {
+                if (atomic.Component.Kind == ScalarKind.Float) {
+                    capabilities.Add(6033);
                     extensions.Add("SPV_EXT_shader_atomic_float_add");
                 }
                 if (atomic.Component.Width == 8) capabilities.Add(12);
@@ -174,8 +172,7 @@ public static partial class SpirvWriter
             }
             if (types.TryGetValue(type, out uint id)) return id;
             id = Id();
-            switch (type)
-            {
+            switch (type) {
                 case ShaderType.Void: declarations.Add(I(Op.TypeVoid, id)); break;
                 case ShaderType.Scalar { Kind: ScalarKind.Bool }: declarations.Add(I(Op.TypeBool, id)); break;
                 case ShaderType.Scalar s when s.Kind is ScalarKind.Sint or ScalarKind.Uint:
@@ -207,8 +204,7 @@ public static partial class SpirvWriter
                     if (array.Element is not (ShaderType.Image or ShaderType.Sampler or ShaderType.AccelerationStructure or ShaderType.Structure)) throw Error("Unsupported binding array element.");
                     if (array.OverrideLength is string bindingLength) declarations.Add(I(Op.TypeArray, id, Type(array.Element), SpecializationLength(bindingLength)));
                     else if (array.Length is uint bindingCount) declarations.Add(I(Op.TypeArray, id, Type(array.Element), Constant(Expression.U32(bindingCount))));
-                    else
-                    {
+                    else {
                         extensions.Add("SPV_EXT_descriptor_indexing"); capabilities.Add(5302);
                         declarations.Add(I(Op.TypeRuntimeArray, id, Type(array.Element)));
                     }
@@ -217,19 +213,16 @@ public static partial class SpirvWriter
                     uint[] members = structure.Members.Select(m => Type(m.Type)).ToArray();
                     declarations.Add(I(Op.TypeStruct, new uint[] { id }.Concat(members).ToArray())); Name(id, structure.Name);
                     if (!UsesVulkanMemoryModel)
-                        for (int index = 0; index < structure.Members.Count; index++)
-                        {
+                        for (int index = 0; index < structure.Members.Count; index++) {
                             var memory = structure.Members[index].MemoryDecorations;
                             if ((memory & MemoryDecorations.Coherent) != 0) MemberDecorate(id, (uint)index, 23);
                             if ((memory & MemoryDecorations.Volatile) != 0) MemberDecorate(id, (uint)index, 21);
                         }
                     if (!physicalLayout.Buffers.TryGetValue(type, out var structureLayout)) break;
-                    for (int index = 0; index < structureLayout.Members.Count; index++)
-                    {
+                    for (int index = 0; index < structureLayout.Members.Count; index++) {
                         var member = structureLayout.Members[index];
                         MemberDecorate(id, (uint)index, 35, member.Offset);
-                        if (member.MatrixStride is uint stride)
-                        {
+                        if (member.MatrixStride is uint stride) {
                             MemberDecorate(id, (uint)index, 5);
                             MemberDecorate(id, (uint)index, 7, stride);
                         }
@@ -247,8 +240,8 @@ public static partial class SpirvWriter
                     else if (image.StorageFormat is string format && StorageImageFormats.Extended(ImageFormat(format))) capabilities.Add(49);
                     if (image.Dimension == ImageDimension.D1) capabilities.Add(image.StorageFormat is null ? 43u : 44u);
                     if (image.Dimension == ImageDimension.Cube && image.Arrayed) capabilities.Add(45);
-                    if (image.Multisampled && image.StorageFormat is not null) capabilities.Add(27); // StorageImageMultisample
-                    if (image.Multisampled && image.Arrayed) capabilities.Add(48); // ImageMSArray
+                    if (image.Multisampled && image.StorageFormat is not null) capabilities.Add(27);
+                    if (image.Multisampled && image.Arrayed) capabilities.Add(48);
                     uint[] imageOperands = [Type(image.Component), (uint)image.Dimension, image.Depth ? 1u : 0u,
                         image.Arrayed ? 1u : 0u, image.Multisampled ? 1u : 0u, image.StorageFormat is null ? 1u : 2u,
                         image.StorageFormat is null ? 0u : ImageFormat(image.StorageFormat)];
@@ -272,22 +265,25 @@ public static partial class SpirvWriter
             if (!ConstantEvaluator.TryEvaluate(expression, out var value)) throw Error("Expected a constant value.", expression.Span);
             uint typeId = Type(value.Type);
             uint[] data; Op op;
-            if (value is Expression.Literal literal)
-            {
+            if (value is Expression.Literal literal) {
                 if (literal.Value is bool b) { op = b ? Op.ConstantTrue : Op.ConstantFalse; data = []; }
-                else
-                {
+                else {
                     op = Op.Constant;
-                    data = literal.Value switch
-                    {
-                        ushort u => [u], short i => [unchecked((uint)i)], uint u => [u], int i => [unchecked((uint)i)], float f => [BitConverter.SingleToUInt32Bits(f)], Half h => [BitConverter.HalfToUInt16Bits(h)],
-                        ulong u => [(uint)u, (uint)(u >> 32)], long l => [unchecked((uint)l), unchecked((uint)(l >> 32))],
-                        double d => [(uint)BitConverter.DoubleToUInt64Bits(d), (uint)(BitConverter.DoubleToUInt64Bits(d) >> 32)], _ => throw Error("Unsupported constant literal.")
+                    data = literal.Value switch {
+                        ushort u => [u],
+                        short i => [unchecked((uint)i)],
+                        uint u => [u],
+                        int i => [unchecked((uint)i)],
+                        float f => [BitConverter.SingleToUInt32Bits(f)],
+                        Half h => [BitConverter.HalfToUInt16Bits(h)],
+                        ulong u => [(uint)u, (uint)(u >> 32)],
+                        long l => [unchecked((uint)l), unchecked((uint)(l >> 32))],
+                        double d => [(uint)BitConverter.DoubleToUInt64Bits(d), (uint)(BitConverter.DoubleToUInt64Bits(d) >> 32)],
+                        _ => throw Error("Unsupported constant literal.")
                     };
                 }
             }
-            else if (value is Expression.Construct construct)
-            {
+            else if (value is Expression.Construct construct) {
                 if (construct.Components.Count == 0) return Null(construct.Type);
                 op = Op.ConstantComposite; data = construct.Components.Select(Constant).ToArray();
             }

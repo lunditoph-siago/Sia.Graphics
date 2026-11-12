@@ -27,7 +27,9 @@ internal static class SpirvResourceAccessLowering
         int insertion = instructions.FindIndex(i => (Op)i.Opcode == Op.TypeVoid);
         if (insertion < 0) throw new InvalidDataException("SPIR-V has no type declaration section.");
         instructions.InsertRange(insertion, added);
-        File.WriteAllBytes(path, new SpirvBinary { Version = binary.Version, Generator = binary.Generator,
-            Bound = binary.Bound, Instructions = instructions }.ToBytes());
+        File.WriteAllBytes(path, new SpirvBinary {
+            Version = binary.Version, Generator = binary.Generator,
+            Bound = binary.Bound, Instructions = instructions
+        }.ToBytes());
     }
 }

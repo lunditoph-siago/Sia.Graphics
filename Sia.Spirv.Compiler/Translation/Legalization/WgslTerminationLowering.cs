@@ -5,8 +5,6 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Legalize native non-returning paths for WGSL.
-/// Canonical IR and SPIR-V retain the original non-returning terminator.</summary>
 internal static class WgslTerminationLowering
 {
     public static Module Run(Module input)
@@ -59,10 +57,12 @@ internal static class WgslTerminationLowering
     private static Module Run(Module input, IReadOnlySet<string>? functions)
     {
         bool Contains(Block body) => body.Statements.Any(s => s switch {
-            Statement.Unreachable or Statement.InvocationKill => true, Statement.Nested n => Contains(n.Body),
+            Statement.Unreachable or Statement.InvocationKill => true,
+            Statement.Nested n => Contains(n.Body),
             Statement.If i => Contains(i.Accept) || Contains(i.Reject),
             Statement.Loop l => Contains(l.Body) || Contains(l.Continuing),
-            Statement.Switch sw => sw.Cases.Any(c => Contains(c.Body)), _ => false
+            Statement.Switch sw => sw.Cases.Any(c => Contains(c.Body)),
+            _ => false
         });
         bool Selected(ShaderFunction f) => (functions is null || functions.Contains(f.Name)) && Contains(f.Body);
         if (!input.Functions.Any(Selected)) return input;
@@ -76,9 +76,6 @@ internal static class WgslTerminationLowering
                             "Native invocation kill in continuing requires control-flow relocation.", statement.Span);
                         output.Statements.Add(new Statement.Kill { Span = statement.Span });
                     }
-                    // WGSL forbids return in continuing. Falling through is an
-                    // allowed choice for this source-undefined path; no defined
-                    // execution reaches it. Do not create an invalid infinite loop.
                     if (!continuing) {
                         if (result is not ShaderType.Void && !CanonicalTypes.Data(result))
                             throw new ShaderException(DiagnosticStage.WgslWrite,
@@ -104,11 +101,13 @@ internal static class WgslTerminationLowering
         module.Enables.UnionWith(input.Enables); module.DiagnosticFilters.AddRange(input.DiagnosticFilters);
         foreach (var function in input.Functions) {
             if (!Selected(function)) { module.Functions.Add(function); continue; }
-            var copy = new ShaderFunction(function.Name) { Stage = function.Stage, ReturnType = function.ReturnType,
+            var copy = new ShaderFunction(function.Name) {
+                Stage = function.Stage, ReturnType = function.ReturnType,
                 ReturnBinding = function.ReturnBinding, WorkgroupSize = function.WorkgroupSize.ToArray(),
                 TaskPayload = function.TaskPayload, MeshOutput = function.MeshOutput,
                 EarlyDepthTest = function.EarlyDepthTest, ConservativeDepth = function.ConservativeDepth,
-                Body = Body(function.Body, function.ReturnType) };
+                Body = Body(function.Body, function.ReturnType)
+            };
             copy.Arguments.AddRange(function.Arguments); copy.DiagnosticFilters.AddRange(function.DiagnosticFilters); module.Functions.Add(copy);
         }
         return module;

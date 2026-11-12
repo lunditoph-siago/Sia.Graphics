@@ -10,7 +10,7 @@ internal sealed partial class RuntimeShaderLowering
         Action<int, Value, Block, int> storeLocal)
     {
         string op = instruction.OpCode.Name!; int at = instruction.Offset;
-        int Index(string prefix) => op.Length > prefix.Length+1 && int.TryParse(op[(prefix.Length+1)..], out int index) ? index : instruction.Operand.GetInt32(at);
+        int Index(string prefix) => op.Length > prefix.Length + 1 && int.TryParse(op[(prefix.Length + 1)..], out int index) ? index : instruction.Operand.GetInt32(at);
         Expression Pop() => Read(stack.Pop(), body);
         void Push(Expression expression) => stack.Push(Snapshot(expression, body));
         if (op.StartsWith("ldarg", StringComparison.Ordinal)) {
@@ -44,7 +44,7 @@ internal sealed partial class RuntimeShaderLowering
         }
         if (op.StartsWith("stloc", StringComparison.Ordinal)) { storeLocal(Index("stloc"), stack.Pop(), body, at); return; }
         if (op.StartsWith("ldc.i4", StringComparison.Ordinal)) {
-            int value = op == "ldc.i4.m1" ? -1 : op is "ldc.i4" or "ldc.i4.s" ? instruction.Operand.GetInt32(at) : op[^1]-'0';
+            int value = op == "ldc.i4.m1" ? -1 : op is "ldc.i4" or "ldc.i4.s" ? instruction.Operand.GetInt32(at) : op[^1] - '0';
             stack.Push(new(Expression.I32(value))); return;
         }
         if (op == "ldc.r4") { stack.Push(new(new Expression.Literal(instruction.Operand.GetSingle(at), ShaderType.F32))); return; }
@@ -154,14 +154,16 @@ internal sealed partial class RuntimeShaderLowering
         return new Expression.Binary(symbol, left, right, left.Type);
     }
 
-    private void Store(Expression pointer, Expression value, Block body) {
+    private void Store(Expression pointer, Expression value, Block body)
+    {
         var type = ValueType(pointer);
         if (type is ShaderType.Atomic atomic) body.Statements.Add(new Statement.Evaluate(new Expression.Call("atomicStore", [Address(pointer), Convert(value, atomic.Component, true)], new ShaderType.Void(), CallBinding.Builtin)));
         else body.Statements.Add(new Statement.Store(pointer, Convert(value, type, true)));
     }
     private static ShaderType.Pointer Pointer(Expression place, ShaderType type) => place.Type is ShaderType.Pointer p ? p with { Base = type }
         : place switch { Expression.Member m => Pointer(m.Base, type), Expression.Access a => Pointer(a.Base, type), _ => new(type, AddressSpace.Function) };
-    private Expression Branch(CilInstruction instruction, Stack<Value> stack, Block body) {
+    private Expression Branch(CilInstruction instruction, Stack<Value> stack, Block body)
+    {
         string op = instruction.OpCode.Name!;
         var right = Read(stack.Pop(), body);
         if (op.StartsWith("brtrue", StringComparison.Ordinal)) return Truth(right);
@@ -171,7 +173,8 @@ internal sealed partial class RuntimeShaderLowering
         return Compare(symbol, left, right, op.Contains(".un", StringComparison.Ordinal));
     }
     private static Expression Truth(Expression value) => value.Type == ShaderType.Bool ? value : new Expression.Binary("!=", value, Zero(value.Type), ShaderType.Bool);
-    private static Expression Compare(string symbol, Expression left, Expression right, bool unsigned) {
+    private static Expression Compare(string symbol, Expression left, Expression right, bool unsigned)
+    {
         ShaderType type = left.Type == ShaderType.F32 || right.Type == ShaderType.F32 ? ShaderType.F32 : unsigned ? ShaderType.U32 : left.Type;
         left = Convert(left, type, type != ShaderType.F32); right = Convert(right, type, type != ShaderType.F32);
         Expression result = new Expression.Binary(symbol, left, right, ShaderType.Bool);

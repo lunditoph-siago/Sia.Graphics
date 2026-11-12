@@ -17,18 +17,15 @@ public abstract record ShaderType
     public sealed record Scalar(ScalarKind Kind, int Width = 4) : ShaderType;
     public sealed record Vector(int Size, Scalar Component) : ShaderType;
     public sealed record Matrix(int Columns, int Rows, Scalar Component) : ShaderType;
-    /// <summary>A distributed matrix; Scope uses SPIR-V scope values (3 is Subgroup).</summary>
     public sealed record CooperativeMatrix(int Columns, int Rows, Scalar Component, CooperativeRole Role, uint Scope = 3) : ShaderType;
     public sealed record Atomic(Scalar Component) : ShaderType;
     public sealed record Pointer(ShaderType Base, AddressSpace Space, StorageAccess Access = StorageAccess.ReadWrite) : ShaderType;
     public sealed record Array(ShaderType Element, uint? Length, uint? Stride = null) : ShaderType
     {
-        /// <summary>Name of the override determining the length; mutually exclusive with Length.</summary>
         public string? OverrideLength { get; init; }
     }
     public sealed record BindingArray(ShaderType Element, uint? Length) : ShaderType
     {
-        /// <summary>Name of the override determining the length; mutually exclusive with Length.</summary>
         public string? OverrideLength { get; init; }
     }
     public sealed record Structure(string Name, IReadOnlyList<StructMember> Members, BuiltinResultKind? BuiltinResult = null) : ShaderType;

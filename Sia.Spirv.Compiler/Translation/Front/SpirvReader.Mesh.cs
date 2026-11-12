@@ -28,14 +28,12 @@ public static partial class SpirvReader
             var calls = rawFunctions.ToDictionary(f => f.Id, f => f.Blocks.SelectMany(b => b.Instructions)
                 .Where(i => (Op)i.Opcode == Op.FunctionCall).Select(i => i.Operands[2]).ToArray());
             var reachable = new Dictionary<uint, HashSet<uint>>();
-            foreach (var entry in entries)
-            {
+            foreach (var entry in entries) {
                 var used = new HashSet<uint>();
                 void Visit(uint id) { if (!used.Add(id)) return; if (!calls.TryGetValue(id, out var children)) throw Error("Undefined called function."); foreach (uint child in children) Visit(child); }
                 Visit(entry.Id); reachable.Add(entry.Id, used);
             }
-            foreach (var raw in rawFunctions)
-            {
+            foreach (var raw in rawFunctions) {
                 var emits = raw.Blocks.Select(b => b.Terminator).Where(t => t is not null && (Op)t.Opcode == Op.EmitMeshTasksEXT).ToArray();
                 if (emits.Length == 0) continue;
                 if (entries.Any(e => reachable[e.Id].Contains(raw.Id) && e.Stage != ShaderStage.Task)) throw Error("Task emission is only valid in task entry call graphs.");
@@ -46,17 +44,14 @@ public static partial class SpirvReader
                 bool changed;
                 do { changed = false; foreach (var raw in rawFunctions) if (calls[raw.Id].Any(taskTerminatingFunctions.Contains)) changed |= taskTerminatingFunctions.Add(raw.Id); } while (changed);
             }
-            if (!directCanonicalFlow && entries.Any(e => e.Stage == ShaderStage.Task))
-            {
+            if (!directCanonicalFlow && entries.Any(e => e.Stage == ShaderStage.Task)) {
                 taskTerminated = Private("sia_task_terminated", ShaderType.Bool);
                 taskDispatchSize = Private("sia_task_dispatch_size", new ShaderType.Vector(3, ShaderType.U32));
             }
-            foreach (var entry in entries.Where(e => e.Stage == ShaderStage.Task))
-            {
+            foreach (var entry in entries.Where(e => e.Stage == ShaderStage.Task)) {
                 var payloads = entry.Interfaces.Where(id => globals.TryGetValue(id, out var g) && g.Storage == 5402).ToHashSet();
                 foreach (var emit in rawFunctions.Where(f => reachable[entry.Id].Contains(f.Id)).SelectMany(f => f.Blocks)
-                    .Select(b => b.Terminator).Where(t => t is not null && (Op)t.Opcode == Op.EmitMeshTasksEXT && t.Operands.Length == 4))
-                {
+                    .Select(b => b.Terminator).Where(t => t is not null && (Op)t.Opcode == Op.EmitMeshTasksEXT && t.Operands.Length == 4)) {
                     uint id = emit!.Operands[3];
                     if (!globals.TryGetValue(id, out var global) || global.Storage != 5402) throw Error("Task emission payload is not a task_payload variable.");
                     payloads.Add(id);
@@ -64,27 +59,23 @@ public static partial class SpirvReader
                 if (payloads.Count > 1) throw Error("Task entry uses more than one payload.");
                 string payload;
                 if (payloads.Count == 1) payload = globals[payloads.Single()].Variable.Name;
-                else
-                {
+                else {
                     payload = "sia_task_unused_payload_" + entry.Id;
                     module.Globals.Add(new(payload, ShaderType.U32, AddressSpace.TaskPayload));
                 }
                 taskPayloads.Add(entry.Id, payload);
             }
             var groups = new Dictionary<string, MeshShaderInfo>(StringComparer.Ordinal);
-            foreach (var entry in entries.Where(e => e.Stage == ShaderStage.Mesh))
-            {
+            foreach (var entry in entries.Where(e => e.Stage == ShaderStage.Mesh)) {
                 uint Mode(uint mode) => meshModes.TryGetValue((entry.Id, mode), out uint value) ? value : throw Error("Mesh entry is missing required execution modes.");
                 uint maxVertices = Mode(26), maxPrimitives = Mode(5270), topology = Mode(0);
                 if (maxVertices == 0 || maxPrimitives == 0) throw Error("Zero-capacity mesh output needs equivalent WGSL lowering.");
                 var outputIds = entry.Interfaces.Where(id => globals.TryGetValue(id, out var g) && g.Storage == 3).Order().ToArray();
                 string key = string.Join(',', outputIds) + $":{maxVertices}:{maxPrimitives}:{topology}";
-                if (!groups.TryGetValue(key, out var info))
-                {
+                if (!groups.TryGetValue(key, out var info)) {
                     var vertices = new List<StructMember>(); var primitives = new List<StructMember>();
                     var projections = new List<(string Name, bool Primitive, string[] Fields, ShaderType Element)>();
-                    foreach (uint id in outputIds)
-                    {
+                    foreach (uint id in outputIds) {
                         var g = globals[id];
                         if (g.Variable.Type is not ShaderType.Array { Length: not null } array) throw Error("Mesh outputs require fixed outer arrays.");
                         var members = array.Element is ShaderType.Structure block ? block.Members : [new StructMember("value", array.Element, Binding: g.Binding)];
@@ -92,8 +83,7 @@ public static partial class SpirvReader
                             || m.Binding?.Builtin is "point_index" or "line_indices" or "triangle_indices" or "cull_primitive" or "primitive_index");
                         if (array.Length != (primitive ? maxPrimitives : maxVertices)) throw Error("Mesh output capacity differs from its execution mode.");
                         string[] fields = new string[members.Count];
-                        for (int field = 0; field < members.Count; field++)
-                        {
+                        for (int field = 0; field < members.Count; field++) {
                             var m = members[field]; var binding = m.Binding ?? throw Error("Mesh output has an undecorated member.");
                             fields[field] = $"field_{id}_{field}";
                             if (primitive && binding.Location.HasValue) binding = binding with { PerPrimitive = true };
@@ -119,14 +109,12 @@ public static partial class SpirvReader
                 meshEntries.Add(entry.Id, info);
                 var local = entry.Interfaces.Where(id => globals.TryGetValue(id, out var g) && g.Storage == 1 && g.Binding?.Builtin == "local_invocation_index" && g.Variable.Type == ShaderType.U32).ToArray();
                 if (local.Length != 0) meshLocalIndices.Add(entry.Id, Value(local[0]));
-                else
-                {
+                else {
                     var variable = new GlobalVariable("sia_mesh_local_index_" + entry.Id, ShaderType.U32, AddressSpace.Private);
                     module.Globals.Add(variable); meshLocalIndices.Add(entry.Id, MeshPlace(variable.Name, ShaderType.U32, AddressSpace.Private));
                 }
             }
-            foreach (var raw in rawFunctions.Where(f => f.Blocks.SelectMany(b => b.Instructions).Any(i => (Op)i.Opcode == Op.SetMeshOutputsEXT)))
-            {
+            foreach (var raw in rawFunctions.Where(f => f.Blocks.SelectMany(b => b.Instructions).Any(i => (Op)i.Opcode == Op.SetMeshOutputsEXT))) {
                 var users = entries.Where(e => reachable[e.Id].Contains(raw.Id)).ToArray();
                 if (users.Any(e => e.Stage != ShaderStage.Mesh)) throw Error("Mesh count setting is only valid in mesh entry call graphs.");
                 meshCountTargets.Add(raw.Id, users.Select(e => meshEntries[e.Id]).Distinct().ToArray());
@@ -144,8 +132,7 @@ public static partial class SpirvReader
         }
         private void NormalizeTaskContinuing(Block tail, Block loopBody)
         {
-            bool HasUnwind(Statement s) => taskUnwinds.Contains(s) || s switch
-            {
+            bool HasUnwind(Statement s) => taskUnwinds.Contains(s) || s switch {
                 Statement.If i => i.Accept.Statements.Any(HasUnwind) || i.Reject.Statements.Any(HasUnwind),
                 Statement.Nested n => n.Body.Statements.Any(HasUnwind),
                 Statement.Switch sw => sw.Cases.Any(c => c.Body.Statements.Any(HasUnwind)),
@@ -156,18 +143,15 @@ public static partial class SpirvReader
             Block Map(Block source)
             {
                 var result = new Block();
-                foreach (var statement in source.Statements)
-                {
+                foreach (var statement in source.Statements) {
                     if (taskUnwinds.Contains(statement)) continue;
                     Statement mapped = statement;
-                    if (statement is Statement.Declare d)
-                    {
+                    if (statement is Statement.Declare d) {
                         result.Statements.Add(d with { Initializer = null, Initialize = false });
                         if (d.Initializer is null) continue;
                         mapped = new Statement.Store(new Expression.Reference(d.Name, d.Type), d.Initializer);
                     }
-                    else mapped = statement switch
-                    {
+                    else mapped = statement switch {
                         Statement.If i => i with { Accept = Map(i.Accept), Reject = Map(i.Reject) },
                         Statement.Nested n => new Statement.Nested(Map(n.Body)),
                         Statement.Switch sw => sw with { Cases = sw.Cases.Select(c => c with { Body = Map(c.Body) }).ToArray() },
@@ -232,8 +216,7 @@ public static partial class SpirvReader
             if (expression is Expression.Reference r && meshProjections.TryGetValue(r.Name, out var projection) && projection.NativeElement is not ShaderType.Structure)
                 return ProjectionField(projection, index, 0);
             if (expression is Expression.Access { Base: Expression.Reference root } a && meshProjections.TryGetValue(root.Name, out var block)
-                && block.NativeElement is ShaderType.Structure structure)
-            {
+                && block.NativeElement is ShaderType.Structure structure) {
                 if (!ConstantEvaluator.TryEvaluate(index, out var value) || value is not Expression.Literal literal) throw Error("Mesh interface block member index must be constant.");
                 int field = System.Convert.ToInt32(literal.Value);
                 if ((uint)field >= structure.Members.Count) throw Error("Mesh interface member index is out of range.");
@@ -246,8 +229,7 @@ public static partial class SpirvReader
             MeshProjection projection; Expression? elementIndex = null;
             if (pointer is Expression.Reference root && meshProjections.TryGetValue(root.Name, out var array)) projection = array;
             else if (pointer is Expression.Access { Base: Expression.Reference parent } access
-                && meshProjections.TryGetValue(parent.Name, out var block) && block.NativeElement is ShaderType.Structure)
-            { projection = block; elementIndex = access.Index; }
+                && meshProjections.TryGetValue(parent.Name, out var block) && block.NativeElement is ShaderType.Structure) { projection = block; elementIndex = access.Index; }
             else return false;
             Expression ReadElement(Expression index) => projection.NativeElement is ShaderType.Structure structure
                 ? new Expression.Construct(structure, structure.Members.Select((m, field) => MemoryLoad(ProjectionField(projection, index, field), m.Type, memoryAccess?.Leaf())).ToArray())
@@ -275,8 +257,7 @@ public static partial class SpirvReader
         private void LowerMeshCounts(Block body, Expression vertices, Expression primitives)
         {
             var first = new Block();
-            foreach (var info in meshCountTargets[resolvingMeshFunction])
-            {
+            foreach (var info in meshCountTargets[resolvingMeshFunction]) {
                 var target = MeshPlace(info.Variable.Name, info.Structure);
                 first.Statements.Add(new Statement.Store(MeshField(target, "vertex_count", ShaderType.U32), vertices));
                 first.Statements.Add(new Statement.Store(MeshField(target, "primitive_count", ShaderType.U32), primitives));
@@ -286,8 +267,7 @@ public static partial class SpirvReader
 
         private void ConfigureMeshEntry(Entry entry, ShaderFunction function)
         {
-            if (entry.Stage == ShaderStage.Task)
-            {
+            if (entry.Stage == ShaderStage.Task) {
                 function.TaskPayload = taskPayloads[entry.Id];
                 function.ReturnType = new ShaderType.Vector(3, ShaderType.U32); function.ReturnBinding = new(Builtin: "mesh_task_size");
                 if (!directCanonicalFlow) {
@@ -300,8 +280,7 @@ public static partial class SpirvReader
             uint[] payloads = entry.Interfaces.Where(id => globals.TryGetValue(id, out var g) && g.Storage == 5402).ToArray();
             if (payloads.Length > 1) throw Error("Mesh entry has more than one payload.");
             if (payloads.Length == 1) function.TaskPayload = globals[payloads[0]].Variable.Name;
-            if (meshLocalIndices[entry.Id] is Expression.Reference r && r.Name.StartsWith("sia_mesh_local_index_", StringComparison.Ordinal))
-            {
+            if (meshLocalIndices[entry.Id] is Expression.Reference r && r.Name.StartsWith("sia_mesh_local_index_", StringComparison.Ordinal)) {
                 string name = "sia_mesh_invocation_" + entry.Id;
                 function.Arguments.Add(new(name, ShaderType.U32, new(Builtin: "local_invocation_index")));
                 function.Body.Statements.Add(new Statement.Store(r, new Expression.Reference(name, ShaderType.U32)));

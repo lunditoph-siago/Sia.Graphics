@@ -1219,8 +1219,6 @@ internal sealed class LlvmShaderEmission(PEReader peReader, MetadataReader reade
             var helperView = new ShaderCilView(graph, callerView.Resolver);
             new CilStackAnalyzer(_reader, methodHandle).Validate(helperView);
             _localPrefix = $"inline.{_nextInlineId++}.local";
-            // Keep allocations in the kernel entry block for LLVM promotion;
-            // initialization belongs at each call, including calls in loops.
             EmitLocalAllocations(localTypes, false, _inlineLocalAllocations, _localPrefix);
             if (body.LocalVariablesInitialized) {
                 for (int index = 0; index < localTypes.Count; index++) {
@@ -1232,7 +1230,6 @@ internal sealed class LlvmShaderEmission(PEReader peReader, MetadataReader reade
             foreach (var block in helperBlocks) {
                 for (var index = 0; index < block.Instructions.Count; index++) {
                     var instruction = block.Instructions[index];
-                    // Debug CIL commonly branches to a shared return block.
                     if (instruction.OpCode == OpCodes.Br || instruction.OpCode == OpCodes.Br_S) continue;
                     if (instruction.OpCode == OpCodes.Ret) {
                         if (call.ReturnsVoid) {

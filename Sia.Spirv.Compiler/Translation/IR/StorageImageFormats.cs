@@ -1,10 +1,7 @@
 namespace Sia.Spirv.Compiler.Translation.IR;
 
-/// <summary>WGSL storage formats, indexed by their SPIR-V ImageFormat value.</summary>
 internal static class StorageImageFormats
 {
-    // BGRA has no typed SPIR-V image format. It is emitted as Unknown (zero),
-    // which cannot identify BGRA when reading a binary without external metadata.
     private static readonly string[] Names = [
         "bgra8unorm", "rgba32float", "rgba16float", "r32float", "rgba8unorm", "rgba8snorm",
         "rg32float", "rg16float", "rg11b10ufloat", "r16float", "rgba16unorm", "rgb10a2unorm",
@@ -18,8 +15,7 @@ internal static class StorageImageFormats
 
     internal static bool TryCode(string name, out uint code) => Codes.TryGetValue(name, out code);
     internal static string? Name(uint code) => code > 0 && code < Names.Length ? Names[code] : null;
-    internal static ShaderType.Scalar Component(uint code) => code switch
-    {
+    internal static ShaderType.Scalar Component(uint code) => code switch {
         >= 21 and <= 29 => ShaderType.I32,
         >= 30 and <= 39 => ShaderType.U32,
         40 => new(ScalarKind.Uint, 8),

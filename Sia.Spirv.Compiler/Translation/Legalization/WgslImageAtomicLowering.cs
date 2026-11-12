@@ -4,7 +4,6 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Legalize native image atomics without discarding observed results or ordered effects.</summary>
 internal static class WgslImageAtomicLowering
 {
     private static bool Native(ControlFlowInstruction instruction) => instruction.Operation is ValueOperation.Builtin { AtomicMemory: not null } call
@@ -14,7 +13,8 @@ internal static class WgslImageAtomicLowering
 
     private static void ValidateTypes(Module module)
     {
-        void Type(ShaderType type) {
+        void Type(ShaderType type)
+        {
             if (type is ShaderType.BindingArray array) Type(array.Element);
             if (type is ShaderType.Pointer pointer) Type(pointer.Base);
             if (type is ShaderType.Image { Multisampled: true } multisampled && (multisampled.StorageFormat is not null || multisampled.Arrayed))
@@ -34,8 +34,6 @@ internal static class WgslImageAtomicLowering
 
     internal static CanonicalModule Run(CanonicalModule input)
     {
-        // Inspect operations first so diagnostics identify the original access,
-        // before the declaration-level guard handles unused resource types.
         foreach (var instruction in input.Functions.Values.SelectMany(g => g.Blocks).SelectMany(b => b.Instructions)) {
             if (instruction.Operation is not ValueOperation.Builtin { ImageAccess: { } access } call) continue;
             var image = (ShaderType.Image)call.Arguments[0].Type;
@@ -78,8 +76,6 @@ internal static class WgslImageAtomicLowering
                     foreach (var operand in instruction.Operation.Operands) Need(operand);
                 foreach (var operand in block.Terminator!.Operands) Need(operand);
             }
-            // Edge arguments matter only if their destination parameter is used.
-            // A cycle of dead phi/alias values therefore does not consume a result.
             while (pending.TryDequeue(out var value)) {
                 if (definitions.TryGetValue(value.Id, out var instruction))
                     foreach (var operand in instruction.Operation.Operands) Need(operand);
@@ -102,7 +98,8 @@ internal static class WgslImageAtomicLowering
                         var call = (ValueOperation.Builtin)instruction.Operation;
                         if (call.Function is "textureAtomicSub" or "textureAtomicIncrement" or "textureAtomicDecrement") {
                             var component = ((ShaderType.Image)call.Arguments[0].Type).Component;
-                            SsaValue Emit(ValueOperation operation) {
+                            SsaValue Emit(ValueOperation operation)
+                            {
                                 var value = graph.Value(component);
                                 block.Instructions.Add(new(value, operation, instruction.Span) { DiagnosticFilters = instruction.DiagnosticFilters }); return value;
                             }

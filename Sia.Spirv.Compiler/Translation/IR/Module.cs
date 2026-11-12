@@ -1,11 +1,8 @@
 namespace Sia.Spirv.Compiler.Translation.IR;
 
-/// <summary>Common, language-independent shader representation.</summary>
 public sealed class Module
 {
-    /// <summary>Retain the native Vulkan memory model independently of shader features.</summary>
     public bool VulkanMemoryModel { get; set; }
-    /// <summary>Generate implicit WGSL workgroup initialization. Native inputs already express their memory operations explicitly.</summary>
     public bool WorkgroupInitializationRequired { get; set; } = true;
     public List<ShaderType.Structure> Structures { get; } = [];
     public List<GlobalVariable> Globals { get; } = [];
@@ -31,13 +28,11 @@ public sealed class Module
 }
 
 public enum DiagnosticSeverity { Off, Info, Warning, Error }
-/// <summary>A WGSL diagnostic setting. A null namespace denotes a standard or unknown rule.</summary>
 public sealed record DiagnosticFilter(DiagnosticSeverity Severity, string Rule, string? Namespace = null);
 
 public sealed record ShaderConstant(string Name, ShaderType Type, Expression? Value,
     bool IsOverride = false, uint? OverrideId = null)
 {
-    /// <summary>A derived specialization value; depends on overrides but cannot be independently supplied through the pipeline API.</summary>
     public bool IsSpecialization { get; init; }
 }
 public sealed record GlobalVariable(string Name, ShaderType Type, AddressSpace Space,
@@ -63,18 +58,14 @@ public sealed class ShaderFunction(string name)
     public List<DiagnosticFilter> DiagnosticFilters { get; } = [];
 }
 
-/// <summary>Resolved semantic identity of a call, independent of name collisions.</summary>
 public enum CallBinding { Function = 1, Builtin = 2 }
 
 public abstract record Expression(ShaderType Type)
 {
     public SourceSpan Span { get; init; }
     public sealed record Literal(object Value, ShaderType ValueType) : Expression(ValueType);
-    // Temporary structured adapter for the ordered canonical helper-state read.
     internal sealed record HelperInvocation() : Expression(ShaderType.Bool);
-    // Native frontend adapter; a target chooses a concrete value only after validation.
     internal sealed record Undefined(ShaderType ValueType) : Expression(ValueType);
-    /// <summary>Variable references denote places; loads are explicit.</summary>
     public sealed record Reference(string Name, ShaderType ValueType) : Expression(ValueType);
     public sealed record Load(Expression Pointer) : Expression(Pointer.Type is ShaderType.Pointer p ? p.Base : Pointer.Type)
     {
@@ -84,9 +75,7 @@ public abstract record Expression(ShaderType Type)
     public sealed record Binary(string Operator, Expression Left, Expression Right, ShaderType ValueType) : Expression(ValueType);
     public sealed record Call(string Function, IReadOnlyList<Expression> Arguments, ShaderType ValueType, CallBinding Binding) : Expression(ValueType)
     {
-        /// <summary>Native atomic requirements. Null selects the WGSL builtin's default memory behavior.</summary>
         public SpirvAtomicMemory? AtomicMemory { get; init; }
-        /// <summary>Native ordinary/cooperative memory access, including accesses to upgraded atomic places.</summary>
         public SpirvMemoryAccess? MemoryAccess { get; init; }
         internal SpirvImageAccess? ImageAccess { get; init; }
     }
@@ -104,14 +93,10 @@ public abstract record Expression(ShaderType Type)
 public sealed class Block
 {
     public List<Statement> Statements { get; } = [];
-    /// <summary>Lexical diagnostic settings for this block, independent of callers.</summary>
     public List<DiagnosticFilter> DiagnosticFilters { get; } = [];
 }
 
-// Internal target interface descriptor. It does not introduce a source-language
-// address space or a public resource binding for the serialized mesh output.
 internal sealed record MeshOutputField(string Name, ShaderType Type, uint Capacity, IoBinding Binding, bool PerPrimitive);
-// Target entry interfaces are not source globals or source-language address spaces.
 internal sealed record EntryInterfaceField(string Name, ShaderType Type, IoBinding Binding, bool Input);
 
 public abstract record Statement
@@ -120,8 +105,6 @@ public abstract record Statement
     public sealed record Nested(Block Body) : Statement;
     public sealed record Declare(string Name, ShaderType Type, Expression? Initializer, bool Mutable = true) : Statement
     {
-        /// <summary>Default declarations initialize storage. False denotes allocation only;
-        /// explicit stores retain initialization at its original execution position.</summary>
         public bool Initialize { get; init; } = true;
     }
     public sealed record Store(Expression Target, Expression Value) : Statement
@@ -136,17 +119,13 @@ public abstract record Statement
     public sealed record Loop(Block Body, Block Continuing, Expression? BreakIf = null) : Statement;
     public sealed record Switch(Expression Selector, IReadOnlyList<SwitchCase> Cases) : Statement;
     public sealed record Return(Expression? Value = null) : Statement;
-    // Internal native-input bridge while the public structured adapter remains.
-    // Executing this terminator has undefined behavior; it is not a function return.
     internal sealed record Unreachable : Statement;
-    // Native invocation termination is distinct from WGSL helper demotion.
     internal sealed record InvocationKill : Statement
     {
         public bool ExplicitTermination { get; init; }
     }
     public sealed record Break : Statement;
     public sealed record Continue : Statement;
-    // WGSL discard demotes to helper execution and has normal fallthrough.
     public sealed record Kill : Statement;
     public sealed record Barrier(bool Storage, bool Workgroup, bool Texture = false, bool Subgroup = false) : Statement
     {

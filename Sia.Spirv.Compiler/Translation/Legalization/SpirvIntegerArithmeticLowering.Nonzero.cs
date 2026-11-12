@@ -14,8 +14,6 @@ internal static partial class SpirvIntegerArithmeticLowering
     private static bool SameIntegerWidth(ShaderType target, ShaderType source)
         => IntegerComponent(target) is { } t && IntegerComponent(source) is { } s && t.Width == s.Width;
 
-    // OR with any known nonzero value stays nonzero. Do not infer this for AND,
-    // arithmetic (which may wrap), narrowing conversions, or mutable memory.
     private static bool Nonzero(Expression value)
     {
         if (IntegerComponent(value.Type) is null) return false;

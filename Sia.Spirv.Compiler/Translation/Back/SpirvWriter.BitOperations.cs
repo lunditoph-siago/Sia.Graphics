@@ -18,14 +18,12 @@ public static partial class SpirvWriter
                 uint bits = scalar.Kind == ScalarKind.Sint ? Result(Op.Bitcast, shape, value) : value;
                 uint low = Result(Op.UConvert, word, bits), result;
                 Op operation = reverse ? Op.BitReverse : Op.BitCount;
-                if (scalar.Width == 2)
-                {
+                if (scalar.Width == 2) {
                     result = Result(operation, word, low);
                     if (reverse) result = Result(Op.ShiftRightLogical, word, result, LiteralSplat(16u, word));
                     result = Result(Op.UConvert, shape, result);
                 }
-                else
-                {
+                else {
                     uint high = Result(Op.UConvert, word, Result(Op.ShiftRightLogical, shape, bits, LiteralSplat(32u, word)));
                     uint lower = Result(operation, word, low), upper = Result(operation, word, high);
                     result = reverse
@@ -41,8 +39,7 @@ public static partial class SpirvWriter
                 bool insert = name == "insertBits"; int first = insert ? 2 : 1;
                 uint offset = Glsl(38, ShaderType.U32, args[first], owner.Constant(Expression.U32(width)));
                 uint count = Glsl(38, ShaderType.U32, args[first + 1], Result(Op.ISub, ShaderType.U32, owner.Constant(Expression.U32(width)), offset));
-                if (scalar.Width is 2 or 4)
-                {
+                if (scalar.Width is 2 or 4) {
                     ShaderType working = scalar.Width == 4 ? type : type is ShaderType.Vector v
                         ? new ShaderType.Vector(v.Size, scalar.Kind == ScalarKind.Sint ? ShaderType.I32 : ShaderType.U32)
                         : scalar.Kind == ScalarKind.Sint ? ShaderType.I32 : ShaderType.U32;
@@ -63,18 +60,15 @@ public static partial class SpirvWriter
                 uint mask = shape is ShaderType.Vector m ? Splat(maskScalar, m) : maskScalar;
                 uint safeOffset = Shape(Glsl(38, ShaderType.U32, offset, owner.Constant(Expression.U32(63))));
                 uint resultBits;
-                if (insert)
-                {
+                if (insert) {
                     mask = Result(Op.ShiftLeftLogical, shape, mask, safeOffset);
                     uint kept = Result(Op.BitwiseAnd, shape, Bits(args[0]), Result(Op.Not, shape, mask));
                     uint added = Result(Op.BitwiseAnd, shape, Result(Op.ShiftLeftLogical, shape, Bits(args[1]), safeOffset), mask);
                     resultBits = Result(Op.BitwiseOr, shape, kept, added);
                 }
-                else
-                {
+                else {
                     resultBits = Result(Op.BitwiseAnd, shape, Result(Op.ShiftRightLogical, shape, Bits(args[0]), safeOffset), mask);
-                    if (scalar.Kind == ScalarKind.Sint)
-                    {
+                    if (scalar.Kind == ScalarKind.Sint) {
                         uint signShift = Shape(Glsl(38, ShaderType.U32, Result(Op.ISub, ShaderType.U32, owner.Constant(Expression.U32(64)), count), owner.Constant(Expression.U32(63))));
                         uint extended = Result(Op.Bitcast, type, Result(Op.ShiftLeftLogical, shape, resultBits, signShift));
                         return Result(Op.ShiftRightArithmetic, type, extended, signShift);
@@ -83,8 +77,6 @@ public static partial class SpirvWriter
                 return scalar.Kind == ScalarKind.Sint ? Result(Op.Bitcast, type, resultBits) : resultBits;
             }
 
-            // GLSL Find{S,U}Msb and FindILsb require 32-bit components. Use a
-            // logarithmic binary search for other widths, including vectors.
             private uint BitPosition(string name, ShaderType type, uint value)
             {
                 var scalar = Scalar(type); int bits = scalar.Width * 8;
@@ -95,15 +87,13 @@ public static partial class SpirvWriter
                 uint Literal(ulong number) => LiteralSplat(number, shape);
                 uint zero = owner.Null(shape);
                 uint data = scalar.Kind == ScalarKind.Sint ? Result(Op.Bitcast, shape, value) : value;
-                if (name == "firstLeadingBit" && scalar.Kind == ScalarKind.Sint)
-                {
+                if (name == "firstLeadingBit" && scalar.Kind == ScalarKind.Sint) {
                     uint negative = Result(Op.SLessThan, condition, value, owner.Null(type));
                     data = Result(Op.Select, shape, negative, Result(Op.Not, shape, data), data);
                 }
                 uint empty = Result(Op.IEqual, condition, data, zero), position = zero;
                 bool trailing = name is "firstTrailingBit" or "countTrailingZeros";
-                for (int step = bits / 2; step != 0; step /= 2)
-                {
+                for (int step = bits / 2; step != 0; step /= 2) {
                     uint shifted = Result(Op.ShiftRightLogical, shape, data, LiteralSplat((uint)step, shiftType));
                     uint test = trailing
                         ? Result(Op.IEqual, condition, Result(Op.BitwiseAnd, shape, data, Literal((1ul << step) - 1)), zero)

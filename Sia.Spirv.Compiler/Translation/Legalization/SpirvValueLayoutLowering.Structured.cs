@@ -7,8 +7,11 @@ internal sealed partial class SpirvValueLayoutLowering
     private readonly Stack<HashSet<string>> scopes = [];
     private AddressSpace? PlaceSpace(Expression e) => e.Type is ShaderType.Pointer p ? p.Space : e switch {
         Expression.Reference r when !scopes.Any(s => s.Contains(r.Name)) => input.Module.Globals.SingleOrDefault(g => g.Name == r.Name)?.Space,
-        Expression.Access a => PlaceSpace(a.Base), Expression.Member m => PlaceSpace(m.Base), Expression.Swizzle s => PlaceSpace(s.Vector),
-        Expression.Unary { Operator: "&" or "*" } u => PlaceSpace(u.Operand), _ => null
+        Expression.Access a => PlaceSpace(a.Base),
+        Expression.Member m => PlaceSpace(m.Base),
+        Expression.Swizzle s => PlaceSpace(s.Vector),
+        Expression.Unary { Operator: "&" or "*" } u => PlaceSpace(u.Operand),
+        _ => null
     };
     private ShaderType PlaceType(Expression e) => e.Type is ShaderType.Pointer ? ValueType(e.Type)
         : PlaceSpace(e) == AddressSpace.Workgroup ? ValueType(input.WorkgroupTypes.GetValueOrDefault(e.Type, e.Type))
@@ -55,8 +58,7 @@ internal sealed partial class SpirvValueLayoutLowering
         var args = call.Arguments.Select(Value).ToArray(); ShaderType type = ValueType(call.Type);
         bool uniform = call.Binding == CallBinding.Builtin && call.Function == "workgroupUniformLoad"
             && args is [{ Type: ShaderType.Pointer { Base: not ShaderType.Atomic } }];
-        var mapped = new Expression.Call(call.Function, args, uniform ? Data(args.Single().Type) : type, call.Binding)
-            { AtomicMemory = call.AtomicMemory, MemoryAccess = call.MemoryAccess, ImageAccess = call.ImageAccess, Span = call.Span };
+        var mapped = new Expression.Call(call.Function, args, uniform ? Data(args.Single().Type) : type, call.Binding) { AtomicMemory = call.AtomicMemory, MemoryAccess = call.MemoryAccess, ImageAccess = call.ImageAccess, Span = call.Span };
         return uniform ? Convert(mapped, type) : mapped;
     }
     private Statement Statement(Statement s)

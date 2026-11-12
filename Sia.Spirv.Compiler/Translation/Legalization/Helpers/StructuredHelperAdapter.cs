@@ -6,7 +6,6 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Expand helper calls across deferred bodies and return any readable callers to canonical IR.</summary>
 internal static class StructuredHelperAdapter
 {
     internal static CanonicalModule Prepare(CanonicalModule canonical, IReadOnlySet<string> selected)
@@ -17,7 +16,6 @@ internal static class StructuredHelperAdapter
         CanonicalModule Current() => new(module, graphs, deferred, canonical.EntryFunctions);
         IEnumerable<string> Calls(ShaderFunction function) => ControlFlowAnalysis.Calls(function, graphs);
 
-        // Summaries come from owned graphs; declaration bodies are read only for deferrals.
         var effects = ShaderEffectAnalysis.Compute(Current());
         foreach (var function in module.Functions.Where(f => !graphs.ContainsKey(f.Name)
             && (selected.Contains(f.Name) || Calls(f).Any(selected.Contains))).ToArray())
@@ -28,7 +26,6 @@ internal static class StructuredHelperAdapter
         foreach (var function in module.Functions.Where(f => !graphs.ContainsKey(f.Name)))
             adapterHelpers.UnionWith(Calls(function).Where(selected.Contains));
 
-        // A selected helper that calls an unreadable helper must expand with it.
         bool changed;
         do {
             changed = false;

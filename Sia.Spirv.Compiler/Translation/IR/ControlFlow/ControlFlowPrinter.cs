@@ -28,14 +28,17 @@ internal static class ControlFlowPrinter
                     ValueOperation.Literal l => "literal " + Convert.ToString(l.Value, CultureInfo.InvariantCulture),
                     ValueOperation.InterfaceLoad l => "interface-load " + l.Field.Name + " effects=" + instruction.Effects,
                     ValueOperation.InterfaceStore s => "interface-store " + s.Field.Name + " " + V(s.Value) + " effects=" + instruction.Effects,
-                    ValueOperation.Symbol s => "symbol " + s.Name, ValueOperation.Local l => "local " + l.Name + (l.ZeroInitialize ? " zero" : " allocation-only"),
+                    ValueOperation.Symbol s => "symbol " + s.Name,
+                    ValueOperation.Local l => "local " + l.Name + (l.ZeroInitialize ? " zero" : " allocation-only"),
                     ValueOperation.Let l => "let " + l.Name + " " + V(l.Value),
-                    ValueOperation.Unary u => u.Operator + " " + V(u.Operand), ValueOperation.Binary b => b.Operator + " " + V(b.Left) + "," + V(b.Right),
+                    ValueOperation.Unary u => u.Operator + " " + V(u.Operand),
+                    ValueOperation.Binary b => b.Operator + " " + V(b.Left) + "," + V(b.Right),
                     ValueOperation.Convert c => (c.Bitcast ? "bitcast " : "convert ") + V(c.Operand),
                     ValueOperation.Undefined => "undefined",
                     ValueOperation.Construct c => "construct " + string.Join(",", c.Components.Select(V)),
                     ValueOperation.Select s => "select " + V(s.Condition) + "," + V(s.Accept) + "," + V(s.Reject),
-                    ValueOperation.Access a => "access " + V(a.Base) + "," + V(a.Index), ValueOperation.Member m => "member " + V(m.Base) + "." + m.Name,
+                    ValueOperation.Access a => "access " + V(a.Base) + "," + V(a.Index),
+                    ValueOperation.Member m => "member " + V(m.Base) + "." + m.Name,
                     ValueOperation.Swizzle s => "swizzle " + V(s.Vector) + "." + s.Components,
                     ValueOperation.Builtin b => b.Function + " " + string.Join(",", b.Arguments.Select(V)) + " atomic=" + b.AtomicMemory + " memory=" + b.MemoryAccess + " image=" + b.ImageAccess,
                     ValueOperation.Barrier b => (b.Control ? "control-barrier" : "memory-barrier") + " storage=" + b.Storage + " workgroup=" + b.Workgroup
@@ -45,7 +48,9 @@ internal static class ControlFlowPrinter
                     ValueOperation.Store s => "store " + V(s.Pointer) + "," + V(s.Value) + " " + s.MemoryAccess,
                     ValueOperation.MeshStore s => "mesh-store " + s.Field.Name + "[" + V(s.Index) + "]=" + V(s.Value),
                     ValueOperation.MeshSetOutputs s => "mesh-counts " + V(s.Vertices) + "," + V(s.Primitives),
-                    ValueOperation.Demote => "helper-demote", ValueOperation.HelperInvocation => "helper-query", _ => "?"
+                    ValueOperation.Demote => "helper-demote",
+                    ValueOperation.HelperInvocation => "helper-query",
+                    _ => "?"
                 }).Append(" effects=").Append(instruction.Effects).Append(" span=")
                     .Append(instruction.Span.Start.ToString(CultureInfo.InvariantCulture)).Append(':')
                     .Append(instruction.Span.Length.ToString(CultureInfo.InvariantCulture));
@@ -63,7 +68,8 @@ internal static class ControlFlowPrinter
                 ControlFlowTerminator.Unreachable u => "unreachable span=" + u.Span.Start.ToString(CultureInfo.InvariantCulture)
                     + ":" + u.Span.Length.ToString(CultureInfo.InvariantCulture),
                 ControlFlowTerminator.InvocationKill k => (k.ExplicitTermination ? "invocation-terminate span=" : "invocation-kill span=") + k.Span.Start.ToString(CultureInfo.InvariantCulture)
-                    + ":" + k.Span.Length.ToString(CultureInfo.InvariantCulture) + " effects=" + k.Effects, _ => "missing-terminator"
+                    + ":" + k.Span.Length.ToString(CultureInfo.InvariantCulture) + " effects=" + k.Effects,
+                _ => "missing-terminator"
             }).Append('\n');
         }
         return text.ToString();
@@ -71,8 +77,10 @@ internal static class ControlFlowPrinter
     private static string Type(ShaderType type) => type switch {
         ShaderType.Scalar s => s.Kind + s.Width.ToString(CultureInfo.InvariantCulture),
         ShaderType.Pointer p => "ptr<" + p.Space + "," + p.Access + "," + Type(p.Base) + ">",
-        ShaderType.Structure s => s.Name, ShaderType.Vector v => "vec" + v.Size.ToString(CultureInfo.InvariantCulture) + "<" + Type(v.Component) + ">",
+        ShaderType.Structure s => s.Name,
+        ShaderType.Vector v => "vec" + v.Size.ToString(CultureInfo.InvariantCulture) + "<" + Type(v.Component) + ">",
         ShaderType.Matrix m => "mat" + m.Columns.ToString(CultureInfo.InvariantCulture) + "x" + m.Rows.ToString(CultureInfo.InvariantCulture) + "<" + Type(m.Component) + ">",
-        ShaderType.Array a => "array<" + Type(a.Element) + "," + (a.Length?.ToString(CultureInfo.InvariantCulture) ?? "runtime") + ">", _ => type.GetType().Name
+        ShaderType.Array a => "array<" + Type(a.Element) + "," + (a.Length?.ToString(CultureInfo.InvariantCulture) ?? "runtime") + ">",
+        _ => type.GetType().Name
     };
 }

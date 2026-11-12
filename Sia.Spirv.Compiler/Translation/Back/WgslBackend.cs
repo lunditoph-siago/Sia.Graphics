@@ -35,11 +35,8 @@ internal sealed class WgslBackend : IShaderBackend<Module, string>
         canonical = CollectiveReadRecovery.Run(canonical);
         canonical = WgslUniformInputLowering.Run(canonical);
         UniformityAnalysis.Validate(canonical.Declarations, canonical.Functions, DiagnosticStage.WgslWrite);
-        // Check original non-returning control before WGSL introduces a return.
         canonical = WgslTerminationLowering.Run(canonical);
         canonical = WgslImageAtomicLowering.Run(canonical);
-        // Remaining WGSL memory/query/layout passes consume structured target data.
-        // All owned graph semantics stay authoritative until this explicit boundary.
         canonical = WgslValueLowering.Run(canonical);
         var module = StructuredControlFlowLowering.Run(canonical, compactValues: true);
         if (canonical.Functions.Values.SelectMany(static graph => graph.Blocks)

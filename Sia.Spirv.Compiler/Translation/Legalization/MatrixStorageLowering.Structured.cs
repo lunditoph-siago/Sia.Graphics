@@ -2,19 +2,19 @@ using Sia.Spirv.Compiler.Translation.IR;
 
 namespace Sia.Spirv.Compiler.Translation.Legalization;
 
-/// <summary>Physical member layouts belong to addresses; matrix SSA values remain column-major.</summary>
 internal sealed partial class MatrixStorageLowering(Module input)
 {
     internal static bool HasLayout(Module module)
     {
         bool Has(ShaderType type) => type switch {
             ShaderType.Structure s => s.Members.Any(m => m.MatrixLayout is not null || Has(m.Type)),
-            ShaderType.Array a => Has(a.Element), ShaderType.BindingArray a => Has(a.Element), _ => false
+            ShaderType.Array a => Has(a.Element),
+            ShaderType.BindingArray a => Has(a.Element),
+            _ => false
         };
         return module.Structures.Any(Has) || module.Globals.Any(g => Has(g.Type));
     }
 
-    // Temporary structured boundary for other explicitly deferred native families.
     internal static Module RunDeferred(Module input) => HasLayout(input) ? new MatrixStorageLowering(input).Structured() : input;
 
     private sealed record Node(ShaderType Original, ShaderType Logical, ShaderType Physical,
@@ -46,28 +46,23 @@ internal sealed partial class MatrixStorageLowering(Module input)
             for (ShaderType type = member.Type; type is ShaderType.Array array; type = array.Element) layoutArrays.Add(array);
         foreach (var s in input.Structures) Logical(s);
         output.Enables.UnionWith(input.Enables); output.DiagnosticFilters.AddRange(input.DiagnosticFilters);
-        foreach (var g in input.Globals)
-        {
+        foreach (var g in input.Globals) {
             var node = Memory(g.Type);
             output.Globals.Add(g with { Type = node.Physical, Initializer = g.Initializer is null ? null : PhysicalValue(node, Expr(g.Initializer)) });
             locations.Add(g.Name, new(new Expression.Reference(g.Name, new ShaderType.Pointer(node.Physical, g.Space, g.Access)), node));
         }
         foreach (var c in input.Constants) output.Constants.Add(c with { Type = Logical(c.Type), Value = c.Value is null ? null : Expr(c.Value) });
         var globals = locations;
-        foreach (var f in input.Functions)
-        {
+        foreach (var f in input.Functions) {
             locations = new(globals, StringComparer.Ordinal);
-            var function = new ShaderFunction(f.Name)
-            {
+            var function = new ShaderFunction(f.Name) {
                 ReturnType = Logical(f.ReturnType), ReturnBinding = f.ReturnBinding, Stage = f.Stage,
                 WorkgroupSize = f.WorkgroupSize.Select(Expr).ToArray(), EarlyDepthTest = f.EarlyDepthTest,
                 ConservativeDepth = f.ConservativeDepth, TaskPayload = f.TaskPayload, MeshOutput = f.MeshOutput
             };
-            foreach (var a in f.Arguments)
-            {
+            foreach (var a in f.Arguments) {
                 ShaderType type = Logical(a.Type);
-                if (a.Type is ShaderType.Pointer pointer)
-                {
+                if (a.Type is ShaderType.Pointer pointer) {
                     var node = Memory(pointer.Space == AddressSpace.Function ? Logical(pointer.Base) : pointer.Base); type = pointer with { Base = node.Physical };
                     locations[a.Name] = new(new Expression.Reference(a.Name, type), node);
                 }
@@ -81,18 +76,16 @@ internal sealed partial class MatrixStorageLowering(Module input)
 
     private void Reserve(Block block)
     {
-        foreach (var s in block.Statements) switch (s)
-        {
-            case Statement.Declare d: names.Add(d.Name); break;
-            case Statement.Nested n: Reserve(n.Body); break;
-            case Statement.If i: Reserve(i.Accept); Reserve(i.Reject); break;
-            case Statement.Loop l: Reserve(l.Body); Reserve(l.Continuing); break;
-            case Statement.Switch selection: foreach (var c in selection.Cases) Reserve(c.Body); break;
-        }
+        foreach (var s in block.Statements) switch (s) {
+                case Statement.Declare d: names.Add(d.Name); break;
+                case Statement.Nested n: Reserve(n.Body); break;
+                case Statement.If i: Reserve(i.Accept); Reserve(i.Reject); break;
+                case Statement.Loop l: Reserve(l.Body); Reserve(l.Continuing); break;
+                case Statement.Switch selection: foreach (var c in selection.Cases) Reserve(c.Body); break;
+            }
     }
 
-    private bool HasLayout(ShaderType type) => type switch
-    {
+    private bool HasLayout(ShaderType type) => type switch {
         ShaderType.Array a => layoutArrays.Contains(a) || HasLayout(a.Element),
         ShaderType.Structure s => s.Members.Any(m => m.MatrixLayout is not null || HasLayout(m.Type)),
         _ => false
@@ -100,10 +93,10 @@ internal sealed partial class MatrixStorageLowering(Module input)
     private ShaderType Logical(ShaderType type)
     {
         if (logicalTypes.TryGetValue(type, out var result)) return result;
-        result = type switch
-        {
-            ShaderType.Structure s when HasLayout(s) => s with { Members = s.Members.Select(m => m with
-                { Type = Logical(m.Type), Offset = null, Alignment = null, Size = null, MemoryDecorations = MemoryDecorations.None, MatrixLayout = null }).ToArray() },
+        result = type switch {
+            ShaderType.Structure s when HasLayout(s) => s with {
+                Members = s.Members.Select(m => m with { Type = Logical(m.Type), Offset = null, Alignment = null, Size = null, MemoryDecorations = MemoryDecorations.None, MatrixLayout = null }).ToArray()
+            },
             ShaderType.Array a when HasLayout(a) => a with { Element = Logical(a.Element), Stride = null },
             ShaderType.BindingArray a => a with { Element = Logical(a.Element) },
             ShaderType.Pointer p => p with { Base = Logical(p.Base) },
@@ -119,27 +112,22 @@ internal sealed partial class MatrixStorageLowering(Module input)
     {
         if (matrix is null && nodes.TryGetValue(type, out var cached)) return cached;
         ShaderType physical = type; IReadOnlyList<Node>? members = null; Node? element = null;
-        if (type is ShaderType.Matrix m && matrix is not null)
-        {
+        if (type is ShaderType.Matrix m && matrix is not null) {
             var vector = new ShaderType.Vector(matrix.RowMajor ? m.Columns : m.Rows, m.Component);
             var layout = TypeLayout.Of(vector);
             if (matrix.Stride < layout.Size || matrix.Stride % layout.Alignment != 0)
                 throw Error("Native matrix stride is incompatible with its vector layout.");
             physical = new ShaderType.Array(vector, (uint)(matrix.RowMajor ? m.Rows : m.Columns), matrix.Stride);
         }
-        else if (type is ShaderType.Array a)
-        {
+        else if (type is ShaderType.Array a) {
             element = Memory(a.Element, matrix); physical = a with { Element = element.Physical };
         }
-        else if (type is ShaderType.BindingArray b)
-        {
+        else if (type is ShaderType.BindingArray b) {
             element = Memory(b.Element); physical = b with { Element = element.Physical };
         }
-        else if (type is ShaderType.Structure s)
-        {
+        else if (type is ShaderType.Structure s) {
             members = s.Members.Select(m => Memory(m.Type, m.MatrixLayout)).ToArray();
-            if (members.Where((n, i) => n.Physical != s.Members[i].Type).Any())
-            {
+            if (members.Where((n, i) => n.Physical != s.Members[i].Type).Any()) {
                 physical = s with { Name = Name("SiaMatrixMemory"), Members = s.Members.Select((m, i) => m with { Type = members[i].Physical, MatrixLayout = null }).ToArray() };
                 output.Structures.Add((ShaderType.Structure)physical);
             }
@@ -155,15 +143,11 @@ internal sealed partial class MatrixStorageLowering(Module input)
         return new Expression.Member(pointer, member, p with { Base = type });
     }
 
-    // Keep module initialization a constant expression. Reading from a
-    // temporary variable here would change initialization order and
-    // cannot represent specialization constants.
     private Expression PhysicalValue(Node node, Expression value)
     {
         if (node.Physical == node.Logical) return value;
         if (value is Expression.Construct { Components.Count: 0 }) return new Expression.Construct(node.Physical, []);
-        if (node.Matrix is { } layout && node.Original is ShaderType.Matrix matrix)
-        {
+        if (node.Matrix is { } layout && node.Original is ShaderType.Matrix matrix) {
             var column = new ShaderType.Vector(matrix.Rows, matrix.Component);
             Expression Column(int c) => new Expression.Access(value, Expression.U32((uint)c), column);
             Expression[] vectors = layout.RowMajor
@@ -196,28 +180,25 @@ internal sealed partial class MatrixStorageLowering(Module input)
     }
     private Location Index(Location parent, Expression index)
     {
-        if (parent.Projection is { } projection)
-        {
+        if (parent.Projection is { } projection) {
             var row = new ShaderType.Vector(projection.Matrix.Columns, projection.Matrix.Component);
             var pointer = Child(Child(projection.Rows, row, index), row.Component, projection.Column);
             return new(pointer, Memory(row.Component));
         }
-        if (parent.Node.Matrix is { } layout && parent.Node.Original is ShaderType.Matrix matrix)
-        {
+        if (parent.Node.Matrix is { } layout && parent.Node.Original is ShaderType.Matrix matrix) {
             var column = new ShaderType.Vector(matrix.Rows, matrix.Component);
             if (layout.RowMajor) return new(parent.Pointer, Memory(column), new(parent.Pointer, matrix, index));
             return new(Child(parent.Pointer, column, index), Memory(column));
         }
         if (parent.Node.Element is { } element) return new(Child(parent.Pointer, element.Physical, index), element);
-        ShaderType child = parent.Node.Original switch
-        {
-            ShaderType.Matrix m => new ShaderType.Vector(m.Rows, m.Component), ShaderType.Vector v => v.Component,
+        ShaderType child = parent.Node.Original switch {
+            ShaderType.Matrix m => new ShaderType.Vector(m.Rows, m.Component),
+            ShaderType.Vector v => v.Component,
             _ => throw Error("Invalid matrix-layout index access.")
         };
         return new(Child(parent.Pointer, child, index), Memory(child));
     }
-    private Location Place(Expression expression) => expression switch
-    {
+    private Location Place(Expression expression) => expression switch {
         Expression.Reference r when locations.TryGetValue(r.Name, out var location) => location,
         Expression.Reference { Type: ShaderType.Pointer p } r => new(new Expression.Reference(r.Name, p with { Base = Logical(p.Base) }), Memory(p.Base)),
         Expression.Member m => Member(Place(m.Base), m.Name),
@@ -244,24 +225,20 @@ internal sealed partial class MatrixStorageLowering(Module input)
 
     private void Write(Block block, Location place, Expression value, SpirvMemoryAccess? memory)
     {
-        if (place.Projection is { } p)
-        {
+        if (place.Projection is { } p) {
             for (int r = 0; r < p.Matrix.Rows; r++) Write(block, Index(place, Expression.U32((uint)r)), new Expression.Access(value, Expression.U32((uint)r), p.Matrix.Component), memory?.Leaf());
             return;
         }
-        if (place.Node.Matrix is not null && place.Node.Original is ShaderType.Matrix matrix)
-        {
+        if (place.Node.Matrix is not null && place.Node.Original is ShaderType.Matrix matrix) {
             for (int c = 0; c < matrix.Columns; c++) Write(block, Index(place, Expression.U32((uint)c)), new Expression.Access(value, Expression.U32((uint)c), new ShaderType.Vector(matrix.Rows, matrix.Component)), memory?.Leaf());
             return;
         }
         if (place.Node.Physical == place.Node.Logical) { block.Statements.Add(new Statement.Store(place.Pointer, value) { MemoryAccess = memory }); return; }
-        if (place.Node.Original is ShaderType.Structure structure)
-        {
+        if (place.Node.Original is ShaderType.Structure structure) {
             foreach (var m in structure.Members) Write(block, Member(place, m.Name), new Expression.Member(value, m.Name, Logical(m.Type)), memory?.Leaf());
             return;
         }
-        if (place.Node.Original is ShaderType.Array { Length: uint length } array)
-        {
+        if (place.Node.Original is ShaderType.Array { Length: uint length } array) {
             for (uint i = 0; i < length; i++) Write(block, Index(place, Expression.U32(i)), new Expression.Access(value, Expression.U32(i), Logical(array.Element)), memory?.Leaf());
             return;
         }
@@ -279,8 +256,7 @@ internal sealed partial class MatrixStorageLowering(Module input)
     {
         if (expression.Type is ShaderType.Pointer) return Pointer(expression);
         ShaderType type = Logical(expression.Type);
-        return expression switch
-        {
+        return expression switch {
             Expression.Load l => Read(Place(l.Pointer), l.MemoryAccess),
             Expression.Reference r when locations.TryGetValue(r.Name, out var location) && location.Node.Physical != location.Node.Logical => Read(location, null),
             Expression.Reference r => new Expression.Reference(r.Name, type) { Span = r.Span },
@@ -293,7 +269,7 @@ internal sealed partial class MatrixStorageLowering(Module input)
             Expression.Access a => new Expression.Access(Expr(a.Base), Expr(a.Index), type) { Span = a.Span },
             Expression.Swizzle s => new Expression.Swizzle(Expr(s.Vector), s.Components, type) { Span = s.Span },
             Expression.Select s => new Expression.Select(Expr(s.Condition), Expr(s.Accept), Expr(s.Reject)) { Span = s.Span },
-            Expression.Call c => new Expression.Call(c.Function, c.Arguments.Select(Expr).ToArray(), type, c.Binding) { Span = c.Span,AtomicMemory = c.AtomicMemory,MemoryAccess = c.MemoryAccess, ImageAccess = c.ImageAccess },
+            Expression.Call c => new Expression.Call(c.Function, c.Arguments.Select(Expr).ToArray(), type, c.Binding) { Span = c.Span, AtomicMemory = c.AtomicMemory, MemoryAccess = c.MemoryAccess, ImageAccess = c.ImageAccess },
             _ => throw Error("Unsupported explicit matrix-layout expression.")
         };
     }
@@ -301,10 +277,7 @@ internal sealed partial class MatrixStorageLowering(Module input)
     private void Store(Block block, Expression target, Expression value, SpirvMemoryAccess? memory)
     {
         var place = Place(target); value = Expr(value);
-        if (place.Projection is not null || place.Node.Physical != place.Node.Logical)
-        {
-            // A split write must snapshot all reads before any store,
-            // including an overlapping matrix/structure source.
+        if (place.Projection is not null || place.Node.Physical != place.Node.Logical) {
             string name = Name("sia_matrix_value");
             block.Statements.Add(new Statement.Declare(name, place.Node.Logical, value, false));
             value = new Expression.Reference(name, place.Node.Logical);
@@ -314,33 +287,27 @@ internal sealed partial class MatrixStorageLowering(Module input)
     private Block Body(Block source)
     {
         var saved = locations; locations = new(saved, StringComparer.Ordinal); var block = new Block(); block.DiagnosticFilters.AddRange(source.DiagnosticFilters);
-        foreach (var statement in source.Statements) switch (statement)
-        {
-            case Statement.Declare d:
-                if (d.Type is ShaderType.Pointer && d.Initializer is not null) { locations[d.Name] = Place(d.Initializer); break; }
-                if (d.Mutable)
-                {
-                    // Function locals, including native SSA registers,
-                    // hold logical values. Their byte layout is not a
-                    // host ABI; do not carry buffer member qualifiers
-                    // into newly introduced snapshots.
-                    var node = Memory(Logical(d.Type));
-                    block.Statements.Add(d with { Type = node.Physical, Initializer = null, Initialize = false });
-                    var target = new Expression.Reference(d.Name, new ShaderType.Pointer(d.Type, AddressSpace.Function));
-                    locations[d.Name] = new(new Expression.Reference(d.Name, new ShaderType.Pointer(node.Physical, AddressSpace.Function)), node);
-                    if (d.Initializer is not null) Store(block, target, d.Initializer, null);
-                }
-                else block.Statements.Add(d with { Type = Logical(d.Type), Initializer = d.Initializer is null ? null : Expr(d.Initializer), Mutable = false });
-                break;
-            case Statement.Store s: Store(block, s.Target, s.Value, s.MemoryAccess); break;
-            case Statement.Nested n: block.Statements.Add(n with { Body = Body(n.Body) }); break;
-            case Statement.Evaluate e: block.Statements.Add(e with { Value = Expr(e.Value) }); break;
-            case Statement.If i: block.Statements.Add(i with { Condition = Expr(i.Condition), Accept = Body(i.Accept), Reject = Body(i.Reject) }); break;
-            case Statement.Loop l: block.Statements.Add(l with { Body = Body(l.Body), Continuing = Body(l.Continuing), BreakIf = l.BreakIf is null ? null : Expr(l.BreakIf) }); break;
-            case Statement.Switch s: block.Statements.Add(s with { Selector = Expr(s.Selector), Cases = s.Cases.Select(c => c with { Body = Body(c.Body) }).ToArray() }); break;
-            case Statement.Return r: block.Statements.Add(r with { Value = r.Value is null ? null : Expr(r.Value) }); break;
-            default: block.Statements.Add(statement); break;
-        }
+        foreach (var statement in source.Statements) switch (statement) {
+                case Statement.Declare d:
+                    if (d.Type is ShaderType.Pointer && d.Initializer is not null) { locations[d.Name] = Place(d.Initializer); break; }
+                    if (d.Mutable) {
+                        var node = Memory(Logical(d.Type));
+                        block.Statements.Add(d with { Type = node.Physical, Initializer = null, Initialize = false });
+                        var target = new Expression.Reference(d.Name, new ShaderType.Pointer(d.Type, AddressSpace.Function));
+                        locations[d.Name] = new(new Expression.Reference(d.Name, new ShaderType.Pointer(node.Physical, AddressSpace.Function)), node);
+                        if (d.Initializer is not null) Store(block, target, d.Initializer, null);
+                    }
+                    else block.Statements.Add(d with { Type = Logical(d.Type), Initializer = d.Initializer is null ? null : Expr(d.Initializer), Mutable = false });
+                    break;
+                case Statement.Store s: Store(block, s.Target, s.Value, s.MemoryAccess); break;
+                case Statement.Nested n: block.Statements.Add(n with { Body = Body(n.Body) }); break;
+                case Statement.Evaluate e: block.Statements.Add(e with { Value = Expr(e.Value) }); break;
+                case Statement.If i: block.Statements.Add(i with { Condition = Expr(i.Condition), Accept = Body(i.Accept), Reject = Body(i.Reject) }); break;
+                case Statement.Loop l: block.Statements.Add(l with { Body = Body(l.Body), Continuing = Body(l.Continuing), BreakIf = l.BreakIf is null ? null : Expr(l.BreakIf) }); break;
+                case Statement.Switch s: block.Statements.Add(s with { Selector = Expr(s.Selector), Cases = s.Cases.Select(c => c with { Body = Body(c.Body) }).ToArray() }); break;
+                case Statement.Return r: block.Statements.Add(r with { Value = r.Value is null ? null : Expr(r.Value) }); break;
+                default: block.Statements.Add(statement); break;
+            }
         locations = saved; return block;
     }
 }

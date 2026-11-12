@@ -7,8 +7,6 @@ namespace Sia.Spirv.Compiler.Translation.Legalization;
 
 internal static partial class CanonicalReferenceLowering
 {
-    // After the complete private-slot call closure expands, an entry owns one
-    // allocation per invocation. Repeated former helper calls share that storage.
     private static CanonicalModule LocalizePrivateSlots(CanonicalModule input)
     {
         var globals = input.Declarations.Globals.Where(g => g.Space == AddressSpace.Private && g.Type is ShaderType.Pointer)

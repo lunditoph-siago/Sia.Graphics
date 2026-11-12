@@ -3,11 +3,8 @@ using Sia.Spirv.Compiler.Translation.IR.ControlFlow;
 
 namespace Sia.Spirv.Compiler.Translation.Proc;
 
-/// <summary>Native pointer types omit access permissions; joins retain only permissions every incoming address has.</summary>
 internal static class PointerAccessInference
 {
-    // The frontend owns this graph. Permission narrowing does not change address
-    // identity, topology, memory effects or the native pointee/storage-class type.
     internal static void Run(ControlFlowFunction graph)
     {
         var values = graph.Blocks.SelectMany(b => b.Parameters.Concat(b.Instructions.Where(i => i.Result is not null).Select(i => i.Result!.Value)))
@@ -17,7 +14,8 @@ internal static class PointerAccessInference
         bool changed;
         do {
             changed = false;
-            void Narrow(SsaValue value, StorageAccess incoming) {
+            void Narrow(SsaValue value, StorageAccess incoming)
+            {
                 if (!access.TryGetValue(value.Id, out var before)) return;
                 var after = before & incoming; changed |= after != before; access[value.Id] = after;
             }
@@ -25,8 +23,11 @@ internal static class PointerAccessInference
                 foreach (var instruction in block.Instructions) {
                     if (instruction.Result is not { Type: ShaderType.Pointer } result) continue;
                     SsaValue? source = instruction.Operation switch {
-                        ValueOperation.Let l => l.Value, ValueOperation.Access a => a.Base,
-                        ValueOperation.Member m => m.Base, ValueOperation.Binary { Operator: "+" } b => b.Left, _ => null
+                        ValueOperation.Let l => l.Value,
+                        ValueOperation.Access a => a.Base,
+                        ValueOperation.Member m => m.Base,
+                        ValueOperation.Binary { Operator: "+" } b => b.Left,
+                        _ => null
                     };
                     if (source is { } pointer) Narrow(result, access[pointer.Id]);
                 }

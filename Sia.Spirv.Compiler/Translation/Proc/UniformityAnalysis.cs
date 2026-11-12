@@ -7,8 +7,6 @@ namespace Sia.Spirv.Compiler.Translation.Proc;
 
 internal sealed record UniformityDiagnostic(DiagnosticSeverity Severity, string? Rule, ShaderDiagnostic Diagnostic);
 
-/// <summary>Per-compilation value/control dependencies and bottom-up helper summaries.
-/// Canonical instructions are analyzed directly; unmigrated families retain the structured path.</summary>
 internal static partial class UniformityAnalysis
 {
     private enum Source { Control, Argument, Contents, NonUniform }
@@ -60,8 +58,6 @@ internal static partial class UniformityAnalysis
         foreach (var function in module.Functions)
             if (StructuredControlFlowReader.TryRead(function, module, out var graph, out var reason)) {
                 ControlFlowAnalysis.RemoveUnreachable(graph!);
-                // This adapter owns the graph. Recover SSA before memory analysis
-                // so materialized SSA temporaries do not become dense local state.
                 LocalValuePromotion.Run(graph!); graphs.Add(function.Name, graph!);
             }
             else deferrals?.Add(new(function.Name, reason!));
@@ -79,7 +75,6 @@ internal static partial class UniformityAnalysis
         return graphs;
     }
 
-    // The recovery proof analyzes its hypothetical collective calls without recursively recovering them.
     internal static IReadOnlyList<UniformityDiagnostic> AnalyzeCore(Module module, IReadOnlyDictionary<string, ControlFlowFunction> graphs,
         ISet<(string Function, int Value)>? divergentCollectives = null, bool privateInputCopies = false)
     {
@@ -88,7 +83,8 @@ internal static partial class UniformityAnalysis
         var active = new HashSet<string>(StringComparer.Ordinal);
         var diagnostics = new List<UniformityDiagnostic>();
         var uniformGlobals = privateInputCopies ? UniformPrivateGlobals(module, graphs) : new HashSet<string>(StringComparer.Ordinal);
-        Summary Function(string name) {
+        Summary Function(string name)
+        {
             if (summaries.TryGetValue(name, out var summary)) return summary;
             if (!active.Add(name)) throw new ShaderException(DiagnosticStage.Validation, "Recursive shader function calls are forbidden.");
             summary = graphs.TryGetValue(name, out var graph)
@@ -200,7 +196,8 @@ internal static partial class UniformityAnalysis
             var selected = severity ?? Severity(rule);
             if (selected != DiagnosticSeverity.Off) requirements.Add((value, selected, rule, cause, span, collective));
         }
-        private void ReturnContents(State state) {
+        private void ReturnContents(State state)
+        {
             foreach (var parameter in pointerParameters.Values) parameter.Output.Edges.Add(Join(state.Control, state.Values[parameter.Variable]));
         }
 
@@ -226,15 +223,19 @@ internal static partial class UniformityAnalysis
                 && (global.Space is AddressSpace.Uniform or AddressSpace.Immediate or AddressSpace.Handle || (global.Access & StorageAccess.Write) == 0 || uniformGlobals.Contains(name));
             return Join(state.Control, address.Value, readOnly ? state.Control : nonUniform);
         }
-        private void Store(Address address, Node value, State state) {
+        private void Store(Address address, Node value, State state)
+        {
             if (address.Variable is { } variable)
                 state.Values[variable] = address.Partial ? Join(state.Control, address.Value, value, state.Values[variable]) : Join(state.Control, address.Value, value);
         }
         private bool IsPlace(Expression expression, State state) => expression switch {
             Expression.Reference reference => state.Names.TryGetValue(reference.Name, out var variable) ? variable.Mutable || variable.Alias is not null
                 : globals.TryGetValue(reference.Name, out var global) && global.Space != AddressSpace.Handle,
-            Expression.Access access => IsPlace(access.Base, state), Expression.Member member => IsPlace(member.Base, state),
-            Expression.Swizzle swizzle => IsPlace(swizzle.Vector, state), Expression.Unary { Operator: "*" } => true, _ => false
+            Expression.Access access => IsPlace(access.Base, state),
+            Expression.Member member => IsPlace(member.Base, state),
+            Expression.Swizzle swizzle => IsPlace(swizzle.Vector, state),
+            Expression.Unary { Operator: "*" } => true,
+            _ => false
         };
         private Node Value(Expression expression, State state)
         {
@@ -264,7 +265,8 @@ internal static partial class UniformityAnalysis
                 case Expression.Access access:
                     return access.Type is ShaderType.Pointer ? Place(access, state).Value : IsPlace(access.Base, state)
                         ? Read(Place(access, state), state) : Join(Value(access.Base, state), Value(access.Index, state));
-                case Expression.Member member: return member.Type is ShaderType.Pointer ? Place(member, state).Value : IsPlace(member.Base, state)
+                case Expression.Member member:
+                    return member.Type is ShaderType.Pointer ? Place(member, state).Value : IsPlace(member.Base, state)
                     ? Read(Place(member, state), state) : Value(member.Base, state);
                 case Expression.Swizzle swizzle: return IsPlace(swizzle.Vector, state) ? Read(Place(swizzle, state), state) : Value(swizzle.Vector, state);
                 case Expression.Call call: return Call(call, state);
@@ -285,9 +287,11 @@ internal static partial class UniformityAnalysis
                 if (!userFunction(call.Function)) throw new ShaderException(DiagnosticStage.Validation, "Unknown resolved function call.", call.Span);
                 var summary = callee(call.Function);
                 Node Bind(IEnumerable<Dependency> dependencies) => Join(dependencies.Select(d => d.Source switch {
-                    Source.Control => state.Control, Source.NonUniform => nonUniform,
+                    Source.Control => state.Control,
+                    Source.NonUniform => nonUniform,
                     Source.Argument => d.Index < arguments.Length ? arguments[d.Index] : nonUniform,
-                    Source.Contents => d.Index < contents.Length ? contents[d.Index] : nonUniform, _ => nonUniform
+                    Source.Contents => d.Index < contents.Length ? contents[d.Index] : nonUniform,
+                    _ => nonUniform
                 }).ToArray());
                 foreach (var requirement in summary.Requirements)
                     Require(Bind(requirement.Dependencies), requirement.Rule, call.Function + " -> " + requirement.Cause, call.Span, requirement.Severity, requirement.Collective);
@@ -338,7 +342,7 @@ internal static partial class UniformityAnalysis
                 case Statement.Store store: var address = Place(store.Target, state); Store(address, Value(store.Value, state), state); break;
                 case Statement.Evaluate evaluate: _ = Value(evaluate.Value, state); break;
                 case Statement.Barrier barrier: Require(state.Control, barrier.Subgroup ? "subgroup_uniformity" : null, "barrier", barrier.Span); break;
-                case Statement.MemoryBarrier: break; // An execution barrier cannot be inferred from a native memory fence.
+                case Statement.MemoryBarrier: break;
                 case Statement.MeshStore store:
                     _ = Value(store.Index, state); _ = Value(store.Value, state); break;
                 case Statement.MeshSetOutputs counts:
@@ -350,8 +354,7 @@ internal static partial class UniformityAnalysis
                 case Statement.Nested nested: return Body(nested.Body, state);
                 case Statement.Return ret:
                     if (ret.Value is { } value) returns.Edges.Add(Value(value, state)); ReturnContents(state); return [new(Exit.Return, state)];
-                case Statement.Kill: break; // Demotion retains normal helper execution and control flow.
-                // This path does not return a value or pointer contents to its caller.
+                case Statement.Kill: break;
                 case Statement.Unreachable: return [new(Exit.Abort, state)];
                 case Statement.InvocationKill: return [new(Exit.Abort, state)];
                 case Statement.Break: return [new(Exit.Break, state)];

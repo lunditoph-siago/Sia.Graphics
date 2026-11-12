@@ -4,20 +4,17 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Front;
 
-/// <summary>Provides declarations and writable graphs to the common optimizer.</summary>
 internal interface ICanonicalModuleSource
 {
     Module Declarations { get; }
     bool UsesNativeValidation { get; }
 
-    // The helper inliner may borrow a callee graph before its turn in the pipeline.
     IReadOnlyDictionary<string, ControlFlowFunction>? NativeGraphs { get; }
 
     void ValidateDeclarations();
 
     CanonicalGraphImport ReadGraph(ShaderFunction function);
 
-    // Run source-specific checks before target lowering rewrites native addresses.
     void ValidateGraph(ControlFlowFunction graph);
 }
 

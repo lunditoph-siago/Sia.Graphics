@@ -4,8 +4,6 @@ using Sia.Spirv.Compiler.Translation.Valid;
 
 namespace Sia.Spirv.Compiler.Translation.Proc;
 
-/// <summary>Expand selected calls on verified CFG, retaining address identity,
-/// non-returning dispatch and effect order; join actual return values rather than copying pointed-to data.</summary>
 internal static class CanonicalHelperInliner
 {
     internal delegate bool ReadHelperGraph(ShaderFunction function, Module module,
@@ -33,8 +31,6 @@ internal static class CanonicalHelperInliner
     {
         if (!input.Blocks.SelectMany(b => b.Instructions).Any(i => RequiresExpansion(i.Operation, expandPointerSlots, expandFunctions))) return input;
         if (!active.Add(input.Signature.Name)) throw Error("recursive pointer-return helper", input.Signature.Name);
-        // Keep the caller's SSA identities, including each call result. Callee
-        // values alone receive fresh IDs from this compilation-owned copy.
         var output = input.Copy();
         while (output.Blocks.SelectMany(b => b.Instructions.Select((i, index) => (Block: b, Instruction: i, Index: index)))
             .FirstOrDefault(p => RequiresExpansion(p.Instruction.Operation, expandPointerSlots, expandFunctions)) is { Instruction: not null } site) {
@@ -54,18 +50,12 @@ internal static class CanonicalHelperInliner
             site.Block.Instructions.RemoveRange(site.Index, site.Block.Instructions.Count - site.Index);
             if (output.SelectionMerges.Remove(site.Block.Id, out int? merge)) output.SelectionMerges.Add(continuation.Id, merge);
             else if (output.Loops.ContainsKey(site.Block.Id) && continuation.Terminator is ControlFlowTerminator.Conditional or ControlFlowTerminator.Switch)
-                // The moved loop exit stays inside the loop body. Its merge is
-                // owned by the loop, not by an additional nested selection.
                 output.SelectionMerges.Add(continuation.Id, null);
             var arguments = callee.Arguments.Select((a, i) => (a.Name, Value: call.Arguments[i])).ToDictionary(a => a.Name, a => a.Value, StringComparer.Ordinal);
             int entry = CopyCallee(graph, output, arguments, continuation, site.Instruction.DiagnosticFilters, module);
             output.DiagnosticRanges.AddRange(graph.DiagnosticRanges);
             if (graph.BodyDiagnosticFilters.Count != 0) output.DiagnosticRanges.Add(graph.BodyDiagnosticFilters);
-            // A single-arm selection provides the helper's lexical exit target without
-            // introducing a loop or changing convergence. Arguments are already SSA values.
             var selector = output.Value(ShaderType.U32); site.Block.Instructions.Add(new(selector, new ValueOperation.Literal(0u), site.Instruction.Span) {
-                // An empty callee has no copied instruction carrying its lexical
-                // settings. Retain that scope on the synthetic call-site value.
                 DiagnosticFilters = graph.Signature.DiagnosticFilters.Concat(site.Instruction.DiagnosticFilters)
                     .DistinctBy(f => (f.Namespace, f.Rule)).ToArray()
             });
@@ -111,13 +101,14 @@ internal static class CanonicalHelperInliner
             foreach (var instruction in block.Instructions) {
                 if (instruction.Operation is ValueOperation.Symbol symbol && arguments.ContainsKey(symbol.Name)) continue;
                 var explicitFilters = instruction.DiagnosticFilters.Concat(source.Signature.DiagnosticFilters).ToArray();
-                // Keep lexical callee settings, and restore inherited/default rules only
-                // where they differ from the caller. Equal defaults need no block attribute.
                 var filters = explicitFilters
                     .Concat(module.DiagnosticFilters).Concat(defaults).DistinctBy(f => (f.Namespace, f.Rule))
                     .Where(f => CallerSeverity(f) != f.Severity || explicitFilters.Any(e => e.Namespace == f.Namespace && e.Rule == f.Rule)).ToArray();
-                copy.Instructions.Add(instruction with { Result = instruction.Result is { } result ? Value(result) : null,
-                    Operation = instruction.Operation.Map(Value), DiagnosticFilters = filters });
+                copy.Instructions.Add(instruction with {
+                    Result = instruction.Result is { } result ? Value(result) : null,
+                    Operation = instruction.Operation.Map(Value),
+                    DiagnosticFilters = filters
+                });
             }
             copy.Terminator = block.Terminator switch {
                 ControlFlowTerminator.Branch b => new ControlFlowTerminator.Branch(Edge(b.Edge)),

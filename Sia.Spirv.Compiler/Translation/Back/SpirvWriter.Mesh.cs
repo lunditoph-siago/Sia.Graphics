@@ -11,7 +11,6 @@ public static partial class SpirvWriter
         private uint MeshOutput(MeshOutputField field)
         {
             if (meshOutputs.TryGetValue(field, out uint known)) return known;
-            // This outer interface type is independent of buffer array identities.
             uint array = Id(); declarations.Add(I(Op.TypeArray, array, Type(field.Type), Constant(Expression.U32(field.Capacity))));
             uint variable = Id(); declarations.Add(I(Op.Variable, Pointer(array, 3), variable, 3));
             Name(variable, field.Name); InterfaceDecorations(variable, EntryAbi.MeshInterfaces[field]);

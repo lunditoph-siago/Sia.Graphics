@@ -38,8 +38,6 @@ internal sealed class SpirvBackend(SpirvWriteOptions options) : IShaderBackend<S
 
     internal static CanonicalModule PrepareCanonical(CanonicalModule canonical, IReadOnlyDictionary<string, double>? pipelineConstants, bool integerDivisionChecks = true)
     {
-        // Source-language legality has already run at the frontend boundary.
-        // Native canonical pointer parameters retain their address spaces here.
         ModuleValidator.Validate(canonical, native: true);
         canonical = ShaderValueLowering.Run(canonical);
         if (pipelineConstants is { } values) {

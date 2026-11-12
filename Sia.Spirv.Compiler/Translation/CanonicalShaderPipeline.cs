@@ -15,7 +15,6 @@ internal sealed record CanonicalPassTrace(string Function, string Pass, string B
 }
 internal sealed record CanonicalDeferral(string Function, string Feature);
 
-/// <summary>Incremental common middle-end. Unmigrated feature families retain their existing route explicitly.</summary>
 internal static class CanonicalShaderPipeline
 {
     private readonly record struct GraphPass(

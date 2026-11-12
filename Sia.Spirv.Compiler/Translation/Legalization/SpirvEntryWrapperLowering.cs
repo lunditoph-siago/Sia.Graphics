@@ -10,7 +10,6 @@ internal sealed record SpirvEntryWrapper(ShaderFunction Entry, SpirvFunctionCont
     IReadOnlyList<EntryInterfaceField> Interfaces, bool WritesDepth,
     SpirvMeshPublication? Publication);
 
-/// <summary>Prepare the target entry ABI as an ordinary canonical function with explicit IO effects.</summary>
 internal static class SpirvEntryWrapperLowering
 {
     internal static SpirvPhysicalLayout Prepare(SpirvPhysicalLayout layout,
@@ -23,8 +22,6 @@ internal static class SpirvEntryWrapperLowering
         verification.Structures.AddRange(module.Structures); verification.Globals.AddRange(module.Globals);
         verification.Constants.AddRange(module.Constants); verification.Enables.UnionWith(module.Enables);
         verification.DiagnosticFilters.AddRange(module.DiagnosticFilters);
-        // Entry ABI wrappers call entry bodies as target helpers. Source-level
-        // prohibition on calling an entry remains unchanged in the source module.
         foreach (var source in module.Functions) {
             var helper = new ShaderFunction(source.Name) { ReturnType = source.ReturnType, Body = source.Body };
             helper.Arguments.AddRange(source.Arguments); helper.DiagnosticFilters.AddRange(source.DiagnosticFilters);
@@ -37,25 +34,29 @@ internal static class SpirvEntryWrapperLowering
         foreach (var entry in module.Functions.Where(f => f.Stage is not null)) {
             SpirvMeshPublication? publication = null;
             if (entry.Stage is ShaderStage.Mesh or ShaderStage.Task && publications?.TryGetValue(entry.Name, out publication) != true)
-                continue; // Physical preparation precedes mesh publication; the final entry pass fills these wrappers.
+                continue;
             string stem = "sia_spv_entry_" + entry.Name, name = stem; int suffix = 0;
             while (!names.Add(name)) name = stem + "_" + ++suffix;
             var signature = new ShaderFunction(name) { Stage = entry.Stage };
             var graph = new ControlFlowFunction(signature); var block = graph.Block(); graph.Entry = block.Id;
             var fields = new List<EntryInterfaceField>();
-            SsaValue Emit(ShaderType type, ValueOperation operation) {
+            SsaValue Emit(ShaderType type, ValueOperation operation)
+            {
                 var value = graph.Value(type); block.Instructions.Add(new(value, operation)); return value;
             }
-            SsaValue? Call(ShaderFunction function, params SsaValue[] arguments) {
+            SsaValue? Call(ShaderFunction function, params SsaValue[] arguments)
+            {
                 var operation = new ValueOperation.Call(function.Name, arguments, function.ReturnType, CalleeEffects: effects[function.Name]);
                 if (function.ReturnType is ShaderType.Void) { block.Instructions.Add(new(null, operation)); return null; }
                 return Emit(function.ReturnType, operation);
             }
-            EntryInterfaceField Interface(string fieldName, ShaderType type, IoBinding binding, bool input) {
+            EntryInterfaceField Interface(string fieldName, ShaderType type, IoBinding binding, bool input)
+            {
                 if (binding.Builtin == "sample_mask") type = new ShaderType.Array(type, 1);
                 var field = new EntryInterfaceField(fieldName, type, binding, input); fields.Add(field); return field;
             }
-            SsaValue Read(EntryInterfaceField field, ShaderType logical) {
+            SsaValue Read(EntryInterfaceField field, ShaderType logical)
+            {
                 var value = Emit(field.Type, new ValueOperation.InterfaceLoad(field));
                 return field.Binding.Builtin == "sample_mask"
                     ? Emit(logical, new ValueOperation.Access(value, Emit(ShaderType.U32, new ValueOperation.Literal(0u)))) : value;

@@ -47,7 +47,6 @@ internal sealed partial class RuntimeShaderLowering
             }
         }
 
-        // Resource locations are CIL bookkeeping. Promote them to SSA before handing off the graph.
         LocalValuePromotion.Run(graph);
         if (graph.Blocks.SelectMany(static block => block.Instructions).Any(static instruction =>
             instruction.Operation is ValueOperation.Local

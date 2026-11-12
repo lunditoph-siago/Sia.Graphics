@@ -23,8 +23,6 @@ internal sealed record SpirvEntryAbi(uint Version, bool MeshShaderModule,
     IReadOnlyDictionary<string, SpirvSpecializationValue> ArrayLengthsU32,
     IReadOnlyDictionary<string, SpirvOverrideConstant> Overrides);
 
-// Entry policy and specialization identity belong to target preparation. The
-// serializer only resolves these immutable values to numeric SPIR-V IDs.
 internal static class SpirvEntryMetadataLowering
 {
     internal static SpirvPhysicalLayout Prepare(SpirvPhysicalLayout layout, bool useLocalSizeId = false, uint? version = null)
@@ -65,7 +63,8 @@ internal static class SpirvEntryMetadataLowering
                 uint size = System.Convert.ToUInt32(literal.Value);
                 if (size == 0) throw Error("Workgroup size default must be positive; supply PipelineConstants to replace it.");
                 return size;
-            } catch (OverflowException) { throw Error("Workgroup size default must be positive and fit in u32; supply PipelineConstants to replace it."); }
+            }
+            catch (OverflowException) { throw Error("Workgroup size default must be positive and fit in u32; supply PipelineConstants to replace it."); }
         }
         var compute = module.Functions.Where(f => f.Stage is ShaderStage.Compute or ShaderStage.Task or ShaderStage.Mesh).ToArray();
         var sizes = compute.ToDictionary(f => f.Name, f => f.WorkgroupSize.Select(e => specialization.Convert(ShaderType.U32, e)).ToArray(), StringComparer.Ordinal);
@@ -94,12 +93,18 @@ internal static class SpirvEntryMetadataLowering
             if (entry.Stage == ShaderStage.Fragment) {
                 Mode(7); if (wrapper.WritesDepth) Mode(12); if (entry.EarlyDepthTest) Mode(9);
                 if (entry.ConservativeDepth is string depth) Mode(depth switch {
-                    "greater_equal" => 14u, "less_equal" => 15u, "unchanged" => 16u,
+                    "greater_equal" => 14u,
+                    "less_equal" => 15u,
+                    "unchanged" => 16u,
                     _ => throw Error("Invalid conservative depth mode.")
                 });
             }
             uint stage = entry.Stage switch {
-                ShaderStage.Vertex => 0, ShaderStage.Fragment => 4, ShaderStage.Compute => 5, ShaderStage.Task => 5364, ShaderStage.Mesh => 5365,
+                ShaderStage.Vertex => 0,
+                ShaderStage.Fragment => 4,
+                ShaderStage.Compute => 5,
+                ShaderStage.Task => 5364,
+                ShaderStage.Mesh => 5365,
                 _ => throw Error("Missing entry point stage.")
             };
             entries.Add(entry.Name, new(entry.Name, stage, entry.TaskPayload, selectedVersion >= 0x00010400, modes.AsReadOnly(),
@@ -110,13 +115,13 @@ internal static class SpirvEntryMetadataLowering
         void Body(Block body)
         {
             foreach (var statement in body.Statements) switch (statement) {
-                case Statement.MeshStore store:
-                    meshInterfaces.TryAdd(store.Field, Interface(store.Field.Type, store.Field.Binding, false, mesh, store.Field.PerPrimitive)); break;
-                case Statement.Nested nested: Body(nested.Body); break;
-                case Statement.If branch: Body(branch.Accept); Body(branch.Reject); break;
-                case Statement.Loop loop: Body(loop.Body); Body(loop.Continuing); break;
-                case Statement.Switch choice: foreach (var arm in choice.Cases) Body(arm.Body); break;
-            }
+                    case Statement.MeshStore store:
+                        meshInterfaces.TryAdd(store.Field, Interface(store.Field.Type, store.Field.Binding, false, mesh, store.Field.PerPrimitive)); break;
+                    case Statement.Nested nested: Body(nested.Body); break;
+                    case Statement.If branch: Body(branch.Accept); Body(branch.Reject); break;
+                    case Statement.Loop loop: Body(loop.Body); Body(loop.Continuing); break;
+                    case Statement.Switch choice: foreach (var arm in choice.Cases) Body(arm.Body); break;
+                }
         }
         foreach (var function in module.Functions) Body(function.Body);
         foreach (var function in layout.ControlFlow.Values)
@@ -148,15 +153,15 @@ internal static class SpirvEntryMetadataLowering
         void BodyTypes(Block body)
         {
             foreach (var statement in body.Statements) switch (statement) {
-                case Statement.Declare declare: Type(declare.Type); break;
-                case Statement.Evaluate evaluate: Type(evaluate.Value.Type); break;
-                case Statement.Return { Value: { } value }: Type(value.Type); break;
-                case Statement.Store store: Type(store.Target.Type); Type(store.Value.Type); break;
-                case Statement.Nested nested: BodyTypes(nested.Body); break;
-                case Statement.If branch: BodyTypes(branch.Accept); BodyTypes(branch.Reject); break;
-                case Statement.Loop loop: BodyTypes(loop.Body); BodyTypes(loop.Continuing); break;
-                case Statement.Switch choice: foreach (var arm in choice.Cases) BodyTypes(arm.Body); break;
-            }
+                    case Statement.Declare declare: Type(declare.Type); break;
+                    case Statement.Evaluate evaluate: Type(evaluate.Value.Type); break;
+                    case Statement.Return { Value: { } value }: Type(value.Type); break;
+                    case Statement.Store store: Type(store.Target.Type); Type(store.Value.Type); break;
+                    case Statement.Nested nested: BodyTypes(nested.Body); break;
+                    case Statement.If branch: BodyTypes(branch.Accept); BodyTypes(branch.Reject); break;
+                    case Statement.Loop loop: BodyTypes(loop.Body); BodyTypes(loop.Continuing); break;
+                    case Statement.Switch choice: foreach (var arm in choice.Cases) BodyTypes(arm.Body); break;
+                }
         }
         foreach (var type in module.Structures.Cast<ShaderType>().Concat(module.Constants.Select(c => c.Type))
             .Concat(layout.Globals.Values.Select(g => g.DeclarationType))) Type(type);
@@ -172,8 +177,6 @@ internal static class SpirvEntryMetadataLowering
         }
         var capabilities = new HashSet<uint>(); var extensions = new HashSet<string>(StringComparer.Ordinal);
         if (mesh) { capabilities.Add(5283); extensions.Add("SPV_EXT_mesh_shader"); }
-        // Raw native target preparation can retain pointer-returning functions.
-        // Their physical signatures require variable pointers even without a phi.
         var returnedPointers = module.Functions.Select(f => f.ReturnType).OfType<ShaderType.Pointer>().ToArray();
         bool pointerMemory = false, fullPointers = returnedPointers.Any(p => p.Space != AddressSpace.Storage);
         foreach (var flow in layout.ControlFlow.Values) {
@@ -190,8 +193,6 @@ internal static class SpirvEntryMetadataLowering
             var origins = PointerAliasAnalysis.Origins(module, flow.Graph);
             var stores = memory.Select(i => i.Operation).OfType<ValueOperation.Store>().ToArray();
             var roots = stores.SelectMany(s => origins[s.Value.Id]).ToArray();
-            // The restricted capability requires a proven single storage block.
-            // Unknown roots or potentially shared slots conservatively need full pointers.
             fullPointers |= memory.Any(i => Pointer(i).Space != AddressSpace.Storage) || stores.Length == 0
                 || stores.Any(s => origins[s.Value.Id].Count != 1) || roots.Any(r => r.Global is null)
                 || roots.Select(r => r.Global).Distinct().Count() != 1;
@@ -200,11 +201,13 @@ internal static class SpirvEntryMetadataLowering
             capabilities.Add(fullPointers ? 4442u : 4441u);
             if (selectedVersion < 0x00010300) extensions.Add("SPV_KHR_variable_pointers");
         }
-        return layout with { EntryAbi = new(selectedVersion, mesh, capabilities.ToFrozenSet(),
+        return layout with {
+            EntryAbi = new(selectedVersion, mesh, capabilities.ToFrozenSet(),
             extensions.ToFrozenSet(StringComparer.Ordinal), entries.ToFrozenDictionary(StringComparer.Ordinal),
             meshInterfaces.ToFrozenDictionary(), specialization.Expressions.ToFrozenDictionary(ReferenceEqualityComparer.Instance),
             lengths.ToFrozenDictionary(StringComparer.Ordinal), lengthsU32.ToFrozenDictionary(StringComparer.Ordinal),
-            overrides.ToFrozenDictionary(StringComparer.Ordinal)) };
+            overrides.ToFrozenDictionary(StringComparer.Ordinal))
+        };
     }
     private static SpirvInterfaceMetadata Interface(ShaderType type, IoBinding binding, bool input, bool mesh, bool perPrimitive = false)
     {
@@ -227,13 +230,34 @@ internal static class SpirvEntryMetadataLowering
             if (builtin is "subgroup_id" or "subgroup_size" or "subgroup_invocation_id" or "num_subgroups") capabilities.Add(61);
             if (builtin is "primitive_index" or "sample_index" or "front_facing" or "view_index" && input) Decorate(14);
             Decorate(11, builtin switch {
-                "position" => input ? 15u : 0u, "point_size" => 1, "clip_distances" => 3, "cull_distance" => 4,
-                "vertex_index" => 42, "instance_index" => 43, "primitive_index" => 7, "front_facing" => 17,
-                "draw_index" => 4426, "view_index" => 4440, "barycentric" => 5286, "barycentric_no_perspective" => 5287,
-                "sample_index" => 18, "sample_mask" => 20, "frag_depth" => 22, "num_workgroups" => 24,
-                "workgroup_id" => 26, "local_invocation_id" => 27, "global_invocation_id" => 28, "local_invocation_index" => 29,
-                "subgroup_size" => 36, "num_subgroups" => 38, "subgroup_id" => 40, "subgroup_invocation_id" => 41,
-                "point_index" => 5294, "line_indices" => 5295, "triangle_indices" => 5296, "cull_primitive" => 5299,
+                "position" => input ? 15u : 0u,
+                "point_size" => 1,
+                "clip_distances" => 3,
+                "cull_distance" => 4,
+                "vertex_index" => 42,
+                "instance_index" => 43,
+                "primitive_index" => 7,
+                "front_facing" => 17,
+                "draw_index" => 4426,
+                "view_index" => 4440,
+                "barycentric" => 5286,
+                "barycentric_no_perspective" => 5287,
+                "sample_index" => 18,
+                "sample_mask" => 20,
+                "frag_depth" => 22,
+                "num_workgroups" => 24,
+                "workgroup_id" => 26,
+                "local_invocation_id" => 27,
+                "global_invocation_id" => 28,
+                "local_invocation_index" => 29,
+                "subgroup_size" => 36,
+                "num_subgroups" => 38,
+                "subgroup_id" => 40,
+                "subgroup_invocation_id" => 41,
+                "point_index" => 5294,
+                "line_indices" => 5295,
+                "triangle_indices" => 5296,
+                "cull_primitive" => 5299,
                 _ => throw Error($"Unsupported builtin '{builtin}'.")
             });
         }
@@ -249,7 +273,10 @@ internal static class SpirvEntryMetadataLowering
     private static ShaderException Error(string message) => new(DiagnosticStage.SpirvWrite, message);
     private static bool Abstract(ShaderType type) => type switch {
         ShaderType.Scalar { Kind: ScalarKind.AbstractInt or ScalarKind.AbstractFloat } => true,
-        ShaderType.Vector v => Abstract(v.Component), ShaderType.Matrix m => Abstract(m.Component),
-        ShaderType.Array a => Abstract(a.Element), ShaderType.Structure s => s.Members.Any(m => Abstract(m.Type)), _ => false
+        ShaderType.Vector v => Abstract(v.Component),
+        ShaderType.Matrix m => Abstract(m.Component),
+        ShaderType.Array a => Abstract(a.Element),
+        ShaderType.Structure s => s.Members.Any(m => Abstract(m.Type)),
+        _ => false
     };
 }

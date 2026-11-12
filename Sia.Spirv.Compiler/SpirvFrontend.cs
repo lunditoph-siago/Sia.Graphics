@@ -38,7 +38,6 @@ public sealed class SpirvFrontend
         return Analyze(peReader, intrinsics, assemblyPath);
     }
 
-    /// <summary>Analyze PE/IL bytes and explicit intrinsic metadata without filesystem access.</summary>
     public SpirvFrontendResult Analyze(ReadOnlyMemory<byte> assemblyImage, ReadOnlyMemory<byte> intrinsicImage = default)
     {
         if (assemblyImage.IsEmpty) throw new ArgumentException("Shader assembly image is empty.", nameof(assemblyImage));
